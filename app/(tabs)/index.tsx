@@ -106,7 +106,6 @@ export default function SpotsScreen() {
         data={sorted}
         renderItem={renderItem}
         keyExtractor={keyExtractor}
-        estimatedItemSize={72}
       />
       <Pressable
         style={styles.fab}

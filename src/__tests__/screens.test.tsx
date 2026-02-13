@@ -35,6 +35,12 @@ jest.mock('expo-sqlite', () => ({
   SQLiteProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
 
+// Mock expo-image-picker
+jest.mock('expo-image-picker', () => ({
+  launchImageLibraryAsync: jest.fn().mockResolvedValue({ canceled: true, assets: [] }),
+  MediaTypeOptions: { Images: 'Images' },
+}));
+
 // Mock expo-camera
 jest.mock('expo-camera', () => ({
   CameraView: 'CameraView',
@@ -81,9 +87,9 @@ describe('Screen smoke tests', () => {
     expect(screen.getByText('Import Photos')).toBeTruthy();
   });
 
-  it('renders Import Review screen', () => {
+  it('renders Import Review screen (empty state)', () => {
     render(<ImportReviewScreen />);
-    expect(screen.getByText('Review Import')).toBeTruthy();
+    expect(screen.getByText('No photo groups to import.')).toBeTruthy();
   });
 
   it('Spots screen has FAB add button', () => {

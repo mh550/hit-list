@@ -62,7 +62,8 @@ describe('Screen smoke tests', () => {
 
   it('renders Profile screen', () => {
     render(<ProfileScreen />);
-    expect(screen.getByText('Profile')).toBeTruthy();
+    expect(screen.getByText('Units')).toBeTruthy();
+    expect(screen.getByText('My Gear')).toBeTruthy();
   });
 
   it('renders Camera screen (permission request state)', () => {

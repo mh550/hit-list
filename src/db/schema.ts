@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-export const DB_NAME = 'spot_finder.db';
+export const DB_NAME = 'hit_list.db';
 export const SCHEMA_VERSION = 1;
 
 export async function migrateDb(db: SQLiteDatabase): Promise<void> {

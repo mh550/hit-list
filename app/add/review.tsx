@@ -3,31 +3,41 @@ import { StyleSheet, View, Text, ScrollView, TextInput, Pressable } from 'react-
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import { v4 as uuid } from 'uuid';
+import { useSQLiteContext } from 'expo-sqlite';
 
-import { useSpotsStore } from '@/src/stores';
+import { useSpotActions } from '@/src/hooks/use-spot-actions';
+import { insertMedia } from '@/src/db';
 import { palette, spacing, radius } from '@/src/constants/theme';
 import { SpotStatus } from '@/src/types';
-import type { Spot } from '@/src/types';
+import type { Spot, Media } from '@/src/types';
 
 export default function ReviewScreen() {
   const router = useRouter();
+  const db = useSQLiteContext();
   const params = useLocalSearchParams<{
     photoUris: string;
     latitude: string;
     longitude: string;
   }>();
 
-  const addSpot = useSpotsStore((s) => s.addSpot);
+  const { addSpot } = useSpotActions();
   const [name, setName] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const photoUris = params.photoUris ? params.photoUris.split(',') : [];
   const latitude = params.latitude ? parseFloat(params.latitude) : 0;
   const longitude = params.longitude ? parseFloat(params.longitude) : 0;
 
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback(async () => {
+    if (saving) return;
+    setSaving(true);
+
     const now = new Date().toISOString();
+    const spotId = uuid();
+    const firstPhotoId = photoUris.length > 0 ? uuid() : undefined;
+
     const spot: Spot = {
-      id: uuid(),
+      id: spotId,
       name: name.trim() || undefined,
       location: { latitude, longitude },
       created_at: now,
@@ -37,13 +47,33 @@ export default function ReviewScreen() {
       in_run: { setup_options: [] },
       landing: {},
       metadata: {},
+      primary_photo_id: firstPhotoId,
     };
 
-    addSpot(spot);
+    await addSpot(spot);
 
-    // Navigate back to spots list
+    // Persist media records
+    if (photoUris.length > 0) {
+      await Promise.all(
+        photoUris.map(async (uri, i) => {
+          const media: Media = {
+            id: i === 0 ? firstPhotoId! : uuid(),
+            spot_id: spotId,
+            file_path: uri,
+            location: latitude !== 0 ? { latitude, longitude } : undefined,
+            created_at: now,
+          };
+          try {
+            await insertMedia(db, media);
+          } catch (err) {
+            console.error('[ReviewScreen] insertMedia failed:', err);
+          }
+        }),
+      );
+    }
+
     router.dismissAll();
-  }, [name, latitude, longitude, addSpot, router]);
+  }, [saving, name, latitude, longitude, photoUris, addSpot, db, router]);
 
   return (
     <ScrollView
@@ -101,11 +131,15 @@ export default function ReviewScreen() {
 
       {/* Save button */}
       <Pressable
-        style={({ pressed }) => [styles.saveButton, pressed && styles.savePressed]}
+        style={({ pressed }) => [
+          styles.saveButton,
+          (pressed || saving) && styles.savePressed,
+        ]}
         onPress={handleSave}
+        disabled={saving}
         accessibilityLabel="Save spot"
         accessibilityRole="button">
-        <Text style={styles.saveText}>Save as Draft</Text>
+        <Text style={styles.saveText}>{saving ? 'Saving…' : 'Save as Draft'}</Text>
       </Pressable>
     </ScrollView>
   );

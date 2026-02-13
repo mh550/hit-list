@@ -24,6 +24,17 @@ jest.mock('@/components/ui/icon-symbol', () => {
   };
 });
 
+// Mock expo-sqlite
+jest.mock('expo-sqlite', () => ({
+  useSQLiteContext: () => ({
+    execAsync: jest.fn().mockResolvedValue(undefined),
+    runAsync: jest.fn().mockResolvedValue(undefined),
+    getAllAsync: jest.fn().mockResolvedValue([]),
+    getFirstAsync: jest.fn().mockResolvedValue(null),
+  }),
+  SQLiteProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+}));
+
 // Mock expo-camera
 jest.mock('expo-camera', () => ({
   CameraView: 'CameraView',

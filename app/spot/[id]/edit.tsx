@@ -12,6 +12,7 @@ import {
 
 import { useSpotsStore } from '@/src/stores';
 import { useSettingsStore } from '@/src/stores/settings-store';
+import { useSpotActions } from '@/src/hooks/use-spot-actions';
 import { getSpotDisplayName } from '@/src/utils/spot-name';
 import { metersToDisplay, inputToMeters } from '@/src/utils/units';
 import { StarRating } from '@/src/components/StarRating';
@@ -40,8 +41,7 @@ export default function EditSpotScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const spot = useSpotsStore((s) => s.spots.find((sp) => sp.id === id));
-  const updateSpot = useSpotsStore((s) => s.updateSpot);
-  const removeSpot = useSpotsStore((s) => s.removeSpot);
+  const { updateSpot, removeSpot } = useSpotActions();
   const units = useSettingsStore((s) => s.units);
 
   // Edit state (local copy)
@@ -78,7 +78,7 @@ export default function EditSpotScreen() {
   const [notes, setNotes] = useState(spot?.metadata.notes ?? '');
   const [status, setStatus] = useState(spot?.status ?? SpotStatus.Draft);
 
-  const handleSave = useCallback(() => {
+  const handleSave = useCallback(async () => {
     if (!spot) return;
 
     const updates: Partial<Spot> = {
@@ -113,7 +113,7 @@ export default function EditSpotScreen() {
       updated_at: new Date().toISOString(),
     };
 
-    updateSpot(spot.id, updates);
+    await updateSpot(spot.id, updates);
     router.back();
   }, [
     spot, name, status, featureType, customType, shape, length, height, width,
@@ -132,8 +132,8 @@ export default function EditSpotScreen() {
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: () => {
-            removeSpot(spot.id);
+          onPress: async () => {
+            await removeSpot(spot.id);
             router.dismissAll();
           },
         },

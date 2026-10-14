@@ -130,7 +130,7 @@ Write the start time in the Status log. For each hop N in 55, 56, 57:
       `react-test-renderer`, `app.json` experiments). `npx expo-doctor` clean.
 - [x] `npm run typecheck`, `npx jest --ci`, `npx expo export --platform ios` all green →
       commit `chore: expo sdk 55`. Status log: what changed, what broke, how fixed.
-- [ ] Hop 56: same recipe → `chore: expo sdk 56`.
+- [x] Hop 56: same recipe → `chore: expo sdk 56`.
 - [ ] Hop 57: same recipe → `chore: expo sdk 57`. Record final versions (expo, react-native,
       react, jest, jest-expo) in the Status log and update the project memory note about the
       jest pin to the new truth.
@@ -284,6 +284,14 @@ _(exact commands / decisions, newest first)_
 
 ## Status log
 _(newest first: time · step · result · commit)_
+- 2026-10-14 07:21 · M1 hop 56 green (one doctor advisory) · chore + fix commits. Moved 27 packages
+  (RN 0.85.3, React 19.2.3, reanimated 4.3.1 / worklets 0.8.3, jest-expo 56.0.5, **TypeScript 6.0.3**;
+  Jest still 29.7). Broke: (1) `expo export` refused: "As of SDK 56, expo-router is no longer compatible
+  with react-navigation" → removed the three `@react-navigation/*` deps, imports now
+  `expo-router/react-navigation` (ThemeProvider/DarkTheme/DefaultTheme/PlatformPressable) and
+  `expo-router/js-tabs` (BottomTabBarButtonProps). (2) TS 6 defaults `types` to `[]` → tsconfig
+  `"types": ["jest"]`. Gates: typecheck 0 · jest 115/115 · export ios 4.0 MB · doctor 21/22 — the one
+  failure is "Hermes V1 memory regression, upgrade to SDK 57", inherent to 56, cleared by hop 57.
 - 2026-10-14 00:10 · M1 hop 55 green · `2bfc918` chore + `74a37a2` fix. **M1 box started 00:05, ends
   02:05.** `expo install expo@^55` + `--fix` moved 26 packages (RN 0.81.5→0.83.10, React 19.1→19.2,
   reanimated 4.2.1 / worklets 0.7.4, jest-expo 55.0.22; **Jest stays 29.7**). Broke: (1) jest

@@ -1,7 +1,6 @@
 import { Suspense } from 'react';
 import { View, ActivityIndicator } from 'react-native';
-import { DarkTheme, DefaultTheme, ThemeProvider } from 'expo-router/react-navigation';
-import { Stack } from 'expo-router';
+import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SQLiteProvider } from 'expo-sqlite';
 import 'react-native-reanimated';

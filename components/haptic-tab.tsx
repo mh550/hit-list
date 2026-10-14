@@ -1,10 +1,11 @@
 import type { BottomTabBarButtonProps } from 'expo-router/js-tabs';
-import { PlatformPressable } from 'expo-router/react-navigation';
 import * as Haptics from 'expo-haptics';
+import { Pressable } from 'react-native';
 
-export function HapticTab(props: BottomTabBarButtonProps) {
+// The tab bar's ref type still describes the removed PlatformPressable, so it is not forwarded.
+export function HapticTab({ ref: _ref, ...props }: BottomTabBarButtonProps) {
   return (
-    <PlatformPressable
+    <Pressable
       {...props}
       onPressIn={(ev) => {
         if (process.env.EXPO_OS === 'ios') {

@@ -284,6 +284,12 @@ _(exact commands / decisions, newest first)_
 
 ## Status log
 _(newest first: time · step · result · commit)_
+- 2026-10-14 07:36 · M1 review done · reviewer (read-only subagent) found 0 Critical, 2 Important (both
+  `expo-router/react-navigation` imports are `@deprecated`, removal planned → theme imports now from
+  `expo-router`, `HapticTab` uses RN `Pressable`), 2 Minor + 2 Nit (comment, `expo` range `~57.0.28`,
+  dead `@react-navigation` transform patterns) — all fixed, gates re-run green (typecheck 0 · jest
+  115 · export ok). `/simplify` **skipped for M1**: the milestone changed six template files and no
+  app logic; it runs from M2 on. Next: M2 green CI.
 - 2026-10-14 07:29 · **M1 done — SDK 57 green** · `cb435b7` chore (no source changes needed this hop).
   Final versions: expo 57.0.28 · react-native 0.86.3 · react 19.2.3 · expo-router 57.0.26 ·
   expo-sqlite 57.0.4 · expo-file-system 57.0.7 · expo-location 57.0.21 · reanimated 4.5.1 / worklets

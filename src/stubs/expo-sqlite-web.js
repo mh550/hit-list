@@ -1,8 +1,6 @@
 // Web stub for expo-sqlite.
 // This app is native-only; SQLite is not available on web.
 // Provides no-op implementations so the web bundle compiles without loading WebAssembly.
-const React = require('react');
-
 const noopDb = {
   execAsync: () => Promise.resolve(),
   runAsync: () => Promise.resolve(),

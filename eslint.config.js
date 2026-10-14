@@ -10,8 +10,15 @@ module.exports = defineConfig([
   {
     rules: {
       'react/jsx-no-leaked-render': ['error', { validStrategies: ['ternary', 'coerce'] }],
-      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
       'no-console': ['warn', { allow: ['warn', 'error'] }],
+    },
+  },
+  {
+    // eslint-config-expo registers the @typescript-eslint plugin only for TypeScript files, so a
+    // rule from that plugin must be scoped the same way or ESLint rejects it for .js files.
+    files: ['**/*.ts', '**/*.tsx'],
+    rules: {
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
     },
   },
   {

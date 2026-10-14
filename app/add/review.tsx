@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useState, useMemo } from 'react';
 import { StyleSheet, View, Text, ScrollView, TextInput, Pressable } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
@@ -24,7 +24,10 @@ export default function ReviewScreen() {
   const [name, setName] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const photoUris = params.photoUris ? params.photoUris.split(',') : [];
+  const photoUris = useMemo(
+    () => (params.photoUris ? params.photoUris.split(',') : []),
+    [params.photoUris],
+  );
   const latitude = params.latitude ? parseFloat(params.latitude) : 0;
   const longitude = params.longitude ? parseFloat(params.longitude) : 0;
 

@@ -2,10 +2,10 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react-native';
 import { FilterSheet } from '@/src/components/FilterSheet';
 import { useSpotsStore } from '@/src/stores';
-import { DEFAULT_FILTERS, FeatureType, GearItem, BuildItem } from '@/src/types';
+import { DEFAULT_FILTERS, FeatureType, GearItem } from '@/src/types';
 
 jest.mock('@/components/ui/icon-symbol', () => {
-  const { View } = require('react-native');
+  const { View } = jest.requireActual('react-native');
   return { IconSymbol: ({ name }: { name: string }) => <View testID={`icon-${name}`} /> };
 });
 
@@ -67,6 +67,16 @@ describe('FilterSheet', () => {
     render(<FilterSheet visible onClose={onClose} />);
     fireEvent.press(screen.getByText('Apply'));
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it('re-reads the store filters each time it opens', () => {
+    const { rerender } = render(<FilterSheet visible={false} onClose={onClose} />);
+    useSpotsStore.setState({ filters: { ...DEFAULT_FILTERS, types: [FeatureType.Rail] } });
+
+    rerender(<FilterSheet visible onClose={onClose} />);
+    fireEvent.press(screen.getByText('Apply'));
+
+    expect(useSpotsStore.getState().filters.types).toEqual([FeatureType.Rail]);
   });
 
   it('does not render when not visible', () => {

@@ -1,7 +1,6 @@
 import { useCallback, useState } from 'react';
-import { useRouter } from 'expo-router';
+import { Stack, useRouter } from 'expo-router';
 import { StyleSheet, View, Pressable, Text } from 'react-native';
-import { Stack } from 'expo-router';
 import { FlashList } from '@shopify/flash-list';
 
 import { useSpotsStore, selectFilteredSpots, selectSortedSpots, selectActiveFilterCount } from '@/src/stores';

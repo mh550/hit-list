@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import {
   Modal,
   View,
@@ -51,19 +51,19 @@ function SectionHeader({ title }: { title: string }) {
 }
 
 export function FilterSheet({ visible, onClose }: Props) {
+  // The sheet is unmounted while hidden, so the draft below re-initialises from the store on
+  // every open without an effect.
+  if (!visible) return null;
+  return <FilterSheetContent onClose={onClose} />;
+}
+
+function FilterSheetContent({ onClose }: { onClose: () => void }) {
   const storeFilters = useSpotsStore((s) => s.filters);
   const setFilters = useSpotsStore((s) => s.setFilters);
   const resetFilters = useSpotsStore((s) => s.resetFilters);
 
   // Local draft state — only committed on Apply
   const [draft, setDraft] = useState<SpotFilters>({ ...storeFilters });
-
-  // Sync draft when sheet opens
-  useEffect(() => {
-    if (visible) {
-      setDraft({ ...storeFilters });
-    }
-  }, [visible, storeFilters]);
 
   const toggleType = (t: FeatureType) => {
     setDraft((prev) => ({
@@ -102,11 +102,9 @@ export function FilterSheet({ visible, onClose }: Props) {
     setDraft({ ...DEFAULT_FILTERS });
   };
 
-  if (!visible) return null;
-
   return (
     <Modal
-      visible={visible}
+      visible
       animationType="slide"
       presentationStyle="pageSheet"
       onRequestClose={onClose}>

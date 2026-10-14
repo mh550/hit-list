@@ -125,10 +125,10 @@ it in full at M0; Michael answered every §0 question, so §0 is settled. The pr
 
 ### M1 — Expo SDK 54 → 57, one hop at a time (spec D1, §2.2) — 2 h box starts now
 Write the start time in the Status log. For each hop N in 55, 56, 57:
-- [ ] `npx expo install expo@^55 && npx expo install --fix`; read what Expo prints; fix what the
+- [x] `npx expo install expo@^55 && npx expo install --fix`; read what Expo prints; fix what the
       upgrade notes say (reanimated/worklets pair, jest-expo → Jest version, `@types/jest`,
       `react-test-renderer`, `app.json` experiments). `npx expo-doctor` clean.
-- [ ] `npm run typecheck`, `npx jest --ci`, `npx expo export --platform ios` all green →
+- [x] `npm run typecheck`, `npx jest --ci`, `npx expo export --platform ios` all green →
       commit `chore: expo sdk 55`. Status log: what changed, what broke, how fixed.
 - [ ] Hop 56: same recipe → `chore: expo sdk 56`.
 - [ ] Hop 57: same recipe → `chore: expo sdk 57`. Record final versions (expo, react-native,
@@ -284,6 +284,15 @@ _(exact commands / decisions, newest first)_
 
 ## Status log
 _(newest first: time · step · result · commit)_
+- 2026-10-14 00:10 · M1 hop 55 green · `2bfc918` chore + `74a37a2` fix. **M1 box started 00:05, ends
+  02:05.** `expo install expo@^55` + `--fix` moved 26 packages (RN 0.81.5→0.83.10, React 19.1→19.2,
+  reanimated 4.2.1 / worklets 0.7.4, jest-expo 55.0.22; **Jest stays 29.7**). Broke: (1) jest
+  `Cannot find module 'expo-modules-core'` — npm nested it under `expo/`; `npm dedupe` after a
+  trial direct install hoisted it (expo-doctor forbids it as a direct dep, so it is not one).
+  (2) `app.json` schema rejects `newArchEnabled` + `android.edgeToEdgeEnabled` → removed (always on
+  in 55). (3) RN 0.83 `ColorSchemeName` adds `'unspecified'` → `useColorScheme()` narrowed to
+  `'light' | 'dark'`; expo-symbols `name` is now a union → mapping keyed by `SFSymbol`. Gates:
+  doctor 20/20 · typecheck 0 · jest 115/115 · export ios 4.2 MB.
 - 2026-10-14 00:03 · M0 done · branch `overnight/2026-10-14` from `spec/2026-10-13` + cherry-pick
   `bf3c36e` (= `f34ed9a`). Baseline (Node 24.21.0): `npm ci` OK · `npm run typecheck` exit 0 ·
   `npx jest --ci` 10 suites / **115 passed** (one `act(...)` console.error from `use-db-init.ts`) ·

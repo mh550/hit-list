@@ -109,19 +109,19 @@ it in full at M0; Michael answered every §0 question, so §0 is settled. The pr
 ## Queue
 
 ### M0 — Preflight (≈20 min)
-- [ ] `cd ~/projects/hit_list && git fetch origin && git status` (expect clean, on
+- [x] `cd ~/projects/hit_list && git fetch origin && git status` (expect clean, on
       `spec/2026-10-13`; `git log --oneline main..spec/2026-10-13` shows only docs commits).
       `git checkout -b overnight/$(date +%F) spec/2026-10-13`, then `git cherry-pick bf3c36e`
       (adds the `start:wsl` script; keep it). Branching from the spec branch keeps this file in
       the working tree; it is `main` plus the two docs, nothing else.
-- [ ] Read: the spec (all sections), `APP_SPECIFICATIONS.md` §Data Model + §User Flows,
+- [x] Read: the spec (all sections), `APP_SPECIFICATIONS.md` §Data Model + §User Flows,
       `CLAUDE.md` (stale; you rewrite it in M7), `src/db/schema.ts`, `src/hooks/use-db-init.ts`,
       the project memory file (jest pin note).
-- [ ] Baseline, recorded in the Status log: `npm ci`; `npm run typecheck` (expect 0);
+- [x] Baseline, recorded in the Status log: `npm ci`; `npm run typecheck` (expect 0);
       `npx jest --ci` (expect 115 passed); `npm run lint` (expect the `@typescript-eslint`
       plugin error); `npx expo export --platform ios --output-dir /tmp/hl-export` (expect exit 0,
       then `rm -rf /tmp/hl-export`); `npx expo-doctor` (expect 9 patch mismatches).
-- [ ] Status page (if Artifact available) + start push with the branch name.
+- [x] Status page (if Artifact available) + start push with the branch name.
 
 ### M1 — Expo SDK 54 → 57, one hop at a time (spec D1, §2.2) — 2 h box starts now
 Write the start time in the Status log. For each hop N in 55, 56, 57:
@@ -284,4 +284,10 @@ _(exact commands / decisions, newest first)_
 
 ## Status log
 _(newest first: time · step · result · commit)_
-- _(the overnight session starts here)_
+- 2026-10-14 00:03 · M0 done · branch `overnight/2026-10-14` from `spec/2026-10-13` + cherry-pick
+  `bf3c36e` (= `f34ed9a`). Baseline (Node 24.21.0): `npm ci` OK · `npm run typecheck` exit 0 ·
+  `npx jest --ci` 10 suites / **115 passed** (one `act(...)` console.error from `use-db-init.ts`) ·
+  `npm run lint` exit 2 (`@typescript-eslint` plugin not defined) · `npx expo export --platform ios`
+  exit 0 · `npx expo-doctor` exit 1 (9 packages a patch behind). Everything matches spec §1.3.
+  **Status page: the Artifact tool is not available in this session, so this Status log is the
+  page.** Next: M1 (SDK hops), 2 h box starts at the next iteration.

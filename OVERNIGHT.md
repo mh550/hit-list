@@ -141,16 +141,16 @@ Write the start time in the Status log. For each hop N in 55, 56, 57:
 - [x] Milestone push + branch push.
 
 ### M2 — Green CI (spec §2.2 M2) (≈30 min)
-- [ ] RED: `npm run lint` fails with the plugin error. Fix `eslint.config.js` by registering the
+- [x] RED: `npm run lint` fails with the plugin error. Fix `eslint.config.js` by registering the
       TypeScript plugin under `@typescript-eslint` in the same config object as the rule (import
       from `typescript-eslint`, which `eslint-config-expo` already depends on) — or, if that
       package is not resolvable, rename the rule to the key the installed
       `eslint-config-expo/flat` registers. GREEN: exit 0. Then fix every lint finding (expect
       unused imports/vars; no rule disabling).
-- [ ] Fix the `act(...)` warning from `use-db-init.ts` in `db-init.test.ts` (wrap the async
+- [x] Fix the `act(...)` warning from `use-db-init.ts` in `db-init.test.ts` (wrap the async
       resolution in `await act(...)`/`waitFor`); `npx jest --ci 2>&1 | grep -c console.error`
       → 0.
-- [ ] `.github/workflows/ci.yml`: `on.push.branches: ['**']` (keep the PR trigger). Commit,
+- [x] `.github/workflows/ci.yml`: `on.push.branches: ['**']` (keep the PR trigger). Commit,
       push, then `gh run list --repo mh550/hit-list --limit 1` → a run on your branch; wait for
       it (`gh run watch`), expect success. If it fails, that is your next bug.
 - [ ] Review, `/simplify`, milestone push.
@@ -277,6 +277,12 @@ _(append messages from the phone here, newest first)_
 
 ## Needs Michael
 _(exact commands / decisions, newest first)_
+- **GitHub token lacks the `workflow` scope**, so `git push` over HTTPS rejects any commit that
+  touches `.github/workflows/*` ("refusing to allow an OAuth App to create or update workflow").
+  The overnight session pushed that one commit over SSH on the command line
+  (`git push git@github.com:mh550/hit-list.git overnight/2026-10-14`; the `origin` remote is
+  unchanged). To make HTTPS pushes work for workflow files too, run once on the desktop:
+  `gh auth refresh -h github.com -s workflow`.
 - Nothing before the run. **After the run:** the review conversation merges `overnight/<date>`
   into `main` and deletes `wip/laptop-2026-10-13` (D7); then, when you want the app to outlive
   the desktop's Metro: `eas login` on the desktop (yours to run), and a dev build + TestFlight
@@ -284,6 +290,14 @@ _(exact commands / decisions, newest first)_
 
 ## Status log
 _(newest first: time · step · result · commit)_
+- 2026-10-14 07:44 · M2 steps 1–3 done · `a279973` lint, `adcca80` act(), `62a5c64` ci. **First green CI run
+  ever: https://github.com/mh550/hit-list/actions/runs/38558430720** (branch push → Lint ✓ Typecheck ✓
+  Test ✓). Lint root cause: eslint-config-expo registers `@typescript-eslint` only for `*.ts/*.tsx`,
+  so the project rule had to be scoped to those files. Then 2 errors + 5 warnings fixed without
+  disabling rules; the real one was `react-hooks/set-state-in-effect` in `FilterSheet` → draft now
+  initialises on mount (sheet unmounts when hidden), with a new regression test (suite 116).
+  `npx jest --ci 2>&1 | grep -c console.error` → 0. Push of the workflow file needed SSH (see Needs
+  Michael). Next: M2 review + `/simplify`, then M3.
 - 2026-10-14 07:36 · M1 review done · reviewer (read-only subagent) found 0 Critical, 2 Important (both
   `expo-router/react-navigation` imports are `@deprecated`, removal planned → theme imports now from
   `expo-router`, `HapticTab` uses RN `Pressable`), 2 Minor + 2 Nit (comment, `expo` range `~57.0.28`,

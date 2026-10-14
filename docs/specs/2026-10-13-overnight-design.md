@@ -1,27 +1,27 @@
-# HitList — overnight design (2026-10-13), rev 1
+# HitList — overnight design (2026-10-13), rev 2
 
 Written by a planning session on the Pop!_OS desktop on the evening of 2026-10-13 for an
 unattended `/loop` session that follows `OVERNIGHT.md`. Michael reads both from his phone.
-Everything in §0 is a *default* until Michael answers; the overnight session builds on the
-defaults and does not re-open them.
+Michael answered every §0 question on the morning of 2026-10-14; the overnight session builds on
+those answers and does not re-open them.
 
 ---
 
-## 0. Decisions (defaults + the question for Michael)
+## 0. Decisions (Michael answered 2026-10-14 morning; all settled)
 
-| # | Decision | Default the overnight session builds on | Question for Michael |
-|---|----------|------------------------------------------|----------------------|
-| D1 | **Expo SDK upgrade 54 → 57** | Do it first (M1), time-boxed to 2 h, one SDK hop at a time (55, 56, 57) on the overnight branch. If any hop is not green (typecheck + 115 tests + `expo export`) at the time box, reset to the last green hop, push the attempt as `overnight/<date>-sdk-attempt` for the review, and continue the other milestones on whatever SDK is green. Reason: Expo Go only runs the newest SDK; `npm view expo dist-tags` says `latest` is 57.0.28 (58 is still `next`), so the SDK 54 app cannot open in Expo Go on the iPhone today. | Is Expo Go on your iPhone on SDK 57 (Expo Go → Settings shows it)? If it already says 58, say so and the review conversation does one more hop. |
-| D2 | **Map provider** | `react-native-maps` (Apple Maps on iOS, bundled in Expo Go, no key, no dev build) instead of the spec's Mapbox. Mapbox needs a custom dev build, which needs a Mac or an EAS build with an Apple developer account. | OK to keep Apple Maps until there is a dev build? Mapbox can replace it later behind the same screen. |
-| D3 | **Photo storage** | Copy every captured/imported photo into the app's document directory (`photos/<spotId>/<mediaId>.jpg`), store the *relative* path in `media.file_path`, resolve at display time. Camera-roll originals untouched. Files are not deleted when a spot is soft-deleted (purge is a later task). | Should Quick Add photos also be saved to the camera roll (needs the photo-library write permission)? Default no. |
-| D4 | **Spot names** | Reverse-geocode with `expo-location` (`reverseGeocodeAsync`, on-device Apple geocoder, no API key) when a spot is saved without a name; backfill at most 10 unnamed spots per app launch; failures (offline) are silent and retried next launch. Format `"<street>, <city>"`, falling back to `"<city>"`. | Fine, or do you prefer the "Untitled Spot — Oct 13" fallback until you name it yourself? |
-| D5 | **CI triggers** | `.github/workflows/ci.yml` runs on pushes to *every* branch (today: only `main` and PRs), so the overnight branch shows a check mark in the GitHub app. | OK? |
-| D6 | **Delivery path** | Expo Go over the tailnet (`npm run start:tailscale` → scan QR). No EAS, no dev build, no TestFlight tonight. | Do you have (or want) an Apple developer account? That unlocks a dev build with Mapbox, and TestFlight so the app survives without the desktop running Metro. `eas login` is yours to run. |
-| D7 | **Branch policy** | `overnight/<date>` from `spec/2026-10-13`, which is `main` plus only this spec and `OVERNIGHT.md` (so the runbook stays in the working tree); the one-line laptop commit `bf3c36e` from `wip/laptop-2026-10-13` is cherry-picked onto it first. The review conversation merges `overnight/<date>` into `main`, then deletes the wip branch. `CLAUDE.md`'s "commit directly to main" is replaced with this. | OK to delete `wip/laptop-2026-10-13` after the merge? |
-| D8 | **Pin clustering** | Deferred. `react-native-maps` has no built-in clustering; at tens of spots plain pins are fine. | At what spot count would you want clustering? (Sets whether `react-native-map-clustering` is worth adding later.) |
-| D9 | **expo-doctor patch bumps** | Folded into the SDK upgrade (D1): `npx expo install --fix` is part of each hop. If D1 is abandoned, the SDK 54 patch bumps (9 packages, `expo-doctor` lists them) go to stretch. | — |
-| D10 | **Sort + search UI** | Stretch, not core. The store already supports both (`setSort`, `search_query`); only the controls are missing. | Which matters more to you on the phone: sort by distance, or search by name? |
-| D11 | **Web target** | Stays a stub (`metro.config.js` swaps `expo-sqlite` for a no-op on web). Native-only app. | — |
+| # | Decision | What the overnight session builds | Michael's answer |
+|---|----------|-----------------------------------|------------------|
+| D1 | **Expo SDK upgrade 54 → 57** | First milestone (M1), time-boxed to 2 h, one SDK hop at a time (55, 56, 57). If a hop is not green (typecheck + tests + `expo export`) at the box: reset to the last green hop, push the attempt as `overnight/<date>-sdk-attempt`, continue the other milestones on the green SDK. Reason: Expo Go runs only the newest SDK. | **Expo Go on the iPhone is SDK 57.** Target confirmed. |
+| D2 | **Map provider** | `react-native-maps` (Apple Maps on iOS, bundled in Expo Go, no key, no dev build). Mapbox only matters for offline tiles and needs a dev build; it can replace the same `SpotMap` component later. | "You decide" → Apple Maps now. |
+| D3 | **Photo storage** | Copy every captured/imported photo into the app's document directory (`photos/<spotId>/<mediaId>.jpg`), store the *relative* path in `media.file_path`, resolve at display time. Camera-roll originals untouched; nothing written to the camera roll; files not deleted on soft delete. | Default no (camera roll untouched). |
+| D4 | **Unnamed spots** | **Keep the untitled fallback until Michael names the spot**, but make the placeholder informative: `Untitled · <Town> · Oct 13, 2:22 PM` when the town is known, else `Untitled · Oct 13, 2:22 PM`. The town comes from `expo-location` `reverseGeocodeAsync` (on-device Apple geocoder, city/locality only) stored in the existing `generated_name` column; ≤ 10 backfills per launch, silent on failure. The town also seeds the later "group by city" idea (D10). | "Keep untitled fallback until named; maybe placeholder with date/time/town." |
+| D5 | **CI triggers** | `.github/workflows/ci.yml` runs on pushes to every branch (today: only `main` and PRs), so the overnight branch shows a check in the GitHub app. | "You decide" → yes. |
+| D6 | **Delivery path** | Tonight: Expo Go over the tailnet (`npm run start:tailscale` → scan QR). Michael **has an Apple developer account**, so the next step after this run is an EAS dev build + TestFlight (Michael runs `eas login`; the overnight session never does). That dev build is also when Mapbox becomes possible. | "Yes, Apple dev account for a test build and TestFlight later." |
+| D7 | **Branch policy** | `overnight/<date>` from `spec/2026-10-13` (= `main` + this spec + `OVERNIGHT.md`), with the laptop commit `bf3c36e` cherry-picked on first. The review conversation merges `overnight/<date>` into `main`. *In plain words:* `wip/laptop-2026-10-13` is the branch the laptop pushed with its unfinished change (one line: a WSL start script). That change gets copied into the overnight branch, so after the merge the wip branch holds nothing new and can be deleted on GitHub. Harmless either way; default: delete after merge. | "Don't know what you mean" → explained; default stands. |
+| D8 | **Multiple spots per location / pin clustering** | Pins only in M5. **Clustering is the first stretch item (S1)**: `react-native-map-clustering` (pure JS wrapper over `react-native-maps`, works in Expo Go). Several spots at one physical location are separate spots (spec data model) that overlap as pins; clustering is what makes that readable when zoomed out. | "Locations will have multiple spots; clustering makes sense; priority unknown." → S1. |
+| D9 | **expo-doctor patch bumps** | Ride with the SDK hops (`npx expo install --fix` per hop). | — |
+| D10 | **Sort + search** | Stretch S2 (after clustering): sort control (distance first, since the map already shows distance) and search by name. Michael's further ideas — routes between spots, smart folders / tags by city or feature type — go to §6 roadmap, not built tonight. The town stored by D4 is the first ingredient of "by city". | "Both matter; map shows distance; routes later; auto-grouping by city or type would help." |
+| D11 | **Web target** | Stays a stub. Native-only. | — |
 
 ---
 
@@ -133,9 +133,9 @@ source. Each is verifiable headlessly (tests, typecheck, `expo export`, Metro bu
 | M3 | Real-SQLite test harness + schema migrations (`user_version`) | 45 min | new `db-*.test.ts` suites pass against `node:sqlite`, migration runs twice idempotently |
 | M4 | Photos persist and display (D3) + media store | 1 h 30 | tests for `photo-storage`, media store, list thumbnail, detail gallery; export OK |
 | M5 | Map view with pins + Map/List toggle (D2) | 1 h 15 | render tests with a `react-native-maps` manual mock; export OK |
-| M6 | Names + import fixes: reverse geocode (D4), EXIF date, GPS ref, location on list | 1 h | unit tests for parsers/geocoder wrapper; screen tests |
+| M6 | Untitled placeholder with town + time (D4), EXIF date, GPS ref, location on list | 1 h | unit tests for parsers/geocoder wrapper; screen tests |
 | M7 | Phone handoff: `start:tailscale`, `docs/RUNNING-ON-PHONE.md`, CLAUDE.md, README, Metro smoke | 30 min | Metro answers `GET /index.bundle?platform=ios` with JS over `100.88.90.97:8081` |
-| S | Stretch: sort + search controls (D10), skate-stop fields in edit, photo remove in edit, `PRAGMA foreign_keys`, clustering spike | — | tests |
+| S | Stretch, in order: S1 pin clustering (D8), S2 sort + search (D10), skate-stop fields in edit, photo remove in edit, `PRAGMA foreign_keys` | — | tests |
 
 If M1 is abandoned at the time box, M2–M7 proceed on SDK 54 unchanged; only the "opens in Expo Go"
 claim is lost, and it is recorded as the first item under Needs Michael.
@@ -198,10 +198,12 @@ the Android future: Google Maps needs an API key; irrelevant for the iPhone.
 **M6 — Names and import fixes.** `src/utils/exif.ts`: `parseExifDate("2026:10:13 14:22:01") →
 "2026-10-13T14:22:01"` (local time, no zone; invalid → `undefined`), `exifGps(exif) → GeoPoint |
 null` applying `GPSLatitudeRef`/`GPSLongitudeRef` signs. `src/utils/reverse-geocode.ts`:
-`geocodeSpotName(point): Promise<string | undefined>` wrapping `Location.reverseGeocodeAsync`,
-`"<street>, <city>"` → `"<city>"` → `undefined`, every error swallowed. Called from both review
-screens after save (fire-and-forget, then `updateSpot({generated_name})`), and a backfill in
-`use-db-init` for ≤ 10 spots per launch with neither name. `useCurrentLocation()` hook requests
+`geocodeTown(point): Promise<string | undefined>` wrapping `Location.reverseGeocodeAsync`,
+returning `city` → `subregion` → `region` → `undefined`, every error swallowed. Called from both
+review screens after save (fire-and-forget, then `updateSpot({generated_name: town})`), and a
+backfill in `use-db-init` for ≤ 10 spots per launch with no `name` and no `generated_name`.
+`getSpotDisplayName` (D4): `name` → `Untitled · <generated_name> · <Mon D, h:mm AM>` →
+`Untitled · <Mon D, h:mm AM>`; update the existing tests that expect `Untitled Spot — Oct 13`. `useCurrentLocation()` hook requests
 foreground permission once and fills the location store; mounted by the Spots screen so distances
 and the map's "me" work.
 
@@ -234,14 +236,31 @@ touching `main`, `~/projects`, or `~/projects/dj-crate-streaming`.
 | `jest-expo` ≥ 57 wants Jest 30 while memory says pin 29 | the pin is SDK-54-specific; follow `expo install --fix`; update memory + CLAUDE.md at wrap-up |
 | jest-expo does not mock the new `expo-file-system` `File` API | manual mock from the real `.d.ts`; `persistPhoto` is the only module that imports it |
 | `react-native-maps` version Expo installs is not in Expo Go | use exactly the version `npx expo install` picks (bundledNativeModules); verify with `expo-doctor` |
-| Reverse geocoding spams Apple's geocoder | ≤ 10 per launch, sequential, only spots with no name at all |
+| Reverse geocoding spams Apple's geocoder | ≤ 10 per launch, sequential, only spots with neither `name` nor `generated_name` |
+| `react-native-map-clustering` (S1) lags behind the `react-native-maps` version Expo installs | it is pure JS over `MapView`; if its peer range rejects the installed version, stop the spike and record it, do not override peers |
 | Permission classifier denies `npm install`/network commands | try the narrower `npx expo install <pkg>`; else record under Needs Michael and continue |
 | Metro smoke needs port 8081 free | `lsof -i :8081` first; use `--port 8082` if taken and record it |
 | Lockfile churn makes the diff hard to review | one `chore:` commit per hop/install, feature commits never touch the lockfile |
 
 ---
 
-## 5. Starting-state evidence (verbatim-ish)
+## 5. Roadmap notes from Michael (2026-10-14, not for tonight)
+
+- **Routes between spots**: pick several spots on the map and get a route/order for a session.
+  Needs the map (M5) and distance (M6) first; later a directions provider.
+- **Smart folders / tags**: drill into groups by city or by feature type (rail, ledge, …) instead
+  of only filtering. The town stored by D4 and the existing `feature.type` are the two first
+  group keys; the spec's `[FUTURE] Folder` filter is the manual version of the same idea.
+- **Dev build + TestFlight**: Michael has an Apple developer account. After this run: `eas
+  login` (Michael), `eas build --profile development --platform ios`, then TestFlight so the app
+  no longer depends on the desktop running Metro. Also the moment Mapbox / offline tiles become
+  possible.
+- **Clustering** (D8) is the bridge between "several spots at one location" in the data model
+  and a readable map.
+
+---
+
+## 6. Starting-state evidence (verbatim-ish)
 
 ```
 $ npm run typecheck          → tsc --noEmit                           exit 0

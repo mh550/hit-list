@@ -7,8 +7,8 @@ notifications, and a second Claude session that can read anything under `~/proje
 the start of every iteration, do the next unchecked step, tick it, append to the Status log,
 commit.
 
-The design you are implementing is `docs/specs/2026-10-13-overnight-design.md` (rev 1): read
-it in full at M0 and treat its §0 decisions as settled defaults. The product spec is
+The design you are implementing is `docs/specs/2026-10-13-overnight-design.md` (rev 2): read
+it in full at M0; Michael answered every §0 question, so §0 is settled. The product spec is
 `APP_SPECIFICATIONS.md`. Everything you need is inside `~/projects/hit_list`.
 
 ## Ground rules (non-negotiable)
@@ -88,17 +88,23 @@ it in full at M0 and treat its §0 decisions as settled defaults. The product sp
 
 ---
 
-## Decisions already made (spec §0, do not re-ask)
+## Decisions already made (spec §0, answered by Michael 2026-10-14, do not re-ask)
 
-- D1 SDK 54 → 55 → 56 → 57, one hop at a time, 2 h box, abandon to last green hop.
-- D2 Map = `react-native-maps` (Apple Maps in Expo Go). D8 no clustering.
+- D1 Expo Go on the iPhone **is SDK 57**. Hops 54 → 55 → 56 → 57, 2 h box, abandon to last
+  green hop.
+- D2 Map = `react-native-maps` (Apple Maps in Expo Go). D8 pins tonight; **clustering is stretch
+  S1** (`react-native-map-clustering`), because locations will have several spots.
 - D3 Photos copied into `Paths.document/photos/<spotId>/<mediaId>.jpg`; relative path in DB;
-  files never deleted tonight.
-- D4 Names via `expo-location` reverse geocode, ≤ 10 backfills per launch, silent on failure.
-- D5 CI on pushes to every branch. D6 Expo Go over the tailnet is the delivery path.
+  nothing written to the camera roll; files never deleted tonight.
+- D4 Unnamed spots stay untitled until Michael names them; the placeholder is
+  `Untitled · <Town> · Oct 13, 2:22 PM` (town from on-device reverse geocode into
+  `generated_name`, ≤ 10 backfills per launch, silent on failure) or `Untitled · Oct 13, 2:22 PM`.
+- D5 CI on pushes to every branch. D6 Expo Go over the tailnet tonight; Michael has an Apple
+  developer account, so a dev build + TestFlight is the *next* run's job (he runs `eas login`).
 - D7 `overnight/<date>` from `spec/2026-10-13` (= `main` + docs) + cherry-pick `bf3c36e`; the
-  review conversation merges it into `main` and deletes `wip/laptop-2026-10-13`.
-- D9 Patch bumps ride with the SDK hops. D10 Sort/search UI is stretch. D11 Web stays a stub.
+  review conversation merges it into `main`; the wip branch is then redundant.
+- D9 Patch bumps ride with the SDK hops. D10 Sort (distance first) + search are stretch S2;
+  routes and smart folders are roadmap (spec §5). D11 Web stays a stub.
 
 ## Queue
 
@@ -192,27 +198,31 @@ Write the start time in the Status log. For each hop N in 55, 56, 57:
       with `testID`s; props copied from the real `.d.ts`).
 - [ ] TDD `src/components/SpotMap.tsx`: N filtered spots → N markers; draft marker colour
       differs; `onCalloutPress` navigates to `/spot/<id>`; initial region from current location,
-      else bounding box of spots, else the Seattle default from `factories.ts`.
+      else bounding box of spots, else the Seattle default from `factories.ts`. Several spots at
+      one location overlap as pins tonight; that is expected (clustering is S1).
 - [ ] TDD the Map | List `SegmentedControl` in the Spots header with `viewMode` on the spots
       store (default `list`); the FAB and filter button work in both modes.
 - [ ] `npx expo export --platform ios` green. "What Michael will see" table (marker count, draft
       marker, callout title). Review, `/simplify`, milestone push.
 
-### M6 — Names + import fixes (spec D4, §1.4 bugs 3–5, §2.2 M6) (≈1 h)
+### M6 — Untitled placeholder + import fixes (spec D4, §1.4 bugs 3–5, §2.2 M6) (≈1 h)
 - [ ] Plan: `docs/plans/<date>-names-and-exif.md`.
 - [ ] TDD `src/utils/exif.ts`: `parseExifDate` (`"2026:10:13 14:22:01"` → `"2026-10-13T14:22:01"`;
       garbage → `undefined`), `exifGps` (applies `GPSLatitudeRef`/`GPSLongitudeRef` sign only when
       the ref is present and the value is positive; missing coords → `null`). Wire into
       `app/import/index.tsx`; `created_at` in `app/import/review.tsx` falls back to `now` when the
       parsed date is undefined.
-- [ ] TDD `src/utils/reverse-geocode.ts` (`geocodeSpotName`) with `expo-location` mocked from
-      its `.d.ts`; wire fire-and-forget into both review screens and a ≤ 10-per-launch backfill
-      in `use-db-init` (test: 12 unnamed spots → exactly 10 geocode calls).
+- [ ] TDD `getSpotDisplayName` (D4): `name` → `Untitled · <generated_name> · Oct 13, 2:22 PM` →
+      `Untitled · Oct 13, 2:22 PM`. Update the tests that expect `Untitled Spot — Oct 13`.
+- [ ] TDD `src/utils/reverse-geocode.ts` (`geocodeTown`: `city` → `subregion` → `region` →
+      `undefined`) with `expo-location` mocked from its `.d.ts`; wire fire-and-forget into both
+      review screens (`updateSpot({ generated_name: town })`) and a ≤ 10-per-launch backfill in
+      `use-db-init` (test: 12 spots with neither name → exactly 10 geocode calls).
 - [ ] TDD `src/hooks/use-current-location.ts` (permission once, fills the location store);
       mount in the Spots screen; RED test that distance text appears once the store has a
       location.
-- [ ] `npx expo export --platform ios` green. "What Michael will see" table (names: user,
-      geocoded, fallback). Review, `/simplify`, milestone push.
+- [ ] `npx expo export --platform ios` green. "What Michael will see" table (names: user-given,
+      untitled-with-town, untitled-without). Review, `/simplify`, milestone push.
 
 ### M7 — Phone handoff + docs (spec §2.2 M7) (≈30 min)
 - [ ] `package.json`: `"start:tailscale": "REACT_NATIVE_PACKAGER_HOSTNAME=$(tailscale ip -4)
@@ -228,9 +238,14 @@ Write the start time in the Status log. For each hop N in 55, 56, 57:
       `README.md`: what it is, status, commands, "Not done yet".
 - [ ] Review, milestone push.
 
-### Stretch (only if everything above is done)
-- [ ] Sort control (Date / Name / Distance / Intensity; tap again flips) and a search field via
-      `headerSearchBarOptions` on the Spots stack screen (D10). TDD.
+### Stretch (only if everything above is done; in this order)
+- [ ] **S1 clustering (D8):** `npx expo install react-native-map-clustering` (→ `chore:`
+      commit; if its peer range rejects the installed `react-native-maps`, stop here and record
+      it — never override peers). Wrap `SpotMap`'s `MapView`; TDD with the manual mock: 5 spots
+      within 30 m render as one cluster marker at low zoom; tapping a cluster zooms in.
+- [ ] **S2 sort + search (D10):** sort control (Distance / Date / Name / Intensity; tap again
+      flips; Distance disabled until a location is known) and a search field via
+      `headerSearchBarOptions` on the Spots stack screen. TDD.
 - [ ] Skate-stop fields in `app/spot/[id]/edit.tsx` (type, description, removable). TDD.
 - [ ] Remove a photo from a spot in edit (DB row only; file stays, D3). TDD.
 - [ ] `PRAGMA foreign_keys = ON` in `migrateDb` + a test that media of a hard-deleted spot
@@ -253,15 +268,19 @@ Write the start time in the Status log. For each hop N in 55, 56, 57:
 ## Direction from Michael
 _(append messages from the phone here, newest first)_
 
-- _(none yet)_
+- **2026-10-14 (morning, before the run):** answered every §0 question — Expo Go is SDK 57;
+  Apple Maps is fine; no camera-roll writes; keep spots untitled until named but show
+  date/time/town in the placeholder; CI on all branches fine; he has an Apple developer account
+  (test build + TestFlight later); clustering makes sense because locations have several spots,
+  priority unknown (→ S1); sort and search both matter, map shows distance, routes between spots
+  and smart folders by city / feature type are ideas for later (→ spec §5).
 
 ## Needs Michael
 _(exact commands / decisions, newest first)_
-- **D1** — open Expo Go on the iPhone and read the SDK version it supports (Settings in Expo
-  Go, or the App Store listing). Reply "Expo Go is 57" or "Expo Go is 58".
-- **D6** — do you have an Apple developer account? If yes, `eas login` on the desktop later is
-  yours to run (never the overnight session's).
-- **Answer D2, D3, D4, D5, D7, D8, D10** from spec §0 whenever convenient; defaults hold until then.
+- Nothing before the run. **After the run:** the review conversation merges `overnight/<date>`
+  into `main` and deletes `wip/laptop-2026-10-13` (D7); then, when you want the app to outlive
+  the desktop's Metro: `eas login` on the desktop (yours to run), and a dev build + TestFlight
+  becomes the next runbook (D6).
 
 ## Status log
 _(newest first: time · step · result · commit)_

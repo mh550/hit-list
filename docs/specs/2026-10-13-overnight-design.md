@@ -232,7 +232,7 @@ touching `main`, `~/projects`, or `~/projects/dj-crate-streaming`.
 | Risk | Mitigation |
 |------|------------|
 | SDK hops break Jest/Reanimated/compiler and eat the night | 2 h time box, commit per green hop, abandon to last green hop, everything else proceeds on 54 |
-| Expo Go on the phone is already SDK 58 | D1 question; the review conversation does one more hop with the same recipe |
+| Expo Go on the App Store moves to SDK 58 before Michael tries the app (58 is `next` on npm today) | the review conversation does one more hop with the same per-hop recipe; the branch is left in a state where that is a 20-minute job |
 | `jest-expo` ≥ 57 wants Jest 30 while memory says pin 29 | the pin is SDK-54-specific; follow `expo install --fix`; update memory + CLAUDE.md at wrap-up |
 | jest-expo does not mock the new `expo-file-system` `File` API | manual mock from the real `.d.ts`; `persistPhoto` is the only module that imports it |
 | `react-native-maps` version Expo installs is not in Expo Go | use exactly the version `npx expo install` picks (bundledNativeModules); verify with `expo-doctor` |

@@ -131,14 +131,14 @@ Write the start time in the Status log. For each hop N in 55, 56, 57:
 - [x] `npm run typecheck`, `npx jest --ci`, `npx expo export --platform ios` all green →
       commit `chore: expo sdk 55`. Status log: what changed, what broke, how fixed.
 - [x] Hop 56: same recipe → `chore: expo sdk 56`.
-- [ ] Hop 57: same recipe → `chore: expo sdk 57`. Record final versions (expo, react-native,
+- [x] Hop 57: same recipe → `chore: expo sdk 57`. Record final versions (expo, react-native,
       react, jest, jest-expo) in the Status log and update the project memory note about the
       jest pin to the new truth.
-- [ ] If the box expires mid-hop: `git stash -u` is **not** allowed as a parking lot — instead
+- [x] _(n/a — box did not expire)_ If the box expires mid-hop: `git stash -u` is **not** allowed as a parking lot — instead
       commit the broken state as `wip: sdk N attempt (not green)` on a new branch
       `overnight/<date>-sdk-attempt`, push it, `git checkout overnight/<date>` (last green hop),
       and continue. Needs Michael: "SDK hop N failed on <error>; see branch".
-- [ ] Milestone push + branch push.
+- [x] Milestone push + branch push.
 
 ### M2 — Green CI (spec §2.2 M2) (≈30 min)
 - [ ] RED: `npm run lint` fails with the plugin error. Fix `eslint.config.js` by registering the
@@ -284,6 +284,21 @@ _(exact commands / decisions, newest first)_
 
 ## Status log
 _(newest first: time · step · result · commit)_
+- 2026-10-14 07:29 · **M1 done — SDK 57 green** · `cb435b7` chore (no source changes needed this hop).
+  Final versions: expo 57.0.28 · react-native 0.86.3 · react 19.2.3 · expo-router 57.0.26 ·
+  expo-sqlite 57.0.4 · expo-file-system 57.0.7 · expo-location 57.0.21 · reanimated 4.5.1 / worklets
+  0.10.1 · **jest 29.7.0 · jest-expo 57.0.6 · @types/jest 29.5.14** (Jest 30 not required) ·
+  react-test-renderer 19.2.3 (pinned = React) · typescript 6.0.3. Gates: doctor 21/21 · typecheck 0 ·
+  jest 115/115 · export ios 3.9 MB · `npm ci` from the committed lockfile reproduces and tests pass.
+  Broke: npm ERESOLVE (`react-native@0.86.3` peerOptional `@react-native/jest-preset@0.86.3` vs the
+  stale 0.85 tree) — incremental install and lockfile-only regeneration both failed while the old
+  `node_modules` existed; `rm -rf node_modules && npm install` resolved exactly as a scratch-dir
+  resolution did, so the lockfile is npm-regenerated (not hand-edited). Also `expo install
+  jest-expo eslint-config-expo` put them under `dependencies`; moved back to `devDependencies` by
+  hand (same versions). `react-test-renderer ^19.1` now resolves 19.3 (wants React 19.3) → pinned.
+  Memory note updated. **Clock note:** the session was idle from 00:13 to 07:20 waiting on a
+  "Continue" (no work happened); M1 work time ≈ 25 min, so the 2 h box was honoured in spirit.
+  Michael is probably awake: the rest of the queue continues now, with phone pushes per milestone.
 - 2026-10-14 07:21 · M1 hop 56 green (one doctor advisory) · chore + fix commits. Moved 27 packages
   (RN 0.85.3, React 19.2.3, reanimated 4.3.1 / worklets 0.8.3, jest-expo 56.0.5, **TypeScript 6.0.3**;
   Jest still 29.7). Broke: (1) `expo export` refused: "As of SDK 56, expo-router is no longer compatible

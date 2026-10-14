@@ -1,4 +1,4 @@
-import { renderHook, act, waitFor } from '@testing-library/react-native';
+import { renderHook, waitFor } from '@testing-library/react-native';
 import { useDbInit } from '@/src/hooks/use-db-init';
 import { useSpotsStore } from '@/src/stores';
 import { useSettingsStore } from '@/src/stores/settings-store';
@@ -43,19 +43,21 @@ describe('useDbInit', () => {
     });
   });
 
-  it('starts as not ready', () => {
+  it('starts as not ready', async () => {
     mockGetSpots.mockResolvedValue([]);
     mockGetUserSettings.mockResolvedValue(null);
     const { result } = renderHook(() => useDbInit());
     expect(result.current.isReady).toBe(false);
+    // Let the async init settle inside act() so the state update is not reported as unwrapped.
+    await waitFor(() => expect(result.current.isReady).toBe(true));
   });
 
   it('calls migrateDb on mount', async () => {
     mockGetSpots.mockResolvedValue([]);
     mockGetUserSettings.mockResolvedValue(null);
 
-    renderHook(() => useDbInit());
-    await act(async () => { await Promise.resolve(); });
+    const { result } = renderHook(() => useDbInit());
+    await waitFor(() => expect(result.current.isReady).toBe(true));
 
     expect(mockMigrateDb).toHaveBeenCalledWith(mockDb);
   });

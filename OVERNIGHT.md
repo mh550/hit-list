@@ -221,7 +221,7 @@ Write the start time in the Status log. For each hop N in 55, 56, 57:
 - [x] TDD `src/hooks/use-current-location.ts` (permission once, fills the location store);
       mount in the Spots screen; RED test that distance text appears once the store has a
       location.
-- [ ] `npx expo export --platform ios` green. "What Michael will see" table (names: user-given,
+- [x] `npx expo export --platform ios` green. "What Michael will see" table (names: user-given,
       untitled-with-town, untitled-without). Review, `/simplify`, milestone push.
 
 ### M7 — Phone handoff + docs (spec §2.2 M7) (≈30 min)
@@ -303,6 +303,13 @@ _(exact commands / decisions, newest first)_
 
 ## Status log
 _(newest first: time · step · result · commit)_
+- 2026-10-15 00:50 · **M6 done** · `/simplify` (4 reviewers): one geocoder queue for every lookup (an import
+  no longer bursts Apple's geocoder), one spot-update path, location refresh only on a real return from the
+  background and never overlapping, memoised list filtering, shared date/point helpers. Found and fixed a
+  **flaky test** (1 in ~7 runs printed an `act()` warning from the virtualized list stand-in): the FlashList
+  test mock now renders rows directly; 10/10 runs clean. Skipped: EXIF `Date.parse` rewrite (engines roll
+  impossible dates differently), recording EXIF `OffsetTimeOriginal` (changes which time the label shows),
+  skipping tiny location changes. 220 tests / 25 suites, export ok. Next: S1 clustering.
 - 2026-10-15 00:44 · M6 review → fix pass (`e75d928`) · Opus, EXIF keys and geocoder checked against the
   expo-image-picker / expo-location iOS source (keys right; geocoding needs no permission). **2 Important fixed:**
   import groups were pre-filled "Spot 1", "Spot 2"… so imports never showed the new label or got a town (now

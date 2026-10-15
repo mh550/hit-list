@@ -71,7 +71,8 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
 - **TDD**: write the failing test, watch it fail, then the code. Keep `npx jest --ci` green with zero
   `console.error` lines.
 - **DB code runs against real SQLite**: `src/__tests__/helpers/node-sqlite-db.ts`
-  (`createTestDb` / `createMigratedTestDb`, Node's built-in `node:sqlite`), not mocks.
+  (`createTestDb` / `createMigratedTestDb`, Node's built-in `node:sqlite`), not mocks. `node:sqlite` turns foreign keys
+  on by default but expo-sqlite does not, so the harness opens with them off and `migrateDb` turns them on, as on the phone.
 - **Fakes mirror the real API**: open the package's `.d.ts` in `node_modules` and copy the member
   names and signatures before mocking. Existing fakes: `__mocks__/expo-file-system.ts`
   (+ `helpers/fake-fs.ts` for its test hooks), `__mocks__/react-native-maps.tsx` (its forwardRef

@@ -85,6 +85,9 @@ export async function migrateDb(
   migrations: readonly Migration[] = MIGRATIONS,
 ): Promise<void> {
   await db.execAsync('PRAGMA journal_mode = WAL;'); // not allowed inside a transaction
+  // Per connection and a no-op inside a transaction, so every launch sets it here, never in a migration.
+  // Makes media's ON DELETE CASCADE real and rejects media rows for a spot that doesn't exist.
+  await db.execAsync('PRAGMA foreign_keys = ON;');
   const current = await getSchemaVersion(db);
   for (let v = current; v < migrations.length; v++) {
     await db.withTransactionAsync(async () => {

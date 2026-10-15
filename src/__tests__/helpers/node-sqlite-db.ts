@@ -10,7 +10,9 @@ const toNode = (params: Params) =>
 
 /** In-memory SQLite exposing the expo-sqlite methods the app uses (signatures from SQLiteDatabase.d.ts). */
 export function createTestDb(): SQLiteDatabase {
-  const raw = new DatabaseSync(':memory:');
+  // node:sqlite turns foreign keys ON by default; expo-sqlite (plain SQLite) starts with them OFF
+  // until the app runs `PRAGMA foreign_keys = ON`. Match the device so tests prove the app enables it.
+  const raw = new DatabaseSync(':memory:', { enableForeignKeyConstraints: false });
   const db = {
     async execAsync(source: string): Promise<void> {
       raw.exec(source);

@@ -169,13 +169,13 @@ Write the start time in the Status log. For each hop N in 55, 56, 57:
       a transaction, sets `user_version`. Migration 1 = today's DDL. Tests: fresh DB ends at the
       latest version; running twice is a no-op; a hand-made v0 DB with the old tables upgrades
       without data loss.
-- [ ] Review, `/simplify`, milestone push.
+- [x] Review, `/simplify`, milestone push.
 
 ### M4 — Photos persist and display (spec D3, §2.2 M4) (≈1 h 30)
-- [ ] Plan: `docs/plans/<date>-photos.md`. Open
+- [x] Plan: `docs/plans/<date>-photos.md`. Open
       `node_modules/expo-file-system/build/FileSystem.d.ts` and copy the `File`, `Directory`,
       `Paths` signatures you use into the jest mock before writing it.
-- [ ] TDD `src/utils/photo-storage.ts`: `photoRelativePath`, `persistPhoto` (creates
+- [x] TDD `src/utils/photo-storage.ts`: `photoRelativePath`, `persistPhoto` (creates
       `photos/<spotId>/`, copies, returns the relative path), `resolvePhotoUri` (absolute/`file:`
       /`http` passthrough; relative → `Paths.document.uri + path`).
 - [ ] TDD `getAllMedia(db)` in `src/db/media.ts` (real-SQLite suite) and
@@ -297,6 +297,15 @@ _(exact commands / decisions, newest first)_
 
 ## Status log
 _(newest first: time · step · result · commit)_
+- 2026-10-15 00:02 · **M3 done** · `/simplify` (4 reviewers; efficiency found nothing material): Jest now
+  discovers only `*.test.ts(x)` (replaces two one-off ignore entries), one `createMigratedTestDb()`
+  helper, harness trimmed to what `src/db` calls, schema internals kept out of the app's `@/src/db`
+  barrel, single settings fallback. Skipped: closing in-memory test DBs (negligible). 141 tests / 15
+  suites unchanged, DDL untouched, export ok.
+  · M4 Task 1 done (`015ffa4`): `persistPhoto` / `resolvePhotoUri` over an `expo-file-system`
+  fake copied from the SDK 57 `.d.ts` (note: `File.copy` is async in 57). A copy failure keeps the
+  original URI so no photo row is lost. Debug note: `jest.requireMock` returned a second instance of
+  the root `__mocks__` module, so the test imports the module path instead.
 - 2026-10-14 23:58 · M3 review done · Opus reviewer: **0 Critical / 0 Important / 7 Minor, "ready to merge"**.
   Confirmed on the real expo-sqlite 57 source: migration 1 = old DDL verbatim; harness transaction
   semantics match the device; both PRAGMAs valid on iOS; CI's Node 22.23.3 loads `node:sqlite`

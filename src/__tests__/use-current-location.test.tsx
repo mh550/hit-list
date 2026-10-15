@@ -1,4 +1,5 @@
-import { renderHook, render, screen, waitFor } from '@testing-library/react-native';
+import { renderHook, render, screen, waitFor, act } from '@testing-library/react-native';
+import { AppState } from 'react-native';
 import {
   getCurrentPositionAsync,
   getLastKnownPositionAsync,
@@ -13,11 +14,13 @@ import { createTestSpot } from './factories';
 import SpotsScreen from '@/app/(tabs)/index';
 
 const granted = { status: 'granted', granted: true, canAskAgain: true, expires: 'never' } as never;
+const denied = { status: 'denied', granted: false, canAskAgain: true, expires: 'never' } as never;
 const at = (latitude: number, longitude: number) => ({ coords: { latitude, longitude }, timestamp: 0 }) as never;
 
 describe('useCurrentLocation', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    jest.mocked(requestForegroundPermissionsAsync).mockResolvedValue(denied);
     useLocationStore.setState({ currentLocation: null, permissionStatus: 'undetermined' });
   });
 
@@ -46,6 +49,25 @@ describe('useCurrentLocation', () => {
     await waitFor(() =>
       expect(useLocationStore.getState().currentLocation).toEqual({ latitude: 47.61, longitude: -122.33 }),
     );
+  });
+
+  it('asks for a fresh position again whenever the app comes back to the foreground', async () => {
+    jest.mocked(requestForegroundPermissionsAsync).mockResolvedValue(granted);
+    jest.mocked(getCurrentPositionAsync).mockResolvedValueOnce(at(47.61, -122.33)).mockResolvedValueOnce(at(47.66, -122.31));
+    renderHook(() => useCurrentLocation());
+    await waitFor(() => expect(useLocationStore.getState().currentLocation).toEqual({ latitude: 47.61, longitude: -122.33 }));
+
+    const onChange = jest.mocked(AppState.addEventListener).mock.calls.at(-1)?.[1] as (s: string) => void;
+    await act(async () => onChange('active'));
+
+    await waitFor(() => expect(useLocationStore.getState().currentLocation).toEqual({ latitude: 47.66, longitude: -122.31 }));
+  });
+
+  it('ignores a last known position older than five minutes', async () => {
+    jest.mocked(requestForegroundPermissionsAsync).mockResolvedValueOnce(granted);
+    renderHook(() => useCurrentLocation());
+
+    await waitFor(() => expect(getLastKnownPositionAsync).toHaveBeenCalledWith({ maxAge: 5 * 60_000 }));
   });
 
   it('records a denial and never asks for a position', async () => {

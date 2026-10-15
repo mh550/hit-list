@@ -43,9 +43,9 @@ export default function ImportReviewScreen() {
 
   const parsedGroups: ImportPhoto[][] = groupsJson ? JSON.parse(groupsJson) : [];
   const [groups, setGroups] = useState<SpotGroup[]>(() =>
-    parsedGroups.map((photos, i) => ({
+    parsedGroups.map((photos) => ({
       photos,
-      name: `Spot ${i + 1}`,
+      name: '', // blank = untitled: shows the D4 label and gets a town
     })),
   );
 

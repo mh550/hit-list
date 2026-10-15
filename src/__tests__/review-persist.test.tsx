@@ -64,6 +64,8 @@ describe('review screens persist photos before saving (D3)', () => {
 
     const [m] = insertedMedia();
     expect(m.file_path).toMatch(RELATIVE);
+    // Left blank, the spot stays untitled so it shows the D4 label and gets its town (not "Spot 1").
+    expect(useSpotsStore.getState().spots[0].name).toBeUndefined();
     expect(useMediaStore.getState().mediaBySpot[m.spot_id]).toEqual([m]);
   });
 

@@ -4,7 +4,8 @@ import type { GeoPoint, Spot } from '@/src/types';
 import { isKnownLocation } from '@/src/utils/geo';
 
 /**
- * The town for a point from the on-device geocoder (D4): city, else subregion, else region.
+ * The town for a point from Apple's geocoder via expo-location (D4): city, else subregion, else
+ * region. CLGeocoder is a network service: the coordinates go to Apple and it needs internet.
  * Never throws; offline, rate-limited or unknown-location lookups give undefined.
  */
 export async function geocodeTown(point: GeoPoint): Promise<string | undefined> {

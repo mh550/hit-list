@@ -55,6 +55,11 @@ describe('SpotListItem', () => {
     expect(onPress).toHaveBeenCalledWith('test-id');
   });
 
+  it('lets a long label wrap to a second line instead of cutting off the time', () => {
+    render(<SpotListItem {...defaultProps} displayName="Untitled · San Francisco · Oct 13, 2:22 PM" />);
+    expect(screen.getByText('Untitled · San Francisco · Oct 13, 2:22 PM').props.numberOfLines).toBe(2);
+  });
+
   it('renders placeholder when no thumbnail', () => {
     render(<SpotListItem {...defaultProps} />);
     expect(screen.getByText('No Photo')).toBeTruthy();

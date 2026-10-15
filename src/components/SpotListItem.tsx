@@ -47,7 +47,7 @@ export const SpotListItem = memo(function SpotListItem({
       </View>
 
       <View style={styles.content}>
-        <Text style={styles.name} numberOfLines={1}>
+        <Text style={styles.name} numberOfLines={2}>
           {displayName}
         </Text>
 

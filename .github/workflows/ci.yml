@@ -13,6 +13,8 @@ concurrency:
 jobs:
   lint-typecheck-test:
     name: Lint, Typecheck & Test
+    # Pushes to any branch already run CI; a pull_request run only adds value for fork PRs.
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

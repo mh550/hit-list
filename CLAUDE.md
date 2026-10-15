@@ -59,8 +59,10 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   roll; files are not deleted on soft delete.
 - **No location** is stored as `(0, 0)` (`NO_LOCATION`); always test with `isKnownLocation` (map,
   distance, geocoding).
-- **Unnamed spots** display as `Untitled · <Town> · Oct 13, 2:22 PM`; the town lives in
-  `generated_name` (Apple's on-device geocoder, ≤ 10 backfills per launch).
+- **Unnamed spots** display as `Untitled · <Town> · Oct 13, 2:22 PM` (two lines allowed in the list);
+  imported groups start with a blank name so they stay untitled. The town lives in
+  `generated_name` (Apple's CLGeocoder via expo-location: a network service, coordinates go to
+  Apple; ≤ 10 sequential backfills per launch).
 - expo-router 57 has no `@react-navigation/*` dependencies; import from `expo-router` /
   `expo-router/js-tabs`.
 

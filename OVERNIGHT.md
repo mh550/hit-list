@@ -280,6 +280,9 @@ _(append messages from the phone here, newest first)_
 
 ## Needs Michael
 _(exact commands / decisions, newest first)_
+- **Question (D4 note):** the town in "Untitled · Seattle · …" comes from Apple's geocoder, which is a
+  **network service** (I first wrote "on-device"; that was wrong). Each new spot's coordinates are sent to
+  Apple once to get the town. OK to keep, or should town lookup be off?
 - **Question (D12):** the batch import screen had no way in from the app. I added an **"Import Photos"
   button on the Profile tab**, under Import Settings. Is that the right place, or do you want it on the
   Spots tab next to the + button?

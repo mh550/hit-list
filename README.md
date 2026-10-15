@@ -13,7 +13,7 @@ Works end to end in tests and bundles for iOS; first run on the phone is the nex
 - Photos are kept in the app's own storage and shown as list thumbnails and a detail gallery.
 - Spots list with filters (feature type, gear/build, drafts) and distance from where you are.
 - Apple Maps view (List | Map), drafts in a different pin colour, tap through to the spot.
-- Unnamed spots read `Untitled · Seattle · Oct 13, 2:22 PM` (town from the on-device geocoder).
+- Unnamed spots read `Untitled · Seattle · Oct 13, 2:22 PM` (town from Apple's geocoder, which needs internet).
 - Offline-first SQLite storage with versioned migrations.
 
 ## Run it

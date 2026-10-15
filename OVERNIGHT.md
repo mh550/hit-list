@@ -157,15 +157,15 @@ Write the start time in the Status log. For each hop N in 55, 56, 57:
 
 ### M3 — Real-SQLite test harness + migrations (spec §2.2 M3) (≈45 min)
 - [x] Plan: `docs/plans/<date>-sqlite-harness.md`.
-- [ ] TDD `src/__tests__/helpers/node-sqlite-db.ts` (`createTestDb()` over `node:sqlite`
+- [x] TDD `src/__tests__/helpers/node-sqlite-db.ts` (`createTestDb()` over `node:sqlite`
       `DatabaseSync(':memory:')` with `execAsync/runAsync/getAllAsync/getFirstAsync`;
       `getFirstAsync` returns `null` for undefined). First test: `migrateDb` then
       `insertSpot`/`getSpots` round trip — the probe that passed on 2026-10-13 in 4 ms.
-- [ ] Suites against the real engine: `db-spots.test.ts` (list excludes soft-deleted; partial
+- [x] Suites against the real engine: `db-spots.test.ts` (list excludes soft-deleted; partial
       `updateSpot` leaves other JSON columns intact; `getSpot` of deleted → null),
       `db-media.test.ts` (insert/list ordered/delete), `db-settings.test.ts` (defaults, round
       trip, merge with defaults when keys are missing).
-- [ ] TDD migrations: `migrateDb` reads `PRAGMA user_version`, applies `MIGRATIONS` in order in
+- [x] TDD migrations: `migrateDb` reads `PRAGMA user_version`, applies `MIGRATIONS` in order in
       a transaction, sets `user_version`. Migration 1 = today's DDL. Tests: fresh DB ends at the
       latest version; running twice is a no-op; a hand-made v0 DB with the old tables upgrades
       without data loss.
@@ -293,6 +293,15 @@ _(exact commands / decisions, newest first)_
 
 ## Status log
 _(newest first: time · step · result · commit)_
+- 2026-10-14 23:54 · M3 Tasks 1–4 done (inline, executing-plans) · `b53f5a8` harness · `35c2aee` spots ·
+  `eb54e86` media/settings · `5f51e7a` migrations. `createTestDb()` runs `src/db` unmodified on
+  `node:sqlite` (`DatabaseSync(':memory:')`). New suites: db-spots 5, db-media 2, db-settings 4,
+  db-migrate 5 → **132 tests**, 14 suites, 0 console.error; typecheck/lint 0; export ok. Real bug
+  found and fixed: a corrupt `user_settings` blob made `getUserSettings` throw, which skipped the
+  whole DB load at launch → now falls back to defaults. `migrateDb` now versions via `PRAGMA
+  user_version`, one transaction per migration incl. the bump; v0 DBs adopt v1 with rows intact; a
+  newer-build DB is left alone. Characterisation tests (existing SQL) were RED-proven by 9 code
+  mutations, each reverted. Final M3 review running on Opus.
 - 2026-10-14 23:48 · **M2 done — CI green** · run https://github.com/mh550/hit-list/actions/runs/38678065234
   (head `6250f04`). Review (Opus; the first attempt died on a rate limit): 0 Critical / 0 Important,
   5 Minor fixed — lint override now keeps expo's options, **no `eslint-disable` left anywhere**,

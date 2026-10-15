@@ -12,9 +12,9 @@
 - Store logic already exists (`setSort`, `selectSortedSpots`, `search_query`); `setSort(field, direction)` is called with an explicit direction for the natural default.
 
 ### Task 1: Search
-- [ ] RED: typing "pier" shows only matching names (list) and only their markers (map); clearing restores all; Filter badge unchanged while searching; Reset in the Filter sheet keeps the search; no-match state text.
-- [ ] GREEN, gates.
+- [x] RED: typing "pier" shows only matching names (list) and only their markers (map); clearing restores all; Filter badge unchanged while searching; Reset in the Filter sheet keeps the search; no-match state text.
+- [x] GREEN, gates.
 
 ### Task 2: Sort
-- [ ] RED: four chips in list mode, none in map mode; default Date ↓ (newest first); tapping Name orders A to Z, again Z to A; Distance chip disabled with no location, enabled and nearest first with one; Intensity highest first.
-- [ ] GREEN, gates (jest 0 console.error, typecheck, lint, `npx expo export --platform ios`). Commit `feat: sort and search on the Spots tab (D10, S2)`.
+- [x] RED: four chips in list mode, none in map mode; default Date ↓ (newest first); tapping Name orders A to Z, again Z to A; Distance chip disabled with no location, enabled and nearest first with one; Intensity highest first.
+- [x] GREEN, gates (jest 0 console.error, typecheck, lint, `npx expo export --platform ios`). Commit `feat: sort and search on the Spots tab (D10, S2)`.

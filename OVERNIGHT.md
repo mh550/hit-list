@@ -192,7 +192,7 @@ Write the start time in the Status log. For each hop N in 55, 56, 57:
       `/simplify`, milestone push.
 
 ### M5 — Map view (spec D2, §2.2 M5) (≈1 h 15)
-- [ ] Plan: `docs/plans/<date>-map.md`. `npx expo install react-native-maps` → `chore:` commit.
+- [x] Plan: `docs/plans/<date>-map.md`. `npx expo install react-native-maps` → `chore:` commit.
       Confirm the installed version equals the one in `node_modules/expo/bundledNativeModules.json`.
 - [ ] Manual mock `__mocks__/react-native-maps.tsx` (`MapView`, `Marker`, `Callout` as `View`s
       with `testID`s; props copied from the real `.d.ts`).
@@ -297,6 +297,10 @@ _(exact commands / decisions, newest first)_
 
 ## Status log
 _(newest first: time · step · result · commit)_
+- 2026-10-15 00:21 · M5 started · `react-native-maps` **1.27.2** installed via `npx expo install` (= the
+  SDK 57 pin in `bundledNativeModules.json`). Expo published new SDK 57 patches tonight, so a separate
+  `chore:` ran `expo install --fix` (expo 57.0.29, expo-router 57.0.27, expo-linking 57.0.13); doctor
+  21/21, 154 tests, export ok. Plan `docs/plans/2026-10-15-map.md` written.
 - 2026-10-15 00:18 · **M4 done — photos persist and display** · `/simplify` (4 reviewers): one
   `useMediaActions().savePhotos` replaces the copy-insert-store loop duplicated in both review screens
   and updates the store once per save (was once per photo, re-rendering the list each time); media

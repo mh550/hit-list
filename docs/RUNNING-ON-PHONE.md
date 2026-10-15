@@ -1,13 +1,14 @@
 # Running HitList on the iPhone (Expo Go over Tailscale)
 
 HitList runs in **Expo Go** on the iPhone, served by Metro on the Pop!_OS desktop over the tailnet.
-No App Store build, no Mac, no Apple login is needed for this. (A dev build + TestFlight is the next
-step; see "Later" at the bottom.)
+No App Store build, no Mac, no Apple login is needed for this. (A TestFlight build that runs without
+the desktop is the next step; see "Later" at the bottom.)
 
 ## What you need
 
 - **Expo Go** from the App Store, **SDK 57** (the version Expo Go ships today; the project is on
-  SDK 57). If the App Store version moves to SDK 58, see "If Expo Go says the SDK is incompatible".
+  SDK 57). If the App Store version moves to SDK 58, see "Project is incompatible with this version
+  of Expo Go" under "If something is off".
 - **Tailscale** on both the desktop (`pop-os`, `100.88.90.97`) and the phone (`iphone-15`), both
   connected. Check with `tailscale status` on the desktop: `iphone-15` must not say "offline".
 
@@ -38,21 +39,27 @@ takes a little while; later loads are quick.
   without GPS appear in the list but not on the map.
 - **+ button**: camera → take photos → name it or leave it blank → Save as Draft. The photos are
   copied into the app's own storage, so they stay after iOS clears its caches.
-- **Import Photos** (Spots tab, the small photo button above +): pick photos from the library;
-  they are grouped by place (50 m by default) using their real capture time and GPS.
+- **Import Photos** (Spots tab, the small photo button above +): it opens an "Import Photos" screen;
+  tap **Select Photos** to open the library picker. Photos are grouped by GPS only: photos within the
+  Import Radius of each other (Profile tab, 50 m by default) become one spot. Photos without GPS get
+  a spot each. Each spot's date is the capture time of its first photo.
 - **Spot detail**: the main photo large, the rest in a row underneath.
-- iOS asks for **location** when the Spots tab first opens, and for the **camera** on the first
-  photo. Saying no is fine: distances stay blank and the map just shows the spots.
+- iOS asks for **location** when the Spots tab first opens. Saying no is fine: distances stay blank
+  and the map just shows the spots.
+- **Camera**: the first tap on + shows an in-app "Camera permission required" screen. Tap
+  **Grant Permission** to get the iOS prompt. If you decline, the screen offers **Open Settings**
+  (turn Camera on for Expo Go there) and a **Close** button back to the list.
 
 ## First things to check (they cannot be tested headlessly)
 
 1. **Tap Map.** You should see Apple Maps with pins. A red screen saying "view config not found"
    would mean Expo Go lacks react-native-maps (not expected for SDK 57).
-2. **Take a photo with the + button**, save, then force-quit Expo Go and reopen the project. The
+2. **Tap a pin, then tap its bubble.** It should open that spot. If nothing happens, note it.
+3. **Take a photo with the + button**, save, then force-quit Expo Go and reopen the project. The
    photo should still show. While you do this, watch the Metro terminal on the desktop: a line
    `[persistPhoto] copy failed` means the copy into app storage did not work and the app fell back
    to the original file (it still saves, but iOS may purge that file later).
-3. **Leave a spot unnamed** and come back to the list a few seconds later: it should read
+4. **Leave a spot unnamed** and come back to the list a few seconds later: it should read
    `Untitled · <your town> · <time>`.
 
 ## Reload, logs, stopping
@@ -66,13 +73,17 @@ takes a little while; later loads are quick.
 
 Inside Expo Go's sandbox for this project: the SQLite database `hit_list.db` and the photos under
 `Documents/…/photos/<spotId>/<photoId>.jpg` (the database stores only the relative path
-`photos/<spotId>/<photoId>.jpg`). Removing the project from Expo Go, or deleting Expo Go, deletes
-both. Nothing is written to the camera roll.
+`photos/<spotId>/<photoId>.jpg`). Deleting Expo Go deletes both. Nothing is written to the camera
+roll.
 
 ## If something is off
 
 - **The QR code opens nothing / times out**: Tailscale is off on one side, or the phone is on a
   network that blocks it. `tailscale status` on the desktop; toggle Tailscale on the phone.
+- **Metro prints a `192.168.x` or `10.x` address instead of `100.88.90.97`**: Tailscale is down on
+  the desktop. `start:tailscale` asks `tailscale ip -4` for the address; when that fails, Expo falls
+  back to the LAN address, which the phone cannot reach off your home network. Bring Tailscale up
+  (`tailscale status`), stop Metro and start it again.
 - **"Project is incompatible with this version of Expo Go"**: Expo Go moved to a newer SDK. The
   upgrade is one hop with the same recipe used tonight (`npx expo install expo@^58 && npx expo install
   --fix`, then typecheck, tests and `npx expo export --platform ios`); see `CLAUDE.md`.
@@ -81,7 +92,15 @@ both. Nothing is written to the camera roll.
 
 ## Later: an app that does not need the desktop
 
-You have an Apple developer account, so the next step is an EAS development build installed through
-TestFlight: `eas login` (you run this), then `eas build --profile development --platform ios`. That
-build no longer needs Metro on the desktop for the installed version, and it is also when Mapbox and
-offline map tiles become possible.
+A development build (`eas build --profile development`) is not that. It is a dev client: it replaces
+Expo Go, but it still loads its JavaScript from Metro on the desktop. It is still worth having, since
+it is when Mapbox and offline map tiles become possible.
+
+To stop depending on the desktop you need a preview or production build distributed through
+TestFlight (store distribution), or EAS Update to send new JavaScript to an installed build. You have
+an Apple developer account, so the steps are:
+
+1. `eas login` (you run this).
+2. `eas build:configure`. There is no `eas.json` yet, so this comes first; it creates one.
+3. A production build for TestFlight: `eas build --profile production --platform ios`, then
+   `eas submit --platform ios`.

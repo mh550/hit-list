@@ -17,6 +17,7 @@ import { EmptyState } from '@/src/components/EmptyState';
 import { FilterSheet } from '@/src/components/FilterSheet';
 import { SegmentedControl } from '@/src/components/SegmentedControl';
 import { SpotMap } from '@/src/components/SpotMap';
+import { useCurrentLocation } from '@/src/hooks/use-current-location';
 import { featureLabel, getSpotDisplayName } from '@/src/utils/spot-name';
 import { resolvePhotoUri } from '@/src/utils/photo-storage';
 import { primaryPhoto } from '@/src/utils/spot-photos';
@@ -28,6 +29,7 @@ import { palette, spacing } from '@/src/constants/theme';
 
 export default function SpotsScreen() {
   const router = useRouter();
+  useCurrentLocation(); // distances in the list and the map's own position (bug 5)
   const spots = useSpotsStore((s) => s.spots);
   const filters = useSpotsStore((s) => s.filters);
   const sortField = useSpotsStore((s) => s.sortField);

@@ -194,13 +194,13 @@ Write the start time in the Status log. For each hop N in 55, 56, 57:
 ### M5 — Map view (spec D2, §2.2 M5) (≈1 h 15)
 - [x] Plan: `docs/plans/<date>-map.md`. `npx expo install react-native-maps` → `chore:` commit.
       Confirm the installed version equals the one in `node_modules/expo/bundledNativeModules.json`.
-- [ ] Manual mock `__mocks__/react-native-maps.tsx` (`MapView`, `Marker`, `Callout` as `View`s
+- [x] Manual mock `__mocks__/react-native-maps.tsx` (`MapView`, `Marker`, `Callout` as `View`s
       with `testID`s; props copied from the real `.d.ts`).
-- [ ] TDD `src/components/SpotMap.tsx`: N filtered spots → N markers; draft marker colour
+- [x] TDD `src/components/SpotMap.tsx`: N filtered spots → N markers; draft marker colour
       differs; `onCalloutPress` navigates to `/spot/<id>`; initial region from current location,
       else bounding box of spots, else the Seattle default from `factories.ts`. Several spots at
       one location overlap as pins tonight; that is expected (clustering is S1).
-- [ ] TDD the Map | List `SegmentedControl` in the Spots header with `viewMode` on the spots
+- [x] TDD the Map | List `SegmentedControl` in the Spots header with `viewMode` on the spots
       store (default `list`); the FAB and filter button work in both modes.
 - [ ] `npx expo export --platform ios` green. "What Michael will see" table (marker count, draft
       marker, callout title). Review, `/simplify`, milestone push.
@@ -297,6 +297,18 @@ _(exact commands / decisions, newest first)_
 
 ## Status log
 _(newest first: time · step · result · commit)_
+- 2026-10-15 00:24 · M5 Tasks 1–2 done · `98e80a4` SpotMap · `0f25cdd` Map | List toggle. 167 tests / 21 suites,
+  0 console.error, typecheck/lint 0, **export ios ok (4.0 MB, maps included)**. Final M5 review running on Opus.
+  **What Michael will see** (Spots tab in Map mode, 3 spots around downtown Seattle, no location yet):
+
+  | Pin | Callout title | Callout subtitle | Pin colour |
+  |---|---|---|---|
+  | Pier 57 kinked rail (complete, 1 photo) | "Pier 57 kinked rail" | "rail" | blue `#007AFF` |
+  | Library ledge (draft) | "Library ledge" | "Draft" | yellow `#EAB308` |
+  | unnamed (draft) | "Untitled Spot — Oct 13" | "Draft" | yellow `#EAB308` |
+
+  3 markers; map opens framing all three (≈2 km × 2.5 km), `showsUserLocation` on; the + button and
+  the header Filter button stay in Map mode; List is the default. Tapping a callout opens the spot.
 - 2026-10-15 00:21 · M5 started · `react-native-maps` **1.27.2** installed via `npx expo install` (= the
   SDK 57 pin in `bundledNativeModules.json`). Expo published new SDK 57 patches tonight, so a separate
   `chore:` ran `expo install --fix` (expo 57.0.29, expo-router 57.0.27, expo-linking 57.0.13); doctor

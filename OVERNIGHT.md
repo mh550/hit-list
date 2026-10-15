@@ -236,6 +236,9 @@ Write the start time in the Status log. For each hop N in 55, 56, 57:
       photos live on the device). `CLAUDE.md` rewritten to the real state (stack, commands,
       branch policy D7, TDD + node:sqlite harness, Expo Go delivery, SDK/jest versions).
       `README.md`: what it is, status, commands, "Not done yet".
+- [ ] **D12 (Michael 2026-10-15):** move "Import Photos" off the Profile tab to the Spots tab as a
+      second action beside the + button (both List and Map views). RED test first, then remove the
+      Profile button and its test.
 - [ ] Review, milestone push.
 
 ### Stretch (only if everything above is done; in this order)
@@ -268,6 +271,7 @@ Write the start time in the Status log. For each hop N in 55, 56, 57:
 ## Direction from Michael
 _(append messages from the phone here, newest first)_
 
+- **2026-10-15 (afternoon, before resuming the loop):** answered both open questions. **D4 geocoder:** keep it — Apple's geocoder is the first line for the town, "Untitled · <date>" is the fallback (no code change). **D12 Import Photos:** must **not** live on the Profile tab (bad UX); put it on the Spots tab or somewhere else → moved to the Spots tab as a second action beside the + button. Also asked: delegate implementation to an Opus subagent and testing to a Sonnet subagent, each with a clear spec.
 - **2026-10-14 23:39:** switched the session model to Opus (`/model claude-opus-5-5`) and said
   "Try again" after the M2 review subagent died on a session rate limit → relaunched the M2 review
   on Opus; queue otherwise unchanged.
@@ -280,12 +284,8 @@ _(append messages from the phone here, newest first)_
 
 ## Needs Michael
 _(exact commands / decisions, newest first)_
-- **Question (D4 note):** the town in "Untitled · Seattle · …" comes from Apple's geocoder, which is a
-  **network service** (I first wrote "on-device"; that was wrong). Each new spot's coordinates are sent to
-  Apple once to get the town. OK to keep, or should town lookup be off?
-- **Question (D12):** the batch import screen had no way in from the app. I added an **"Import Photos"
-  button on the Profile tab**, under Import Settings. Is that the right place, or do you want it on the
-  Spots tab next to the + button?
+- ~~Question (D4 note): geocoder privacy~~ **Answered 2026-10-15:** keep Apple's geocoder first, untitled as fallback.
+- ~~Question (D12): Import Photos placement~~ **Answered 2026-10-15:** not on Profile; goes on the Spots tab beside the + button (queued under M7).
 - **For the next migration (not tonight):** when `MIGRATIONS` gets a second entry, `useDbInit` must
   still load spots if `migrateDb` throws (today it skips the load, so a failed upgrade would look like
   every spot vanished). And per-connection pragmas such as `foreign_keys = ON` go next to the WAL
@@ -303,6 +303,7 @@ _(exact commands / decisions, newest first)_
 
 ## Status log
 _(newest first: time · step · result · commit)_
+- 2026-10-15 17:39 · Loop resumed (session model Opus) · Michael answered D4 (keep geocoder, untitled fallback) and D12 (Import Photos off Profile → Spots tab); recorded in spec §0 and Direction from Michael; D12 move queued under M7. Next: D12 move, then the final whole-branch review that was cut off by a session limit.
 - 2026-10-15 00:51 · Wrap-up: end-of-night checks from a clean `npm ci` all green (table in spec §1.3);
   final whole-branch review (incl. M7 docs) running on Opus.
   **for PROGRESS.md:** HitList — overnight 2026-10-14/15 on `overnight/2026-10-14`: Expo SDK 54 → 57 in three

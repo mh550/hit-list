@@ -41,4 +41,12 @@ describe('SpotMap', () => {
     expect(map.props.initialRegion).toEqual(initialRegion([named], here));
     expect(map.props.showsUserLocation).toBe(true);
   });
+
+  it('leaves spots without a location (0, 0) off the map', () => {
+    const lost = createTestSpot({ location: { latitude: 0, longitude: 0 } });
+    render(<SpotMap spots={[named, lost]} currentLocation={null} onOpenSpot={jest.fn()} />);
+
+    expect(screen.getAllByTestId(/^spot-marker-/)).toHaveLength(1);
+    expect(screen.queryByTestId(`spot-marker-${lost.id}`)).toBeNull();
+  });
 });

@@ -5,7 +5,7 @@ import MapView, { Marker } from 'react-native-maps';
 import { palette } from '@/src/constants/theme';
 import { SpotStatus } from '@/src/types';
 import type { GeoPoint, Spot } from '@/src/types';
-import { initialRegion } from '@/src/utils/map-region';
+import { hasKnownLocation, initialRegion } from '@/src/utils/map-region';
 import { getSpotDisplayName } from '@/src/utils/spot-name';
 
 export const DRAFT_PIN = palette.yellow[500];
@@ -24,7 +24,7 @@ export function SpotMap({ spots, currentLocation, onOpenSpot }: Props) {
 
   return (
     <MapView style={StyleSheet.absoluteFill} initialRegion={region} showsUserLocation>
-      {spots.map((spot) => {
+      {spots.filter(hasKnownLocation).map((spot) => {
         const isDraft = spot.status === SpotStatus.Draft;
         return (
           <Marker

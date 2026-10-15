@@ -15,6 +15,14 @@ interface CapturedPhoto {
   location?: GeoPoint;
 }
 
+function CloseButton({ onPress }: { onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} hitSlop={12} accessibilityRole="button">
+      <Text style={styles.closeButton}>Close</Text>
+    </Pressable>
+  );
+}
+
 export default function CameraScreen() {
   const router = useRouter();
   const cameraRef = useRef<CameraView>(null);
@@ -63,44 +71,32 @@ export default function CameraScreen() {
   }, [router]);
 
   // The screen has no header, so both permission states carry their own Close (router.back).
-  const closePermissionButton = (
-    <Pressable
-      style={styles.permCloseButton}
-      onPress={handleClose}
-      hitSlop={12}
-      accessibilityRole="button">
-      <Text style={styles.closeButton}>Close</Text>
-    </Pressable>
-  );
-
   if (!permission) {
     return (
       <View style={styles.container}>
         <Text style={styles.permissionText}>Loading camera...</Text>
-        {closePermissionButton}
+        <View style={styles.permClose}>
+          <CloseButton onPress={handleClose} />
+        </View>
       </View>
     );
   }
 
   if (!permission.granted) {
     // Once iOS has been declined it never prompts again; only the Settings app can grant it then.
-    const canAsk = permission.canAskAgain !== false;
+    const [label, onPress]: [string, () => unknown] =
+      permission.canAskAgain === false
+        ? ['Open Settings', () => Linking.openSettings()]
+        : ['Grant Permission', requestPermission];
     return (
       <View style={styles.container}>
         <Text style={styles.permissionText}>Camera permission required</Text>
-        {canAsk ? (
-          <Pressable style={styles.permButton} onPress={requestPermission} accessibilityRole="button">
-            <Text style={styles.permButtonText}>Grant Permission</Text>
-          </Pressable>
-        ) : (
-          <Pressable
-            style={styles.permButton}
-            onPress={() => Linking.openSettings()}
-            accessibilityRole="button">
-            <Text style={styles.permButtonText}>Open Settings</Text>
-          </Pressable>
-        )}
-        {closePermissionButton}
+        <Pressable style={styles.permButton} onPress={onPress} accessibilityRole="button">
+          <Text style={styles.permButtonText}>{label}</Text>
+        </Pressable>
+        <View style={styles.permClose}>
+          <CloseButton onPress={handleClose} />
+        </View>
       </View>
     );
   }
@@ -110,9 +106,7 @@ export default function CameraScreen() {
       <CameraView ref={cameraRef} style={styles.camera} facing="back">
         {/* Top bar */}
         <View style={styles.topBar}>
-          <Pressable onPress={handleClose} hitSlop={12}>
-            <Text style={styles.closeButton}>Close</Text>
-          </Pressable>
+          <CloseButton onPress={handleClose} />
           <Text style={styles.photoCount}>
             {photos.length > 0 ? `${photos.length} photo${photos.length > 1 ? 's' : ''}` : ''}
           </Text>
@@ -239,10 +233,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     borderCurve: 'continuous',
   },
-  permCloseButton: {
-    marginTop: spacing.xl,
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.md,
+  permClose: {
+    marginTop: spacing.xl + spacing.md,
   },
   permButtonText: {
     color: palette.white,

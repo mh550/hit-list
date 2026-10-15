@@ -1,6 +1,7 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams } from 'expo-router';
 import { useSpotsStore } from '@/src/stores';
+import type { SpotUpdate } from '@/src/types';
 import { createTestSpot } from './factories';
 
 const mockUpdateSpot = jest.fn(async () => {});
@@ -16,7 +17,6 @@ describe('Edit spot: clearing the name', () => {
     const spot = createTestSpot({ name: 'Pier 57 rail' });
     useSpotsStore.setState({ spots: [spot] });
     jest.mocked(useLocalSearchParams).mockReturnValue({ id: spot.id });
-    jest.mocked(useRouter).mockReturnValue({ push: jest.fn(), back: jest.fn(), replace: jest.fn() } as never);
 
     render(<EditSpotScreen />);
     fireEvent.changeText(screen.getByDisplayValue('Pier 57 rail'), '   ');
@@ -24,7 +24,7 @@ describe('Edit spot: clearing the name', () => {
 
     return waitFor(() => {
       expect(mockUpdateSpot).toHaveBeenCalledTimes(1);
-      const [id, updates] = mockUpdateSpot.mock.calls[0] as unknown as [string, Record<string, unknown>];
+      const [id, updates] = mockUpdateSpot.mock.calls[0] as unknown as [string, SpotUpdate];
       expect(id).toBe(spot.id);
       expect(updates).toHaveProperty('name', null);
     });

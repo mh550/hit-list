@@ -26,9 +26,12 @@ describe('Spots tab Import photos action', () => {
 
   it('opens the batch import flow from list mode', () => {
     // D12: the import entry point lives on the Spots tab, reachable while browsing the list.
+    // Screen readers need the button role, since the control is icon/label-only.
     render(<SpotsScreen />);
 
-    fireEvent.press(screen.getByLabelText('Import photos'));
+    const importAction = screen.getByLabelText('Import photos');
+    expect(importAction.props.accessibilityRole).toBe('button');
+    fireEvent.press(importAction);
 
     expect(push).toHaveBeenCalledWith('/import');
   });
@@ -59,13 +62,6 @@ describe('Spots tab Import photos action', () => {
     fireEvent.press(screen.getByLabelText('Add new spot'));
 
     expect(push).toHaveBeenCalledWith('/add/camera');
-  });
-
-  it('is exposed to accessibility as a button', () => {
-    // Screen readers need the role, since the control is icon/label-only.
-    render(<SpotsScreen />);
-
-    expect(screen.getByLabelText('Import photos').props.accessibilityRole).toBe('button');
   });
 
   it('pads the list bottom so the last rows can scroll clear of the floating buttons', () => {

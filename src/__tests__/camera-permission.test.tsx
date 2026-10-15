@@ -26,6 +26,10 @@ describe('Camera screen without permission', () => {
     jest.mocked(useRouter).mockReturnValue({ push: jest.fn(), back, replace: jest.fn() } as never);
   });
 
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
   it('lets the user close the screen while permission is still loading', () => {
     // The screen has no header, so "Loading camera..." is a dead end without its own Close control.
     jest.mocked(useCameraPermissions).mockReturnValue([null, requestPermission, getPermission]);
@@ -62,6 +66,5 @@ describe('Camera screen without permission', () => {
 
     fireEvent.press(screen.getByText('Close'));
     expect(back).toHaveBeenCalledTimes(1);
-    openSettings.mockRestore();
   });
 });

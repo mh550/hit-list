@@ -1,99 +1,91 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-## Project Status
-
-This is a **specification-phase project** - no source code has been written yet. The repository contains detailed application specifications and AI skill configurations in preparation for implementation.
+Guidance for Claude Code working in this repository.
 
 ## Plan Mode
 - Make the plan extremely concise. Sacrifice grammar for the sake of concision.
 - At the end of each plan, give me a list of unresolved questions to answer, if any.
 
-## Specifications
+## What this is
 
-- `spot_finder_app_spec.md` - Original application specification
-- `spot_finder_app_spec_refined.md` - Refined specification with `[DEVIATION]`, `[ADDITION]`, and `[CLARIFICATION]` markers showing changes from original
+**HitList**: a mobile-first app for street snowboarders/skateboarders to track "spots" (one rideable
+feature at one place: rail, ledge, bank…), with photos, a map, gear/build filters and ratings. Product
+spec: `APP_SPECIFICATIONS.md`. Native-only (web is a stub). Runs on Michael's iPhone in Expo Go; see
+`docs/RUNNING-ON-PHONE.md`.
 
-**HitList** is a mobile-first application for action sports athletes (street snowboarders/skateboarders) to track geographic "spots", which have many "features" (rails, ledges, banks, and other urban features that action sports athletes ride). The spots and features have properties like geolocation, gear/build requirements, and other metadata.
+## Stack (as of 2026-10-15)
 
-## Intended Tech Stack
+Expo **SDK 57** (expo 57.0.29) · React Native 0.86.3 (New Architecture, Hermes) · React 19.2.3 ·
+expo-router 57 · zustand 5 · expo-sqlite 57 · expo-file-system 57 (`File`/`Directory`/`Paths`) ·
+expo-location 57 · expo-image · react-native-maps 1.27.2 (Apple Maps) · TypeScript 6.0 strict ·
+Jest **29.7** with jest-expo 57 (Jest 30 is not required; keep `@types/jest` 29.5.14) ·
+react-test-renderer pinned to 19.2.3 (= React).
 
-Based on configured skills, the project targets **React Native with Expo**. Key architectural decisions from the spec:
+## Commands
 
-- Offline-first with SQLite for local data
-- PostgreSQL + PostGIS for geospatial backend
-- Mapbox for offline map tile support
-- S3-compatible storage for media
+```bash
+npm ci                         # install from the lockfile
+npm run start:tailscale        # Metro on the tailnet address → Expo Go on the iPhone
+npm run typecheck              # tsc --noEmit
+npm run lint                   # expo lint (must be 0 errors; no eslint-disable comments)
+npx jest --ci                  # all tests (Jest runs with TZ=UTC, see jest.global-setup.js)
+npx expo export --platform ios --output-dir /tmp/hl-export   # headless "does it bundle for the phone"
+npx expo-doctor                # must be clean
+```
 
-## Git Workflow
+CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch push.
 
-Commit frequently using the git CLI to maintain a revertable history. No branch strategy needed — commit directly to main.
+## Layout
 
-- Commit after each meaningful unit of work (new feature, bug fix, passing test, config change).
-- Write short, descriptive commit messages stating what changed.
-- No need for PRs, code review, or branch protection — this is a solo project.
-- `git init` if the repo isn't initialized yet; `git add -p` to stage selectively if needed.
+- `app/` expo-router screens: `(tabs)/index.tsx` Spots (List | Map), `(tabs)/profile.tsx`,
+  `add/` Quick Add (camera → review), `import/` batch import, `spot/[id]/` detail + edit.
+- `src/db/` SQLite access. `schema.ts` holds `MIGRATIONS` (versioned by `PRAGMA user_version`):
+  **append a migration, never edit a shipped one**; per-connection pragmas (e.g. `foreign_keys`) go
+  next to the WAL line in `migrateDb`, not in a migration.
+- `src/stores/` zustand: spots (+ filters, sort, `viewMode`), media (`mediaBySpot`), settings, location.
+- `src/hooks/` `useDbInit` (migrate, load spots/media/settings, background town backfill),
+  `useSpotActions`, `useMediaActions` (photo save), `useCurrentLocation`.
+- `src/utils/` pure logic: filtering, geo (`NO_LOCATION`, `isKnownLocation`, haversine), exif,
+  photo-storage, reverse-geocode, spot-name (D4 label), map-region, import-clustering.
+
+## Conventions that are easy to get wrong
+
+- **Dependencies only via Expo**: `npx expo install <pkg>` / `npx expo install --fix`, then
+  `npm dedupe` if `expo-modules-core` ends up nested (jest-expo needs it at the root; it must not be a
+  direct dependency). Never hand-edit `package-lock.json`, never `--force` / `--legacy-peer-deps`.
+  Lockfile changes go in their own `chore:` commit.
+- **Photos**: copied into `Paths.document/photos/<spotId>/<mediaId>.jpg`; `media.file_path` stores
+  the **relative** path; resolve with `resolvePhotoUri` at display time. Never write to the camera
+  roll; files are not deleted on soft delete.
+- **No location** is stored as `(0, 0)` (`NO_LOCATION`); always test with `isKnownLocation` (map,
+  distance, geocoding).
+- **Unnamed spots** display as `Untitled · <Town> · Oct 13, 2:22 PM`; the town lives in
+  `generated_name` (Apple's on-device geocoder, ≤ 10 backfills per launch).
+- expo-router 57 has no `@react-navigation/*` dependencies; import from `expo-router` /
+  `expo-router/js-tabs`.
 
 ## Testing
 
-### Test-Driven Development
-- Write tests before or alongside implementation.
-- Backend: unit/integration tests for API endpoints, DB queries, geospatial logic, auth.
-- E2E: use playwright-cli for browser-based flows (web admin, API explorer, etc.).
+- **TDD**: write the failing test, watch it fail, then the code. Keep `npx jest --ci` green with zero
+  `console.error` lines.
+- **DB code runs against real SQLite**: `src/__tests__/helpers/node-sqlite-db.ts`
+  (`createTestDb` / `createMigratedTestDb`, Node's built-in `node:sqlite`), not mocks.
+- **Fakes mirror the real API**: open the package's `.d.ts` in `node_modules` and copy the member
+  names and signatures before mocking. Existing fakes: `__mocks__/expo-file-system.ts`
+  (+ `helpers/fake-fs.ts` for its test hooks), `__mocks__/react-native-maps.tsx`, and global mocks in
+  `jest.setup.ts` (expo-router with overridable `useRouter`/`useLocalSearchParams`, expo-location,
+  expo-image, FlashList, icons).
+- Only `*.test.ts(x)` files are tests.
 
-### Backend Tests
-- Test framework TBD per backend language (e.g., Jest/Vitest for Node, pytest for Python).
-- Cover: CRUD for spots/features, PostGIS queries, auth/authorization, media upload/sync logic.
-- Use a separate test DB; never run tests against production.
+## Git
 
-### E2E Tests with playwright-cli
-Full CLI reference: `.playwright-cli/README.md`
+Feature work on a branch, never directly on `main`; `main` gets merged branches only. Small,
+descriptive commits. Pushing changes to `.github/workflows/*` over HTTPS needs a token with the
+`workflow` scope (`gh auth refresh -h github.com -s workflow`); SSH works regardless.
 
-Key commands:
-```bash
-playwright-cli open <url>       # open browser
-playwright-cli snapshot         # capture page + element refs
-playwright-cli click <ref>      # interact
-playwright-cli screenshot       # capture screenshot
-playwright-cli console          # view console messages
-```
+## AI skills in the repo
 
-**Sessions** — use named sessions to isolate concurrent Claude Code instances:
-```bash
-# Start a named session
-playwright-cli -s=backend open http://localhost:3000
-playwright-cli -s=frontend open http://localhost:8081
-
-# Or set via env var for the whole agent session
-PLAYWRIGHT_CLI_SESSION=backend claude .
-
-# List / close sessions
-playwright-cli list
-playwright-cli -s=backend close
-playwright-cli close-all
-```
-
-Rules for session usage:
-- Each Claude Code instance working on a separate app **must** use a distinct `-s=<name>` session (e.g., `-s=api`, `-s=app`).
-- Default (no `-s=`) is a shared persistent profile — avoid for concurrent work.
-- Sessions persist cookies/storage between calls; use `playwright-cli -s=<name> delete-data` to reset.
-- Playwright CLI is headless by default; pass `--headed` to `open` only when visual debugging is needed.
-
-## AI Skills Available
-
-Skills in `.agents/skills/` provide coding guidelines for implementation:
-
-| Skill | Use When |
-|-------|----------|
-| `vercel-react-native-skills` | Building components, list performance, animations, native modules |
-| `vercel-react-best-practices` | React patterns, async handling, bundle optimization, rendering |
-| `vercel-composition-patterns` | Component architecture, compound components, context patterns |
-| `web-design-guidelines` | UI/UX review and accessibility |
-
-Each skill has a `SKILL.md` (overview) and `AGENTS.md` (full rules). Priority rules from React Native skills:
-
-1. **List Performance** (CRITICAL) - FlashList, memoization, callback stability
-2. **Animation** (HIGH) - GPU properties only (transform/opacity), useDerivedValue
-3. **Navigation** (HIGH) - Native stack/tabs over JS navigators
-4. **UI Patterns** (HIGH) - expo-image, Pressable, native modals
+`.agents/skills/` holds React Native / React guidelines (`vercel-react-native-skills`,
+`vercel-react-best-practices`, `vercel-composition-patterns`, `web-design-guidelines`); each has a
+`SKILL.md` and an `AGENTS.md`. `.playwright-cli/README.md` documents the browser CLI (only relevant
+for web tooling).

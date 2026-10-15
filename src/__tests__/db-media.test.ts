@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { createMigratedTestDb } from './helpers/node-sqlite-db';
-import { insertSpot, insertMedia, getMediaForSpot, deleteMedia } from '@/src/db';
+import { insertSpot, insertMedia, getMediaForSpot, getAllMedia, deleteMedia } from '@/src/db';
 import { createTestMedia, createTestSpot } from './factories';
 
 describe('media against real SQLite', () => {
@@ -40,5 +40,21 @@ describe('media against real SQLite', () => {
     await deleteMedia(db, drop.id);
 
     expect(await getMediaForSpot(db, spot.id)).toEqual([keep]);
+  });
+
+  it('getAllMedia returns every row, oldest first within each spot', async () => {
+    const s1 = createTestSpot();
+    const s2 = createTestSpot();
+    await insertSpot(db, s1);
+    await insertSpot(db, s2);
+    const a2 = createTestMedia({ spot_id: s1.id, created_at: '2026-10-13T12:00:00.000Z' });
+    const a1 = createTestMedia({ spot_id: s1.id, created_at: '2026-10-13T11:00:00.000Z' });
+    const b1 = createTestMedia({ spot_id: s2.id, created_at: '2026-10-13T10:00:00.000Z' });
+    for (const m of [a2, b1, a1]) await insertMedia(db, m);
+
+    const all = await getAllMedia(db);
+
+    expect(all).toHaveLength(3);
+    expect(all.filter((m) => m.spot_id === s1.id)).toEqual([a1, a2]);
   });
 });

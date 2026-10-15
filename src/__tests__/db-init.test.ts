@@ -2,8 +2,9 @@ import { renderHook, act } from '@testing-library/react-native';
 import { useDbInit } from '@/src/hooks/use-db-init';
 import { useSpotsStore } from '@/src/stores';
 import { useSettingsStore } from '@/src/stores/settings-store';
+import { useMediaStore } from '@/src/stores/media-store';
 import { SpotStatus, UnitSystem } from '@/src/types';
-import { createTestSpot } from './factories';
+import { createTestMedia, createTestSpot } from './factories';
 
 const mockDb = {
   execAsync: jest.fn().mockResolvedValue(undefined),
@@ -19,12 +20,14 @@ jest.mock('expo-sqlite', () => ({
 
 const mockGetSpots = jest.fn();
 const mockGetUserSettings = jest.fn();
+const mockGetAllMedia = jest.fn();
 const mockMigrateDb = jest.fn().mockResolvedValue(undefined);
 
 jest.mock('@/src/db', () => ({
   migrateDb: (...args: any[]) => mockMigrateDb(...args),
   getSpots: (...args: any[]) => mockGetSpots(...args),
   getUserSettings: (...args: any[]) => mockGetUserSettings(...args),
+  getAllMedia: (...args: any[]) => mockGetAllMedia(...args),
   insertSpot: jest.fn().mockResolvedValue(undefined),
   updateSpot: jest.fn().mockResolvedValue(undefined),
   softDeleteSpot: jest.fn().mockResolvedValue(undefined),
@@ -39,6 +42,8 @@ describe('useDbInit', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     useSpotsStore.setState({ spots: [] });
+    useMediaStore.setState({ mediaBySpot: {} });
+    mockGetAllMedia.mockResolvedValue([]);
     useSettingsStore.setState({
       units: UnitSystem.Imperial,
       batch_import_radius: 50,
@@ -92,6 +97,18 @@ describe('useDbInit', () => {
     await flushInit();
 
     expect(result.current.isReady).toBe(true);
+  });
+
+  it('loads media into the media store', async () => {
+    mockGetSpots.mockResolvedValue([]);
+    mockGetUserSettings.mockResolvedValue(null);
+    const m = createTestMedia({ spot_id: 's1' });
+    mockGetAllMedia.mockResolvedValue([m]);
+
+    renderHook(() => useDbInit());
+    await flushInit();
+
+    expect(useMediaStore.getState().mediaBySpot).toEqual({ s1: [m] });
   });
 
   it('handles DB errors gracefully — still marks ready', async () => {

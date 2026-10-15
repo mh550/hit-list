@@ -26,7 +26,8 @@
     },
     "testPathIgnorePatterns": [
       "/node_modules/",
-      "factories\\.ts$"
+      "factories\\.ts$",
+      "/__tests__/helpers/"
     ]
   },
   "dependencies": {

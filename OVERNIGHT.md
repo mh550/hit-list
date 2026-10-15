@@ -225,14 +225,14 @@ Write the start time in the Status log. For each hop N in 55, 56, 57:
       untitled-with-town, untitled-without). Review, `/simplify`, milestone push.
 
 ### M7 — Phone handoff + docs (spec §2.2 M7) (≈30 min)
-- [ ] `package.json`: `"start:tailscale": "REACT_NATIVE_PACKAGER_HOSTNAME=$(tailscale ip -4)
+- [x] `package.json`: `"start:tailscale": "REACT_NATIVE_PACKAGER_HOSTNAME=$(tailscale ip -4)
       expo start"`.
-- [ ] Metro smoke: `lsof -i :8081` (expect free); start `npm run start:tailscale` in the
+- [x] Metro smoke: `lsof -i :8081` (expect free); start `npm run start:tailscale` in the
       background; `curl -sS -o /tmp/hl.bundle -w '%{http_code}\n'
       "http://100.88.90.97:8081/index.bundle?platform=ios&dev=true"` → `200` and
       `head -c 200 /tmp/hl.bundle` looks like JavaScript; stop Metro; `rm /tmp/hl.bundle`.
       Record the QR URL `exp://100.88.90.97:8081` in the Status log and on the status page.
-- [ ] `docs/RUNNING-ON-PHONE.md` (Expo Go, tailnet, the script, what to expect, reload, where
+- [x] `docs/RUNNING-ON-PHONE.md` (Expo Go, tailnet, the script, what to expect, reload, where
       photos live on the device). `CLAUDE.md` rewritten to the real state (stack, commands,
       branch policy D7, TDD + node:sqlite harness, Expo Go delivery, SDK/jest versions).
       `README.md`: what it is, status, commands, "Not done yet".
@@ -280,6 +280,9 @@ _(append messages from the phone here, newest first)_
 
 ## Needs Michael
 _(exact commands / decisions, newest first)_
+- **Question (D12):** the batch import screen had no way in from the app. I added an **"Import Photos"
+  button on the Profile tab**, under Import Settings. Is that the right place, or do you want it on the
+  Spots tab next to the + button?
 - **For the next migration (not tonight):** when `MIGRATIONS` gets a second entry, `useDbInit` must
   still load spots if `migrateDb` throws (today it skips the load, so a failed upgrade would look like
   every spot vanished). And per-connection pragmas such as `foreign_keys = ON` go next to the WAL
@@ -297,6 +300,13 @@ _(exact commands / decisions, newest first)_
 
 ## Status log
 _(newest first: time · step · result · commit)_
+- 2026-10-15 00:40 · M7 steps 1–3 done · `start:tailscale` script. **Metro smoke over the tailnet: manifest
+  `http://100.88.90.97:8081/` → HTTP 200, SDK 57.0.0; launch bundle → HTTP 200, 9.3 MB of JavaScript
+  containing react-native-maps and the D4 label.** QR URL: **`exp://100.88.90.97:8081`**. (The runbook's
+  `/index.bundle` URL 404s because the entry is `expo-router/entry`; the manifest's launch-asset URL is what
+  Expo Go fetches.) Metro stopped, port 8081 free. `docs/RUNNING-ON-PHONE.md` written, `CLAUDE.md` rewritten
+  to the real state, README rewritten. Found while writing the doc: **batch import had no entry point in the
+  UI** → "Import Photos" button on the Profile tab (`D12 default`, question under Needs Michael). 214 tests.
 - 2026-10-15 00:36 · M6 Tasks 1–4 done · `1dcac4e` EXIF · `531d1d2` D4 names · `8941dd0` towns · `b2a68b4` location
   · `072c08b` no distance for no-location spots (found by this table). 213 tests / 25 suites, 0 console.error,
   export ok. Final M6 review running on Opus.

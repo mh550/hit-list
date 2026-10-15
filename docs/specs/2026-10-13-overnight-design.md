@@ -22,6 +22,7 @@ those answers and does not re-open them.
 | D9 | **expo-doctor patch bumps** | Ride with the SDK hops (`npx expo install --fix` per hop). | — |
 | D10 | **Sort + search** | Stretch S2 (after clustering): sort control (distance first, since the map already shows distance) and search by name. Michael's further ideas — routes between spots, smart folders / tags by city or feature type — go to §6 roadmap, not built tonight. The town stored by D4 is the first ingredient of "by city". | "Both matter; map shows distance; routes later; auto-grouping by city or type would help." |
 | D11 | **Web target** | Stays a stub. Native-only. | — |
+| D12 *default* | **Where "Import Photos" lives** | Found during M7: the batch import flow had no entry point in the UI at all. Default: an "Import Photos" button on the Profile tab under Import Settings (next to the radius). **Question for Michael: is the Profile tab the right place, or should it be on the Spots tab (e.g. a second action next to the + button)?** | *open* |
 
 ---
 

@@ -239,7 +239,7 @@ Write the start time in the Status log. For each hop N in 55, 56, 57:
 - [x] **D12 (Michael 2026-10-15):** move "Import Photos" off the Profile tab to the Spots tab as a
       second action beside the + button (both List and Map views). RED test first, then remove the
       Profile button and its test.
-- [ ] Review, milestone push.
+- [x] Review, milestone push.
 
 ### Stretch (only if everything above is done; in this order)
 - [ ] **S1 clustering (D8):** `npx expo install react-native-map-clustering` (→ `chore:`
@@ -284,6 +284,7 @@ _(append messages from the phone here, newest first)_
 
 ## Needs Michael
 _(exact commands / decisions, newest first)_
+- **Question (D13):** photos you import become spots dated by **when the photo was taken**, and the list sorts newest first. So importing last year's photos puts those spots at the **bottom** of the list, which can look like the import failed. Keep that (date = capture time), or should imports sort by when you imported them?
 - ~~Question (D4 note): geocoder privacy~~ **Answered 2026-10-15:** keep Apple's geocoder first, untitled as fallback.
 - ~~Question (D12): Import Photos placement~~ **Answered 2026-10-15:** not on Profile; goes on the Spots tab beside the + button (queued under M7).
 - **For the next migration (not tonight):** when `MIGRATIONS` gets a second entry, `useDbInit` must
@@ -303,6 +304,7 @@ _(exact commands / decisions, newest first)_
 
 ## Status log
 _(newest first: time · step · result · commit)_
+- 2026-10-15 17:58 · **M7 done — final whole-branch review** (Opus, 3 passes, gates re-run): **0 Critical / 4 Important / 8 Minor**, "with fixes". Fixed (RED tests by Sonnet, code + docs by Opus, gates re-run here): **dark-mode iPhones hid most text** → app forced light (`userInterfaceStyle: light`, DefaultTheme, dark status bar); **camera denial was a dead end** (no header, no way out, iOS never re-prompts) → Close on loading/denied states and "Open Settings" once iOS won't ask again; **last list rows sat under the two floating buttons** → list bottom padding derived from the button sizes; **clearing a name in Edit didn't persist** → saves NULL. Docs: camera prompt flow, a dev build still needs Metro (TestFlight needs a preview/production build, `eas build:configure` first), import groups by GPS only and opens "Select Photos" first, broken cross-reference, new "tap a pin's bubble" check, Tailscale-down fallback, removed a wrong data-deletion claim. `393b0c2` fix · `6d3e7db` docs. **233 tests / 29 suites**, 0 console.error, typecheck 0, lint 0, export ok. Asked Michael: import sort order (D13). Deferred (Minor, known gap): camera location fix, picker and save failures give no on-screen message, only a LogBox warning. Next: `/simplify` over the D12 + review-fix commits, then S1 clustering.
 - 2026-10-15 17:42 · **D12 done** · RED tests by a Sonnet subagent (5 Spots-tab tests, 4 RED + 1 regression guard GREEN; Profile test RED), implementation by an Opus subagent, gates re-run here: **225 tests / 26 suites**, 0 console.error, typecheck 0, lint 0, export ok. Spots tab bottom-right is now a column: a 44 pt white "Import photos" button (SF Symbol `photo.on.rectangle`) above the 56 pt blue +, in List and Map and with zero spots. Profile button removed; its radius hint and `docs/RUNNING-ON-PHONE.md` now point to the Spots tab. Empty list reads "Tap the + button to add your first spot, or import from your photos". Next: final whole-branch review (M7 box).
 
   **What Michael will see** (Spots tab, any mode):

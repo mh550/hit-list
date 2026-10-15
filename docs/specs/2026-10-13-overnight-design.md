@@ -24,6 +24,7 @@ those answers and does not re-open them.
 | D4 note | **Geocoder is not on-device** | Correction found in the M6 review: `reverseGeocodeAsync` uses Apple's CLGeocoder, a network service. The spot's coordinates are sent to Apple and it needs internet (offline lookups fail silently and are retried next launch).  | **Keep it:** \"geocoder as the first line, untitled as a backup\" (2026-10-15). |
 | D11 | **Web target** | Stays a stub. Native-only. | — |
 | D12 | **Where "Import Photos" lives** | Found during M7: the batch import flow had no entry point in the UI at all. A first default put it on the Profile tab; Michael rejected that. Built: a second action on the Spots tab beside the + button, visible in List and Map views. | "Should not live in the profile tab — bad UX. Spots tab or somewhere else." (2026-10-15) |
+| D13 *default* | **Imported spots' date** | Found in the final review: an imported spot's `created_at` is the photo's EXIF capture time (D4 shows that time), and the list sorts by date added, newest first, so importing old photos lands those spots at the bottom. Default: keep capture time. **Question for Michael: keep the capture time, or sort imports by when they were imported?** | *open* |
 
 ---
 

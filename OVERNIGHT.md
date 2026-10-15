@@ -178,13 +178,13 @@ Write the start time in the Status log. For each hop N in 55, 56, 57:
 - [x] TDD `src/utils/photo-storage.ts`: `photoRelativePath`, `persistPhoto` (creates
       `photos/<spotId>/`, copies, returns the relative path), `resolvePhotoUri` (absolute/`file:`
       /`http` passthrough; relative → `Paths.document.uri + path`).
-- [ ] TDD `getAllMedia(db)` in `src/db/media.ts` (real-SQLite suite) and
+- [x] TDD `getAllMedia(db)` in `src/db/media.ts` (real-SQLite suite) and
       `src/stores/media-store.ts` (`mediaBySpot`, `setAll`, `add`, `remove`); load in
       `use-db-init` after spots.
-- [ ] Wire: `app/add/review.tsx` and `app/import/review.tsx` call `persistPhoto` before
+- [x] Wire: `app/add/review.tsx` and `app/import/review.tsx` call `persistPhoto` before
       `insertMedia`, then `media-store.add`. RED first: a screen test that asserts the inserted
       media row's `file_path` is relative.
-- [ ] Display: RED test that `SpotsScreen` renders a thumbnail URI for a spot with media and the
+- [x] Display: RED test that `SpotsScreen` renders a thumbnail URI for a spot with media and the
       "No Photo" placeholder for one without; GREEN by passing `thumbnailUri` from the media
       store. RED test that the detail screen renders one image per media row and no image when
       there is none; GREEN by replacing `app/spot/[id]/index.tsx:101` with a gallery.
@@ -297,6 +297,18 @@ _(exact commands / decisions, newest first)_
 
 ## Status log
 _(newest first: time · step · result · commit)_
+- 2026-10-15 00:08 · M4 Tasks 2–4 done · `a904336` media store · `5638611` review screens persist ·
+  `f09626b` list thumbnail + detail gallery. 156 tests / 18 suites, 0 console.error, typecheck/lint 0,
+  **export ios ok**. Final M4 review running on Opus.
+  **What Michael will see** (Spots list + detail, rendered in a test with 3 spots):
+
+  | Spot | List label | List thumbnail | Detail images |
+  |---|---|---|---|
+  | Pier 57 kinked rail (complete, 3 photos, primary = 1st) | "Pier 57 kinked rail" | `<Documents>/photos/pier/m1.jpg` | 3: m1 (hero), m2, m3 |
+  | Library ledge (draft, no photos) | "Library ledge" + Draft badge | "No Photo" placeholder | 0 |
+  | unnamed (draft, no photos) | "Untitled Spot — Oct 13" + Draft badge | "No Photo" placeholder | 0 |
+
+  (`<Documents>` = `Paths.document` on the phone. The untitled label changes in M6.)
 - 2026-10-15 00:02 · **M3 done** · `/simplify` (4 reviewers; efficiency found nothing material): Jest now
   discovers only `*.test.ts(x)` (replaces two one-off ignore entries), one `createMigratedTestDb()`
   helper, harness trimmed to what `src/db` calls, schema internals kept out of the app's `@/src/db`

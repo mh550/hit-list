@@ -1,11 +1,12 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 export const DB_NAME = 'hit_list.db';
-export const SCHEMA_VERSION = 1;
 
-export async function migrateDb(db: SQLiteDatabase): Promise<void> {
-  await db.execAsync(`PRAGMA journal_mode = WAL;`);
+/** One schema step. Append new steps; never edit a shipped one. */
+export type Migration = (db: SQLiteDatabase) => Promise<void>;
 
+/** Version 1: the schema as it shipped before versioning (idempotent, so pre-versioning DBs adopt it). */
+async function migration1(db: SQLiteDatabase): Promise<void> {
   await db.execAsync(`
     CREATE TABLE IF NOT EXISTS spots (
       id TEXT PRIMARY KEY NOT NULL,
@@ -63,4 +64,32 @@ export async function migrateDb(db: SQLiteDatabase): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_media_spot_id ON media(spot_id);
     CREATE INDEX IF NOT EXISTS idx_sync_queue_created_at ON sync_queue(created_at);
   `);
+}
+
+/** MIGRATIONS[i] takes the DB from version i to i + 1. */
+export const MIGRATIONS: readonly Migration[] = [migration1];
+export const LATEST_SCHEMA_VERSION = MIGRATIONS.length;
+
+export async function getSchemaVersion(db: SQLiteDatabase): Promise<number> {
+  const row = await db.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
+  return row?.user_version ?? 0;
+}
+
+/**
+ * Applies every pending migration, each in its own transaction together with its
+ * `user_version` bump, so a failure leaves the DB at the last good version. A DB from a
+ * newer build (version above what this build knows) is left untouched.
+ */
+export async function migrateDb(
+  db: SQLiteDatabase,
+  migrations: readonly Migration[] = MIGRATIONS,
+): Promise<void> {
+  await db.execAsync('PRAGMA journal_mode = WAL;'); // not allowed inside a transaction
+  const current = await getSchemaVersion(db);
+  for (let v = current; v < migrations.length; v++) {
+    await db.withTransactionAsync(async () => {
+      await migrations[v](db);
+      await db.execAsync(`PRAGMA user_version = ${v + 1}`);
+    });
+  }
 }

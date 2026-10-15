@@ -25,6 +25,8 @@ those answers and does not re-open them.
 | D11 | **Web target** | Stays a stub. Native-only. | — |
 | D12 | **Where "Import Photos" lives** | Found during M7: the batch import flow had no entry point in the UI at all. A first default put it on the Profile tab; Michael rejected that. Built: a second action on the Spots tab beside the + button, visible in List and Map views. | "Should not live in the profile tab — bad UX. Spots tab or somewhere else." (2026-10-15) |
 | D13 *default* | **Imported spots' date** | Found in the final review: an imported spot's `created_at` is the photo's EXIF capture time (D4 shows that time), and the list sorts by date added, newest first, so importing old photos lands those spots at the bottom. Default: keep capture time. **Question for Michael: keep the capture time, or sort imports by when they were imported?** | *open* |
+| D14 *default* | **Default sort** | D10 says "distance first". Built: the Distance chip is first in the row, but the list still opens sorted by Date, newest first (Distance needs a location fix, which can take a moment or be denied). **Question for Michael: should the list open sorted by Distance whenever your location is known?** | *open* |
+| D15 *default* | **What search matches** | Built: a search matches the spot's name or its town (from the geocoder), case-insensitive. It does not match the "Untitled" label or the date. So "seattle" finds every spot in Seattle, named or not. **Question for Michael: is matching the town what you want, or only the name?** | *open* |
 
 ---
 

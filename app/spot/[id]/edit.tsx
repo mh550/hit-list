@@ -15,7 +15,7 @@ import { useSpotsStore } from '@/src/stores';
 import { useSettingsStore } from '@/src/stores/settings-store';
 import { useSpotActions } from '@/src/hooks/use-spot-actions';
 import { getSpotDisplayName } from '@/src/utils/spot-name';
-import { metersToDisplay, inputToMeters } from '@/src/utils/units';
+import { initialDimText, dimensionFromInput } from '@/src/utils/units';
 import { StarRating } from '@/src/components/StarRating';
 import { Chip, ChipGroup } from '@/src/components/Chip';
 import { Button } from '@/src/components/Button';
@@ -52,21 +52,15 @@ export default function EditSpotScreen() {
   const [featureType, setFeatureType] = useState(spot?.feature.type);
   const [customType, setCustomType] = useState(spot?.feature.custom_type ?? '');
   const [shape, setShape] = useState(spot?.feature.shape ?? '');
-  const [length, setLength] = useState(
-    spot?.feature.dimensions?.length != null
-      ? metersToDisplay(spot.feature.dimensions.length, units).toFixed(1)
-      : '',
-  );
-  const [height, setHeight] = useState(
-    spot?.feature.dimensions?.height != null
-      ? metersToDisplay(spot.feature.dimensions.height, units).toFixed(1)
-      : '',
-  );
-  const [width, setWidth] = useState(
-    spot?.feature.dimensions?.width != null
-      ? metersToDisplay(spot.feature.dimensions.width, units).toFixed(1)
-      : '',
-  );
+  // Display texts as first shown; a field still equal to its initial text saves the stored metres exactly.
+  const [initialDims] = useState(() => ({
+    length: initialDimText(spot?.feature.dimensions?.length, units),
+    height: initialDimText(spot?.feature.dimensions?.height, units),
+    width: initialDimText(spot?.feature.dimensions?.width, units),
+  }));
+  const [length, setLength] = useState(initialDims.length);
+  const [height, setHeight] = useState(initialDims.height);
+  const [width, setWidth] = useState(initialDims.width);
   const [material, setMaterial] = useState(spot?.feature.material);
   const [isStopped, setIsStopped] = useState(spot?.feature.skate_stops?.is_stopped ?? false);
   const [stopType, setStopType] = useState<StopType | undefined>(spot?.feature.skate_stops?.stop_type);
@@ -87,6 +81,7 @@ export default function EditSpotScreen() {
 
   const handleSave = useCallback(async () => {
     if (!spot) return;
+    const stored = spot.feature.dimensions;
 
     const updates: SpotUpdate = {
       name: name.trim() || null, // null clears the stored name; undefined would keep the old one
@@ -96,9 +91,9 @@ export default function EditSpotScreen() {
         custom_type: featureType === FeatureType.Other ? customType : undefined,
         shape: shape || undefined,
         dimensions: {
-          length: length ? inputToMeters(parseFloat(length), units) : undefined,
-          height: height ? inputToMeters(parseFloat(height), units) : undefined,
-          width: width ? inputToMeters(parseFloat(width), units) : undefined,
+          length: dimensionFromInput(length, initialDims.length, stored?.length, units),
+          height: dimensionFromInput(height, initialDims.height, stored?.height, units),
+          width: dimensionFromInput(width, initialDims.width, stored?.width, units),
         },
         material,
         skate_stops: isStopped
@@ -131,7 +126,7 @@ export default function EditSpotScreen() {
     await updateSpot(spot.id, updates);
     router.back();
   }, [
-    spot, name, status, featureType, customType, shape, length, height, width,
+    spot, name, status, featureType, customType, shape, length, height, width, initialDims,
     material, isStopped, stopType, stopDetails, removable, difficulty, naturalSpeed, setupOptions, landingDifficulty,
     landingSurface, intensity, bustability, bustNotes, notes, units,
     updateSpot, router,
@@ -257,6 +252,7 @@ export default function EditSpotScreen() {
           <FieldLabel label="Length" />
           <TextInput
             style={styles.input}
+            accessibilityLabel="Length"
             value={length}
             onChangeText={setLength}
             keyboardType="decimal-pad"
@@ -268,6 +264,7 @@ export default function EditSpotScreen() {
           <FieldLabel label="Height" />
           <TextInput
             style={styles.input}
+            accessibilityLabel="Height"
             value={height}
             onChangeText={setHeight}
             keyboardType="decimal-pad"
@@ -279,6 +276,7 @@ export default function EditSpotScreen() {
           <FieldLabel label="Width" />
           <TextInput
             style={styles.input}
+            accessibilityLabel="Width"
             value={width}
             onChangeText={setWidth}
             keyboardType="decimal-pad"

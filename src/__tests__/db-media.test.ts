@@ -42,6 +42,18 @@ describe('media against real SQLite', () => {
     expect(await getMediaForSpot(db, spot.id)).toEqual([keep]);
   });
 
+  it('deleteMedia makes the row disappear from getMediaForSpot, even when it was the only one', async () => {
+    // Guard for remove-photo: after the delete the spot lists no such photo.
+    const spot = createTestSpot();
+    await insertSpot(db, spot);
+    const only = createTestMedia({ spot_id: spot.id });
+    await insertMedia(db, only);
+
+    await deleteMedia(db, only.id);
+
+    expect(await getMediaForSpot(db, spot.id)).toEqual([]);
+  });
+
   it('getAllMedia returns every row, oldest first within each spot', async () => {
     const s1 = createTestSpot();
     const s2 = createTestSpot();

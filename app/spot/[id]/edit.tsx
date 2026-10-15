@@ -10,10 +10,15 @@ import {
   Switch,
   Alert,
 } from 'react-native';
+import { Image } from 'expo-image';
 
-import { useSpotsStore } from '@/src/stores';
+import { IconSymbol } from '@/components/ui/icon-symbol';
+import { useSpotsStore, useMediaStore } from '@/src/stores';
 import { useSettingsStore } from '@/src/stores/settings-store';
 import { useSpotActions } from '@/src/hooks/use-spot-actions';
+import { useMediaActions } from '@/src/hooks/use-media-actions';
+import { resolvePhotoUri } from '@/src/utils/photo-storage';
+import { primaryPhoto, spotPhotos } from '@/src/utils/spot-photos';
 import { getSpotDisplayName } from '@/src/utils/spot-name';
 import { initialDimText, dimensionFromInput } from '@/src/utils/units';
 import { StarRating } from '@/src/components/StarRating';
@@ -45,6 +50,8 @@ export default function EditSpotScreen() {
   const router = useRouter();
   const spot = useSpotsStore((s) => s.spots.find((sp) => sp.id === id));
   const { updateSpot, removeSpot } = useSpotActions();
+  const { removePhotos } = useMediaActions();
+  const media = useMediaStore((s) => (spot ? s.mediaBySpot[spot.id] : undefined));
   const units = useSettingsStore((s) => s.units);
 
   // Edit state (local copy)
@@ -78,6 +85,11 @@ export default function EditSpotScreen() {
   const [bustNotes, setBustNotes] = useState(spot?.metadata.bustability_notes ?? '');
   const [notes, setNotes] = useState(spot?.metadata.notes ?? '');
   const [status, setStatus] = useState(spot?.status ?? SpotStatus.Draft);
+  // Photos staged for removal; nothing is deleted until Save (Cancel/back undoes, like the other fields).
+  const [removedIds, setRemovedIds] = useState<string[]>([]);
+
+  const photos = spot ? spotPhotos(spot, media) : [];
+  const visiblePhotos = photos.filter((p) => !removedIds.includes(p.id));
 
   const handleSave = useCallback(async () => {
     if (!spot) return;
@@ -123,13 +135,23 @@ export default function EditSpotScreen() {
       updated_at: new Date().toISOString(),
     };
 
+    if (removedIds.length > 0) {
+      // Only ids whose row was actually deleted count, so a failed delete never leaves the primary pointing nowhere.
+      const removed = await removePhotos(removedIds);
+      const primaryId = primaryPhoto(spot, media)?.id;
+      if (primaryId !== undefined && removed.includes(primaryId)) {
+        const remaining = spotPhotos(spot, media).filter((p) => !removed.includes(p.id));
+        updates.primary_photo_id = remaining[0]?.id ?? null; // null clears the column
+      }
+    }
+
     await updateSpot(spot.id, updates);
     router.back();
   }, [
     spot, name, status, featureType, customType, shape, length, height, width, initialDims,
     material, isStopped, stopType, stopDetails, removable, difficulty, naturalSpeed, setupOptions, landingDifficulty,
-    landingSurface, intensity, bustability, bustNotes, notes, units,
-    updateSpot, router,
+    landingSurface, intensity, bustability, bustNotes, notes, units, removedIds, media,
+    updateSpot, removePhotos, router,
   ]);
 
   const handleDelete = useCallback(() => {
@@ -194,6 +216,35 @@ export default function EditSpotScreen() {
       style={styles.container}
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled">
+      {photos.length > 0 ? (
+        <>
+          <SectionHeader title="Photos" />
+          {visiblePhotos.length > 0 ? (
+            <ScrollView
+              horizontal
+              style={styles.photoRow}
+              contentContainerStyle={styles.photoRowContent}
+              showsHorizontalScrollIndicator={false}>
+              {visiblePhotos.map((m, i) => (
+                <View key={m.id} style={styles.thumbWrap}>
+                  <Image source={{ uri: resolvePhotoUri(m.file_path) }} style={styles.thumb} contentFit="cover" />
+                  <Pressable
+                    style={styles.thumbRemove}
+                    onPress={() => setRemovedIds((prev) => [...prev, m.id])}
+                    hitSlop={10}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove photo ${i + 1}`}>
+                    <IconSymbol name="xmark" size={14} color={palette.white} />
+                  </Pressable>
+                </View>
+              ))}
+            </ScrollView>
+          ) : (
+            <Text style={styles.photoHint}>All photos will be removed when you save.</Text>
+          )}
+        </>
+      ) : null}
+
       {/* Basic Info */}
       <SectionHeader title="Basic Info" />
       <View style={styles.field}>
@@ -500,6 +551,40 @@ const styles = StyleSheet.create({
   },
   field: {
     gap: spacing.sm,
+  },
+  photoRow: {
+    flexGrow: 0, // a horizontal ScrollView grows to fill the column by default
+  },
+  photoRowContent: {
+    gap: spacing.sm,
+    paddingTop: spacing.xs,
+    paddingRight: spacing.xs,
+  },
+  thumbWrap: {
+    width: 72,
+    height: 72,
+  },
+  thumb: {
+    width: 72,
+    height: 72,
+    borderRadius: radius.md,
+    borderCurve: 'continuous',
+    backgroundColor: palette.gray[200],
+  },
+  thumbRemove: {
+    position: 'absolute',
+    top: 4,
+    right: 4,
+    width: 24,
+    height: 24,
+    borderRadius: radius.full,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+  },
+  photoHint: {
+    fontSize: 14,
+    color: palette.gray[600],
   },
   fieldLabel: {
     fontSize: 14,

@@ -49,7 +49,8 @@ takes a little while; later loads are quick.
   tap **Select Photos** to open the library picker. Photos are grouped by GPS only: photos within the
   Import Radius of each other (Profile tab, 50 m by default) become one spot. Photos without GPS get
   a spot each. Each spot's date is the capture time of its first photo.
-- **Spot detail**: the main photo large, the rest in a row underneath.
+- **Spot detail**: the main photo large, the rest in a row underneath. In Edit, tap the × on a photo and
+  Save to take it off the spot (the file stays in the app's storage).
 - iOS asks for **location** when the Spots tab first opens. Saying no is fine: distances stay blank
   and the map just shows the spots.
 - **Camera**: the first tap on + shows an in-app "Camera permission required" screen. Tap

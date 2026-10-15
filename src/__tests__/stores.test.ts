@@ -4,6 +4,7 @@ import {
   selectActiveFilterCount,
 } from '@/src/stores/spots-store';
 import { useSettingsStore } from '@/src/stores/settings-store';
+import { useSpotsStore } from '@/src/stores';
 import {
   DEFAULT_FILTERS,
   FeatureType,
@@ -341,5 +342,21 @@ describe('useSettingsStore', () => {
     useSettingsStore.getState().addGear(GearItem.Winch);
     useSettingsStore.getState().addGear(GearItem.Winch);
     expect(useSettingsStore.getState().gear).toHaveLength(1);
+  });
+});
+
+describe('useSpotsStore.updateSpot: primary_photo_id', () => {
+  afterEach(() => useSpotsStore.setState({ spots: [] }));
+
+  it('null clears primary_photo_id (undefined in memory) while other fields stay', () => {
+    // Removing the last photo must leave the spot without a primary; null is the patch value that clears it.
+    const spot = createTestSpot({ id: 'p1', name: 'Keep me', primary_photo_id: 'photo-1' });
+    useSpotsStore.setState({ spots: [spot] });
+
+    useSpotsStore.getState().updateSpot('p1', { primary_photo_id: null });
+
+    const updated = useSpotsStore.getState().spots[0];
+    expect(updated.primary_photo_id).toBeUndefined();
+    expect(updated.name).toBe('Keep me');
   });
 });

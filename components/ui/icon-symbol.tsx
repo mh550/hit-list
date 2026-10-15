@@ -25,6 +25,7 @@ const MAPPING = {
   'mappin.slash': 'location-off',
   'photo.on.rectangle': 'photo-library',
   'magnifyingglass': 'search',
+  'xmark': 'close',
 } as IconMapping;
 
 /**

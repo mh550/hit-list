@@ -44,7 +44,7 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   next to the WAL line in `migrateDb`, not in a migration.
 - `src/stores/` zustand: spots (+ Filter-sheet filters, a separate `searchQuery`, sort, `viewMode`; filtering and sorting live in its selectors), media (`mediaBySpot`), settings, location.
 - `src/hooks/` `useDbInit` (migrate, load spots/media/settings, background town backfill),
-  `useSpotActions`, `useMediaActions` (photo save), `useCurrentLocation`.
+  `useSpotActions`, `useMediaActions` (photo save and remove; removal deletes the row only, D3), `useCurrentLocation`.
 - `src/utils/` pure logic: geo (`NO_LOCATION`, `isKnownLocation`, haversine), exif,
   photo-storage, reverse-geocode, spot-name (D4 label), map-region, import-clustering.
 
@@ -78,7 +78,8 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   MapView exposes the shared `mockMapMethods` spies, reset in `beforeEach` with
   `mockMapMethods.fitToCoordinates.mockReset()`; import it via
   `import * as ReactNativeMaps from 'react-native-maps'`, not `jest.requireMock`), and global mocks in
-  `jest.setup.ts` (expo-router with overridable `useRouter`/`useLocalSearchParams`, expo-location,
+  `jest.setup.ts` (expo-router with overridable `useRouter`/`useLocalSearchParams`, expo-sqlite's `useSQLiteContext`
+  defaulting to an empty object so screens that need a db can render; real queries need the node:sqlite harness, expo-location,
   expo-image, FlashList, icons).
 - `supercluster` and `kdbush` (ES modules used by react-native-map-clustering) are in Jest's
   `transformIgnorePatterns` so they get transformed.

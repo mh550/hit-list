@@ -17,6 +17,6 @@
   layer already writes `?? null`; the store merge turns `null` into no primary, like `name`).
 
 ### Task 1
-- [ ] RED: section hidden with no photos; thumbnails + remove labels; staging hides a photo; Save deletes rows and updates the store;
+- [x] RED: section hidden with no photos; thumbnails + remove labels; staging hides a photo; Save deletes rows and updates the store;
   Cancel path deletes nothing; primary reassigned / cleared; a failed delete keeps the photo; `removeMany` and real-SQLite delete.
-- [ ] GREEN, gates. Commit `feat: remove a photo from a spot in Edit`.
+- [x] GREEN, gates. Commit `feat: remove a photo from a spot in Edit`.

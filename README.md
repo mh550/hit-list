@@ -34,7 +34,7 @@ npx expo export --platform ios --output-dir /tmp/hl-export
 
 ## Not done yet
 
-- Removing a photo, moving a spot's pin in the edit screen.
+- Moving a spot's pin in the edit screen.
 - Spots saved without GPS can't be placed on the map yet (they stay in the list).
 - Cloud sync, accounts, sharing, crews, folders; video; offline map tiles (needs a dev build).
 - A build that runs without the desktop (an EAS preview or production build through TestFlight, or

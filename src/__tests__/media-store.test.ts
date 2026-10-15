@@ -27,4 +27,22 @@ describe('media store', () => {
     expect(listener).toHaveBeenCalledTimes(1);
     unsubscribe();
   });
+
+  it('removeMany removes those media from any spot, keeping the rest in order, in one update', () => {
+    // The Edit screen removes a spot's photos in one go; other photos and their order must survive.
+    const a = createTestMedia({ spot_id: 's1' });
+    const b = createTestMedia({ spot_id: 's1' });
+    const c = createTestMedia({ spot_id: 's1' });
+    const d = createTestMedia({ spot_id: 's2' });
+    useMediaStore.getState().setAll([a, b, c, d]);
+    const listener = jest.fn();
+    const unsubscribe = useMediaStore.subscribe(listener);
+
+    useMediaStore.getState().removeMany([b.id, d.id, 'unknown']);
+
+    expect(useMediaStore.getState().mediaBySpot.s1).toEqual([a, c]);
+    expect(useMediaStore.getState().mediaBySpot.s2 ?? []).toEqual([]);
+    expect(listener).toHaveBeenCalledTimes(1);
+    unsubscribe();
+  });
 });

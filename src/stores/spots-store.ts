@@ -26,10 +26,14 @@ interface SpotsState {
   setViewMode: (viewMode: ViewMode) => void;
 }
 
-/** Merges a patch into a spot; `name: null` (cleared in Edit) becomes no name, so it shows as untitled. */
-function applySpotUpdate(spot: Spot, { name, ...rest }: SpotUpdate): Spot {
+/**
+ * Merges a patch into a spot; `name: null` (cleared in Edit) becomes no name, so it shows as untitled, and
+ * `primary_photo_id: null` (last photo removed) becomes no primary.
+ */
+function applySpotUpdate(spot: Spot, { name, primary_photo_id, ...rest }: SpotUpdate): Spot {
   const next: Spot = { ...spot, ...rest };
   if (name !== undefined) next.name = name ?? undefined;
+  if (primary_photo_id !== undefined) next.primary_photo_id = primary_photo_id ?? undefined;
   return next;
 }
 

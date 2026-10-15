@@ -3,9 +3,11 @@ import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { StyleSheet, ScrollView, View, Text, Pressable } from 'react-native';
 import { Image } from 'expo-image';
 
-import { useSpotsStore } from '@/src/stores';
+import { useSpotsStore, useMediaStore } from '@/src/stores';
 import { useSettingsStore } from '@/src/stores/settings-store';
 import { getSpotDisplayName } from '@/src/utils/spot-name';
+import { resolvePhotoUri } from '@/src/utils/photo-storage';
+import { spotPhotos } from '@/src/utils/spot-photos';
 import { displayLength } from '@/src/utils/units';
 import { RatingBadge } from '@/src/components/RatingBadge';
 import { StarRating } from '@/src/components/StarRating';
@@ -64,6 +66,7 @@ export default function SpotDetailScreen() {
   const router = useRouter();
   const spot = useSpotsStore((s) => s.spots.find((sp) => sp.id === id));
   const units = useSettingsStore((s) => s.units);
+  const media = useMediaStore((s) => (id ? s.mediaBySpot[id] : undefined));
 
   const handleEdit = useCallback(() => {
     router.push(`/spot/${id}/edit` as `/spot/${string}/edit`);
@@ -78,6 +81,7 @@ export default function SpotDetailScreen() {
   }
 
   const displayName = getSpotDisplayName(spot);
+  const [hero, ...rest] = spotPhotos(spot, media);
 
   return (
     <>
@@ -95,13 +99,27 @@ export default function SpotDetailScreen() {
         style={styles.container}
         contentContainerStyle={styles.contentContainer}
         contentInsetAdjustmentBehavior="automatic">
-        {/* Photo Gallery */}
-        {spot.primary_photo_id ? (
+        {/* Photo Gallery: primary photo as hero, the rest in capture order */}
+        {hero ? (
           <Image
-            source={{ uri: spot.primary_photo_id }}
+            testID="spot-photo-0"
+            source={{ uri: resolvePhotoUri(hero.file_path) }}
             style={styles.heroImage}
             contentFit="cover"
           />
+        ) : null}
+        {rest.length > 0 ? (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.galleryRow}>
+            {rest.map((m, i) => (
+              <Image
+                key={m.id}
+                testID={`spot-photo-${i + 1}`}
+                source={{ uri: resolvePhotoUri(m.file_path) }}
+                style={styles.galleryThumb}
+                contentFit="cover"
+              />
+            ))}
+          </ScrollView>
         ) : null}
 
         {/* Status */}
@@ -243,6 +261,16 @@ const styles = StyleSheet.create({
   heroImage: {
     width: '100%',
     height: 240,
+  },
+  galleryRow: {
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+  },
+  galleryThumb: {
+    width: 88,
+    height: 88,
+    borderRadius: radius.md,
+    marginRight: spacing.sm,
   },
   headerRow: {
     flexDirection: 'row',

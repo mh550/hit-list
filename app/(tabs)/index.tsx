@@ -3,13 +3,21 @@ import { Stack, useRouter } from 'expo-router';
 import { StyleSheet, View, Pressable, Text } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 
-import { useSpotsStore, selectFilteredSpots, selectSortedSpots, selectActiveFilterCount } from '@/src/stores';
+import {
+  useSpotsStore,
+  useMediaStore,
+  selectFilteredSpots,
+  selectSortedSpots,
+  selectActiveFilterCount,
+} from '@/src/stores';
 import { useLocationStore } from '@/src/stores/location-store';
 import { useSettingsStore } from '@/src/stores/settings-store';
 import { SpotListItem } from '@/src/components/SpotListItem';
 import { EmptyState } from '@/src/components/EmptyState';
 import { FilterSheet } from '@/src/components/FilterSheet';
 import { getSpotDisplayName } from '@/src/utils/spot-name';
+import { resolvePhotoUri } from '@/src/utils/photo-storage';
+import { spotPhotos } from '@/src/utils/spot-photos';
 import { haversineDistance, formatDistance } from '@/src/utils/geo';
 import { SpotStatus, UnitSystem } from '@/src/types';
 import type { Spot } from '@/src/types';
@@ -23,6 +31,7 @@ export default function SpotsScreen() {
   const sortDirection = useSpotsStore((s) => s.sortDirection);
   const currentLocation = useLocationStore((s) => s.currentLocation);
   const units = useSettingsStore((s) => s.units);
+  const mediaBySpot = useMediaStore((s) => s.mediaBySpot);
 
   const [filterVisible, setFilterVisible] = useState(false);
   const activeFilterCount = selectActiveFilterCount(filters);
@@ -47,18 +56,22 @@ export default function SpotsScreen() {
   );
 
   const renderItem = useCallback(
-    ({ item }: { item: Spot }) => (
-      <SpotListItem
-        id={item.id}
-        displayName={getSpotDisplayName(item)}
-        featureType={item.feature.type?.replace(/_/g, ' ')}
-        difficulty={item.feature.difficulty as 1 | 2 | 3 | 4 | 5 | undefined}
-        distance={getDistance(item)}
-        isDraft={item.status === SpotStatus.Draft}
-        onPress={handleSpotPress}
-      />
-    ),
-    [handleSpotPress, getDistance],
+    ({ item }: { item: Spot }) => {
+      const thumbnail = spotPhotos(item, mediaBySpot[item.id])[0];
+      return (
+        <SpotListItem
+          id={item.id}
+          displayName={getSpotDisplayName(item)}
+          thumbnailUri={thumbnail ? resolvePhotoUri(thumbnail.file_path) : undefined}
+          featureType={item.feature.type?.replace(/_/g, ' ')}
+          difficulty={item.feature.difficulty as 1 | 2 | 3 | 4 | 5 | undefined}
+          distance={getDistance(item)}
+          isDraft={item.status === SpotStatus.Draft}
+          onPress={handleSpotPress}
+        />
+      );
+    },
+    [handleSpotPress, getDistance, mediaBySpot],
   );
 
   const keyExtractor = useCallback((item: Spot) => item.id, []);
@@ -105,6 +118,7 @@ export default function SpotsScreen() {
         data={sorted}
         renderItem={renderItem}
         keyExtractor={keyExtractor}
+        extraData={mediaBySpot}
       />
       <Pressable
         style={styles.fab}

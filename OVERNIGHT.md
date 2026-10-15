@@ -297,6 +297,13 @@ _(exact commands / decisions, newest first)_
 
 ## Status log
 _(newest first: time · step · result · commit)_
+- 2026-10-15 00:14 · M4 review done · Opus, checked against the real expo-file-system 57 iOS code:
+  **0 Critical / 0 Important / 7 Minor, "ready to merge"**. Folder create is idempotent on iOS, path joins
+  are correct incl. Expo Go's scoped Documents dir, camera/picker cache files are copyable, fallback
+  holds. Minors deferred (none visible today; the one worth doing later: give each photo of one save a
+  distinct `created_at` so gallery order is guaranteed, not incidental). Handoff note for M7: copy
+  failures only `console.warn`, so the phone doc gets a "check a fresh photo landed in app storage"
+  step. Next: `/simplify` for M4.
 - 2026-10-15 00:08 · M4 Tasks 2–4 done · `a904336` media store · `5638611` review screens persist ·
   `f09626b` list thumbnail + detail gallery. 156 tests / 18 suites, 0 console.error, typecheck/lint 0,
   **export ios ok**. Final M4 review running on Opus.

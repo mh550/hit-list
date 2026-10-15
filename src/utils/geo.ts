@@ -40,6 +40,11 @@ export function haversineDistance(a: GeoPoint, b: GeoPoint): number {
   return 2 * EARTH_RADIUS_KM * Math.asin(Math.sqrt(h));
 }
 
+/** haversineDistance in metres. */
+export function distanceMeters(a: GeoPoint, b: GeoPoint): number {
+  return haversineDistance(a, b) * 1000;
+}
+
 export function kmToMiles(km: number): number {
   return km * KM_TO_MILES;
 }

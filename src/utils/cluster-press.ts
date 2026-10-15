@@ -1,5 +1,5 @@
 import type { GeoPoint } from '@/src/types';
-import { haversineDistance } from '@/src/utils/geo';
+import { distanceMeters } from '@/src/utils/geo';
 
 /** Spots this close together count as one place (D8): zooming cannot pull their pins apart, so a cluster tap lists them. */
 export const SAME_PLACE_METERS = 10;
@@ -29,7 +29,7 @@ export function clusterPressTarget(leaves: readonly ClusterLeaf[]): ClusterPress
     coords.push({ latitude: geometry.coordinates[1], longitude: geometry.coordinates[0] });
   }
   const samePlace = coords.every((a, i) =>
-    coords.slice(i + 1).every((b) => haversineDistance(a, b) * 1000 <= SAME_PLACE_METERS),
+    coords.slice(i + 1).every((b) => distanceMeters(a, b) <= SAME_PLACE_METERS),
   );
   return { ids, coords, samePlace };
 }

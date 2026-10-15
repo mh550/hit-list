@@ -54,11 +54,13 @@ export default function SpotsScreen() {
   const [filterVisible, setFilterVisible] = useState(false);
   const activeFilterCount = selectActiveFilterCount(filters);
 
+  // The map takes the filtered spots: order doesn't matter to it, and a new array would re-cluster its markers.
+  const filtered = useMemo(() => selectFilteredSpots(spots, filters), [spots, filters]);
   // Location only matters to the Distance sort; other sorts ignore location updates.
   const sortLocation = sortField === SortField.Distance ? currentLocation : null;
   const sorted = useMemo(
-    () => selectSortedSpots(selectFilteredSpots(spots, filters), sortField, sortDirection, sortLocation ?? undefined),
-    [spots, filters, sortField, sortDirection, sortLocation],
+    () => selectSortedSpots(filtered, sortField, sortDirection, sortLocation ?? undefined),
+    [filtered, sortField, sortDirection, sortLocation],
   );
 
   const handleSpotPress = useCallback(
@@ -123,7 +125,7 @@ export default function SpotsScreen() {
       </View>
       <View style={styles.body}>
         {viewMode === 'map' ? (
-          <SpotMap spots={sorted} currentLocation={currentLocation} onOpenSpot={handleSpotPress} />
+          <SpotMap spots={filtered} currentLocation={currentLocation} onOpenSpot={handleSpotPress} />
         ) : null}
         {viewMode === 'list' && sorted.length === 0 ? (
           <EmptyState

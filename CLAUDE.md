@@ -75,7 +75,8 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
 - **Fakes mirror the real API**: open the package's `.d.ts` in `node_modules` and copy the member
   names and signatures before mocking. Existing fakes: `__mocks__/expo-file-system.ts`
   (+ `helpers/fake-fs.ts` for its test hooks), `__mocks__/react-native-maps.tsx` (its forwardRef
-  MapView exposes the shared `mockMapMethods` spies, reset with `resetMockMapMethods()`; import it via
+  MapView exposes the shared `mockMapMethods` spies, reset in `beforeEach` with
+  `mockMapMethods.fitToCoordinates.mockReset()`; import it via
   `import * as ReactNativeMaps from 'react-native-maps'`, not `jest.requireMock`), and global mocks in
   `jest.setup.ts` (expo-router with overridable `useRouter`/`useLocalSearchParams`, expo-location,
   expo-image, FlashList, icons).

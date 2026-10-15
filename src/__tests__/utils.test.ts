@@ -1,4 +1,4 @@
-import { haversineDistance, formatDistance } from '@/src/utils/geo';
+import { distanceMeters, haversineDistance, formatDistance } from '@/src/utils/geo';
 import { displayLength, inputToMeters, metersToDisplay } from '@/src/utils/units';
 import { getSpotDisplayName } from '@/src/utils/spot-name';
 import { UnitSystem } from '@/src/types';
@@ -16,6 +16,16 @@ describe('haversineDistance', () => {
     const dist = haversineDistance(seattle, portland);
     expect(dist).toBeGreaterThan(230);
     expect(dist).toBeLessThan(240);
+  });
+});
+
+describe('distanceMeters', () => {
+  it('is haversineDistance in metres (0.00021 deg of latitude ~23 m)', () => {
+    const a = { latitude: 47.6062, longitude: -122.3321 };
+    const b = { latitude: 47.60641, longitude: -122.3321 };
+    expect(distanceMeters(a, b)).toBeCloseTo(haversineDistance(a, b) * 1000, 6);
+    expect(distanceMeters(a, b)).toBeGreaterThan(23);
+    expect(distanceMeters(a, b)).toBeLessThan(24);
   });
 });
 

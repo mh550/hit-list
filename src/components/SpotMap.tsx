@@ -1,10 +1,10 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
 import { ActionSheetIOS, Platform, StyleSheet } from 'react-native';
 import { useIsFocused } from 'expo-router';
-import MapView from 'react-native-map-clustering';
 import { Marker } from 'react-native-maps';
 import type NativeMapView from 'react-native-maps';
 
+import { ClusteredMapView } from '@/src/components/ClusteredMapView';
 import { colors, palette } from '@/src/constants/theme';
 import { SpotStatus } from '@/src/types';
 import type { GeoPoint, Spot } from '@/src/types';
@@ -13,8 +13,6 @@ import type { ClusterLeaf } from '@/src/utils/cluster-press';
 import { isKnownLocation } from '@/src/utils/geo';
 import { initialRegion } from '@/src/utils/map-region';
 import { featureLabel, getSpotDisplayName } from '@/src/utils/spot-name';
-
-export { SAME_PLACE_METERS } from '@/src/utils/cluster-press';
 
 export const DRAFT_PIN = palette.yellow[500];
 export const SPOT_PIN = colors.light.primary;
@@ -41,15 +39,13 @@ export function SpotMap({ spots, currentLocation, onOpenSpot }: Props) {
   const focused = useIsFocused();
   // preserveClusterPressBehavior stops the library zooming on cluster tap, so SpotMap zooms with its own ref.
   const mapRef = useRef<NativeMapView | null>(null);
-  // index.d.ts types this argument as React.Ref<MapView>, but the library passes the react-native-maps instance.
-  const setMap = useCallback((map: unknown) => {
-    mapRef.current = map as NativeMapView | null;
+  const setMap = useCallback((map: NativeMapView | null) => {
+    mapRef.current = map;
   }, []);
 
-  // index.d.ts types the leaves as Markers; they are supercluster features (see ClusterLeaf).
   const handleClusterPress = useCallback(
-    (_cluster: unknown, leaves?: unknown) => {
-      const { ids, coords, samePlace } = clusterPressTarget((leaves ?? []) as ClusterLeaf[]);
+    (_cluster: unknown, leaves: ClusterLeaf[] = []) => {
+      const { ids, coords, samePlace } = clusterPressTarget(leaves);
       const listed = ids.map((id) => spots.find((s) => s.id === id)).filter((s): s is Spot => s !== undefined);
       if (samePlace && listed.length > 0 && Platform.OS === 'ios') {
         const names = listed.map(getSpotDisplayName);
@@ -89,7 +85,7 @@ export function SpotMap({ spots, currentLocation, onOpenSpot }: Props) {
   );
 
   return (
-    <MapView
+    <ClusteredMapView
       mapRef={setMap}
       style={StyleSheet.absoluteFill}
       initialRegion={region}
@@ -103,6 +99,6 @@ export function SpotMap({ spots, currentLocation, onOpenSpot }: Props) {
       onClusterPress={handleClusterPress}
     >
       {markers}
-    </MapView>
+    </ClusteredMapView>
   );
 }

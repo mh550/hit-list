@@ -1,4 +1,4 @@
-import { ActionSheetIOS, Platform, StyleSheet } from 'react-native';
+import { ActionSheetIOS, StyleSheet } from 'react-native';
 import type { ReactTestInstance } from 'react-test-renderer';
 import { render, screen, fireEvent, act } from '@testing-library/react-native';
 import { useIsFocused } from 'expo-router';
@@ -7,23 +7,19 @@ import { SpotMap, DRAFT_PIN, SPOT_PIN } from '@/src/components/SpotMap';
 import { initialRegion } from '@/src/utils/map-region';
 import { SpotStatus } from '@/src/types';
 import type { Spot } from '@/src/types';
-import { createTestSpot } from './factories';
+import { CITIES, createTestSpot } from './factories';
 import { NO_LOCATION } from '@/src/utils/geo';
 import { getSpotDisplayName } from '@/src/utils/spot-name';
-import { colors, palette } from '@/src/constants/theme';
+import { palette } from '@/src/constants/theme';
 
 // The root __mocks__ file replaces react-native-maps (also for react-native-map-clustering's own import) and adds
 // the shared MapView method spies. Import the module itself: jest.requireMock('react-native-maps') returns a
 // second, separate instance of the mock, whose spies the MapView never calls.
-const { mockMapMethods, resetMockMapMethods } = ReactNativeMaps as unknown as typeof import('../../__mocks__/react-native-maps');
+const { mockMapMethods } = ReactNativeMaps as unknown as typeof import('../../__mocks__/react-native-maps');
 
-// Cities hundreds of km apart so these never merge into a cluster, whatever zoom initialRegion picks.
-const SEATTLE = { latitude: 47.6062, longitude: -122.3421 };
-const PORTLAND = { latitude: 45.5152, longitude: -122.6784 };
-const SPOKANE = { latitude: 47.6588, longitude: -117.426 };
-const named = createTestSpot({ name: 'Pier 57 rail', status: SpotStatus.Complete, location: SEATTLE });
-const draft = createTestSpot({ name: 'Library ledge', status: SpotStatus.Draft, location: PORTLAND });
-const unnamed = createTestSpot({ status: SpotStatus.Complete, location: SPOKANE });
+const named = createTestSpot({ name: 'Pier 57 rail', status: SpotStatus.Complete, location: CITIES.seattle });
+const draft = createTestSpot({ name: 'Library ledge', status: SpotStatus.Draft, location: CITIES.portland });
+const unnamed = createTestSpot({ status: SpotStatus.Complete, location: CITIES.spokane });
 
 /** The background colour of the nearest ancestor that paints one (the cluster's coloured circle behind its count). */
 function backgroundBehind(element: ReactTestInstance): unknown {
@@ -48,7 +44,7 @@ function clusterMarkerOf(count: ReactTestInstance): ReactTestInstance {
 const renderMap = (spots: Spot[], props: Partial<Parameters<typeof SpotMap>[0]> = {}) =>
   render(<SpotMap spots={spots} currentLocation={null} onOpenSpot={jest.fn()} {...props} />);
 
-// Five spots 5-30 m apart around Pier 57, Seattle. initialRegion() clamps their tiny span to MIN_DELTA (0.01),
+// Five spots 5-30 m apart in central Seattle. initialRegion() clamps their tiny span to MIN_DELTA (0.01),
 // so the clustering zoom is 15 (~3.2 m/px, a 45 px radius is over 100 m): they all fall in one cluster.
 const closeSpots = [
   [0, 0],
@@ -60,12 +56,12 @@ const closeSpots = [
   createTestSpot({
     name: `Pier 57 spot ${i}`,
     status: SpotStatus.Complete,
-    location: { latitude: SEATTLE.latitude + dLat, longitude: SEATTLE.longitude + dLng },
+    location: { latitude: CITIES.seattle.latitude + dLat, longitude: CITIES.seattle.longitude + dLng },
   }),
 );
 
 describe('SpotMap', () => {
-  beforeEach(() => resetMockMapMethods());
+  beforeEach(() => mockMapMethods.fitToCoordinates.mockReset());
 
   it('renders one marker per spot, titled with the display name', () => {
     renderMap([named, draft, unnamed]);
@@ -134,13 +130,7 @@ describe('SpotMap', () => {
 
     // Spots in different cities must stay separate pins, not be pulled into a cluster.
     it('keeps spots far apart as individual pins with no cluster', () => {
-      const seattle = createTestSpot({ name: 'Seattle', status: SpotStatus.Complete, location: SEATTLE });
-      const portland = createTestSpot({
-        name: 'Portland',
-        status: SpotStatus.Complete,
-        location: PORTLAND,
-      });
-      renderMap([seattle, portland]);
+      renderMap([named, draft]);
 
       expect(screen.getAllByTestId(/^spot-marker-/)).toHaveLength(2);
       expect(screen.queryAllByText(/^\d+$/)).toHaveLength(0);
@@ -156,16 +146,15 @@ describe('SpotMap', () => {
       const [coordinates] = mockMapMethods.fitToCoordinates.mock.calls[0];
       expect(coordinates).toHaveLength(5);
       expect(coordinates).toEqual(
-        expect.arrayContaining(closeSpots.map((s) => ({ latitude: s.location.latitude, longitude: s.location.longitude }))),
+        expect.arrayContaining(closeSpots.map((s) => s.location)),
       );
     });
 
     // The cluster must match the app's pin colour, not the library's default teal (#00B386).
-    it('colours the cluster with the theme primary and its count white', () => {
+    it('colours the cluster with the pin colour and its count white', () => {
       renderMap(closeSpots);
 
       const count = screen.getByText('5');
-      expect(backgroundBehind(count)).toBe(colors.light.primary);
       expect(backgroundBehind(count)).toBe(SPOT_PIN);
       expect(StyleSheet.flatten(count.props.style).color).toBe(palette.white);
     });
@@ -181,20 +170,14 @@ describe('SpotMap', () => {
       });
       afterEach(() => sheet.mockRestore());
 
-      // Spots 23 m apart (0.00021 deg of latitude) at Pier 57: two pairs, each pair sharing one exact coordinate.
-      const POINT_A = SEATTLE;
-      const POINT_B = { latitude: SEATTLE.latitude + 0.00021, longitude: SEATTLE.longitude };
-
-      // The iOS action sheet is the whole point of Platform.OS here: jest-expo's default preset must be iOS.
-      it('runs under the iOS platform, where ActionSheetIOS is available', () => {
-        expect(Platform.OS).toBe('ios');
-      });
+      // Two places 23 m apart (0.00021 deg of latitude) in Seattle: CITIES.seattle and POINT_B.
+      const POINT_B = { latitude: CITIES.seattle.latitude + 0.00021, longitude: CITIES.seattle.longitude };
 
       // Spots at the exact same place can never be pulled apart by zooming, so tapping their cluster must list them.
       it('lists spots that share one coordinate in an action sheet instead of zooming', () => {
-        const rail = createTestSpot({ name: 'Pier 57 rail', status: SpotStatus.Complete, location: SEATTLE });
-        const ledge = createTestSpot({ name: 'Pier 57 ledge', status: SpotStatus.Complete, location: SEATTLE });
-        const untitled = createTestSpot({ status: SpotStatus.Complete, location: SEATTLE });
+        const rail = createTestSpot({ name: 'Pier 57 rail', status: SpotStatus.Complete, location: CITIES.seattle });
+        const ledge = createTestSpot({ name: 'Pier 57 ledge', status: SpotStatus.Complete, location: CITIES.seattle });
+        const untitled = createTestSpot({ status: SpotStatus.Complete, location: CITIES.seattle });
         const onOpenSpot = jest.fn();
         renderMap([rail, ledge, untitled], { onOpenSpot });
 
@@ -219,12 +202,15 @@ describe('SpotMap', () => {
 
       // Reviewer's failing case: with the library's spiral, zooming in on two same-place groups made one vanish.
       it('keeps both same-place groups tappable after zooming in on a mixed cluster', () => {
-        const groupA = ['Pier 57 rail', 'Pier 57 ledge'].map((name) =>
-          createTestSpot({ name, status: SpotStatus.Complete, location: POINT_A }),
-        );
-        const groupB = ['Pier 57 stairs', 'Pier 57 bank'].map((name) =>
-          createTestSpot({ name, status: SpotStatus.Complete, location: POINT_B }),
-        );
+        // Two pairs, each pair sharing one exact coordinate.
+        const groupA = [
+          createTestSpot({ name: 'Pier 57 rail', status: SpotStatus.Complete, location: CITIES.seattle }),
+          createTestSpot({ name: 'Pier 57 ledge', status: SpotStatus.Complete, location: CITIES.seattle }),
+        ];
+        const groupB = [
+          createTestSpot({ name: 'Pier 57 stairs', status: SpotStatus.Complete, location: POINT_B }),
+          createTestSpot({ name: 'Pier 57 bank', status: SpotStatus.Complete, location: POINT_B }),
+        ];
         const onOpenSpot = jest.fn();
         renderMap([...groupA, ...groupB], { onOpenSpot });
 
@@ -239,8 +225,8 @@ describe('SpotMap', () => {
         // inside the +-0.0005 box (each ~11.7 m from the centre).
         act(() => {
           screen.getByTestId('map-view').props.onRegionChangeComplete({
-            latitude: (POINT_A.latitude + POINT_B.latitude) / 2,
-            longitude: POINT_A.longitude,
+            latitude: (CITIES.seattle.latitude + POINT_B.latitude) / 2,
+            longitude: CITIES.seattle.longitude,
             latitudeDelta: 0.0005,
             longitudeDelta: 0.0005,
           });

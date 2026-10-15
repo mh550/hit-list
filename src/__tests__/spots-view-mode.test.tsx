@@ -1,15 +1,14 @@
 import { render, screen, fireEvent } from '@testing-library/react-native';
 import { useMediaStore, useSpotsStore } from '@/src/stores';
 import { DEFAULT_FILTERS, SpotStatus } from '@/src/types';
-import { createTestSpot } from './factories';
+import { CITIES, createTestSpot } from './factories';
 
 import SpotsScreen from '@/app/(tabs)/index';
 
-// Cities far apart so the map's clustering never merges these pins.
 const spots = [
-  createTestSpot({ name: 'Pier 57 rail', status: SpotStatus.Complete, location: { latitude: 47.6062, longitude: -122.3421 } }),
-  createTestSpot({ name: 'Library ledge', status: SpotStatus.Draft, location: { latitude: 45.5152, longitude: -122.6784 } }),
-  createTestSpot({ name: 'Bank to wall', status: SpotStatus.Complete, location: { latitude: 47.6588, longitude: -117.426 } }),
+  createTestSpot({ name: 'Pier 57 rail', status: SpotStatus.Complete, location: CITIES.seattle }),
+  createTestSpot({ name: 'Library ledge', status: SpotStatus.Draft, location: CITIES.portland }),
+  createTestSpot({ name: 'Bank to wall', status: SpotStatus.Complete, location: CITIES.spokane }),
 ];
 
 describe('Spots tab Map | List toggle', () => {

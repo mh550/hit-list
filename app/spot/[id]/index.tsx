@@ -150,7 +150,7 @@ export default function SpotDetailScreen() {
             {spot.feature.skate_stops?.is_stopped ? (
               <>
                 <InfoRow label="Stop Type" value={spot.feature.skate_stops.stop_type ? STOP_TYPE_LABELS[spot.feature.skate_stops.stop_type] : undefined} />
-                <InfoRow label="Stop Info" value={spot.feature.skate_stops.stop_description} />
+                <InfoRow label="Stop Details" value={spot.feature.skate_stops.stop_description} />
                 <InfoRow label="Removable" value={spot.feature.skate_stops.removable ? 'Yes' : 'No'} />
               </>
             ) : null}
@@ -215,7 +215,7 @@ export default function SpotDetailScreen() {
 }
 
 function hasFeatureDetails(spot: Spot): boolean {
-  return !!(spot.feature.type || spot.feature.shape || spot.feature.dimensions || spot.feature.material || spot.feature.difficulty != null);
+  return !!(spot.feature.type || spot.feature.shape || spot.feature.dimensions || spot.feature.material || spot.feature.difficulty != null || spot.feature.skate_stops?.is_stopped);
 }
 
 function hasInRunDetails(spot: Spot): boolean {

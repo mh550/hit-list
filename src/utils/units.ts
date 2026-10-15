@@ -35,9 +35,10 @@ const DECIMAL_INPUT = /^(\d+[.,]?\d*|[.,]\d+)$/;
 /**
  * The metre value to save for a dimension field.
  * - Text unchanged from its initial display text: the stored value, exactly (no rounding drift).
- * - Empty text: undefined (the dimension is cleared).
+ * - Empty text, or a number that is exactly 0 ("0", "0.0", "0,0", ".0"): undefined (the dimension
+ *   is cleared; the field's placeholder is "0", so typing 0 means "none").
  * - A finite number > 0 in the user's units (dot or comma decimal): converted to metres.
- * - Anything else: the stored value (undefined if none). Never NaN.
+ * - Anything else (negative, non-numeric): the stored value (undefined if none). Never NaN.
  */
 export function dimensionFromInput(
   text: string,
@@ -50,6 +51,7 @@ export function dimensionFromInput(
   if (trimmed === '') return undefined;
   if (!DECIMAL_INPUT.test(trimmed)) return stored;
   const parsed = Number(trimmed.replace(',', '.'));
-  if (!Number.isFinite(parsed) || parsed <= 0) return stored;
+  if (parsed === 0) return undefined;
+  if (!Number.isFinite(parsed) || parsed < 0) return stored;
   return inputToMeters(parsed, units);
 }

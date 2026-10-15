@@ -1,5 +1,11 @@
 import { distanceMeters, haversineDistance, formatDistance } from '@/src/utils/geo';
-import { displayLength, inputToMeters, metersToDisplay } from '@/src/utils/units';
+import {
+  displayLength,
+  inputToMeters,
+  metersToDisplay,
+  dimensionFromInput,
+  initialDimText,
+} from '@/src/utils/units';
 import { getSpotDisplayName } from '@/src/utils/spot-name';
 import { UnitSystem } from '@/src/types';
 import { createTestSpot } from './factories';
@@ -68,6 +74,40 @@ describe('units', () => {
 
   it('converts meters to display feet', () => {
     expect(metersToDisplay(1, UnitSystem.Imperial)).toBeCloseTo(3.28084, 3);
+  });
+
+  it('dimensionFromInput keeps the stored value exactly when the text is unchanged', () => {
+    // Guard: an untouched field must not round-trip through its one-decimal display text.
+    const initial = initialDimText(1.234, UnitSystem.Metric);
+    expect(dimensionFromInput(initial, initial, 1.234, UnitSystem.Metric)).toBe(1.234);
+  });
+
+  it('dimensionFromInput returns undefined for empty text', () => {
+    // Guard: clearing a field means "no dimension".
+    expect(dimensionFromInput('', '1.2', 1.234, UnitSystem.Metric)).toBeUndefined();
+  });
+
+  it('dimensionFromInput reads a comma decimal', () => {
+    // Guard: decimal pads in many locales type "1,5".
+    expect(dimensionFromInput('1,5', '', undefined, UnitSystem.Metric)).toBe(1.5);
+  });
+
+  it('dimensionFromInput returns undefined for junk text when nothing is stored', () => {
+    // Guard: invalid text on an empty field must not become NaN.
+    expect(dimensionFromInput('abc', '', undefined, UnitSystem.Metric)).toBeUndefined();
+  });
+
+  it.each(['0', '0.0', '0,0', '.0'])(
+    'dimensionFromInput returns undefined when zero (%s) is typed over a stored value',
+    (text) => {
+      // The placeholder is "0", so typing 0 means "none"; it must clear the dimension, not silently keep the old one.
+      expect(dimensionFromInput(text, '1.2', 1.234, UnitSystem.Metric)).toBeUndefined();
+    },
+  );
+
+  it.each(['-2', 'abc'])('dimensionFromInput keeps the stored value for invalid text %s', (text) => {
+    // Guard: negatives and junk are not valid sizes and leave the stored value alone.
+    expect(dimensionFromInput(text, '1.2', 1.234, UnitSystem.Metric)).toBe(1.234);
   });
 });
 

@@ -1,3 +1,4 @@
+import { StyleSheet } from 'react-native';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { useSpotsStore } from '@/src/stores';
@@ -162,4 +163,26 @@ describe('Edit spot: skate stops', () => {
       removable: false,
     });
   });
+
+  it.each(['Skate stops', 'Removable with tools'])(
+    'hides the visible "%s" label from VoiceOver so the switch row is read once',
+    (label) => {
+      // The Switch already carries accessibilityLabel; the visible Text beside it would be read a second time.
+      renderEdit(createTestSpot({ feature: { skate_stops: EXISTING_STOPS } }));
+
+      const text = screen.getByText(label, { includeHiddenElements: true });
+      expect(text.props.accessibilityElementsHidden).toBe(true); // iOS
+      expect(text.props.importantForAccessibility).toBe('no'); // Android
+    },
+  );
+
+  it.each(['Skate stops', 'Removable with tools'])(
+    'lets the "%s" label shrink so a long label at large text sizes cannot push the switch off-screen',
+    (label) => {
+      // Without flexShrink the label keeps its full width and the Switch is squeezed out of the row.
+      renderEdit(createTestSpot({ feature: { skate_stops: EXISTING_STOPS } }));
+
+      expect(StyleSheet.flatten(screen.getByText(label, { includeHiddenElements: true }).props.style).flexShrink).toBe(1);
+    },
+  );
 });

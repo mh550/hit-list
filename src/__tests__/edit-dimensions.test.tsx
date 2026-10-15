@@ -22,7 +22,7 @@ function renderEdit(spot: Spot) {
   render(<EditSpotScreen />);
 }
 
-// The dimension TextInputs have no accessibilityLabel yet; these lookups expect "Length"/"Height"/"Width".
+// The dimension TextInputs are labelled "Length"/"Height"/"Width" for accessibility; these lookups use them.
 const lengthInput = () => screen.getByLabelText('Length');
 
 async function saveAndGetDimensions(): Promise<Dimensions | undefined> {
@@ -110,10 +110,10 @@ describe('Edit spot: dimensions', () => {
     expect(dims?.width).toBe(2);
   });
 
-  it.each(['abc', '0', '-2'])(
+  it.each(['abc', '-2'])(
     'keeps the stored length and never saves NaN when "%s" is typed',
     async (text) => {
-      // Regression: parseFloat of non-numbers gave NaN; zero and negative sizes are not valid either.
+      // Regression: parseFloat of non-numbers gave NaN; negative sizes are not valid either.
       renderEdit(createTestSpot({ feature: { dimensions: STORED } }));
 
       fireEvent.changeText(lengthInput(), text);
@@ -123,6 +123,18 @@ describe('Edit spot: dimensions', () => {
       expect(dims?.length).toBe(1.234);
     },
   );
+
+  it('removes the length when "0" is typed and keeps the others', async () => {
+    // The placeholder is "0", so a user typing 0 means "no length"; it must not silently keep the old value.
+    renderEdit(createTestSpot({ feature: { dimensions: STORED } }));
+
+    fireEvent.changeText(lengthInput(), '0');
+
+    const dims = await saveAndGetDimensions();
+    expect(dims?.length).toBeUndefined();
+    expect(dims?.height).toBe(0.456);
+    expect(dims?.width).toBe(2);
+  });
 
   it('saves an undefined width when there was none and the user types "abc"', async () => {
     // Regression: invalid text on a previously empty field stored NaN instead of nothing.

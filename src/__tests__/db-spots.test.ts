@@ -1,7 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { createMigratedTestDb } from './helpers/node-sqlite-db';
 import { insertSpot, getSpot, getSpots, updateSpot, softDeleteSpot } from '@/src/db';
-import { FeatureType, SpotStatus } from '@/src/types';
+import { FeatureType, SpotStatus, StopType } from '@/src/types';
 import { createTestSpot } from './factories';
 
 describe('spots against real SQLite', () => {
@@ -56,6 +56,24 @@ describe('spots against real SQLite', () => {
       landing: s.landing,
       metadata: s.metadata,
     });
+  });
+
+  it('updateSpot with skate_stops: undefined removes the stops and leaves the other feature fields', async () => {
+    // Guard: turning skate stops off in Edit must really drop them from the stored feature JSON.
+    const feature = {
+      type: FeatureType.Rail,
+      shape: 'DFD',
+      difficulty: 3,
+      skate_stops: { is_stopped: true, stop_type: StopType.Knobs, stop_description: 'x', removable: true },
+    };
+    const s = createTestSpot({ feature });
+    await insertSpot(db, s);
+
+    await updateSpot(db, s.id, { feature: { ...feature, skate_stops: undefined } });
+
+    const stored = await getSpot(db, s.id);
+    expect(stored?.feature.skate_stops).toBeUndefined();
+    expect(stored?.feature).toMatchObject({ type: FeatureType.Rail, shape: 'DFD', difficulty: 3 });
   });
 
   it('round-trips quotes, dashes and emoji in text fields', async () => {

@@ -301,7 +301,9 @@ export default function EditSpotScreen() {
       </View>
 
       <View style={styles.switchRow}>
-        <Text style={styles.switchLabel}>Skate stops</Text>
+        <Text style={styles.switchLabel} accessibilityElementsHidden importantForAccessibility="no">
+          Skate stops
+        </Text>
         <Switch
           accessibilityLabel="Skate stops"
           value={isStopped}
@@ -337,7 +339,9 @@ export default function EditSpotScreen() {
             />
           </View>
           <View style={styles.switchRow}>
-            <Text style={styles.switchLabel}>Removable with tools</Text>
+            <Text style={styles.switchLabel} accessibilityElementsHidden importantForAccessibility="no">
+              Removable with tools
+            </Text>
             <Switch
               accessibilityLabel="Removable with tools"
               value={removable}
@@ -520,6 +524,8 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm,
   },
   switchLabel: {
+    flexShrink: 1,
+    marginRight: spacing.sm,
     fontSize: 16,
     color: palette.gray[900],
     fontWeight: '500',

@@ -79,6 +79,17 @@ describe('FilterSheet', () => {
     expect(useSpotsStore.getState().filters.types).toEqual([FeatureType.Rail]);
   });
 
+  it('drops unsaved edits when the sheet is closed and reopened', () => {
+    const { rerender } = render(<FilterSheet visible onClose={onClose} />);
+    fireEvent.press(screen.getByText('rail'));
+
+    rerender(<FilterSheet visible={false} onClose={onClose} />);
+    rerender(<FilterSheet visible onClose={onClose} />);
+    fireEvent.press(screen.getByText('Apply'));
+
+    expect(useSpotsStore.getState().filters.types).toEqual([]);
+  });
+
   it('does not render when not visible', () => {
     render(<FilterSheet visible={false} onClose={onClose} />);
     expect(screen.queryByText('Apply')).toBeNull();

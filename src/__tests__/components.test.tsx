@@ -12,8 +12,7 @@ import { FormInput } from '@/src/components/FormField';
 
 // Mock IconSymbol
 jest.mock('@/components/ui/icon-symbol', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { View } = require('react-native');
+  const { View } = jest.requireActual('react-native');
   return {
     IconSymbol: ({ name }: { name: string; size: number; color: string }) => {
       return <View testID={`icon-${name}`} />;

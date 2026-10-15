@@ -27,8 +27,7 @@ export function useDbInit(): { isReady: boolean } {
         setIsReady(true); // Allow app to proceed even on DB error
       }
     })();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [db, setSpots, loadSettings]); // all stable, so this still runs once
 
   return { isReady };
 }

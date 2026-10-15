@@ -3,15 +3,13 @@ import { render, screen, fireEvent } from '@testing-library/react-native';
 
 // Mock expo-image
 jest.mock('expo-image', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { Image } = require('react-native');
+  const { Image } = jest.requireActual('react-native');
   return { Image };
 });
 
 // Mock IconSymbol
 jest.mock('@/components/ui/icon-symbol', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { View } = require('react-native');
+  const { View } = jest.requireActual('react-native');
   return {
     IconSymbol: ({ name }: { name: string }) => <View testID={`icon-${name}`} />,
   };

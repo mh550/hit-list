@@ -4,8 +4,8 @@ import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 
 import { useSettingsStore } from '@/src/stores/settings-store';
+import { importPhotoFromAsset } from '@/src/utils/exif';
 import { groupPhotosByProximity } from '@/src/utils/import-clustering';
-import type { ImportPhoto } from '@/src/utils/import-clustering';
 import { palette, spacing, radius } from '@/src/constants/theme';
 
 export default function ImportScreen() {
@@ -28,15 +28,8 @@ export default function ImportScreen() {
         return;
       }
 
-      const photos: ImportPhoto[] = result.assets.map((asset) => {
-        const lat = asset.exif?.GPSLatitude;
-        const lng = asset.exif?.GPSLongitude;
-        return {
-          uri: asset.uri,
-          location: lat != null && lng != null ? { latitude: lat, longitude: lng } : null,
-          capturedAt: asset.exif?.DateTime ?? new Date().toISOString(),
-        };
-      });
+      const now = new Date().toISOString();
+      const photos = result.assets.map((asset) => importPhotoFromAsset(asset, now));
 
       const groups = groupPhotosByProximity(photos, batchRadius);
 

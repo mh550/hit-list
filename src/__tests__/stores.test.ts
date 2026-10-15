@@ -15,6 +15,7 @@ import {
   UnitSystem,
 } from '@/src/types';
 import type { SpotFilters } from '@/src/types';
+import { NO_LOCATION } from '@/src/utils/geo';
 import { createTestSpot } from './factories';
 
 describe('selectFilteredSpots', () => {
@@ -193,6 +194,107 @@ describe('selectSortedSpots', () => {
       userLoc,
     );
     expect(result[0].name).toBe('Alpha'); // closer to Seattle
+  });
+});
+
+describe('selectSortedSpots: missing data sorts last in both directions', () => {
+  const SEATTLE = { latitude: 47.6062, longitude: -122.3321 };
+  const seattleSpot = createTestSpot({ name: 'seattle', location: { latitude: 47.61, longitude: -122.33 }, created_at: '2025-01-01T00:00:00Z' });
+  const portlandSpot = createTestSpot({ name: 'portland', location: { latitude: 45.5152, longitude: -122.6784 }, created_at: '2025-01-02T00:00:00Z' });
+  const nowhereOld = createTestSpot({ name: 'nowhere-old', location: NO_LOCATION, created_at: '2025-01-03T00:00:00Z' });
+  const nowhereNew = createTestSpot({ name: 'nowhere-new', location: NO_LOCATION, created_at: '2025-01-04T00:00:00Z' });
+  const names = (list: { name?: string }[]) => list.map((s) => s.name);
+
+  it('Distance ascending: located spots nearest first, then spots with no location', () => {
+    // (0, 0) is "unknown", not a real place off Africa; it would otherwise sort as very far or very near.
+    // The user stands near (0, 0) so a naive haversine to the stored (0, 0) would rank the unknown spot nearest.
+    const nullIsland = { latitude: 0.5, longitude: 0.5 };
+    const result = selectSortedSpots([nowhereOld, portlandSpot, seattleSpot], SortField.Distance, SortDirection.Asc, nullIsland);
+
+    // From (0.5, 0.5) Seattle is ~12,348 km away and Portland ~12,472 km.
+    expect(names(result)).toEqual(['seattle', 'portland', 'nowhere-old']);
+  });
+
+  it('Distance descending: located spots farthest first, and no-location spots still last', () => {
+    // Flipping the direction must not bring the unknowns to the top.
+    const result = selectSortedSpots([nowhereOld, seattleSpot, portlandSpot], SortField.Distance, SortDirection.Desc, SEATTLE);
+
+    expect(names(result)).toEqual(['portland', 'seattle', 'nowhere-old']);
+  });
+
+  it('Distance: spots with no location break ties by created_at newest first (both directions)', () => {
+    // The missing group is ordered deterministically.
+    for (const direction of [SortDirection.Asc, SortDirection.Desc]) {
+      const result = selectSortedSpots([nowhereOld, nowhereNew, seattleSpot], SortField.Distance, direction, SEATTLE);
+
+      expect(names(result)).toEqual(['seattle', 'nowhere-new', 'nowhere-old']);
+    }
+  });
+
+  const low = createTestSpot({ name: 'low', metadata: { intensity: 1 }, created_at: '2025-01-01T00:00:00Z' });
+  const high = createTestSpot({ name: 'high', metadata: { intensity: 5 }, created_at: '2025-01-02T00:00:00Z' });
+  const unratedOld = createTestSpot({ name: 'unrated-old', metadata: {}, created_at: '2025-01-03T00:00:00Z' });
+  const unratedNew = createTestSpot({ name: 'unrated-new', metadata: {}, created_at: '2025-01-04T00:00:00Z' });
+
+  it('Intensity descending: highest first, unrated last', () => {
+    // An unrated spot is not intensity 0.
+    const result = selectSortedSpots([unratedOld, low, high], SortField.Intensity, SortDirection.Desc);
+
+    expect(names(result)).toEqual(['high', 'low', 'unrated-old']);
+  });
+
+  it('Intensity ascending: lowest first, unrated still last', () => {
+    // Today unrated counts as 0 and floats to the top ascending.
+    const result = selectSortedSpots([unratedOld, high, low], SortField.Intensity, SortDirection.Asc);
+
+    expect(names(result)).toEqual(['low', 'high', 'unrated-old']);
+  });
+
+  it('Intensity: equal and unrated spots break ties by created_at newest first (both directions)', () => {
+    // Deterministic order within the missing group.
+    for (const direction of [SortDirection.Asc, SortDirection.Desc]) {
+      const result = selectSortedSpots([unratedOld, unratedNew, low], SortField.Intensity, direction);
+
+      expect(names(result)).toEqual(['low', 'unrated-new', 'unrated-old']);
+    }
+  });
+
+  const zulu = createTestSpot({ name: 'Zulu', created_at: '2025-01-05T00:00:00Z' });
+  const alpha = createTestSpot({ name: 'Alpha', created_at: '2025-01-01T00:00:00Z' });
+  const unnamedOld = createTestSpot({ generated_name: 'Aberdeen', created_at: '2025-01-03T00:00:00Z' });
+  const unnamedNew = createTestSpot({ generated_name: 'Zillah', created_at: '2025-01-04T00:00:00Z' });
+
+  it('Name ascending: A to Z, unnamed spots last', () => {
+    // "Untitled ..." would otherwise sort among the U names, and unnamed ones are not worth a name slot.
+    const result = selectSortedSpots([unnamedOld, zulu, alpha], SortField.Name, SortDirection.Asc);
+
+    expect(result.map((s) => s.name)).toEqual(['Alpha', 'Zulu', undefined]);
+  });
+
+  it('Name descending: Z to A, unnamed spots still last', () => {
+    // Flipping the direction must not bring the unnamed to the top.
+    const result = selectSortedSpots([unnamedOld, alpha, zulu], SortField.Name, SortDirection.Desc);
+
+    expect(result.map((s) => s.name)).toEqual(['Zulu', 'Alpha', undefined]);
+  });
+
+  it('Name: unnamed spots break ties by created_at newest first (both directions)', () => {
+    // The unnamed group keeps the default date order, not its town or label order.
+    for (const direction of [SortDirection.Asc, SortDirection.Desc]) {
+      const result = selectSortedSpots([unnamedOld, unnamedNew, alpha], SortField.Name, direction);
+
+      expect(result.map((s) => s.id)).toEqual([alpha.id, unnamedNew.id, unnamedOld.id]);
+    }
+  });
+
+  it('equal values break ties by created_at newest first, in both directions', () => {
+    // Two spots rated 3: the newer one is first whichever way the intensity sort runs.
+    const older = createTestSpot({ name: 'older', metadata: { intensity: 3 }, created_at: '2025-01-01T00:00:00Z' });
+    const newer = createTestSpot({ name: 'newer', metadata: { intensity: 3 }, created_at: '2025-01-02T00:00:00Z' });
+
+    for (const direction of [SortDirection.Asc, SortDirection.Desc]) {
+      expect(names(selectSortedSpots([older, newer], SortField.Intensity, direction))).toEqual(['newer', 'older']);
+    }
   });
 });
 

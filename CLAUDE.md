@@ -42,10 +42,10 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
 - `src/db/` SQLite access. `schema.ts` holds `MIGRATIONS` (versioned by `PRAGMA user_version`):
   **append a migration, never edit a shipped one**; per-connection pragmas (e.g. `foreign_keys`) go
   next to the WAL line in `migrateDb`, not in a migration.
-- `src/stores/` zustand: spots (+ filters, sort, `viewMode`), media (`mediaBySpot`), settings, location.
+- `src/stores/` zustand: spots (+ filters, search, sort, `viewMode`; filtering and sorting live in its selectors), media (`mediaBySpot`), settings, location.
 - `src/hooks/` `useDbInit` (migrate, load spots/media/settings, background town backfill),
   `useSpotActions`, `useMediaActions` (photo save), `useCurrentLocation`.
-- `src/utils/` pure logic: filtering, geo (`NO_LOCATION`, `isKnownLocation`, haversine), exif,
+- `src/utils/` pure logic: geo (`NO_LOCATION`, `isKnownLocation`, haversine), exif,
   photo-storage, reverse-geocode, spot-name (D4 label), map-region, import-clustering.
 
 ## Conventions that are easy to get wrong

@@ -1,8 +1,7 @@
 import { create } from 'zustand';
 import type { Spot, SpotFilters, GeoPoint, SpotUpdate } from '@/src/types';
 import { DEFAULT_FILTERS, SortField, SortDirection, SpotStatus } from '@/src/types';
-import { haversineDistance } from '@/src/utils/geo';
-import { getSpotDisplayName } from '@/src/utils/spot-name';
+import { haversineDistance, isKnownLocation } from '@/src/utils/geo';
 
 export type ViewMode = 'list' | 'map';
 
@@ -79,16 +78,14 @@ export function selectFilteredSpots(
   spots: Spot[],
   filters: SpotFilters,
 ): Spot[] {
+  const query = filters.search_query.trim().toLowerCase();
   return spots.filter((spot) => {
     // Status filter
     if (!filters.show_drafts && spot.status === SpotStatus.Draft) return false;
 
-    // Search
-    if (filters.search_query) {
-      const query = filters.search_query.toLowerCase();
-      const name = getSpotDisplayName(spot).toLowerCase();
-      if (!name.includes(query)) return false;
-    }
+    // Search: the user's name or the town. Not the generated "Untitled · <Town> · <date>" label,
+    // whose "untitled", month and AM/PM would match every unnamed spot.
+    if (query && !matchesSearch(spot, query)) return false;
 
     // Type filter (OR)
     if (filters.types.length > 0) {
@@ -160,37 +157,61 @@ export function selectFilteredSpots(
   });
 }
 
+/** Whether the spot's name or town contains `query` (already trimmed and lowercased). */
+function matchesSearch(spot: Spot, query: string): boolean {
+  return [spot.name, spot.generated_name].some((text) => text?.toLowerCase().includes(query));
+}
+
+/** A spot's value for the sort field, or `null` when it has none (no location, no intensity, no name). */
+function sortKey(spot: Spot, field: SortField, userLocation?: GeoPoint): number | string | null {
+  switch (field) {
+    case SortField.Distance:
+      return userLocation && isKnownLocation(spot.location) ? haversineDistance(userLocation, spot.location) : null;
+    case SortField.Intensity:
+      return spot.metadata.intensity ?? null;
+    case SortField.Name:
+      return spot.name || null;
+    case SortField.DateAdded:
+      return createdAt(spot);
+  }
+}
+
+/** Ascending order of two keys of the same field: names case-insensitively, numbers by value. */
+function compareKeys(a: number | string, b: number | string): number {
+  if (typeof a === 'string' && typeof b === 'string') {
+    return a.toLowerCase().localeCompare(b.toLowerCase());
+  }
+  return Number(a) - Number(b);
+}
+
+function createdAt(spot: Spot): number {
+  return new Date(spot.created_at).getTime();
+}
+
+/**
+ * Sorts by one field. Spots without a value for it (no location, no intensity, no name) go last in
+ * both directions; the direction applies only among spots that have one. Ties, and the whole
+ * missing group, keep the default order: newest first, whatever the direction.
+ */
 export function selectSortedSpots(
   spots: Spot[],
   sortField: SortField,
   sortDirection: SortDirection,
   userLocation?: GeoPoint,
 ): Spot[] {
-  const sorted = [...spots].sort((a, b) => {
-    let cmp = 0;
+  const sign = sortDirection === SortDirection.Asc ? 1 : -1;
+  const keyed = spots.map((spot) => ({ spot, key: sortKey(spot, sortField, userLocation) }));
 
-    switch (sortField) {
-      case SortField.Name:
-        cmp = getSpotDisplayName(a).localeCompare(getSpotDisplayName(b));
-        break;
-      case SortField.Distance:
-        if (userLocation) {
-          cmp = haversineDistance(userLocation, a.location) -
-            haversineDistance(userLocation, b.location);
-        }
-        break;
-      case SortField.DateAdded:
-        cmp = new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
-        break;
-      case SortField.Intensity:
-        cmp = (a.metadata.intensity ?? 0) - (b.metadata.intensity ?? 0);
-        break;
+  keyed.sort((a, b) => {
+    if (a.key === null || b.key === null) {
+      // Missing values go last; within the missing group the default order (newest first) applies.
+      if (a.key !== b.key) return a.key === null ? 1 : -1;
+      return createdAt(b.spot) - createdAt(a.spot);
     }
-
-    return sortDirection === SortDirection.Asc ? cmp : -cmp;
+    return sign * compareKeys(a.key, b.key) || createdAt(b.spot) - createdAt(a.spot);
   });
 
-  return sorted;
+  return keyed.map(({ spot }) => spot);
 }
 
 /** Filters set in the Filter sheet. The search has its own field on the Spots tab, so it is not counted. */

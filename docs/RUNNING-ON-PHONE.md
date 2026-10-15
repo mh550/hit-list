@@ -34,9 +34,10 @@ takes a little while; later loads are quick.
   badge for drafts, and a distance once you allow location. Unnamed spots read
   `Untitled · Seattle · Oct 13, 2:22 PM` (the town arrives a moment after saving, from Apple's
   geocoder: it needs internet, and the spot's coordinates are sent to Apple to look it up) or `Untitled · Oct 13, 2:22 PM` without a town.
-- **Search and sort** (Spots tab): the search field under List | Map finds spots by name, in both
-  views. In List, the chips sort by Date, Name, Distance or Intensity. Tap the active chip again to
-  reverse it. Distance works once you allow location.
+- **Search and sort** (Spots tab): the search field under List | Map finds spots by name or town, in
+  both views. In List, the chips sort by Distance, Date, Name or Intensity. Tap the active chip again
+  to reverse it. Distance works once you allow location. Spots without a location, intensity or name
+  stay at the bottom, whichever way the sort runs.
 - **Spots tab, Map**: the List | Map switch under the header. Apple Maps, one pin per spot: blue for
   complete spots, yellow for drafts. Tap a pin, then its bubble, to open the spot. Spots saved
   without GPS appear in the list but not on the map. Nearby spots show as one numbered blue circle.

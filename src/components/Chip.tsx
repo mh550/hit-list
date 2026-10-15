@@ -12,6 +12,7 @@ interface ChipProps {
   role?: 'checkbox' | 'button';
   disabled?: boolean;
   accessibilityLabel?: string;
+  accessibilityHint?: string;
 }
 
 export function Chip({
@@ -21,6 +22,7 @@ export function Chip({
   role = 'checkbox',
   disabled = false,
   accessibilityLabel,
+  accessibilityHint,
 }: ChipProps) {
   return (
     <Pressable
@@ -29,6 +31,7 @@ export function Chip({
       style={[styles.chip, selected && styles.chipSelected, disabled && styles.chipDisabled]}
       accessibilityRole={role}
       accessibilityLabel={accessibilityLabel}
+      accessibilityHint={accessibilityHint}
       accessibilityState={role === 'button' ? { selected, disabled } : { checked: selected, disabled }}>
       <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
         {label}

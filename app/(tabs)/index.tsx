@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Stack, useRouter } from 'expo-router';
-import { StyleSheet, View, Pressable, Text, TextInput } from 'react-native';
+import { Keyboard, StyleSheet, View, Pressable, Text, TextInput } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 
 import { IconSymbol } from '@/components/ui/icon-symbol';
@@ -25,7 +25,7 @@ import { featureLabel, getSpotDisplayName } from '@/src/utils/spot-name';
 import { resolvePhotoUri } from '@/src/utils/photo-storage';
 import { primaryPhoto } from '@/src/utils/spot-photos';
 import { haversineDistance, formatDistance, isKnownLocation } from '@/src/utils/geo';
-import { SortField, SpotStatus, UnitSystem } from '@/src/types';
+import { DEFAULT_FILTERS, SortField, SpotStatus, UnitSystem } from '@/src/types';
 import type { Spot } from '@/src/types';
 import type { ViewMode } from '@/src/stores/spots-store';
 import { palette, radius, spacing } from '@/src/constants/theme';
@@ -56,6 +56,8 @@ export default function SpotsScreen() {
 
   const [filterVisible, setFilterVisible] = useState(false);
   const activeFilterCount = selectActiveFilterCount(filters);
+  // Whitespace is not a search (selectFilteredSpots trims the same way).
+  const searchActive = filters.search_query.trim() !== '';
 
   // The map takes the filtered spots: order doesn't matter to it, and a new array would re-cluster its markers.
   const filtered = useMemo(() => selectFilteredSpots(spots, filters), [spots, filters]);
@@ -68,6 +70,7 @@ export default function SpotsScreen() {
 
   const handleSpotPress = useCallback(
     (id: string) => {
+      Keyboard.dismiss(); // a raised keyboard would cover the spot screen while it animates in
       router.push(`/spot/${id}` as `/spot/${string}`);
     },
     [router],
@@ -103,6 +106,14 @@ export default function SpotsScreen() {
 
   const keyExtractor = useCallback((item: Spot) => item.id, []);
 
+  // "No matching spots" offers the way out: clear the search if there is one, otherwise reset the filters
+  // (keeping the query, which may be whitespace only).
+  const noMatchAction = searchActive
+    ? { label: 'Clear search', run: () => setFilters({ search_query: '' }) }
+    : activeFilterCount > 0
+      ? { label: 'Reset filters', run: () => setFilters({ ...DEFAULT_FILTERS, search_query: filters.search_query }) }
+      : undefined;
+
   const filterButton = (
     <Pressable
       onPress={() => setFilterVisible(true)}
@@ -133,6 +144,7 @@ export default function SpotsScreen() {
           placeholder="Search spots"
           placeholderTextColor={palette.gray[500]}
           accessibilityLabel="Search spots"
+          accessibilityRole="search"
           clearButtonMode="while-editing"
           autoCorrect={false}
           autoCapitalize="none"
@@ -164,8 +176,8 @@ export default function SpotsScreen() {
             icon="magnifyingglass"
             title="No matching spots"
             message="Try a different search or clear the filters"
-            actionLabel={filters.search_query ? 'Clear search' : undefined}
-            onAction={filters.search_query ? () => setFilters({ search_query: '' }) : undefined}
+            actionLabel={noMatchAction?.label}
+            onAction={noMatchAction?.run}
           />
         ) : null}
         {viewMode === 'list' && sorted.length > 0 ? (

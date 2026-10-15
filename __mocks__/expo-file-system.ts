@@ -25,9 +25,6 @@ class FakeDirectory {
   get exists(): boolean {
     return this.uri === documentUri || dirs.has(this.uri);
   }
-  get name(): string {
-    return this.uri.replace(/\/$/, '').split('/').pop() ?? '';
-  }
   create(options?: { intermediates?: boolean; overwrite?: boolean; idempotent?: boolean }): void {
     if (this.exists) {
       if (options?.idempotent) return;
@@ -50,20 +47,17 @@ class FakeFile {
   get exists(): boolean {
     return files.has(this.uri);
   }
-  get name(): string {
-    return this.uri.split('/').pop() ?? '';
-  }
   get parentDirectory(): FakeDirectory {
     return new FakeDirectory(this.uri.replace(/[^/]+$/, ''));
   }
-  async copy(destination: FakeFile | FakeDirectory, _options?: { overwrite?: boolean }): Promise<void> {
+  async copy(destination: FakeFile, _options?: { overwrite?: boolean }): Promise<void> {
     if (nextCopyError) {
       const e = nextCopyError;
       nextCopyError = null;
       throw e;
     }
     if (!this.exists) throw new Error(`File ${this.uri} does not exist`);
-    const target = destination instanceof FakeDirectory ? new FakeFile(destination, this.name) : destination;
+    const target = destination;
     if (!target.parentDirectory.exists) {
       throw new Error(`Destination directory for ${target.uri} does not exist`);
     }

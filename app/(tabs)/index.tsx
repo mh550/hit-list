@@ -17,7 +17,7 @@ import { EmptyState } from '@/src/components/EmptyState';
 import { FilterSheet } from '@/src/components/FilterSheet';
 import { getSpotDisplayName } from '@/src/utils/spot-name';
 import { resolvePhotoUri } from '@/src/utils/photo-storage';
-import { spotPhotos } from '@/src/utils/spot-photos';
+import { primaryPhoto } from '@/src/utils/spot-photos';
 import { haversineDistance, formatDistance } from '@/src/utils/geo';
 import { SpotStatus, UnitSystem } from '@/src/types';
 import type { Spot } from '@/src/types';
@@ -57,7 +57,7 @@ export default function SpotsScreen() {
 
   const renderItem = useCallback(
     ({ item }: { item: Spot }) => {
-      const thumbnail = spotPhotos(item, mediaBySpot[item.id])[0];
+      const thumbnail = primaryPhoto(item, mediaBySpot[item.id]);
       return (
         <SpotListItem
           id={item.id}
@@ -118,7 +118,6 @@ export default function SpotsScreen() {
         data={sorted}
         renderItem={renderItem}
         keyExtractor={keyExtractor}
-        extraData={mediaBySpot}
       />
       <Pressable
         style={styles.fab}

@@ -3,7 +3,7 @@ import { Directory, File, Paths } from 'expo-file-system';
 const PHOTOS_DIR = 'photos';
 const HAS_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
 
-export function photoRelativePath(spotId: string, mediaId: string): string {
+function photoRelativePath(spotId: string, mediaId: string): string {
   return `${PHOTOS_DIR}/${spotId}/${mediaId}.jpg`;
 }
 

@@ -1,17 +1,13 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
-import * as fileSystem from 'expo-file-system';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { fakeFs as fs } from './helpers/fake-fs';
 import { useMediaStore, useSpotsStore } from '@/src/stores';
 import type { Media } from '@/src/types';
 import type { ImportPhoto } from '@/src/utils/import-clustering';
 
-const fs = fileSystem as unknown as typeof import('../../__mocks__/expo-file-system');
-
-let mockParams: Record<string, string> = {};
 const mockDismissAll = jest.fn();
-jest.mock('expo-router', () => ({
-  useLocalSearchParams: () => mockParams,
-  useRouter: () => ({ dismissAll: mockDismissAll, push: jest.fn(), back: jest.fn() }),
-}));
+const setParams = (params: Record<string, string>) =>
+  jest.mocked(useLocalSearchParams).mockReturnValue(params as never);
 
 jest.mock('expo-sqlite', () => ({ useSQLiteContext: () => ({}) }));
 
@@ -33,10 +29,11 @@ describe('review screens persist photos before saving (D3)', () => {
     fs.__resetFs();
     useMediaStore.setState({ mediaBySpot: {} });
     useSpotsStore.setState({ spots: [] });
+    jest.mocked(useRouter).mockReturnValue({ dismissAll: mockDismissAll, push: jest.fn(), back: jest.fn() } as never);
   });
 
   it('Quick Add stores relative photo paths and fills the media store', async () => {
-    mockParams = { photoUris: 'file:///c/a.jpg,file:///c/b.jpg', latitude: '47.6', longitude: '-122.3' };
+    setParams({ photoUris: 'file:///c/a.jpg,file:///c/b.jpg', latitude: '47.6', longitude: '-122.3' });
     fs.__putFile('file:///c/a.jpg');
     fs.__putFile('file:///c/b.jpg');
 
@@ -55,7 +52,7 @@ describe('review screens persist photos before saving (D3)', () => {
     const group: ImportPhoto[] = [
       { uri: 'file:///c/i1.jpg', location: { latitude: 47.6, longitude: -122.3 }, capturedAt: '2026-10-13T14:22:01' },
     ];
-    mockParams = { groupsJson: JSON.stringify([group]) };
+    setParams({ groupsJson: JSON.stringify([group]) });
     fs.__putFile('file:///c/i1.jpg');
 
     render(<ImportReview />);
@@ -69,7 +66,7 @@ describe('review screens persist photos before saving (D3)', () => {
 
   it('still saves the media row with the original URI when the copy fails', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    mockParams = { photoUris: 'file:///c/gone.jpg', latitude: '0', longitude: '0' }; // never created
+    setParams({ photoUris: 'file:///c/gone.jpg', latitude: '0', longitude: '0' }); // never created
 
     render(<QuickAddReview />);
     fireEvent.press(screen.getByText('Save as Draft'));

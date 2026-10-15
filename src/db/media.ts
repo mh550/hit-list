@@ -47,11 +47,9 @@ export async function getMediaForSpot(db: SQLiteDatabase, spotId: string): Promi
   return rows.map(rowToMedia);
 }
 
-/** Every media row, grouped by spot and in capture order within a spot (hydrates the media store). */
+/** Every media row, oldest first (hydrates the media store, which groups by spot). */
 export async function getAllMedia(db: SQLiteDatabase): Promise<Media[]> {
-  const rows = await db.getAllAsync<MediaRow>(
-    `SELECT * FROM media ORDER BY spot_id, created_at ASC`,
-  );
+  const rows = await db.getAllAsync<MediaRow>(`SELECT * FROM media ORDER BY created_at ASC`);
   return rows.map(rowToMedia);
 }
 

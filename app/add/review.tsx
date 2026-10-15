@@ -3,19 +3,15 @@ import { StyleSheet, View, Text, ScrollView, TextInput, Pressable } from 'react-
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import { v4 as uuid } from 'uuid';
-import { useSQLiteContext } from 'expo-sqlite';
 
 import { useSpotActions } from '@/src/hooks/use-spot-actions';
-import { insertMedia } from '@/src/db';
-import { useMediaStore } from '@/src/stores';
-import { persistPhoto } from '@/src/utils/photo-storage';
+import { useMediaActions } from '@/src/hooks/use-media-actions';
 import { palette, spacing, radius } from '@/src/constants/theme';
 import { SpotStatus } from '@/src/types';
-import type { Spot, Media } from '@/src/types';
+import type { Spot } from '@/src/types';
 
 export default function ReviewScreen() {
   const router = useRouter();
-  const db = useSQLiteContext();
   const params = useLocalSearchParams<{
     photoUris: string;
     latitude: string;
@@ -23,7 +19,7 @@ export default function ReviewScreen() {
   }>();
 
   const { addSpot } = useSpotActions();
-  const addMedia = useMediaStore((s) => s.add);
+  const { savePhotos } = useMediaActions();
   const [name, setName] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -58,30 +54,18 @@ export default function ReviewScreen() {
 
     await addSpot(spot);
 
-    // Persist media records
-    if (photoUris.length > 0) {
-      await Promise.all(
-        photoUris.map(async (uri, i) => {
-          const mediaId = i === 0 ? firstPhotoId! : uuid();
-          const media: Media = {
-            id: mediaId,
-            spot_id: spotId,
-            file_path: await persistPhoto(uri, spotId, mediaId),
-            location: latitude !== 0 ? { latitude, longitude } : undefined,
-            created_at: now,
-          };
-          try {
-            await insertMedia(db, media);
-            addMedia(media);
-          } catch (err) {
-            console.error('[ReviewScreen] insertMedia failed:', err);
-          }
-        }),
-      );
-    }
+    await savePhotos(
+      photoUris.map((uri, i) => ({
+        sourceUri: uri,
+        id: i === 0 ? firstPhotoId! : uuid(),
+        spot_id: spotId,
+        location: latitude !== 0 ? { latitude, longitude } : undefined,
+        created_at: now,
+      })),
+    );
 
     router.dismissAll();
-  }, [saving, name, latitude, longitude, photoUris, addSpot, addMedia, db, router]);
+  }, [saving, name, latitude, longitude, photoUris, addSpot, savePhotos, router]);
 
   return (
     <ScrollView

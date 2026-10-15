@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { StyleSheet, ScrollView, View, Text, Pressable } from 'react-native';
-import { Image } from 'expo-image';
+import { Image, type ImageProps } from 'expo-image';
 
 import { useSpotsStore, useMediaStore } from '@/src/stores';
 import { useSettingsStore } from '@/src/stores/settings-store';
@@ -13,7 +13,13 @@ import { RatingBadge } from '@/src/components/RatingBadge';
 import { StarRating } from '@/src/components/StarRating';
 import { palette, spacing, radius } from '@/src/constants/theme';
 import { SpotStatus } from '@/src/types';
-import type { Spot, SetupOption } from '@/src/types';
+import type { Media, Spot, SetupOption } from '@/src/types';
+
+function Photo({ media, style, testID }: { media: Media; style: ImageProps['style']; testID: string }) {
+  return (
+    <Image testID={testID} source={{ uri: resolvePhotoUri(media.file_path) }} style={style} contentFit="cover" />
+  );
+}
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -100,24 +106,11 @@ export default function SpotDetailScreen() {
         contentContainerStyle={styles.contentContainer}
         contentInsetAdjustmentBehavior="automatic">
         {/* Photo Gallery: primary photo as hero, the rest in capture order */}
-        {hero ? (
-          <Image
-            testID="spot-photo-0"
-            source={{ uri: resolvePhotoUri(hero.file_path) }}
-            style={styles.heroImage}
-            contentFit="cover"
-          />
-        ) : null}
+        {hero ? <Photo media={hero} style={styles.heroImage} testID="spot-photo-0" /> : null}
         {rest.length > 0 ? (
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.galleryRow}>
             {rest.map((m, i) => (
-              <Image
-                key={m.id}
-                testID={`spot-photo-${i + 1}`}
-                source={{ uri: resolvePhotoUri(m.file_path) }}
-                style={styles.galleryThumb}
-                contentFit="cover"
-              />
+              <Photo key={m.id} media={m} style={styles.galleryThumb} testID={`spot-photo-${i + 1}`} />
             ))}
           </ScrollView>
         ) : null}

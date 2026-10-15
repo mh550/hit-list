@@ -11,15 +11,12 @@ import {
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
 import { v4 as uuid } from 'uuid';
-import { useSQLiteContext } from 'expo-sqlite';
 
 import { useSpotActions } from '@/src/hooks/use-spot-actions';
-import { insertMedia } from '@/src/db';
-import { useMediaStore } from '@/src/stores';
-import { persistPhoto } from '@/src/utils/photo-storage';
+import { useMediaActions } from '@/src/hooks/use-media-actions';
 import { palette, spacing, radius } from '@/src/constants/theme';
 import { SpotStatus } from '@/src/types';
-import type { Spot, Media } from '@/src/types';
+import type { Spot } from '@/src/types';
 import type { ImportPhoto } from '@/src/utils/import-clustering';
 
 interface SpotGroup {
@@ -39,9 +36,8 @@ function formatDate(isoString: string): string {
 export default function ImportReviewScreen() {
   const { groupsJson } = useLocalSearchParams<{ groupsJson: string }>();
   const router = useRouter();
-  const db = useSQLiteContext();
   const { addSpot } = useSpotActions();
-  const addMedia = useMediaStore((s) => s.add);
+  const { savePhotos } = useMediaActions();
   const [saving, setSaving] = useState(false);
 
   const parsedGroups: ImportPhoto[][] = groupsJson ? JSON.parse(groupsJson) : [];
@@ -89,24 +85,15 @@ export default function ImportReviewScreen() {
 
           await addSpot(spot);
 
-          await Promise.all(
-            group.photos.map(async (photo, i) => {
-              const mediaId = i === 0 ? firstMediaId : uuid();
-              const media: Media = {
-                id: mediaId,
-                spot_id: spotId,
-                file_path: await persistPhoto(photo.uri, spotId, mediaId),
-                location: photo.location ?? undefined,
-                captured_at: photo.capturedAt,
-                created_at: now,
-              };
-              try {
-                await insertMedia(db, media);
-                addMedia(media);
-              } catch (err) {
-                console.error('[ImportReview] insertMedia failed:', err);
-              }
-            }),
+          await savePhotos(
+            group.photos.map((photo, i) => ({
+              sourceUri: photo.uri,
+              id: i === 0 ? firstMediaId : uuid(),
+              spot_id: spotId,
+              location: photo.location ?? undefined,
+              captured_at: photo.capturedAt,
+              created_at: now,
+            })),
           );
         }),
       );
@@ -115,7 +102,7 @@ export default function ImportReviewScreen() {
     } finally {
       setSaving(false);
     }
-  }, [saving, groups, addSpot, addMedia, db, router]);
+  }, [saving, groups, addSpot, savePhotos, router]);
 
   if (parsedGroups.length === 0) {
     return (

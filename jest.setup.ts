@@ -7,13 +7,16 @@ jest.mock('expo-haptics', () => ({
 }));
 
 // Mock expo-router
+// useRouter / useLocalSearchParams are jest.fn so a test can override them with
+// jest.mocked(useLocalSearchParams).mockReturnValue(...).
 jest.mock('expo-router', () => ({
-  useRouter: () => ({
+  useRouter: jest.fn(() => ({
     push: jest.fn(),
     back: jest.fn(),
     replace: jest.fn(),
-  }),
-  useLocalSearchParams: () => ({}),
+    dismissAll: jest.fn(),
+  })),
+  useLocalSearchParams: jest.fn(() => ({})),
   usePathname: () => '/',
   Link: 'Link',
   Tabs: {
@@ -40,3 +43,6 @@ jest.mock('@/components/ui/icon-symbol', () => {
   const { View } = jest.requireActual('react-native');
   return { IconSymbol: ({ name }: { name: string }) => createElement(View, { testID: `icon-${name}` }) };
 });
+
+// FlashList needs a measured layout; render it as React Native's FlatList.
+jest.mock('@shopify/flash-list', () => ({ FlashList: jest.requireActual('react-native').FlatList }));

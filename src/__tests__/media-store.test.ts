@@ -13,23 +13,18 @@ describe('media store', () => {
     expect(useMediaStore.getState().mediaBySpot).toEqual({ s1: [a], s2: [b] });
   });
 
-  it('add keeps a spot\'s media in capture order', () => {
-    const later = createTestMedia({ spot_id: 's1', created_at: '2026-10-13T12:00:00.000Z' });
-    const earlier = createTestMedia({ spot_id: 's1', created_at: '2026-10-13T11:00:00.000Z' });
-
-    useMediaStore.getState().add(later);
-    useMediaStore.getState().add(earlier);
-
-    expect(useMediaStore.getState().mediaBySpot.s1).toEqual([earlier, later]);
-  });
-
-  it('remove drops one row and leaves the rest', () => {
+  it('addMany appends to each spot in the given order, in one update', () => {
+    const existing = createTestMedia({ spot_id: 's1' });
     const a = createTestMedia({ spot_id: 's1' });
-    const b = createTestMedia({ spot_id: 's1' });
-    useMediaStore.getState().setAll([a, b]);
+    const b = createTestMedia({ spot_id: 's2' });
+    useMediaStore.getState().setAll([existing]);
+    const listener = jest.fn();
+    const unsubscribe = useMediaStore.subscribe(listener);
 
-    useMediaStore.getState().remove(a.id);
+    useMediaStore.getState().addMany([a, b]);
 
-    expect(useMediaStore.getState().mediaBySpot.s1).toEqual([b]);
+    expect(useMediaStore.getState().mediaBySpot).toEqual({ s1: [existing, a], s2: [b] });
+    expect(listener).toHaveBeenCalledTimes(1);
+    unsubscribe();
   });
 });

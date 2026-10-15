@@ -1,8 +1,12 @@
 import type { Media, Spot } from '@/src/types';
 
-/** A spot's photos in capture order, with its primary photo (if it names a row) moved first. */
+/** The spot's primary photo if it names a row, else its first photo. */
+export function primaryPhoto(spot: Spot, media: Media[] | undefined): Media | undefined {
+  return media?.find((m) => m.id === spot.primary_photo_id) ?? media?.[0];
+}
+
+/** A spot's photos in capture order, with the primary photo first. */
 export function spotPhotos(spot: Spot, media: Media[] | undefined): Media[] {
-  if (!media?.length) return [];
-  const primary = media.find((m) => m.id === spot.primary_photo_id);
-  return primary ? [primary, ...media.filter((m) => m !== primary)] : media;
+  const primary = primaryPhoto(spot, media);
+  return primary ? [primary, ...(media ?? []).filter((m) => m !== primary)] : [];
 }

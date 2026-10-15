@@ -1,20 +1,13 @@
 import { render, screen } from '@testing-library/react-native';
+import { useLocalSearchParams } from 'expo-router';
 import { Image } from 'react-native';
-import * as fileSystem from 'expo-file-system';
+import { fakeFs as fs } from './helpers/fake-fs';
 import { useMediaStore, useSpotsStore } from '@/src/stores';
 import { spotPhotos } from '@/src/utils/spot-photos';
 import { resolvePhotoUri } from '@/src/utils/photo-storage';
 import { createTestMedia, createTestSpot } from './factories';
 
-const fs = fileSystem as unknown as typeof import('../../__mocks__/expo-file-system');
-
-let mockId = '';
-jest.mock('expo-router', () => ({
-  useLocalSearchParams: () => ({ id: mockId }),
-  useRouter: () => ({ push: jest.fn(), back: jest.fn() }),
-  Stack: { Screen: 'Stack.Screen' },
-}));
-jest.mock('@shopify/flash-list', () => ({ FlashList: jest.requireActual('react-native').FlatList }));
+const showSpot = (id: string) => jest.mocked(useLocalSearchParams).mockReturnValue({ id } as never);
 
 import SpotsScreen from '@/app/(tabs)/index';
 import SpotDetailScreen from '@/app/spot/[id]/index';
@@ -73,7 +66,7 @@ describe('Spot detail gallery', () => {
     );
     useSpotsStore.setState({ spots: [{ ...spot, primary_photo_id: media[1].id }] });
     useMediaStore.getState().setAll(media);
-    mockId = spot.id;
+    showSpot(spot.id);
 
     render(<SpotDetailScreen />);
 
@@ -85,7 +78,7 @@ describe('Spot detail gallery', () => {
   it('shows no image (and never the photo id as a URI) for a spot without media', () => {
     const spot = createTestSpot({ primary_photo_id: 'b3c1f7a2-uuid-not-a-uri' });
     useSpotsStore.setState({ spots: [spot] });
-    mockId = spot.id;
+    showSpot(spot.id);
 
     render(<SpotDetailScreen />);
 
@@ -99,7 +92,7 @@ describe('Spot detail gallery', () => {
     );
     useSpotsStore.setState({ spots: [spot] });
     useMediaStore.getState().setAll(media);
-    mockId = spot.id;
+    showSpot(spot.id);
 
     render(<SpotDetailScreen />);
 

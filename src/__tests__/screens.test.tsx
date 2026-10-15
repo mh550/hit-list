@@ -1,12 +1,6 @@
 import React from 'react';
 import { render, screen } from '@testing-library/react-native';
 
-// Mock FlashList
-jest.mock('@shopify/flash-list', () => {
-  const { FlatList } = jest.requireActual('react-native');
-  return { FlashList: FlatList };
-});
-
 // Mock expo-sqlite
 jest.mock('expo-sqlite', () => ({
   useSQLiteContext: () => ({

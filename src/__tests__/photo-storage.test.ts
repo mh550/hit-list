@@ -1,15 +1,7 @@
-import * as fileSystem from 'expo-file-system';
-import { photoRelativePath, persistPhoto, resolvePhotoUri } from '@/src/utils/photo-storage';
-
-// The manual mock in __mocks__/ replaces expo-file-system for every importer. Import it the same
-// way the code under test does (jest.requireMock would hand back a second, unshared instance).
-const fs = fileSystem as unknown as typeof import('../../__mocks__/expo-file-system');
+import { fakeFs as fs } from './helpers/fake-fs';
+import { persistPhoto, resolvePhotoUri } from '@/src/utils/photo-storage';
 
 beforeEach(() => fs.__resetFs());
-
-it('builds photos/<spotId>/<mediaId>.jpg', () => {
-  expect(photoRelativePath('s1', 'm1')).toBe('photos/s1/m1.jpg');
-});
 
 it('copies the source into the document directory and returns the relative path', async () => {
   fs.__putFile('file:///data/Caches/Camera/abc.jpg');

@@ -1,5 +1,15 @@
 import type { GeoPoint } from '@/src/types';
 
+/**
+ * Spots saved without a GPS fix are stored at (0, 0) (location is NOT NULL in the schema). Write
+ * NO_LOCATION, test with isKnownLocation, so a later nullable-location migration has one symbol.
+ */
+export const NO_LOCATION: GeoPoint = { latitude: 0, longitude: 0 };
+
+export function isKnownLocation(p: GeoPoint): boolean {
+  return p.latitude !== 0 || p.longitude !== 0;
+}
+
 const EARTH_RADIUS_KM = 6371;
 const KM_TO_MILES = 0.621371;
 

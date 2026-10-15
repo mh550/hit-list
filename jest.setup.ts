@@ -46,3 +46,18 @@ jest.mock('@/components/ui/icon-symbol', () => {
 
 // FlashList needs a measured layout; render it as React Native's FlatList.
 jest.mock('@shopify/flash-list', () => ({ FlashList: jest.requireActual('react-native').FlatList }));
+
+// expo-location: members copied from node_modules/expo-location/build/Location.d.ts. Defaults are
+// "permission denied, no position, no address"; tests override with jest.mocked(...).
+const mockDeniedPermission = { status: 'denied', granted: false, canAskAgain: true, expires: 'never' };
+jest.mock('expo-location', () => ({
+  requestForegroundPermissionsAsync: jest.fn(async () => mockDeniedPermission),
+  getForegroundPermissionsAsync: jest.fn(async () => mockDeniedPermission),
+  getLastKnownPositionAsync: jest.fn(async () => null),
+  getCurrentPositionAsync: jest.fn(async () => {
+    throw new Error('location unavailable in tests');
+  }),
+  reverseGeocodeAsync: jest.fn(async () => []),
+  Accuracy: { Lowest: 1, Low: 2, Balanced: 3, High: 4, Highest: 5, BestForNavigation: 6 },
+}));
+

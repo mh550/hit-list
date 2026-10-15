@@ -1,5 +1,6 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
+import { reverseGeocodeAsync } from 'expo-location';
 import { fakeFs as fs } from './helpers/fake-fs';
 import { useMediaStore, useSpotsStore } from '@/src/stores';
 import type { Media } from '@/src/types';
@@ -12,9 +13,11 @@ const setParams = (params: Record<string, string>) =>
 jest.mock('expo-sqlite', () => ({ useSQLiteContext: () => ({}) }));
 
 const mockInsertMedia = jest.fn().mockResolvedValue(undefined);
+const mockUpdateSpot = jest.fn().mockResolvedValue(undefined);
 jest.mock('@/src/db', () => ({
   insertSpot: jest.fn().mockResolvedValue(undefined),
   insertMedia: (...args: unknown[]) => mockInsertMedia(...args),
+  updateSpot: (...args: unknown[]) => mockUpdateSpot(...args),
 }));
 
 import QuickAddReview from '@/app/add/review';
@@ -75,5 +78,19 @@ describe('review screens persist photos before saving (D3)', () => {
     expect(insertedMedia().map((m) => m.file_path)).toEqual(['file:///c/gone.jpg']);
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
+  });
+
+  it('looks up the town after a save and stores it as generated_name', async () => {
+    jest.mocked(reverseGeocodeAsync).mockResolvedValueOnce([{ city: 'Seattle' }] as never);
+    setParams({ photoUris: '', latitude: '47.6', longitude: '-122.3' });
+
+    render(<QuickAddReview />);
+    fireEvent.press(screen.getByText('Save as Draft'));
+
+    await waitFor(() =>
+      expect(mockUpdateSpot).toHaveBeenCalledWith(expect.anything(), expect.any(String), { generated_name: 'Seattle' }),
+    );
+    const [spot] = useSpotsStore.getState().spots;
+    expect(spot.generated_name).toBe('Seattle');
   });
 });

@@ -1,4 +1,5 @@
-import { renderHook, act } from '@testing-library/react-native';
+import { renderHook, act, waitFor } from '@testing-library/react-native';
+import { reverseGeocodeAsync } from 'expo-location';
 import { useDbInit } from '@/src/hooks/use-db-init';
 import { useSpotsStore } from '@/src/stores';
 import { useSettingsStore } from '@/src/stores/settings-store';
@@ -109,6 +110,28 @@ describe('useDbInit', () => {
     await flushInit();
 
     expect(useMediaStore.getState().mediaBySpot).toEqual({ s1: [m] });
+  });
+
+  it('backfills towns after launch without delaying ready', async () => {
+    const spots = Array.from({ length: 12 }, () => createTestSpot());
+    mockGetSpots.mockResolvedValue(spots);
+    mockGetUserSettings.mockResolvedValue(null);
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    jest.mocked(reverseGeocodeAsync).mockImplementation(async () => {
+      await gate;
+      return [{ city: 'Seattle' }] as never;
+    });
+
+    const { result } = renderHook(() => useDbInit());
+    await flushInit();
+
+    expect(result.current.isReady).toBe(true); // ready while the geocoder is still waiting
+    release();
+    await waitFor(() => expect(reverseGeocodeAsync).toHaveBeenCalledTimes(10));
+    await waitFor(() =>
+      expect(useSpotsStore.getState().spots.filter((s) => s.generated_name === 'Seattle')).toHaveLength(10),
+    );
   });
 
   it('handles DB errors gracefully — still marks ready', async () => {

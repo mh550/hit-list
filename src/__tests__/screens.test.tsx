@@ -24,12 +24,6 @@ jest.mock('expo-camera', () => ({
   useCameraPermissions: () => [{ granted: false }, jest.fn()],
 }));
 
-// Mock expo-location
-jest.mock('expo-location', () => ({
-  requestForegroundPermissionsAsync: jest.fn().mockResolvedValue({ status: 'denied' }),
-  getCurrentPositionAsync: jest.fn(),
-}));
-
 import SpotsScreen from '@/app/(tabs)/index';
 import ProfileScreen from '@/app/(tabs)/profile';
 import CameraScreen from '@/app/add/camera';

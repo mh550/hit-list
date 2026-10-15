@@ -236,7 +236,7 @@ Write the start time in the Status log. For each hop N in 55, 56, 57:
       photos live on the device). `CLAUDE.md` rewritten to the real state (stack, commands,
       branch policy D7, TDD + node:sqlite harness, Expo Go delivery, SDK/jest versions).
       `README.md`: what it is, status, commands, "Not done yet".
-- [ ] **D12 (Michael 2026-10-15):** move "Import Photos" off the Profile tab to the Spots tab as a
+- [x] **D12 (Michael 2026-10-15):** move "Import Photos" off the Profile tab to the Spots tab as a
       second action beside the + button (both List and Map views). RED test first, then remove the
       Profile button and its test.
 - [ ] Review, milestone push.
@@ -303,6 +303,15 @@ _(exact commands / decisions, newest first)_
 
 ## Status log
 _(newest first: time · step · result · commit)_
+- 2026-10-15 17:42 · **D12 done** · RED tests by a Sonnet subagent (5 Spots-tab tests, 4 RED + 1 regression guard GREEN; Profile test RED), implementation by an Opus subagent, gates re-run here: **225 tests / 26 suites**, 0 console.error, typecheck 0, lint 0, export ok. Spots tab bottom-right is now a column: a 44 pt white "Import photos" button (SF Symbol `photo.on.rectangle`) above the 56 pt blue +, in List and Map and with zero spots. Profile button removed; its radius hint and `docs/RUNNING-ON-PHONE.md` now point to the Spots tab. Empty list reads "Tap the + button to add your first spot, or import from your photos". Next: final whole-branch review (M7 box).
+
+  **What Michael will see** (Spots tab, any mode):
+
+  | Place | Control | Does |
+|---|---|---|
+  | bottom-right, upper | small white circle, blue photo icon | opens Import Photos |
+  | bottom-right, lower | blue + | opens the camera (unchanged) |
+  | Profile tab | Import Radius only | no import button |
 - 2026-10-15 17:39 · Loop resumed (session model Opus) · Michael answered D4 (keep geocoder, untitled fallback) and D12 (Import Photos off Profile → Spots tab); recorded in spec §0 and Direction from Michael; D12 move queued under M7. Next: D12 move, then the final whole-branch review that was cut off by a session limit.
 - 2026-10-15 00:51 · Wrap-up: end-of-night checks from a clean `npm ci` all green (table in spec §1.3);
   final whole-branch review (incl. M7 docs) running on Opus.

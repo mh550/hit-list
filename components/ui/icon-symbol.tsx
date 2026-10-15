@@ -23,6 +23,7 @@ const MAPPING = {
   'star.fill': 'star',
   'star': 'star-border',
   'mappin.slash': 'location-off',
+  'photo.on.rectangle': 'photo-library',
 } as IconMapping;
 
 /**

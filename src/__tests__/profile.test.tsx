@@ -1,6 +1,5 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react-native';
-import { useRouter } from 'expo-router';
 import ProfileScreen from '@/app/(tabs)/profile';
 import { useSettingsStore } from '@/src/stores/settings-store';
 import { GearItem, UnitSystem } from '@/src/types';
@@ -76,13 +75,10 @@ describe('ProfileScreen', () => {
 });
 
 describe('Import Photos entry point', () => {
-  it('opens the batch import flow', () => {
-    const push = jest.fn();
-    jest.mocked(useRouter).mockReturnValue({ push, back: jest.fn(), replace: jest.fn() } as never);
-
+  it('is not on the Profile tab', () => {
+    // D12 (Michael, 2026-10-15): Import Photos moved to the Spots tab; Profile must not offer it.
     render(<ProfileScreen />);
-    fireEvent.press(screen.getByText('Import Photos'));
 
-    expect(push).toHaveBeenCalledWith('/import');
+    expect(screen.queryByText('Import Photos')).toBeNull();
   });
 });

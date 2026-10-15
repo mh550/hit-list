@@ -3,6 +3,8 @@ import { Stack, useRouter } from 'expo-router';
 import { StyleSheet, View, Pressable, Text } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 
+import { IconSymbol } from '@/components/ui/icon-symbol';
+
 import {
   useSpotsStore,
   useMediaStore,
@@ -117,7 +119,7 @@ export default function SpotsScreen() {
         {viewMode === 'list' && sorted.length === 0 ? (
           <EmptyState
             title="No Spots Yet"
-            message="Tap the + button to add your first spot"
+            message="Tap the + button to add your first spot, or import from your photos"
             actionLabel="Add Spot"
             onAction={() => router.push('/add/camera')}
           />
@@ -126,13 +128,22 @@ export default function SpotsScreen() {
           <FlashList data={sorted} renderItem={renderItem} keyExtractor={keyExtractor} />
         ) : null}
       </View>
-      <Pressable
-        style={styles.fab}
-        onPress={() => router.push('/add/camera')}
-        accessibilityLabel="Add new spot"
-        accessibilityRole="button">
-        <Text style={styles.fabText}>+</Text>
-      </Pressable>
+      <View style={styles.fabColumn}>
+        <Pressable
+          style={[styles.fabShadow, styles.fabSecondary]}
+          onPress={() => router.push('/import')}
+          accessibilityLabel="Import photos"
+          accessibilityRole="button">
+          <IconSymbol name="photo.on.rectangle" size={22} color={palette.blue[500]} />
+        </Pressable>
+        <Pressable
+          style={[styles.fabShadow, styles.fab]}
+          onPress={() => router.push('/add/camera')}
+          accessibilityLabel="Add new spot"
+          accessibilityRole="button">
+          <Text style={styles.fabText}>+</Text>
+        </Pressable>
+      </View>
       <FilterSheet visible={filterVisible} onClose={() => setFilterVisible(false)} />
     </View>
   );
@@ -165,14 +176,15 @@ const styles = StyleSheet.create({
   filterTextActive: {
     fontWeight: '700',
   },
-  fab: {
+  // Floating actions: the secondary "Import photos" button stacked above the "+" FAB (D12).
+  fabColumn: {
     position: 'absolute',
     bottom: 32,
     right: 32,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: palette.blue[500],
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  fabShadow: {
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: palette.black,
@@ -180,6 +192,18 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 4,
     elevation: 5,
+  },
+  fab: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: palette.blue[500],
+  },
+  fabSecondary: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: palette.white,
   },
   fabText: {
     fontSize: 28,

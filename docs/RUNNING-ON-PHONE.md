@@ -38,8 +38,8 @@ takes a little while; later loads are quick.
   without GPS appear in the list but not on the map.
 - **+ button**: camera → take photos → name it or leave it blank → Save as Draft. The photos are
   copied into the app's own storage, so they stay after iOS clears its caches.
-- **Import Photos** (Profile tab): pick photos from the library; they are grouped by place (50 m by
-  default) using their real capture time and GPS.
+- **Import Photos** (Spots tab, the small photo button above +): pick photos from the library;
+  they are grouped by place (50 m by default) using their real capture time and GPS.
 - **Spot detail**: the main photo large, the rest in a row underneath.
 - iOS asks for **location** when the Spots tab first opens, and for the **camera** on the first
   photo. Saying no is fine: distances stay blank and the map just shows the spots.

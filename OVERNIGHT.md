@@ -303,6 +303,14 @@ _(exact commands / decisions, newest first)_
 
 ## Status log
 _(newest first: time · step · result · commit)_
+- 2026-10-15 00:44 · M6 review → fix pass (`e75d928`) · Opus, EXIF keys and geocoder checked against the
+  expo-image-picker / expo-location iOS source (keys right; geocoding needs no permission). **2 Important fixed:**
+  import groups were pre-filled "Spot 1", "Spot 2"… so imports never showed the new label or got a town (now
+  blank); distances were measured from wherever the app was first opened (now refresh on every return to the
+  foreground; last-known positions older than 5 min ignored). **Re-graded and fixed:** the list label cut off
+  the time ("Untitled · Seattle · Oct 13, 2:2…") → two lines; "on-device geocoder" was wrong — Apple's
+  geocoder is a network service, docs corrected and asked under Needs Michael. 217 tests, export ok.
+  M7 review is folded into the final whole-branch review at wrap-up (M7 = docs, one script, one button).
 - 2026-10-15 00:40 · M7 steps 1–3 done · `start:tailscale` script. **Metro smoke over the tailnet: manifest
   `http://100.88.90.97:8081/` → HTTP 200, SDK 57.0.0; launch bundle → HTTP 200, 9.3 MB of JavaScript
   containing react-native-maps and the D4 label.** QR URL: **`exp://100.88.90.97:8081`**. (The runbook's

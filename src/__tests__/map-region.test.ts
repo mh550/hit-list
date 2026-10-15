@@ -3,6 +3,7 @@ import { CURRENT_LOCATION_DELTA, DEFAULT_REGION, MIN_DELTA } from '@/src/constan
 import { createTestSpot } from './factories';
 
 const at = (latitude: number, longitude: number) => createTestSpot({ location: { latitude, longitude } });
+const seattlePair = [at(47.6, -122.34), at(47.7, -122.3)];
 
 describe('initialRegion', () => {
   it('centres on the current location when known', () => {
@@ -15,7 +16,7 @@ describe('initialRegion', () => {
   });
 
   it('fits all spots when the location is unknown', () => {
-    const r = initialRegion([at(47.6, -122.34), at(47.7, -122.3)], null);
+    const r = initialRegion(seattlePair, null);
 
     expect(r.latitude).toBeCloseTo(47.65);
     expect(r.longitude).toBeCloseTo(-122.32);
@@ -60,10 +61,7 @@ describe('initialRegion', () => {
   });
 
   it('ignores spots saved without a location (0, 0)', () => {
-    const r = initialRegion([at(47.6, -122.34), at(47.7, -122.3), at(0, 0)], null);
-
-    expect(r.latitude).toBeCloseTo(47.65);
-    expect(r.longitude).toBeCloseTo(-122.32);
+    expect(initialRegion([...seattlePair, at(0, 0)], null)).toEqual(initialRegion(seattlePair, null));
     expect(initialRegion([at(0, 0)], null)).toEqual(DEFAULT_REGION);
   });
 

@@ -22,3 +22,11 @@ export function getSpotDisplayName(spot: Spot): string {
   if (spot.name) return spot.name;
   return ['Untitled', spot.generated_name, formatSpotTime(spot.created_at)].filter(Boolean).join(' · ');
 }
+
+/** The feature type as shown to the user: the custom name for 'other', underscores as spaces. */
+export function featureLabel(spot: Spot): string | undefined {
+  const { type, custom_type } = spot.feature;
+  if (!type) return undefined;
+  if (type === 'other' && custom_type) return custom_type;
+  return type.replace(/_/g, ' ');
+}

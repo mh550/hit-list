@@ -14,6 +14,7 @@ import { v4 as uuid } from 'uuid';
 
 import { useSpotActions } from '@/src/hooks/use-spot-actions';
 import { useMediaActions } from '@/src/hooks/use-media-actions';
+import { NO_LOCATION } from '@/src/utils/geo';
 import { palette, spacing, radius } from '@/src/constants/theme';
 import { SpotStatus } from '@/src/types';
 import type { Spot } from '@/src/types';
@@ -64,7 +65,7 @@ export default function ImportReviewScreen() {
       await Promise.all(
         groups.map(async (group) => {
           const firstPhoto = group.photos[0];
-          const location = firstPhoto?.location ?? { latitude: 0, longitude: 0 };
+          const location = firstPhoto?.location ?? NO_LOCATION;
           const now = new Date().toISOString();
           const spotId = uuid();
           const firstMediaId = uuid();

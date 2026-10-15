@@ -17,6 +17,7 @@ jest.mock('expo-router', () => ({
     dismissAll: jest.fn(),
   })),
   useLocalSearchParams: jest.fn(() => ({})),
+  useIsFocused: jest.fn(() => true),
   usePathname: () => '/',
   Link: 'Link',
   Tabs: {

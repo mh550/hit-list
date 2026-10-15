@@ -2,22 +2,17 @@ import React from 'react';
 import { View, Pressable, Text, StyleSheet } from 'react-native';
 import { palette, spacing, radius } from '@/src/constants/theme';
 
-interface Segment {
-  label: string;
-  value: string;
+interface SegmentedControlProps<T extends string> {
+  segments: readonly { label: string; value: T }[];
+  selectedValue: T;
+  onValueChange: (value: T) => void;
 }
 
-interface SegmentedControlProps {
-  segments: Segment[];
-  selectedValue: string;
-  onValueChange: (value: string) => void;
-}
-
-export function SegmentedControl({
+export function SegmentedControl<T extends string>({
   segments,
   selectedValue,
   onValueChange,
-}: SegmentedControlProps) {
+}: SegmentedControlProps<T>) {
   return (
     <View style={styles.container} accessibilityRole="tablist">
       {segments.map((segment) => {

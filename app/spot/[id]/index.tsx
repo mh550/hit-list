@@ -5,7 +5,7 @@ import { Image, type ImageProps } from 'expo-image';
 
 import { useSpotsStore, useMediaStore } from '@/src/stores';
 import { useSettingsStore } from '@/src/stores/settings-store';
-import { getSpotDisplayName } from '@/src/utils/spot-name';
+import { featureLabel, getSpotDisplayName } from '@/src/utils/spot-name';
 import { resolvePhotoUri } from '@/src/utils/photo-storage';
 import { spotPhotos } from '@/src/utils/spot-photos';
 import { displayLength } from '@/src/utils/units';
@@ -128,7 +128,7 @@ export default function SpotDetailScreen() {
         {/* Feature Details */}
         {hasFeatureDetails(spot) ? (
           <Section title="Feature">
-            <InfoRow label="Type" value={formatType(spot)} />
+            <InfoRow label="Type" value={featureLabel(spot)} />
             <InfoRow label="Shape" value={spot.feature.shape} />
             {spot.feature.dimensions?.length != null ? (
               <InfoRow label="Length" value={displayLength(spot.feature.dimensions.length, units)} />
@@ -227,12 +227,6 @@ function hasLandingDetails(spot: Spot): boolean {
 
 function hasMetadata(spot: Spot): boolean {
   return !!(spot.metadata.intensity != null || spot.metadata.bustability != null || spot.metadata.notes);
-}
-
-function formatType(spot: Spot): string | undefined {
-  if (!spot.feature.type) return undefined;
-  if (spot.feature.type === 'other' && spot.feature.custom_type) return spot.feature.custom_type;
-  return spot.feature.type.replace(/_/g, ' ');
 }
 
 const styles = StyleSheet.create({

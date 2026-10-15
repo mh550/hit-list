@@ -1,15 +1,11 @@
 import type { Region } from 'react-native-maps';
 import { CURRENT_LOCATION_DELTA, DEFAULT_REGION, MIN_DELTA } from '@/src/constants/map';
 import type { GeoPoint, Spot } from '@/src/types';
+import { isKnownLocation } from '@/src/utils/geo';
 
 const PADDING = 1.4; // keep edge pins off the screen border
 const MAX_LAT_DELTA = 180; // MKMapView throws 'Invalid Region' beyond these spans
 const MAX_LNG_DELTA = 360;
-
-/** Spots saved without a fix are stored at (0, 0); they are not a real place to show. */
-export function hasKnownLocation(spot: Spot): boolean {
-  return spot.location.latitude !== 0 || spot.location.longitude !== 0;
-}
 
 /** Shortest longitude arc covering every value: it starts right after the largest gap on the circle. */
 function longitudeArc(lngs: number[]): { center: number; span: number } {
@@ -32,7 +28,7 @@ export function initialRegion(spots: Spot[], current: GeoPoint | null): Region {
   if (current) {
     return { ...current, latitudeDelta: CURRENT_LOCATION_DELTA, longitudeDelta: CURRENT_LOCATION_DELTA };
   }
-  const located = spots.filter(hasKnownLocation);
+  const located = spots.filter((s) => isKnownLocation(s.location));
   if (located.length === 0) return DEFAULT_REGION;
 
   const lats = located.map((s) => s.location.latitude);

@@ -6,6 +6,7 @@ import { v4 as uuid } from 'uuid';
 
 import { useSpotActions } from '@/src/hooks/use-spot-actions';
 import { useMediaActions } from '@/src/hooks/use-media-actions';
+import { isKnownLocation, NO_LOCATION } from '@/src/utils/geo';
 import { palette, spacing, radius } from '@/src/constants/theme';
 import { SpotStatus } from '@/src/types';
 import type { Spot } from '@/src/types';
@@ -27,8 +28,9 @@ export default function ReviewScreen() {
     () => (params.photoUris ? params.photoUris.split(',') : []),
     [params.photoUris],
   );
-  const latitude = params.latitude ? parseFloat(params.latitude) : 0;
-  const longitude = params.longitude ? parseFloat(params.longitude) : 0;
+  const latitude = params.latitude ? parseFloat(params.latitude) : NO_LOCATION.latitude;
+  const longitude = params.longitude ? parseFloat(params.longitude) : NO_LOCATION.longitude;
+  const hasLocation = isKnownLocation({ latitude, longitude });
 
   const handleSave = useCallback(async () => {
     if (saving) return;
@@ -59,13 +61,13 @@ export default function ReviewScreen() {
         sourceUri: uri,
         id: i === 0 ? firstPhotoId! : uuid(),
         spot_id: spotId,
-        location: latitude !== 0 ? { latitude, longitude } : undefined,
+        location: hasLocation ? { latitude, longitude } : undefined,
         created_at: now,
       })),
     );
 
     router.dismissAll();
-  }, [saving, name, latitude, longitude, photoUris, addSpot, savePhotos, router]);
+  }, [saving, name, latitude, longitude, photoUris, addSpot, savePhotos, router, hasLocation]);
 
   return (
     <ScrollView
@@ -108,7 +110,7 @@ export default function ReviewScreen() {
       </View>
 
       {/* Location info */}
-      {latitude !== 0 ? (
+      {hasLocation ? (
         <View style={styles.locationInfo}>
           <Text style={styles.locationLabel}>Location captured</Text>
           <Text style={styles.locationCoords}>

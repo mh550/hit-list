@@ -17,7 +17,7 @@ import { EmptyState } from '@/src/components/EmptyState';
 import { FilterSheet } from '@/src/components/FilterSheet';
 import { SegmentedControl } from '@/src/components/SegmentedControl';
 import { SpotMap } from '@/src/components/SpotMap';
-import { getSpotDisplayName } from '@/src/utils/spot-name';
+import { featureLabel, getSpotDisplayName } from '@/src/utils/spot-name';
 import { resolvePhotoUri } from '@/src/utils/photo-storage';
 import { primaryPhoto } from '@/src/utils/spot-photos';
 import { haversineDistance, formatDistance } from '@/src/utils/geo';
@@ -68,7 +68,7 @@ export default function SpotsScreen() {
           id={item.id}
           displayName={getSpotDisplayName(item)}
           thumbnailUri={thumbnail ? resolvePhotoUri(thumbnail.file_path) : undefined}
-          featureType={item.feature.type?.replace(/_/g, ' ')}
+          featureType={featureLabel(item)}
           difficulty={item.feature.difficulty as 1 | 2 | 3 | 4 | 5 | undefined}
           distance={getDistance(item)}
           isDraft={item.status === SpotStatus.Draft}
@@ -94,20 +94,6 @@ export default function SpotsScreen() {
     </Pressable>
   );
 
-  const body =
-    viewMode === 'map' ? (
-      <SpotMap spots={sorted} currentLocation={currentLocation} onOpenSpot={handleSpotPress} />
-    ) : sorted.length === 0 ? (
-      <EmptyState
-        title="No Spots Yet"
-        message="Tap the + button to add your first spot"
-        actionLabel="Add Spot"
-        onAction={() => router.push('/add/camera')}
-      />
-    ) : (
-      <FlashList data={sorted} renderItem={renderItem} keyExtractor={keyExtractor} />
-    );
-
   return (
     <View style={styles.container}>
       <Stack.Screen options={{ headerRight: () => filterButton }} />
@@ -115,10 +101,25 @@ export default function SpotsScreen() {
         <SegmentedControl
           segments={VIEW_MODES}
           selectedValue={viewMode}
-          onValueChange={(v) => setViewMode(v as ViewMode)}
+          onValueChange={setViewMode}
         />
       </View>
-      <View style={styles.body}>{body}</View>
+      <View style={styles.body}>
+        {viewMode === 'map' ? (
+          <SpotMap spots={sorted} currentLocation={currentLocation} onOpenSpot={handleSpotPress} />
+        ) : null}
+        {viewMode === 'list' && sorted.length === 0 ? (
+          <EmptyState
+            title="No Spots Yet"
+            message="Tap the + button to add your first spot"
+            actionLabel="Add Spot"
+            onAction={() => router.push('/add/camera')}
+          />
+        ) : null}
+        {viewMode === 'list' && sorted.length > 0 ? (
+          <FlashList data={sorted} renderItem={renderItem} keyExtractor={keyExtractor} />
+        ) : null}
+      </View>
       <Pressable
         style={styles.fab}
         onPress={() => router.push('/add/camera')}
@@ -131,7 +132,7 @@ export default function SpotsScreen() {
   );
 }
 
-const VIEW_MODES = [
+const VIEW_MODES: { label: string; value: ViewMode }[] = [
   { label: 'List', value: 'list' },
   { label: 'Map', value: 'map' },
 ];

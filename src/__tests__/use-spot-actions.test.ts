@@ -76,10 +76,11 @@ describe('useSpotActions', () => {
       await result.current.updateSpot('existing-spot', { name: 'New Name' });
     });
 
+    // objectContaining: the hook also stamps updated_at (see the timestamp tests below).
     expect(mockUpdateSpot).toHaveBeenCalledWith(
       expect.anything(),
       'existing-spot',
-      { name: 'New Name' },
+      expect.objectContaining({ name: 'New Name' }),
     );
   });
 
@@ -106,7 +107,8 @@ describe('useSpotActions', () => {
       await result.current.removeSpot('doomed-spot');
     });
 
-    expect(mockSoftDeleteSpot).toHaveBeenCalledWith(expect.anything(), 'doomed-spot');
+    // Only the first two args: the hook also passes the shared `at` timestamp (see the timestamp tests below).
+    expect(mockSoftDeleteSpot.mock.calls[0].slice(1, 2)).toEqual(['doomed-spot']);
   });
 
   it('DB write errors do not crash the app', async () => {
@@ -124,5 +126,55 @@ describe('useSpotActions', () => {
     expect(useSpotsStore.getState().spots).toHaveLength(1);
     expect(consoleSpy).toHaveBeenCalled();
     consoleSpy.mockRestore();
+  });
+
+  describe('timestamps', () => {
+    const ISO_Z = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+    const NOW = new Date('2026-10-15T12:34:56.789Z');
+
+    beforeEach(() => jest.useFakeTimers({ now: NOW, doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate', 'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'] }));
+    afterEach(() => jest.useRealTimers());
+
+    it('updateSpot without updated_at stamps one ISO time and gives the same value to the store and the DB', async () => {
+      // Backfills (town, primary photo) pass no updated_at; memory and DB must not disagree until relaunch.
+      useSpotsStore.setState({ spots: [createTestSpot({ id: 's1', updated_at: '2026-01-01T00:00:00.000Z' })] });
+      const { result } = renderHook(() => useSpotActions());
+
+      await act(async () => {
+        await result.current.updateSpot('s1', { name: 'x' });
+      });
+
+      const storeValue = useSpotsStore.getState().spots[0].updated_at;
+      const dbValue = mockUpdateSpot.mock.calls[0][2].updated_at;
+      expect(storeValue).toMatch(ISO_Z);
+      expect(dbValue).toBe(storeValue);
+      expect(storeValue).toBe(NOW.toISOString());
+    });
+
+    it('updateSpot with an explicit updated_at passes it unchanged to the store and the DB', async () => {
+      // The Edit screen's own stamp must win over the hook's clock.
+      useSpotsStore.setState({ spots: [createTestSpot({ id: 's1' })] });
+      const { result } = renderHook(() => useSpotActions());
+      const stamp = '2026-10-15T08:00:00.000Z';
+
+      await act(async () => {
+        await result.current.updateSpot('s1', { name: 'x', updated_at: stamp });
+      });
+
+      expect(useSpotsStore.getState().spots[0].updated_at).toBe(stamp);
+      expect(mockUpdateSpot.mock.calls[0][2].updated_at).toBe(stamp);
+    });
+
+    it('removeSpot passes one ISO `at` to softDeleteSpot', async () => {
+      // The DB must not fall back to datetime('now'); the hook supplies the ISO time (the store only drops the spot).
+      useSpotsStore.setState({ spots: [createTestSpot({ id: 's1' })] });
+      const { result } = renderHook(() => useSpotActions());
+
+      await act(async () => {
+        await result.current.removeSpot('s1');
+      });
+
+      expect(mockSoftDeleteSpot).toHaveBeenCalledWith(expect.anything(), 's1', NOW.toISOString());
+    });
   });
 });

@@ -118,7 +118,9 @@ export async function updateSpot(
     values.push(updates.primary_photo_id ?? null);
   }
 
-  setClauses.push("updated_at = datetime('now')");
+  // ISO 8601 UTC like every other timestamp; the caller's stamp wins so the store and DB agree.
+  setClauses.push('updated_at = ?');
+  values.push(updates.updated_at ?? new Date().toISOString());
   values.push(id);
 
   await db.runAsync(
@@ -127,9 +129,11 @@ export async function updateSpot(
   );
 }
 
-export async function softDeleteSpot(db: SQLiteDatabase, id: string): Promise<void> {
-  await db.runAsync(
-    `UPDATE spots SET deleted_at = datetime('now'), updated_at = datetime('now') WHERE id = ?`,
-    id,
-  );
+/** Marks a spot deleted at `at` (ISO 8601 UTC), which also becomes its updated_at. */
+export async function softDeleteSpot(
+  db: SQLiteDatabase,
+  id: string,
+  at: string = new Date().toISOString(),
+): Promise<void> {
+  await db.runAsync(`UPDATE spots SET deleted_at = ?, updated_at = ? WHERE id = ?`, at, at, id);
 }

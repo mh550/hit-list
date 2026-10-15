@@ -104,4 +104,75 @@ describe('spots against real SQLite', () => {
     expect(read?.name ?? null).toBeNull();
     expect(read).toMatchObject(rest);
   });
+
+  describe('timestamps are ISO 8601 UTC', () => {
+    const ISO_Z = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+    const NOW = new Date('2026-10-15T12:34:56.789Z');
+
+    // Fake only Date so promises, timers and node:sqlite keep working; datetime('now') ignores it (real clock).
+    beforeEach(() => {
+      jest.useFakeTimers({
+        now: NOW,
+        doNotFake: [
+          'hrtime', 'nextTick', 'performance', 'queueMicrotask', 'requestAnimationFrame',
+          'cancelAnimationFrame', 'requestIdleCallback', 'cancelIdleCallback', 'setImmediate',
+          'clearImmediate', 'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout',
+        ],
+      });
+    });
+    afterEach(() => jest.useRealTimers());
+
+    it('updateSpot stores the updated_at the caller passes', async () => {
+      // The Edit screen stamps updated_at; the DB must keep that value, not replace it with its own clock.
+      const s = createTestSpot();
+      await insertSpot(db, s);
+
+      await updateSpot(db, s.id, { name: 'x', updated_at: '2026-10-15T12:00:00.000Z' });
+
+      expect((await getSpot(db, s.id))?.updated_at).toBe('2026-10-15T12:00:00.000Z');
+    });
+
+    it('updateSpot without updated_at stamps now as ISO 8601 UTC', async () => {
+      // datetime('now') gives "2026-10-15 12:34:56" (no T, no Z), which Hermes may misparse; use toISOString().
+      const s = createTestSpot();
+      await insertSpot(db, s);
+
+      await updateSpot(db, s.id, { name: 'x' });
+
+      const stored = (await getSpot(db, s.id))?.updated_at ?? '';
+      expect(stored).toMatch(ISO_Z);
+      expect(stored).toBe(NOW.toISOString()); // Date is faked, so exact; the real-clock datetime('now') cannot match
+    });
+
+    it('softDeleteSpot writes deleted_at and updated_at as the same ISO string', async () => {
+      // Both columns must be ISO 8601 UTC like every other timestamp, and agree with each other.
+      const s = createTestSpot();
+      await insertSpot(db, s);
+
+      await softDeleteSpot(db, s.id);
+
+      const row = await db.getFirstAsync<{ deleted_at: string; updated_at: string }>(
+        'SELECT deleted_at, updated_at FROM spots WHERE id = ?',
+        s.id,
+      );
+      expect(row?.deleted_at).toMatch(ISO_Z);
+      expect(row?.updated_at).toBe(row?.deleted_at);
+      expect(row?.deleted_at).toBe(NOW.toISOString());
+    });
+
+    it('softDeleteSpot with an explicit at writes it to both columns', async () => {
+      // The hook stamps one time and shares it with the store, so the DB must use the caller's value.
+      const s = createTestSpot();
+      await insertSpot(db, s);
+      const at = '2026-10-15T09:00:00.000Z';
+
+      await softDeleteSpot(db, s.id, at);
+
+      const row = await db.getFirstAsync<{ deleted_at: string; updated_at: string }>(
+        'SELECT deleted_at, updated_at FROM spots WHERE id = ?',
+        s.id,
+      );
+      expect(row).toEqual({ deleted_at: at, updated_at: at });
+    });
+  });
 });

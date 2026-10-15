@@ -90,7 +90,7 @@ describe('review screens persist photos before saving (D3)', () => {
     fireEvent.press(screen.getByText('Save as Draft'));
 
     await waitFor(() =>
-      expect(mockUpdateSpot).toHaveBeenCalledWith(expect.anything(), expect.any(String), { generated_name: 'Seattle' }),
+      expect(mockUpdateSpot).toHaveBeenCalledWith(expect.anything(), expect.any(String), { generated_name: 'Seattle', updated_at: expect.any(String) }),
     );
     const [spot] = useSpotsStore.getState().spots;
     expect(spot.generated_name).toBe('Seattle');

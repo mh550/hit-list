@@ -14,9 +14,11 @@ export function useSpotActions() {
 
   const updateSpot = useCallback(
     async (id: string, updates: SpotUpdate) => {
-      storeUpdateSpot(id, updates);
+      // One stamp for memory and DB, so backfills that pass no updated_at don't leave the store stale.
+      const stamped = { ...updates, updated_at: updates.updated_at ?? new Date().toISOString() };
+      storeUpdateSpot(id, stamped);
       try {
-        await dbUpdateSpot(db, id, updates);
+        await dbUpdateSpot(db, id, stamped);
       } catch (err) {
         console.error('[useSpotActions] updateSpot failed:', err);
       }
@@ -42,9 +44,10 @@ export function useSpotActions() {
 
   const removeSpot = useCallback(
     async (id: string) => {
+      const at = new Date().toISOString();
       storeRemoveSpot(id);
       try {
-        await softDeleteSpot(db, id);
+        await softDeleteSpot(db, id, at);
       } catch (err) {
         console.error('[useSpotActions] softDeleteSpot failed:', err);
       }

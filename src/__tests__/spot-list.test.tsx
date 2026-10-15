@@ -1,20 +1,6 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react-native';
 
-// Mock expo-image
-jest.mock('expo-image', () => {
-  const { Image } = jest.requireActual('react-native');
-  return { Image };
-});
-
-// Mock IconSymbol
-jest.mock('@/components/ui/icon-symbol', () => {
-  const { View } = jest.requireActual('react-native');
-  return {
-    IconSymbol: ({ name }: { name: string }) => <View testID={`icon-${name}`} />,
-  };
-});
-
 import { SpotListItem } from '@/src/components/SpotListItem';
 import { getSpotDisplayName } from '@/src/utils/spot-name';
 import { createTestSpot } from './factories';

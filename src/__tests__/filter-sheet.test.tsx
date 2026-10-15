@@ -4,11 +4,6 @@ import { FilterSheet } from '@/src/components/FilterSheet';
 import { useSpotsStore } from '@/src/stores';
 import { DEFAULT_FILTERS, FeatureType, GearItem } from '@/src/types';
 
-jest.mock('@/components/ui/icon-symbol', () => {
-  const { View } = jest.requireActual('react-native');
-  return { IconSymbol: ({ name }: { name: string }) => <View testID={`icon-${name}`} /> };
-});
-
 describe('FilterSheet', () => {
   const onClose = jest.fn();
 

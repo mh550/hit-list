@@ -57,12 +57,12 @@ export function FilterSheet({ visible, onClose }: Props) {
   return <FilterSheetContent onClose={onClose} />;
 }
 
-function FilterSheetContent({ onClose }: { onClose: () => void }) {
+function FilterSheetContent({ onClose }: Omit<Props, 'visible'>) {
   const setFilters = useSpotsStore((s) => s.setFilters);
   const resetFilters = useSpotsStore((s) => s.resetFilters);
 
   // Local draft state, seeded once per open and only committed on Apply
-  const [draft, setDraft] = useState<SpotFilters>(() => ({ ...useSpotsStore.getState().filters }));
+  const [draft, setDraft] = useState<SpotFilters>(() => useSpotsStore.getState().filters);
 
   const toggleType = (t: FeatureType) => {
     setDraft((prev) => ({

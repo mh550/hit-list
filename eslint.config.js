@@ -18,18 +18,11 @@ module.exports = defineConfig([
     // rule from that plugin must be scoped the same way or ESLint rejects it for .js files.
     files: ['**/*.ts', '**/*.tsx'],
     rules: {
-      // Flat config replaces a rule's options wholesale, so restate eslint-config-expo's options
-      // (flat/utils/typescript.js) and add the project's `_` ignore patterns on top.
+      // Flat config replaces expo's options for this rule, so keep its ignoreRestSiblings and add
+      // the project's `_` escape for unused arguments and catch params.
       '@typescript-eslint/no-unused-vars': [
         'error',
-        {
-          vars: 'all',
-          args: 'none',
-          ignoreRestSiblings: true,
-          caughtErrors: 'all',
-          argsIgnorePattern: '^_',
-          caughtErrorsIgnorePattern: '^_',
-        },
+        { ignoreRestSiblings: true, argsIgnorePattern: '^_', caughtErrorsIgnorePattern: '^_' },
       ],
     },
   },

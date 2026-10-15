@@ -10,16 +10,6 @@ import { EmptyState } from '@/src/components/EmptyState';
 import { Card, CardContent, CardTitle } from '@/src/components/Card';
 import { FormInput } from '@/src/components/FormField';
 
-// Mock IconSymbol
-jest.mock('@/components/ui/icon-symbol', () => {
-  const { View } = jest.requireActual('react-native');
-  return {
-    IconSymbol: ({ name }: { name: string; size: number; color: string }) => {
-      return <View testID={`icon-${name}`} />;
-    },
-  };
-});
-
 describe('Button', () => {
   it('renders title', () => {
     render(<Button title="Save" onPress={() => {}} />);

@@ -26,7 +26,17 @@ jest.mock('expo-router', () => ({
 
 // Mock react-native-reanimated
 jest.mock('react-native-reanimated', () => {
-  const Reanimated = require('react-native-reanimated/mock');
+  const Reanimated = jest.requireActual('react-native-reanimated/mock');
   Reanimated.default.call = () => {};
   return Reanimated;
+});
+
+// expo-image renders as React Native's Image so tests can assert on `source`.
+jest.mock('expo-image', () => ({ Image: jest.requireActual('react-native').Image }));
+
+// SF Symbols are native-only; render a View whose testID names the symbol.
+jest.mock('@/components/ui/icon-symbol', () => {
+  const { createElement } = jest.requireActual('react');
+  const { View } = jest.requireActual('react-native');
+  return { IconSymbol: ({ name }: { name: string }) => createElement(View, { testID: `icon-${name}` }) };
 });

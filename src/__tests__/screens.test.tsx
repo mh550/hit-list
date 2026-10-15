@@ -7,20 +7,6 @@ jest.mock('@shopify/flash-list', () => {
   return { FlashList: FlatList };
 });
 
-// Mock expo-image
-jest.mock('expo-image', () => {
-  const { Image } = jest.requireActual('react-native');
-  return { Image };
-});
-
-// Mock IconSymbol
-jest.mock('@/components/ui/icon-symbol', () => {
-  const { View } = jest.requireActual('react-native');
-  return {
-    IconSymbol: ({ name }: { name: string }) => <View testID={`icon-${name}`} />,
-  };
-});
-
 // Mock expo-sqlite
 jest.mock('expo-sqlite', () => ({
   useSQLiteContext: () => ({

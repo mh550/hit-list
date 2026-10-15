@@ -1,4 +1,4 @@
-import { renderHook, waitFor } from '@testing-library/react-native';
+import { renderHook, act } from '@testing-library/react-native';
 import { useDbInit } from '@/src/hooks/use-db-init';
 import { useSpotsStore } from '@/src/stores';
 import { useSettingsStore } from '@/src/stores/settings-store';
@@ -32,6 +32,9 @@ jest.mock('@/src/db', () => ({
   saveUserSettings: jest.fn().mockResolvedValue(undefined),
 }));
 
+/** One macrotask drains the whole mocked init chain; doing it inside act() keeps React quiet. */
+const flushInit = () => act(() => new Promise<void>((resolve) => setImmediate(resolve)));
+
 describe('useDbInit', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -43,21 +46,12 @@ describe('useDbInit', () => {
     });
   });
 
-  it('starts as not ready', async () => {
-    mockGetSpots.mockResolvedValue([]);
-    mockGetUserSettings.mockResolvedValue(null);
-    const { result } = renderHook(() => useDbInit());
-    expect(result.current.isReady).toBe(false);
-    // Let the async init settle inside act() so the state update is not reported as unwrapped.
-    await waitFor(() => expect(result.current.isReady).toBe(true));
-  });
-
   it('calls migrateDb on mount', async () => {
     mockGetSpots.mockResolvedValue([]);
     mockGetUserSettings.mockResolvedValue(null);
 
-    const { result } = renderHook(() => useDbInit());
-    await waitFor(() => expect(result.current.isReady).toBe(true));
+    renderHook(() => useDbInit());
+    await flushInit();
 
     expect(mockMigrateDb).toHaveBeenCalledWith(mockDb);
   });
@@ -68,9 +62,8 @@ describe('useDbInit', () => {
     mockGetUserSettings.mockResolvedValue(null);
 
     renderHook(() => useDbInit());
-    await waitFor(() => {
-      expect(useSpotsStore.getState().spots).toHaveLength(1);
-    });
+    await flushInit();
+    expect(useSpotsStore.getState().spots).toHaveLength(1);
 
     expect(useSpotsStore.getState().spots[0].id).toBe('db-spot-1');
   });
@@ -84,21 +77,21 @@ describe('useDbInit', () => {
     });
 
     renderHook(() => useDbInit());
-    await waitFor(() => {
-      expect(useSettingsStore.getState().units).toBe(UnitSystem.Metric);
-    });
+    await flushInit();
+    expect(useSettingsStore.getState().units).toBe(UnitSystem.Metric);
 
     expect(useSettingsStore.getState().batch_import_radius).toBe(100);
   });
 
-  it('sets isReady to true after hydration', async () => {
+  it('starts not ready and becomes ready after hydration', async () => {
     mockGetSpots.mockResolvedValue([]);
     mockGetUserSettings.mockResolvedValue(null);
 
     const { result } = renderHook(() => useDbInit());
-    await waitFor(() => {
-      expect(result.current.isReady).toBe(true);
-    });
+    expect(result.current.isReady).toBe(false);
+    await flushInit();
+
+    expect(result.current.isReady).toBe(true);
   });
 
   it('handles DB errors gracefully — still marks ready', async () => {
@@ -106,9 +99,8 @@ describe('useDbInit', () => {
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
     const { result } = renderHook(() => useDbInit());
-    await waitFor(() => {
-      expect(result.current.isReady).toBe(true);
-    });
+    await flushInit();
+    expect(result.current.isReady).toBe(true);
 
     expect(consoleSpy).toHaveBeenCalled();
     consoleSpy.mockRestore();

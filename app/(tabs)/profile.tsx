@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { StyleSheet, ScrollView, View, Text, TextInput, Pressable } from 'react-native';
+import { useRouter } from 'expo-router';
 
 import { useSettingsStore } from '@/src/stores/settings-store';
 import { useSettingsActions } from '@/src/hooks/use-settings-actions';
+import { Button } from '@/src/components/Button';
 import { Chip, ChipGroup } from '@/src/components/Chip';
 import { palette, spacing, radius } from '@/src/constants/theme';
 import { GearItem, UnitSystem } from '@/src/types';
@@ -23,6 +25,7 @@ export default function ProfileScreen() {
   const units = useSettingsStore((s) => s.units);
   const batchRadius = useSettingsStore((s) => s.batch_import_radius);
   const gear = useSettingsStore((s) => s.gear);
+  const router = useRouter();
   const { setUnits, setBatchImportRadius, toggleGear } = useSettingsActions();
 
   const [radiusText, setRadiusText] = useState(String(batchRadius));
@@ -94,6 +97,9 @@ export default function ProfileScreen() {
           onSubmitEditing={handleRadiusBlur}
           accessibilityLabel="Import radius in meters"
         />
+      </View>
+      <View style={styles.field}>
+        <Button title="Import Photos" onPress={() => router.push('/import')} />
       </View>
     </ScrollView>
   );

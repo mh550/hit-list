@@ -1,5 +1,6 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react-native';
+import { useRouter } from 'expo-router';
 import ProfileScreen from '@/app/(tabs)/profile';
 import { useSettingsStore } from '@/src/stores/settings-store';
 import { GearItem, UnitSystem } from '@/src/types';
@@ -71,5 +72,17 @@ describe('ProfileScreen', () => {
   it('renders batch import radius field', () => {
     render(<ProfileScreen />);
     expect(screen.getByText('Import Radius')).toBeTruthy();
+  });
+});
+
+describe('Import Photos entry point', () => {
+  it('opens the batch import flow', () => {
+    const push = jest.fn();
+    jest.mocked(useRouter).mockReturnValue({ push, back: jest.fn(), replace: jest.fn() } as never);
+
+    render(<ProfileScreen />);
+    fireEvent.press(screen.getByText('Import Photos'));
+
+    expect(push).toHaveBeenCalledWith('/import');
   });
 });

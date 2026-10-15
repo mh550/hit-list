@@ -7,6 +7,8 @@ import { useSQLiteContext } from 'expo-sqlite';
 
 import { useSpotActions } from '@/src/hooks/use-spot-actions';
 import { insertMedia } from '@/src/db';
+import { useMediaStore } from '@/src/stores';
+import { persistPhoto } from '@/src/utils/photo-storage';
 import { palette, spacing, radius } from '@/src/constants/theme';
 import { SpotStatus } from '@/src/types';
 import type { Spot, Media } from '@/src/types';
@@ -21,6 +23,7 @@ export default function ReviewScreen() {
   }>();
 
   const { addSpot } = useSpotActions();
+  const addMedia = useMediaStore((s) => s.add);
   const [name, setName] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -59,15 +62,17 @@ export default function ReviewScreen() {
     if (photoUris.length > 0) {
       await Promise.all(
         photoUris.map(async (uri, i) => {
+          const mediaId = i === 0 ? firstPhotoId! : uuid();
           const media: Media = {
-            id: i === 0 ? firstPhotoId! : uuid(),
+            id: mediaId,
             spot_id: spotId,
-            file_path: uri,
+            file_path: await persistPhoto(uri, spotId, mediaId),
             location: latitude !== 0 ? { latitude, longitude } : undefined,
             created_at: now,
           };
           try {
             await insertMedia(db, media);
+            addMedia(media);
           } catch (err) {
             console.error('[ReviewScreen] insertMedia failed:', err);
           }
@@ -76,7 +81,7 @@ export default function ReviewScreen() {
     }
 
     router.dismissAll();
-  }, [saving, name, latitude, longitude, photoUris, addSpot, db, router]);
+  }, [saving, name, latitude, longitude, photoUris, addSpot, addMedia, db, router]);
 
   return (
     <ScrollView

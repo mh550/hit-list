@@ -15,6 +15,8 @@ import { useSQLiteContext } from 'expo-sqlite';
 
 import { useSpotActions } from '@/src/hooks/use-spot-actions';
 import { insertMedia } from '@/src/db';
+import { useMediaStore } from '@/src/stores';
+import { persistPhoto } from '@/src/utils/photo-storage';
 import { palette, spacing, radius } from '@/src/constants/theme';
 import { SpotStatus } from '@/src/types';
 import type { Spot, Media } from '@/src/types';
@@ -39,6 +41,7 @@ export default function ImportReviewScreen() {
   const router = useRouter();
   const db = useSQLiteContext();
   const { addSpot } = useSpotActions();
+  const addMedia = useMediaStore((s) => s.add);
   const [saving, setSaving] = useState(false);
 
   const parsedGroups: ImportPhoto[][] = groupsJson ? JSON.parse(groupsJson) : [];
@@ -88,16 +91,18 @@ export default function ImportReviewScreen() {
 
           await Promise.all(
             group.photos.map(async (photo, i) => {
+              const mediaId = i === 0 ? firstMediaId : uuid();
               const media: Media = {
-                id: i === 0 ? firstMediaId : uuid(),
+                id: mediaId,
                 spot_id: spotId,
-                file_path: photo.uri,
+                file_path: await persistPhoto(photo.uri, spotId, mediaId),
                 location: photo.location ?? undefined,
                 captured_at: photo.capturedAt,
                 created_at: now,
               };
               try {
                 await insertMedia(db, media);
+                addMedia(media);
               } catch (err) {
                 console.error('[ImportReview] insertMedia failed:', err);
               }
@@ -110,7 +115,7 @@ export default function ImportReviewScreen() {
     } finally {
       setSaving(false);
     }
-  }, [saving, groups, addSpot, db, router]);
+  }, [saving, groups, addSpot, addMedia, db, router]);
 
   if (parsedGroups.length === 0) {
     return (

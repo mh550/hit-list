@@ -67,14 +67,14 @@ describe('Name fallback chain', () => {
     expect(getSpotDisplayName(spot)).toBe('My Rail');
   });
 
-  it('level 2: generated name when no user name', () => {
-    const spot = createTestSpot({ generated_name: 'NE 45th & University Way' });
-    expect(getSpotDisplayName(spot)).toBe('NE 45th & University Way');
+  it('level 2: untitled with the town and time when only a town is known (D4)', () => {
+    const spot = createTestSpot({ generated_name: 'Seattle', created_at: '2025-02-07T12:00:00Z' });
+    expect(getSpotDisplayName(spot)).toBe('Untitled · Seattle · Feb 7, 12:00 PM');
   });
 
-  it('level 3: Untitled Spot with date when no names', () => {
+  it('level 3: untitled with the time when no names', () => {
     const spot = createTestSpot({ created_at: '2025-02-07T12:00:00Z' });
-    expect(getSpotDisplayName(spot)).toMatch(/^Untitled Spot — Feb 7$/);
+    expect(getSpotDisplayName(spot)).toBe('Untitled · Feb 7, 12:00 PM');
   });
 });
 

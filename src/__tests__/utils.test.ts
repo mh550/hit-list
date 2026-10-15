@@ -67,16 +67,14 @@ describe('getSpotDisplayName', () => {
     expect(getSpotDisplayName(spot)).toBe('Downtown Rail');
   });
 
-  it('falls back to generated_name', () => {
-    const spot = createTestSpot({ generated_name: 'NE 45th & University Way' });
-    expect(getSpotDisplayName(spot)).toBe('NE 45th & University Way');
+  it('shows the generated town inside the untitled label', () => {
+    const spot = createTestSpot({ generated_name: 'Seattle', created_at: '2025-02-07T12:00:00Z' });
+    expect(getSpotDisplayName(spot)).toBe('Untitled · Seattle · Feb 7, 12:00 PM');
   });
 
-  it('falls back to Untitled Spot with date', () => {
+  it('falls back to Untitled with date and time', () => {
     const spot = createTestSpot({ created_at: '2025-02-07T12:00:00Z' });
-    const name = getSpotDisplayName(spot);
-    expect(name).toMatch(/^Untitled Spot — /);
-    expect(name).toContain('Feb');
+    expect(getSpotDisplayName(spot)).toBe('Untitled · Feb 7, 12:00 PM');
   });
 
   it('prefers name over generated_name', () => {

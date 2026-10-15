@@ -21,7 +21,11 @@ export async function setSetting(db: SQLiteDatabase, key: string, value: string)
 export async function getUserSettings(db: SQLiteDatabase): Promise<UserSettings> {
   const raw = await getSetting(db, 'user_settings');
   if (!raw) return { ...DEFAULT_USER_SETTINGS };
-  return { ...DEFAULT_USER_SETTINGS, ...JSON.parse(raw) } as UserSettings;
+  try {
+    return { ...DEFAULT_USER_SETTINGS, ...JSON.parse(raw) } as UserSettings;
+  } catch {
+    return { ...DEFAULT_USER_SETTINGS };
+  }
 }
 
 export async function saveUserSettings(db: SQLiteDatabase, settings: UserSettings): Promise<void> {

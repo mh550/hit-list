@@ -188,7 +188,7 @@ Write the start time in the Status log. For each hop N in 55, 56, 57:
       "No Photo" placeholder for one without; GREEN by passing `thumbnailUri` from the media
       store. RED test that the detail screen renders one image per media row and no image when
       there is none; GREEN by replacing `app/spot/[id]/index.tsx:101` with a gallery.
-- [ ] `npx expo export --platform ios` green. "What Michael will see" table. Review,
+- [x] `npx expo export --platform ios` green. "What Michael will see" table. Review,
       `/simplify`, milestone push.
 
 ### M5 — Map view (spec D2, §2.2 M5) (≈1 h 15)
@@ -297,6 +297,15 @@ _(exact commands / decisions, newest first)_
 
 ## Status log
 _(newest first: time · step · result · commit)_
+- 2026-10-15 00:18 · **M4 done — photos persist and display** · `/simplify` (4 reviewers): one
+  `useMediaActions().savePhotos` replaces the copy-insert-store loop duplicated in both review screens
+  and updates the store once per save (was once per photo, re-rendering the list each time); media
+  store trimmed (append-only `addMany`, no unused `remove`, no redundant sort); `primaryPhoto()` for the
+  list row; one `Photo` component on the detail screen; shared test mocks (FlashList, configurable
+  expo-router, `fakeFs`). Skipped: caching `Paths.document.uri` (µs, and the reinstall test needs a
+  fresh read), parallel launch queries (native side serialises them; would couple media and settings
+  failures), deleting the 20-photo test (pins the spec max), loosening the fake's directory checks.
+  154 tests / 18 suites, 0 console.error, typecheck/lint 0, export ok. Next: M5 map.
 - 2026-10-15 00:14 · M4 review done · Opus, checked against the real expo-file-system 57 iOS code:
   **0 Critical / 0 Important / 7 Minor, "ready to merge"**. Folder create is idempotent on iOS, path joins
   are correct incl. Expo Go's scoped Documents dir, camera/picker cache files are copyable, fallback

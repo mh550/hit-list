@@ -15,12 +15,15 @@ import { useSettingsStore } from '@/src/stores/settings-store';
 import { SpotListItem } from '@/src/components/SpotListItem';
 import { EmptyState } from '@/src/components/EmptyState';
 import { FilterSheet } from '@/src/components/FilterSheet';
+import { SegmentedControl } from '@/src/components/SegmentedControl';
+import { SpotMap } from '@/src/components/SpotMap';
 import { getSpotDisplayName } from '@/src/utils/spot-name';
 import { resolvePhotoUri } from '@/src/utils/photo-storage';
 import { primaryPhoto } from '@/src/utils/spot-photos';
 import { haversineDistance, formatDistance } from '@/src/utils/geo';
 import { SpotStatus, UnitSystem } from '@/src/types';
 import type { Spot } from '@/src/types';
+import type { ViewMode } from '@/src/stores/spots-store';
 import { palette, spacing } from '@/src/constants/theme';
 
 export default function SpotsScreen() {
@@ -29,6 +32,8 @@ export default function SpotsScreen() {
   const filters = useSpotsStore((s) => s.filters);
   const sortField = useSpotsStore((s) => s.sortField);
   const sortDirection = useSpotsStore((s) => s.sortDirection);
+  const viewMode = useSpotsStore((s) => s.viewMode);
+  const setViewMode = useSpotsStore((s) => s.setViewMode);
   const currentLocation = useLocationStore((s) => s.currentLocation);
   const units = useSettingsStore((s) => s.units);
   const mediaBySpot = useMediaStore((s) => s.mediaBySpot);
@@ -89,36 +94,31 @@ export default function SpotsScreen() {
     </Pressable>
   );
 
-  if (sorted.length === 0) {
-    return (
-      <View style={styles.container}>
-        <Stack.Screen options={{ headerRight: () => filterButton }} />
-        <EmptyState
-          title="No Spots Yet"
-          message="Tap the + button to add your first spot"
-          actionLabel="Add Spot"
-          onAction={() => router.push('/add/camera')}
-        />
-        <Pressable
-          style={styles.fab}
-          onPress={() => router.push('/add/camera')}
-          accessibilityLabel="Add new spot"
-          accessibilityRole="button">
-          <Text style={styles.fabText}>+</Text>
-        </Pressable>
-        <FilterSheet visible={filterVisible} onClose={() => setFilterVisible(false)} />
-      </View>
+  const body =
+    viewMode === 'map' ? (
+      <SpotMap spots={sorted} currentLocation={currentLocation} onOpenSpot={handleSpotPress} />
+    ) : sorted.length === 0 ? (
+      <EmptyState
+        title="No Spots Yet"
+        message="Tap the + button to add your first spot"
+        actionLabel="Add Spot"
+        onAction={() => router.push('/add/camera')}
+      />
+    ) : (
+      <FlashList data={sorted} renderItem={renderItem} keyExtractor={keyExtractor} />
     );
-  }
 
   return (
     <View style={styles.container}>
       <Stack.Screen options={{ headerRight: () => filterButton }} />
-      <FlashList
-        data={sorted}
-        renderItem={renderItem}
-        keyExtractor={keyExtractor}
-      />
+      <View style={styles.modeBar}>
+        <SegmentedControl
+          segments={VIEW_MODES}
+          selectedValue={viewMode}
+          onValueChange={(v) => setViewMode(v as ViewMode)}
+        />
+      </View>
+      <View style={styles.body}>{body}</View>
       <Pressable
         style={styles.fab}
         onPress={() => router.push('/add/camera')}
@@ -131,7 +131,19 @@ export default function SpotsScreen() {
   );
 }
 
+const VIEW_MODES = [
+  { label: 'List', value: 'list' },
+  { label: 'Map', value: 'map' },
+];
+
 const styles = StyleSheet.create({
+  modeBar: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  body: {
+    flex: 1,
+  },
   container: {
     flex: 1,
   },

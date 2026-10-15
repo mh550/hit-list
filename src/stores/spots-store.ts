@@ -4,8 +4,11 @@ import { DEFAULT_FILTERS, SortField, SortDirection, SpotStatus } from '@/src/typ
 import { haversineDistance } from '@/src/utils/geo';
 import { getSpotDisplayName } from '@/src/utils/spot-name';
 
+export type ViewMode = 'list' | 'map';
+
 interface SpotsState {
   spots: Spot[];
+  viewMode: ViewMode;
   filters: SpotFilters;
   sortField: SortField;
   sortDirection: SortDirection;
@@ -18,10 +21,12 @@ interface SpotsState {
   setFilters: (filters: Partial<SpotFilters>) => void;
   resetFilters: () => void;
   setSort: (field: SortField, direction?: SortDirection) => void;
+  setViewMode: (viewMode: ViewMode) => void;
 }
 
 export const useSpotsStore = create<SpotsState>((set) => ({
   spots: [],
+  viewMode: 'list',
   filters: { ...DEFAULT_FILTERS },
   sortField: SortField.DateAdded,
   sortDirection: SortDirection.Desc,
@@ -47,6 +52,8 @@ export const useSpotsStore = create<SpotsState>((set) => ({
     })),
 
   resetFilters: () => set({ filters: { ...DEFAULT_FILTERS } }),
+
+  setViewMode: (viewMode) => set({ viewMode }),
 
   setSort: (field, direction) =>
     set((state) => ({

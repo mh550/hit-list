@@ -297,6 +297,16 @@ _(exact commands / decisions, newest first)_
 
 ## Status log
 _(newest first: time · step · result · commit)_
+- 2026-10-15 00:30 · M5 review → fix pass (`8ae1608`) · Opus, checked against react-native-maps 1.27.2 iOS source:
+  **1 Critical** — the starting region had no upper bound, so spots across the antimeridian or on opposite
+  sides of the world produced spans beyond MapKit's 180°/360° limits; `MKMapView` throws "Invalid Region"
+  (Expo Go would close on tapping Map). Now: shortest-arc longitude + clamps, RED→GREEN. **1 Important** —
+  spots saved without a fix are stored at (0, 0); one such draft dragged the opening map to West Africa and
+  shrank every Seattle pin into one dot. Now (0, 0) spots stay off the map (they remain in the list).
+  Reviewer confirmed: pin colours, default-callout press, layout and FAB above the map all work on iOS;
+  `showsUserLocation` without permission is a silent no-op. **First phone check:** the map is expected in
+  Expo Go SDK 57; if Map shows a red "view config not found" error, it is not. 194 tests, export ok.
+  M6 Tasks 1–2 also done: `1dcac4e` EXIF date + GPS sign, `531d1d2` D4 names. Next: M5 `/simplify` (running), M6 Task 3.
 - 2026-10-15 00:24 · M5 Tasks 1–2 done · `98e80a4` SpotMap · `0f25cdd` Map | List toggle. 167 tests / 21 suites,
   0 console.error, typecheck/lint 0, **export ios ok (4.0 MB, maps included)**. Final M5 review running on Opus.
   **What Michael will see** (Spots tab in Map mode, 3 spots around downtown Seattle, no location yet):

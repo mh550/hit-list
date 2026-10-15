@@ -45,8 +45,26 @@ jest.mock('@/components/ui/icon-symbol', () => {
   return { IconSymbol: ({ name }: { name: string }) => createElement(View, { testID: `icon-${name}` }) };
 });
 
-// FlashList needs a measured layout; render it as React Native's FlatList.
-jest.mock('@shopify/flash-list', () => ({ FlashList: jest.requireActual('react-native').FlatList }));
+// FlashList needs a measured layout. Render every row directly: tests assert row content, and a
+// virtualized stand-in (FlatList) schedules cell updates on timers that fire outside act().
+type MockFlashListProps<T> = {
+  data?: readonly T[] | null;
+  renderItem: (info: { item: T; index: number }) => unknown;
+  keyExtractor?: (item: T, index: number) => string;
+};
+jest.mock('@shopify/flash-list', () => {
+  const { Fragment, createElement } = jest.requireActual('react');
+  return {
+    FlashList: <T,>({ data, renderItem, keyExtractor }: MockFlashListProps<T>) =>
+      createElement(
+        Fragment,
+        null,
+        (data ?? []).map((item, index) =>
+          createElement(Fragment, { key: keyExtractor ? keyExtractor(item, index) : index }, renderItem({ item, index })),
+        ),
+      ),
+  };
+});
 
 // expo-location: members copied from node_modules/expo-location/build/Location.d.ts. Defaults are
 // "permission denied, no position, no address"; tests override with jest.mocked(...).

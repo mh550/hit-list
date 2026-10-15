@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { Stack, useRouter } from 'expo-router';
 import { StyleSheet, View, Pressable, Text } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
@@ -22,7 +22,7 @@ import { featureLabel, getSpotDisplayName } from '@/src/utils/spot-name';
 import { resolvePhotoUri } from '@/src/utils/photo-storage';
 import { primaryPhoto } from '@/src/utils/spot-photos';
 import { haversineDistance, formatDistance, isKnownLocation } from '@/src/utils/geo';
-import { SpotStatus, UnitSystem } from '@/src/types';
+import { SortField, SpotStatus, UnitSystem } from '@/src/types';
 import type { Spot } from '@/src/types';
 import type { ViewMode } from '@/src/stores/spots-store';
 import { palette, spacing } from '@/src/constants/theme';
@@ -43,8 +43,12 @@ export default function SpotsScreen() {
   const [filterVisible, setFilterVisible] = useState(false);
   const activeFilterCount = selectActiveFilterCount(filters);
 
-  const filtered = selectFilteredSpots(spots, filters);
-  const sorted = selectSortedSpots(filtered, sortField, sortDirection, currentLocation ?? undefined);
+  // Location only matters to the Distance sort; other sorts ignore location updates.
+  const sortLocation = sortField === SortField.Distance ? currentLocation : null;
+  const sorted = useMemo(
+    () => selectSortedSpots(selectFilteredSpots(spots, filters), sortField, sortDirection, sortLocation ?? undefined),
+    [spots, filters, sortField, sortDirection, sortLocation],
+  );
 
   const handleSpotPress = useCallback(
     (id: string) => {

@@ -12,6 +12,7 @@ import { DEFAULT_FILTERS } from '@/src/types';
 import { createTestSpot } from './factories';
 
 import SpotsScreen from '@/app/(tabs)/index';
+import { NO_LOCATION } from '@/src/utils/geo';
 
 const granted = { status: 'granted', granted: true, canAskAgain: true, expires: 'never' } as never;
 const denied = { status: 'denied', granted: false, canAskAgain: true, expires: 'never' } as never;
@@ -58,9 +59,23 @@ describe('useCurrentLocation', () => {
     await waitFor(() => expect(useLocationStore.getState().currentLocation).toEqual({ latitude: 47.61, longitude: -122.33 }));
 
     const onChange = jest.mocked(AppState.addEventListener).mock.calls.at(-1)?.[1] as (s: string) => void;
+    await act(async () => onChange('background'));
     await act(async () => onChange('active'));
 
     await waitFor(() => expect(useLocationStore.getState().currentLocation).toEqual({ latitude: 47.66, longitude: -122.31 }));
+  });
+
+  it('does not refetch when only an overlay closed (inactive → active)', async () => {
+    jest.mocked(requestForegroundPermissionsAsync).mockResolvedValue(granted);
+    jest.mocked(getCurrentPositionAsync).mockResolvedValue(at(47.61, -122.33));
+    renderHook(() => useCurrentLocation());
+    await waitFor(() => expect(getCurrentPositionAsync).toHaveBeenCalledTimes(1));
+
+    const onChange = jest.mocked(AppState.addEventListener).mock.calls.at(-1)?.[1] as (s: string) => void;
+    await act(async () => onChange('inactive'));
+    await act(async () => onChange('active'));
+
+    expect(getCurrentPositionAsync).toHaveBeenCalledTimes(1);
   });
 
   it('ignores a last known position older than five minutes', async () => {
@@ -116,7 +131,7 @@ describe('Spots tab distance', () => {
     useSpotsStore.setState({
       spots: [
         createTestSpot({ name: 'Near', location: { latitude: 47.6072, longitude: -122.3321 } }),
-        createTestSpot({ name: 'No fix', location: { latitude: 0, longitude: 0 } }),
+        createTestSpot({ name: 'No fix', location: NO_LOCATION }),
       ],
       filters: { ...DEFAULT_FILTERS },
       viewMode: 'list',

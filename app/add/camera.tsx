@@ -8,6 +8,7 @@ import { Image } from 'expo-image';
 import { useLocationStore } from '@/src/stores/location-store';
 import { palette, spacing, radius } from '@/src/constants/theme';
 import type { GeoPoint } from '@/src/types';
+import { toGeoPoint } from '@/src/utils/geo';
 
 interface CapturedPhoto {
   uri: string;
@@ -26,11 +27,7 @@ export default function CameraScreen() {
     (async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status === 'granted') {
-        const loc = await Location.getCurrentPositionAsync({});
-        const point: GeoPoint = {
-          latitude: loc.coords.latitude,
-          longitude: loc.coords.longitude,
-        };
+        const point = toGeoPoint(await Location.getCurrentPositionAsync({}));
         setCapturedLocation(point);
         setCurrentLocation(point);
       }

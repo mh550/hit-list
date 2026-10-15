@@ -3,12 +3,7 @@ import { reverseGeocodeAsync } from 'expo-location';
 import type { GeoPoint, Spot } from '@/src/types';
 import { isKnownLocation } from '@/src/utils/geo';
 
-/**
- * The town for a point from Apple's geocoder via expo-location (D4): city, else subregion, else
- * region. CLGeocoder is a network service: the coordinates go to Apple and it needs internet.
- * Never throws; offline, rate-limited or unknown-location lookups give undefined.
- */
-export async function geocodeTown(point: GeoPoint): Promise<string | undefined> {
+async function lookupTown(point: GeoPoint): Promise<string | undefined> {
   if (!isKnownLocation(point)) return undefined;
   try {
     const [address] = await reverseGeocodeAsync(point);
@@ -16,6 +11,21 @@ export async function geocodeTown(point: GeoPoint): Promise<string | undefined> 
   } catch {
     return undefined;
   }
+}
+
+// Every lookup (new spots, imports, the launch backfill) waits for the previous one: Apple's
+// geocoder throttles bursts and fails the excess.
+let queue: Promise<unknown> = Promise.resolve();
+
+/**
+ * The town for a point from Apple's geocoder via expo-location (D4): city, else subregion, else
+ * region. CLGeocoder is a network service: the coordinates go to Apple and it needs internet.
+ * Never throws; offline, throttled or unknown-location lookups give undefined.
+ */
+export function geocodeTown(point: GeoPoint): Promise<string | undefined> {
+  const result = queue.then(() => lookupTown(point));
+  queue = result;
+  return result;
 }
 
 type UpdateSpot = (id: string, updates: Pick<Spot, 'generated_name'>) => Promise<void>;

@@ -5,6 +5,7 @@ import { initialRegion } from '@/src/utils/map-region';
 import { SpotStatus } from '@/src/types';
 import type { Spot } from '@/src/types';
 import { createTestSpot } from './factories';
+import { NO_LOCATION } from '@/src/utils/geo';
 
 const named = createTestSpot({ name: 'Pier 57 rail', status: SpotStatus.Complete });
 const draft = createTestSpot({ name: 'Library ledge', status: SpotStatus.Draft });
@@ -48,7 +49,7 @@ describe('SpotMap', () => {
   });
 
   it('leaves spots without a location (0, 0) off the map', () => {
-    const lost = createTestSpot({ location: { latitude: 0, longitude: 0 } });
+    const lost = createTestSpot({ location: NO_LOCATION });
     renderMap([named, lost]);
 
     expect(screen.getAllByTestId(/^spot-marker-/)).toHaveLength(1);

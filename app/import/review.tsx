@@ -14,6 +14,7 @@ import { v4 as uuid } from 'uuid';
 
 import { useSpotActions } from '@/src/hooks/use-spot-actions';
 import { useMediaActions } from '@/src/hooks/use-media-actions';
+import { formatSpotDate } from '@/src/utils/spot-name';
 import { NO_LOCATION } from '@/src/utils/geo';
 import { palette, spacing, radius } from '@/src/constants/theme';
 import { SpotStatus } from '@/src/types';
@@ -23,15 +24,6 @@ import type { ImportPhoto } from '@/src/utils/import-clustering';
 interface SpotGroup {
   photos: ImportPhoto[];
   name: string;
-}
-
-function formatDate(isoString: string): string {
-  try {
-    const d = new Date(isoString);
-    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-  } catch {
-    return '';
-  }
 }
 
 export default function ImportReviewScreen() {
@@ -141,7 +133,7 @@ export default function ImportReviewScreen() {
             <Text style={styles.photoCount}>
               {group.photos.length} photo{group.photos.length !== 1 ? 's' : ''}
               {group.photos[0]?.capturedAt
-                ? ` · ${formatDate(group.photos[0].capturedAt)}`
+                ? ` · ${formatSpotDate(group.photos[0].capturedAt)}`
                 : ''}
             </Text>
 

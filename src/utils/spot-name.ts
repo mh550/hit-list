@@ -2,6 +2,12 @@ import type { Spot } from '@/src/types';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
+/** `Oct 13` in the phone's local zone; '' for an invalid date. */
+export function formatSpotDate(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '' : `${MONTHS[d.getMonth()]} ${d.getDate()}`;
+}
+
 /**
  * `Oct 13, 2:22 PM` in the phone's local zone. Built by hand rather than with toLocaleString so
  * Hermes and Node agree and no ICU narrow no-break space sneaks in. Invalid dates give ''.
@@ -11,7 +17,7 @@ export function formatSpotTime(iso: string): string {
   if (Number.isNaN(d.getTime())) return '';
   const h = d.getHours();
   const minutes = String(d.getMinutes()).padStart(2, '0');
-  return `${MONTHS[d.getMonth()]} ${d.getDate()}, ${h % 12 || 12}:${minutes} ${h < 12 ? 'AM' : 'PM'}`;
+  return `${formatSpotDate(iso)}, ${h % 12 || 12}:${minutes} ${h < 12 ? 'AM' : 'PM'}`;
 }
 
 /**

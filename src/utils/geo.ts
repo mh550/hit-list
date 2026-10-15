@@ -1,3 +1,4 @@
+import type { LocationObject } from 'expo-location';
 import type { GeoPoint } from '@/src/types';
 
 /**
@@ -8,6 +9,11 @@ export const NO_LOCATION: GeoPoint = { latitude: 0, longitude: 0 };
 
 export function isKnownLocation(p: GeoPoint): boolean {
   return p.latitude !== 0 || p.longitude !== 0;
+}
+
+/** expo-location's position object → the app's GeoPoint. */
+export function toGeoPoint({ coords }: LocationObject): GeoPoint {
+  return { latitude: coords.latitude, longitude: coords.longitude };
 }
 
 const EARTH_RADIUS_KM = 6371;

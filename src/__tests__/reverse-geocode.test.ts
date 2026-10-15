@@ -1,12 +1,13 @@
 import { reverseGeocodeAsync } from 'expo-location';
 import { geocodeTown, backfillTowns } from '@/src/utils/reverse-geocode';
 import { createTestSpot } from './factories';
+import { NO_LOCATION } from '@/src/utils/geo';
 
 const seattle = { latitude: 47.6, longitude: -122.3 };
 
-describe('geocodeTown', () => {
-  beforeEach(() => jest.clearAllMocks());
+beforeEach(() => jest.clearAllMocks());
 
+describe('geocodeTown', () => {
   it.each([
     [[{ city: 'Seattle', subregion: 'King County', region: 'WA' }], 'Seattle'],
     [[{ city: null, subregion: 'King County', region: 'WA' }], 'King County'],
@@ -24,16 +25,38 @@ describe('geocodeTown', () => {
     await expect(geocodeTown(seattle)).resolves.toBeUndefined();
   });
 
+  it('queues lookups from every caller, so Apple never sees a burst', async () => {
+    let inFlight = 0;
+    let maxInFlight = 0;
+    jest.mocked(reverseGeocodeAsync).mockImplementation(async () => {
+      maxInFlight = Math.max(maxInFlight, ++inFlight);
+      await new Promise((r) => setTimeout(r, 1));
+      inFlight--;
+      return [{ city: 'Seattle' }] as never;
+    });
+
+    const towns = await Promise.all([geocodeTown(seattle), geocodeTown(seattle), geocodeTown(seattle)]);
+
+    expect(towns).toEqual(['Seattle', 'Seattle', 'Seattle']);
+    expect(maxInFlight).toBe(1);
+  });
+
+  it('keeps the queue moving after a failed lookup', async () => {
+    jest.mocked(reverseGeocodeAsync).mockRejectedValueOnce(new Error('rate limited')).mockResolvedValueOnce([{ city: 'Tacoma' }] as never);
+
+    const towns = await Promise.all([geocodeTown(seattle), geocodeTown(seattle)]);
+
+    expect(towns).toEqual([undefined, 'Tacoma']);
+  });
+
   it('skips the unknown location (0, 0)', async () => {
-    await expect(geocodeTown({ latitude: 0, longitude: 0 })).resolves.toBeUndefined();
+    await expect(geocodeTown(NO_LOCATION)).resolves.toBeUndefined();
 
     expect(reverseGeocodeAsync).not.toHaveBeenCalled();
   });
 });
 
 describe('backfillTowns', () => {
-  beforeEach(() => jest.clearAllMocks());
-
   it('names at most 10 untitled, town-less spots, one request at a time', async () => {
     let inFlight = 0;
     let maxInFlight = 0;
@@ -60,7 +83,7 @@ describe('backfillTowns', () => {
 
   it('skips spots with no location and spends no budget on them', async () => {
     jest.mocked(reverseGeocodeAsync).mockResolvedValue([{ city: 'Seattle' }] as never);
-    const lost = createTestSpot({ location: { latitude: 0, longitude: 0 } });
+    const lost = createTestSpot({ location: NO_LOCATION });
     const update = jest.fn(async () => {});
 
     await backfillTowns([lost, createTestSpot()], update, 1);

@@ -22,8 +22,10 @@ export function exifGps(exif: Exif): GeoPoint | null {
   const lat = num(exif?.GPSLatitude);
   const lng = num(exif?.GPSLongitude);
   if (lat === undefined || lng === undefined) return null;
-  const sign = (v: number, ref: unknown, negative: string) => (ref === negative && v > 0 ? -v : v);
-  return { latitude: sign(lat, exif?.GPSLatitudeRef, 'S'), longitude: sign(lng, exif?.GPSLongitudeRef, 'W') };
+  return {
+    latitude: exif?.GPSLatitudeRef === 'S' ? -Math.abs(lat) : lat,
+    longitude: exif?.GPSLongitudeRef === 'W' ? -Math.abs(lng) : lng,
+  };
 }
 
 /** One picked library asset → an ImportPhoto: capture time (DateTimeOriginal, DateTime, else now) and signed GPS. */

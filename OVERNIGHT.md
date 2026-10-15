@@ -280,6 +280,10 @@ _(append messages from the phone here, newest first)_
 
 ## Needs Michael
 _(exact commands / decisions, newest first)_
+- **For the next migration (not tonight):** when `MIGRATIONS` gets a second entry, `useDbInit` must
+  still load spots if `migrateDb` throws (today it skips the load, so a failed upgrade would look like
+  every spot vanished). And per-connection pragmas such as `foreign_keys = ON` go next to the WAL
+  line in `migrateDb`, never inside a migration (they do nothing in a transaction).
 - **GitHub token lacks the `workflow` scope**, so `git push` over HTTPS rejects any commit that
   touches `.github/workflows/*` ("refusing to allow an OAuth App to create or update workflow").
   The overnight session pushed that one commit over SSH on the command line
@@ -293,6 +297,11 @@ _(exact commands / decisions, newest first)_
 
 ## Status log
 _(newest first: time · step · result · commit)_
+- 2026-10-14 23:58 · M3 review done · Opus reviewer: **0 Critical / 0 Important / 7 Minor, "ready to merge"**.
+  Confirmed on the real expo-sqlite 57 source: migration 1 = old DDL verbatim; harness transaction
+  semantics match the device; both PRAGMAs valid on iOS; CI's Node 22.23.3 loads `node:sqlite`
+  unflagged (prints a harmless ExperimentalWarning). Minors deferred per the execution rules (none
+  can bite today); the two that matter later are under Needs Michael. Next: `/simplify` for M3.
 - 2026-10-14 23:54 · M3 Tasks 1–4 done (inline, executing-plans) · `b53f5a8` harness · `35c2aee` spots ·
   `eb54e86` media/settings · `5f51e7a` migrations. `createTestDb()` runs `src/db` unmodified on
   `node:sqlite` (`DatabaseSync(':memory:')`). New suites: db-spots 5, db-media 2, db-settings 4,

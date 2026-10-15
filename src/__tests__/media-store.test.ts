@@ -45,4 +45,18 @@ describe('media store', () => {
     expect(listener).toHaveBeenCalledTimes(1);
     unsubscribe();
   });
+
+  it('removeMany([]) is a no-op: no notification and the same mediaBySpot object', () => {
+    // Nothing to remove must not wake every subscriber or hand out a new map.
+    useMediaStore.getState().setAll([createTestMedia({ spot_id: 's1' })]);
+    const before = useMediaStore.getState().mediaBySpot;
+    const listener = jest.fn();
+    const unsubscribe = useMediaStore.subscribe(listener);
+
+    useMediaStore.getState().removeMany([]);
+
+    expect(listener).not.toHaveBeenCalled();
+    expect(useMediaStore.getState().mediaBySpot).toBe(before);
+    unsubscribe();
+  });
 });

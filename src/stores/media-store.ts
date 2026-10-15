@@ -21,7 +21,8 @@ export const useMediaStore = create<MediaState>((set) => ({
   mediaBySpot: {},
   setAll: (media) => set({ mediaBySpot: grouped({}, media) }),
   addMany: (media) => set((s) => ({ mediaBySpot: grouped(s.mediaBySpot, media) })),
-  removeMany: (ids) =>
+  removeMany: (ids) => {
+    if (ids.length === 0) return; // nothing to drop: no new map, no subscriber notification
     set((s) => {
       const drop = new Set(ids);
       const next: Record<string, Media[]> = {};
@@ -30,5 +31,6 @@ export const useMediaStore = create<MediaState>((set) => ({
         next[spotId] = list.some((m) => drop.has(m.id)) ? list.filter((m) => !drop.has(m.id)) : list;
       }
       return { mediaBySpot: next };
-    }),
+    });
+  },
 }));

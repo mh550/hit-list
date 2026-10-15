@@ -38,7 +38,11 @@ jest.mock('react-native-reanimated', () => {
 // expo-sqlite: screens reach the DB through hooks that call useSQLiteContext, which throws outside a
 // <SQLiteProvider>. Default to an empty db so a screen renders; any real query on it fails (and logs),
 // so tests that save mock their actions or '@/src/db'. A test file's own jest.mock('expo-sqlite') wins.
-jest.mock('expo-sqlite', () => ({ ...jest.requireActual('expo-sqlite'), useSQLiteContext: () => ({}) }));
+// One db object for every call: a new one per render would change hook dependencies and loop effects.
+jest.mock('expo-sqlite', () => {
+  const mockDb = {};
+  return { ...jest.requireActual('expo-sqlite'), useSQLiteContext: () => mockDb };
+});
 
 // expo-image renders as React Native's Image so tests can assert on `source`.
 jest.mock('expo-image', () => ({ Image: jest.requireActual('react-native').Image }));

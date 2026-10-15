@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import {
   StyleSheet,
@@ -9,6 +9,7 @@ import {
   Pressable,
   Switch,
   Alert,
+  AccessibilityInfo,
 } from 'react-native';
 import { Image } from 'expo-image';
 
@@ -87,66 +88,94 @@ export default function EditSpotScreen() {
   const [status, setStatus] = useState(spot?.status ?? SpotStatus.Draft);
   // Photos staged for removal; nothing is deleted until Save (Cancel/back undoes, like the other fields).
   const [removedIds, setRemovedIds] = useState<string[]>([]);
+  // Save awaits the deletes before router.back(), so a second tap must not start another run.
+  const savingRef = useRef(false);
+  const [saving, setSaving] = useState(false);
 
   const photos = spot ? spotPhotos(spot, media) : [];
   const visiblePhotos = photos.filter((p) => !removedIds.includes(p.id));
 
+  const stagePhotoRemoval = useCallback((photoId: string) => {
+    // A fast double tap fires twice before re-render, so never append the same id twice.
+    setRemovedIds((prev) => (prev.includes(photoId) ? prev : [...prev, photoId]));
+    AccessibilityInfo.announceForAccessibility('Photo will be removed when you save');
+  }, []);
+
   const handleSave = useCallback(async () => {
-    if (!spot) return;
-    const stored = spot.feature.dimensions;
+    if (!spot || savingRef.current) return;
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      const stored = spot.feature.dimensions;
 
-    const updates: SpotUpdate = {
-      name: name.trim() || null, // null clears the stored name; undefined would keep the old one
-      status,
-      feature: {
-        type: featureType,
-        custom_type: featureType === FeatureType.Other ? customType : undefined,
-        shape: shape || undefined,
-        dimensions: {
-          length: dimensionFromInput(length, initialDims.length, stored?.length, units),
-          height: dimensionFromInput(height, initialDims.height, stored?.height, units),
-          width: dimensionFromInput(width, initialDims.width, stored?.width, units),
+      const updates: SpotUpdate = {
+        name: name.trim() || null, // null clears the stored name; undefined would keep the old one
+        status,
+        feature: {
+          type: featureType,
+          custom_type: featureType === FeatureType.Other ? customType : undefined,
+          shape: shape || undefined,
+          dimensions: {
+            length: dimensionFromInput(length, initialDims.length, stored?.length, units),
+            height: dimensionFromInput(height, initialDims.height, stored?.height, units),
+            width: dimensionFromInput(width, initialDims.width, stored?.width, units),
+          },
+          material,
+          skate_stops: isStopped
+            ? {
+                is_stopped: true,
+                stop_type: stopType,
+                stop_description: stopDetails.trim() || undefined,
+                removable,
+              }
+            : undefined,
+          difficulty: difficulty || undefined,
         },
-        material,
-        skate_stops: isStopped
-          ? {
-              is_stopped: true,
-              stop_type: stopType,
-              stop_description: stopDetails.trim() || undefined,
-              removable,
-            }
-          : undefined,
-        difficulty: difficulty || undefined,
-      },
-      in_run: {
-        natural_speed: naturalSpeed || undefined,
-        setup_options: setupOptions,
-      },
-      landing: {
-        difficulty: landingDifficulty || undefined,
-        surface: landingSurface,
-      },
-      metadata: {
-        intensity: intensity || undefined,
-        bustability: bustability || undefined,
-        bustability_notes: bustNotes || undefined,
-        notes: notes || undefined,
-      },
-      updated_at: new Date().toISOString(),
-    };
+        in_run: {
+          natural_speed: naturalSpeed || undefined,
+          setup_options: setupOptions,
+        },
+        landing: {
+          difficulty: landingDifficulty || undefined,
+          surface: landingSurface,
+        },
+        metadata: {
+          intensity: intensity || undefined,
+          bustability: bustability || undefined,
+          bustability_notes: bustNotes || undefined,
+          notes: notes || undefined,
+        },
+        updated_at: new Date().toISOString(),
+      };
 
-    if (removedIds.length > 0) {
-      // Only ids whose row was actually deleted count, so a failed delete never leaves the primary pointing nowhere.
-      const removed = await removePhotos(removedIds);
-      const primaryId = primaryPhoto(spot, media)?.id;
-      if (primaryId !== undefined && removed.includes(primaryId)) {
-        const remaining = spotPhotos(spot, media).filter((p) => !removed.includes(p.id));
-        updates.primary_photo_id = remaining[0]?.id ?? null; // null clears the column
+      let someNotRemoved = false;
+      if (removedIds.length > 0) {
+        // Only ids whose row was actually deleted count, so a failed delete never leaves the primary pointing nowhere.
+        const removed = await removePhotos(removedIds);
+        someNotRemoved = removed.length < removedIds.length;
+        const primaryId = primaryPhoto(spot, media)?.id;
+        if (primaryId !== undefined && removed.includes(primaryId)) {
+          const remaining = spotPhotos(spot, media).filter((p) => !removed.includes(p.id));
+          updates.primary_photo_id = remaining[0]?.id ?? null; // null clears the column
+        }
       }
-    }
 
-    await updateSpot(spot.id, updates);
-    router.back();
+      await updateSpot(spot.id, updates);
+      if (someNotRemoved) {
+        // Close the sheet from the alert, so dismissing the sheet can't swallow the alert on iOS.
+        Alert.alert("Some photos couldn't be removed", "They're still on this spot. Try again later.", [
+          { text: 'OK', onPress: () => router.back() },
+        ]);
+      } else {
+        router.back();
+      }
+    } catch (err) {
+      // The screen stays open, so let the user try again.
+      console.error('[EditSpot] save failed:', err);
+      savingRef.current = false;
+      setSaving(false);
+      Alert.alert("Couldn't save", 'Please try again.');
+    }
   }, [
     spot, name, status, featureType, customType, shape, length, height, width, initialDims,
     material, isStopped, stopType, stopDetails, removable, difficulty, naturalSpeed, setupOptions, landingDifficulty,
@@ -230,7 +259,7 @@ export default function EditSpotScreen() {
                   <Image source={{ uri: resolvePhotoUri(m.file_path) }} style={styles.thumb} contentFit="cover" />
                   <Pressable
                     style={styles.thumbRemove}
-                    onPress={() => setRemovedIds((prev) => [...prev, m.id])}
+                    onPress={() => stagePhotoRemoval(m.id)}
                     hitSlop={10}
                     accessibilityRole="button"
                     accessibilityLabel={`Remove photo ${i + 1}`}>
@@ -239,9 +268,21 @@ export default function EditSpotScreen() {
                 </View>
               ))}
             </ScrollView>
-          ) : (
-            <Text style={styles.photoHint}>All photos will be removed when you save.</Text>
-          )}
+          ) : null}
+          {removedIds.length > 0 ? (
+            <View style={styles.pendingRow}>
+              <Text style={styles.photoHint}>
+                {removedIds.length === 1 ? '1 photo' : `${removedIds.length} photos`} will be removed when you save.
+              </Text>
+              <Pressable
+                onPress={() => setRemovedIds([])}
+                hitSlop={10}
+                accessibilityRole="button"
+                accessibilityLabel="Undo">
+                <Text style={styles.undoText}>Undo</Text>
+              </Pressable>
+            </View>
+          ) : null}
         </>
       ) : null}
 
@@ -522,7 +563,7 @@ export default function EditSpotScreen() {
 
       {/* Actions */}
       <View style={styles.actions}>
-        <Button title="Save" onPress={handleSave} variant="primary" size="lg" />
+        <Button title="Save" onPress={handleSave} variant="primary" size="lg" disabled={saving} />
         <Button title="Delete Spot" onPress={handleDelete} variant="destructive" size="lg" />
       </View>
     </ScrollView>
@@ -582,9 +623,21 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
   },
+  pendingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+  },
   photoHint: {
+    flexShrink: 1,
     fontSize: 14,
     color: palette.gray[600],
+  },
+  undoText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: palette.blue[500],
   },
   fieldLabel: {
     fontSize: 14,

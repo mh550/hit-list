@@ -50,7 +50,8 @@ takes a little while; later loads are quick.
   Import Radius of each other (Profile tab, 50 m by default) become one spot. Photos without GPS get
   a spot each. Each spot's date is the capture time of its first photo.
 - **Spot detail**: the main photo large, the rest in a row underneath. In Edit, tap the × on a photo and
-  Save to take it off the spot (the file stays in the app's storage).
+  Save to take it off the spot (the file stays in the app's storage). A note shows how many photos
+  will be removed, with an Undo. Swipe the sheet away without Save and the photo stays.
 - iOS asks for **location** when the Spots tab first opens. Saying no is fine: distances stay blank
   and the map just shows the spots.
 - **Camera**: the first tap on + shows an in-app "Camera permission required" screen. Tap

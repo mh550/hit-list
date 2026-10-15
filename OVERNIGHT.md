@@ -206,19 +206,19 @@ Write the start time in the Status log. For each hop N in 55, 56, 57:
       marker, callout title). Review, `/simplify`, milestone push.
 
 ### M6 — Untitled placeholder + import fixes (spec D4, §1.4 bugs 3–5, §2.2 M6) (≈1 h)
-- [ ] Plan: `docs/plans/<date>-names-and-exif.md`.
-- [ ] TDD `src/utils/exif.ts`: `parseExifDate` (`"2026:10:13 14:22:01"` → `"2026-10-13T14:22:01"`;
+- [x] Plan: `docs/plans/<date>-names-and-exif.md`.
+- [x] TDD `src/utils/exif.ts`: `parseExifDate` (`"2026:10:13 14:22:01"` → `"2026-10-13T14:22:01"`;
       garbage → `undefined`), `exifGps` (applies `GPSLatitudeRef`/`GPSLongitudeRef` sign only when
       the ref is present and the value is positive; missing coords → `null`). Wire into
       `app/import/index.tsx`; `created_at` in `app/import/review.tsx` falls back to `now` when the
       parsed date is undefined.
-- [ ] TDD `getSpotDisplayName` (D4): `name` → `Untitled · <generated_name> · Oct 13, 2:22 PM` →
+- [x] TDD `getSpotDisplayName` (D4): `name` → `Untitled · <generated_name> · Oct 13, 2:22 PM` →
       `Untitled · Oct 13, 2:22 PM`. Update the tests that expect `Untitled Spot — Oct 13`.
-- [ ] TDD `src/utils/reverse-geocode.ts` (`geocodeTown`: `city` → `subregion` → `region` →
+- [x] TDD `src/utils/reverse-geocode.ts` (`geocodeTown`: `city` → `subregion` → `region` →
       `undefined`) with `expo-location` mocked from its `.d.ts`; wire fire-and-forget into both
       review screens (`updateSpot({ generated_name: town })`) and a ≤ 10-per-launch backfill in
       `use-db-init` (test: 12 spots with neither name → exactly 10 geocode calls).
-- [ ] TDD `src/hooks/use-current-location.ts` (permission once, fills the location store);
+- [x] TDD `src/hooks/use-current-location.ts` (permission once, fills the location store);
       mount in the Spots screen; RED test that distance text appears once the store has a
       location.
 - [ ] `npx expo export --platform ios` green. "What Michael will see" table (names: user-given,
@@ -297,6 +297,16 @@ _(exact commands / decisions, newest first)_
 
 ## Status log
 _(newest first: time · step · result · commit)_
+- 2026-10-15 00:36 · M6 Tasks 1–4 done · `1dcac4e` EXIF · `531d1d2` D4 names · `8941dd0` towns · `b2a68b4` location
+  · `072c08b` no distance for no-location spots (found by this table). 213 tests / 25 suites, 0 console.error,
+  export ok. Final M6 review running on Opus.
+  **What Michael will see** (Spots list, phone at Pike Place; times shown in UTC here, local on the phone):
+
+  | Row label | Distance |
+  |---|---|
+  | Pier 57 kinked rail (user-named, 1 photo) | 0.2 mi |
+  | Untitled · Seattle · Oct 13, 9:05 PM (town from Apple's geocoder) | 0.8 mi |
+  | Untitled · Oct 14, 12:40 AM (saved without GPS, no town) | — (was "7679.1 mi" before `072c08b`) |
 - 2026-10-15 00:34 · **M5 done — map view** · `/simplify` (4 reviewers): the "(0, 0) = no location" rule
   now lives once in `geo.ts` (`NO_LOCATION` / `isKnownLocation`; review screens write it, map and geocoding
   read it), one `featureLabel()` (the map callout now shows a custom "other" name), typed List | Map toggle,

@@ -1,14 +1,13 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { createTestDb } from './helpers/node-sqlite-db';
+import { insertSpot, getSpots } from '@/src/db';
 import {
   migrateDb,
   MIGRATIONS,
   LATEST_SCHEMA_VERSION,
   getSchemaVersion,
-  insertSpot,
-  getSpots,
   type Migration,
-} from '@/src/db';
+} from '@/src/db/schema';
 import { createTestSpot } from './factories';
 
 const tables = async (db: SQLiteDatabase) =>

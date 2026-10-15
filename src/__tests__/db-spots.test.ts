@@ -1,6 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { createTestDb } from './helpers/node-sqlite-db';
-import { migrateDb, insertSpot, getSpot, getSpots, updateSpot, softDeleteSpot } from '@/src/db';
+import { createMigratedTestDb } from './helpers/node-sqlite-db';
+import { insertSpot, getSpot, getSpots, updateSpot, softDeleteSpot } from '@/src/db';
 import { FeatureType, SpotStatus } from '@/src/types';
 import { createTestSpot } from './factories';
 
@@ -8,8 +8,7 @@ describe('spots against real SQLite', () => {
   let db: SQLiteDatabase;
 
   beforeEach(async () => {
-    db = createTestDb();
-    await migrateDb(db);
+    db = await createMigratedTestDb();
   });
 
   it('migrateDb → insertSpot → getSpots round-trips a spot', async () => {

@@ -20,11 +20,10 @@ export async function setSetting(db: SQLiteDatabase, key: string, value: string)
 
 export async function getUserSettings(db: SQLiteDatabase): Promise<UserSettings> {
   const raw = await getSetting(db, 'user_settings');
-  if (!raw) return { ...DEFAULT_USER_SETTINGS };
   try {
-    return { ...DEFAULT_USER_SETTINGS, ...JSON.parse(raw) } as UserSettings;
+    return { ...DEFAULT_USER_SETTINGS, ...JSON.parse(raw ?? 'null') } as UserSettings;
   } catch {
-    return { ...DEFAULT_USER_SETTINGS };
+    return { ...DEFAULT_USER_SETTINGS }; // corrupt blob
   }
 }
 

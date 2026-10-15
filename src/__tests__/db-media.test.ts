@@ -1,14 +1,13 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { createTestDb } from './helpers/node-sqlite-db';
-import { migrateDb, insertSpot, insertMedia, getMediaForSpot, deleteMedia } from '@/src/db';
+import { createMigratedTestDb } from './helpers/node-sqlite-db';
+import { insertSpot, insertMedia, getMediaForSpot, deleteMedia } from '@/src/db';
 import { createTestMedia, createTestSpot } from './factories';
 
 describe('media against real SQLite', () => {
   let db: SQLiteDatabase;
 
   beforeEach(async () => {
-    db = createTestDb();
-    await migrateDb(db);
+    db = await createMigratedTestDb();
   });
 
   it("lists a spot's media oldest first, and only that spot's", async () => {

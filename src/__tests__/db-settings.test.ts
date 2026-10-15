@@ -1,14 +1,13 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { createTestDb } from './helpers/node-sqlite-db';
-import { migrateDb, getUserSettings, saveUserSettings, setSetting } from '@/src/db';
+import { createMigratedTestDb } from './helpers/node-sqlite-db';
+import { getUserSettings, saveUserSettings, setSetting } from '@/src/db';
 import { DEFAULT_USER_SETTINGS, GearItem, UnitSystem } from '@/src/types';
 
 describe('user settings against real SQLite', () => {
   let db: SQLiteDatabase;
 
   beforeEach(async () => {
-    db = createTestDb();
-    await migrateDb(db);
+    db = await createMigratedTestDb();
   });
 
   it('returns defaults on an empty DB', async () => {

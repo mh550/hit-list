@@ -1,19 +1,12 @@
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import type { SQLiteDatabase, SQLiteBindValue, SQLiteRunResult } from 'expo-sqlite';
+import { migrateDb } from '@/src/db/schema';
 
-type Params = SQLiteBindValue[] | [SQLiteBindValue[]];
+type Params = SQLiteBindValue[];
 
-function toNode(params: Params): SQLInputValue[] {
-  const flat =
-    params.length === 1 && Array.isArray(params[0]) ? params[0] : (params as SQLiteBindValue[]);
-  return flat.map((v) => {
-    if (typeof v === 'boolean') return v ? 1 : 0;
-    if (v !== null && typeof v === 'object' && !(v instanceof Uint8Array)) {
-      throw new Error('node-sqlite-db: only positional parameters are supported');
-    }
-    return v as SQLInputValue;
-  });
-}
+// expo-sqlite binds booleans as 1/0; node:sqlite rejects them.
+const toNode = (params: Params) =>
+  params.map((v) => (typeof v === 'boolean' ? Number(v) : v)) as SQLInputValue[];
 
 /** In-memory SQLite exposing the expo-sqlite methods the app uses (signatures from SQLiteDatabase.d.ts). */
 export function createTestDb(): SQLiteDatabase {
@@ -42,9 +35,13 @@ export function createTestDb(): SQLiteDatabase {
         throw e;
       }
     },
-    async closeAsync(): Promise<void> {
-      raw.close();
-    },
   };
   return db as unknown as SQLiteDatabase;
+}
+
+/** A fresh in-memory DB already at the latest schema. */
+export async function createMigratedTestDb(): Promise<SQLiteDatabase> {
+  const db = createTestDb();
+  await migrateDb(db);
+  return db;
 }

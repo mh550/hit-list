@@ -24,10 +24,11 @@
     "moduleNameMapper": {
       "^@/(.*)$": "<rootDir>/$1"
     },
+    "testMatch": [
+      "**/*.test.ts?(x)"
+    ],
     "testPathIgnorePatterns": [
-      "/node_modules/",
-      "factories\\.ts$",
-      "/__tests__/helpers/"
+      "/node_modules/"
     ]
   },
   "dependencies": {

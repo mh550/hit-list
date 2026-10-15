@@ -16,6 +16,6 @@ skate-stop data a spot already has. The new fields fix that as a side effect; a 
 - Toggling off and on again within one edit keeps what was typed (state stays in memory; only Save drops it).
 
 ### Task 1
-- [ ] RED: fields hidden when off, shown when on; save payload for on (all fields) and off; existing skate-stop data pre-filled and
+- [x] RED: fields hidden when off, shown when on; save payload for on (all fields) and off; existing skate-stop data pre-filled and
   preserved through an unrelated edit; toggle off/on keeps typed values.
-- [ ] GREEN, gates. Commit `feat: edit a spot's skate stops`.
+- [x] GREEN, gates. Commit `feat: edit a spot's skate stops`.

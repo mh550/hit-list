@@ -7,6 +7,7 @@ import {
   Text,
   TextInput,
   Pressable,
+  Switch,
   Alert,
 } from 'react-native';
 
@@ -19,11 +20,13 @@ import { StarRating } from '@/src/components/StarRating';
 import { Chip, ChipGroup } from '@/src/components/Chip';
 import { Button } from '@/src/components/Button';
 import { palette, spacing, radius } from '@/src/constants/theme';
+import { STOP_TYPE_LABELS } from '@/src/constants/labels';
 import {
   SpotStatus,
   FeatureType,
   Material,
   LandingSurface,
+  StopType,
   GearItem,
   BuildItem,
 } from '@/src/types';
@@ -65,6 +68,10 @@ export default function EditSpotScreen() {
       : '',
   );
   const [material, setMaterial] = useState(spot?.feature.material);
+  const [isStopped, setIsStopped] = useState(spot?.feature.skate_stops?.is_stopped ?? false);
+  const [stopType, setStopType] = useState<StopType | undefined>(spot?.feature.skate_stops?.stop_type);
+  const [stopDetails, setStopDetails] = useState(spot?.feature.skate_stops?.stop_description ?? '');
+  const [removable, setRemovable] = useState(spot?.feature.skate_stops?.removable ?? false);
   const [difficulty, setDifficulty] = useState(spot?.feature.difficulty ?? 0);
   const [naturalSpeed, setNaturalSpeed] = useState(spot?.in_run.natural_speed ?? 0);
   const [setupOptions, setSetupOptions] = useState<SetupOption[]>(
@@ -94,6 +101,14 @@ export default function EditSpotScreen() {
           width: width ? inputToMeters(parseFloat(width), units) : undefined,
         },
         material,
+        skate_stops: isStopped
+          ? {
+              is_stopped: true,
+              stop_type: stopType,
+              stop_description: stopDetails.trim() || undefined,
+              removable,
+            }
+          : undefined,
         difficulty: difficulty || undefined,
       },
       in_run: {
@@ -117,7 +132,7 @@ export default function EditSpotScreen() {
     router.back();
   }, [
     spot, name, status, featureType, customType, shape, length, height, width,
-    material, difficulty, naturalSpeed, setupOptions, landingDifficulty,
+    material, isStopped, stopType, stopDetails, removable, difficulty, naturalSpeed, setupOptions, landingDifficulty,
     landingSurface, intensity, bustability, bustNotes, notes, units,
     updateSpot, router,
   ]);
@@ -176,6 +191,7 @@ export default function EditSpotScreen() {
 
   const featureTypes = Object.values(FeatureType);
   const materials = Object.values(Material);
+  const stopTypes = Object.values(StopType);
   const surfaces = Object.values(LandingSurface);
 
   return (
@@ -285,6 +301,54 @@ export default function EditSpotScreen() {
           ))}
         </ChipGroup>
       </View>
+
+      <View style={styles.switchRow}>
+        <Text style={styles.switchLabel}>Skate stops</Text>
+        <Switch
+          accessibilityLabel="Skate stops"
+          value={isStopped}
+          onValueChange={setIsStopped}
+          trackColor={{ true: palette.blue[500] }}
+        />
+      </View>
+
+      {isStopped ? (
+        <>
+          <View style={styles.field}>
+            <FieldLabel label="Stop type" />
+            <ChipGroup>
+              {stopTypes.map((t) => (
+                <Chip
+                  key={t}
+                  label={STOP_TYPE_LABELS[t]}
+                  selected={stopType === t}
+                  onPress={() => setStopType(stopType === t ? undefined : t)}
+                />
+              ))}
+            </ChipGroup>
+          </View>
+          <View style={styles.field}>
+            <FieldLabel label="Stop details" />
+            <TextInput
+              style={styles.input}
+              accessibilityLabel="Stop details"
+              value={stopDetails}
+              onChangeText={setStopDetails}
+              placeholder="Knobbed at kinks"
+              placeholderTextColor={palette.gray[400]}
+            />
+          </View>
+          <View style={styles.switchRow}>
+            <Text style={styles.switchLabel}>Removable with tools</Text>
+            <Switch
+              accessibilityLabel="Removable with tools"
+              value={removable}
+              onValueChange={setRemovable}
+              trackColor={{ true: palette.blue[500] }}
+            />
+          </View>
+        </>
+      ) : null}
 
       <View style={styles.field}>
         <FieldLabel label="Difficulty" />
@@ -450,6 +514,17 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: palette.gray[900],
     backgroundColor: palette.white,
+  },
+  switchRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+  },
+  switchLabel: {
+    fontSize: 16,
+    color: palette.gray[900],
+    fontWeight: '500',
   },
   multiline: {
     minHeight: 80,

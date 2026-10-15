@@ -12,6 +12,7 @@ import { displayLength } from '@/src/utils/units';
 import { RatingBadge } from '@/src/components/RatingBadge';
 import { StarRating } from '@/src/components/StarRating';
 import { palette, spacing, radius } from '@/src/constants/theme';
+import { STOP_TYPE_LABELS } from '@/src/constants/labels';
 import { SpotStatus } from '@/src/types';
 import type { Media, Spot, SetupOption } from '@/src/types';
 
@@ -148,7 +149,7 @@ export default function SpotDetailScreen() {
             ) : null}
             {spot.feature.skate_stops?.is_stopped ? (
               <>
-                <InfoRow label="Stop Type" value={spot.feature.skate_stops.stop_type?.replace(/_/g, ' ')} />
+                <InfoRow label="Stop Type" value={spot.feature.skate_stops.stop_type ? STOP_TYPE_LABELS[spot.feature.skate_stops.stop_type] : undefined} />
                 <InfoRow label="Stop Info" value={spot.feature.skate_stops.stop_description} />
                 <InfoRow label="Removable" value={spot.feature.skate_stops.removable ? 'Yes' : 'No'} />
               </>

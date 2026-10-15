@@ -202,7 +202,7 @@ Write the start time in the Status log. For each hop N in 55, 56, 57:
       one location overlap as pins tonight; that is expected (clustering is S1).
 - [x] TDD the Map | List `SegmentedControl` in the Spots header with `viewMode` on the spots
       store (default `list`); the FAB and filter button work in both modes.
-- [ ] `npx expo export --platform ios` green. "What Michael will see" table (marker count, draft
+- [x] `npx expo export --platform ios` green. "What Michael will see" table (marker count, draft
       marker, callout title). Review, `/simplify`, milestone push.
 
 ### M6 — Untitled placeholder + import fixes (spec D4, §1.4 bugs 3–5, §2.2 M6) (≈1 h)
@@ -297,6 +297,14 @@ _(exact commands / decisions, newest first)_
 
 ## Status log
 _(newest first: time · step · result · commit)_
+- 2026-10-15 00:34 · **M5 done — map view** · `/simplify` (4 reviewers): the "(0, 0) = no location" rule
+  now lives once in `geo.ts` (`NO_LOCATION` / `isKnownLocation`; review screens write it, map and geocoding
+  read it), one `featureLabel()` (the map callout now shows a custom "other" name), typed List | Map toggle,
+  flat screen body, theme colour for pins, **user location tracked only while the Spots tab is focused**
+  (battery), dead mock members gone. Skipped (measured not material at a few hundred spots): memoising
+  markers / the spot list, passing the unsorted list to the map. 207 tests / 24 suites, export ok.
+  M6 Task 3 also done (`8941dd0`): towns from Apple's on-device geocoder for new spots and a ≤10-per-launch
+  background backfill. Next: M6 Task 4 (location on the Spots tab).
 - 2026-10-15 00:30 · M5 review → fix pass (`8ae1608`) · Opus, checked against react-native-maps 1.27.2 iOS source:
   **1 Critical** — the starting region had no upper bound, so spots across the antimeridian or on opposite
   sides of the world produced spans beyond MapKit's 180°/360° limits; `MKMapView` throws "Invalid Region"

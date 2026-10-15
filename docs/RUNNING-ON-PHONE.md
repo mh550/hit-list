@@ -37,7 +37,8 @@ takes a little while; later loads are quick.
 - **Spots tab, Map**: the List | Map switch under the header. Apple Maps, one pin per spot: blue for
   complete spots, yellow for drafts. Tap a pin, then its bubble, to open the spot. Spots saved
   without GPS appear in the list but not on the map. Nearby spots show as one numbered blue circle.
-  Tap it to zoom in. Spots at the same place fan out when you are fully zoomed in.
+  The circle is always blue, even if the spots are drafts. Tap it to zoom in. If the spots are at
+  the same place, tapping it lists them by name instead. Pick one to open it.
 - **+ button**: camera → take photos → name it or leave it blank → Save as Draft. The photos are
   copied into the app's own storage, so they stay after iOS clears its caches.
 - **Import Photos** (Spots tab, the small photo button above +): it opens an "Import Photos" screen;
@@ -57,8 +58,8 @@ takes a little while; later loads are quick.
    would mean Expo Go lacks react-native-maps (not expected for SDK 57).
 2. **Tap a pin, then tap its bubble.** It should open that spot. If nothing happens, note it.
 3. **Make two quick spots at the same place** (+ button, Save as Draft twice without moving), then
-   open Map and zoom out. You should see one blue circle marked 2. Tap it: the map zooms in and the
-   two pins fan out, each with its own bubble. If they stay stacked as one pin, note it.
+   open Map and zoom out. You should see one blue circle marked 2. Tap it: a list of the two spot
+   names should appear. Pick one: that spot should open. If the map zooms in instead, note it.
 4. **Take a photo with the + button**, save, then force-quit Expo Go and reopen the project. The
    photo should still show. While you do this, watch the Metro terminal on the desktop: a line
    `[persistPhoto] copy failed` means the copy into app storage did not work and the app fell back

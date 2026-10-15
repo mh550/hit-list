@@ -1,18 +1,25 @@
-import { useState } from 'react';
-import { StyleSheet } from 'react-native';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { ActionSheetIOS, Platform, StyleSheet } from 'react-native';
 import { useIsFocused } from 'expo-router';
 import MapView from 'react-native-map-clustering';
 import { Marker } from 'react-native-maps';
+import type NativeMapView from 'react-native-maps';
 
 import { colors, palette } from '@/src/constants/theme';
 import { SpotStatus } from '@/src/types';
 import type { GeoPoint, Spot } from '@/src/types';
+import { clusterPressTarget } from '@/src/utils/cluster-press';
+import type { ClusterLeaf } from '@/src/utils/cluster-press';
 import { isKnownLocation } from '@/src/utils/geo';
 import { initialRegion } from '@/src/utils/map-region';
 import { featureLabel, getSpotDisplayName } from '@/src/utils/spot-name';
 
+export { SAME_PLACE_METERS } from '@/src/utils/cluster-press';
+
 export const DRAFT_PIN = palette.yellow[500];
 export const SPOT_PIN = colors.light.primary;
+
+const EDGE_PADDING = { top: 50, right: 50, bottom: 50, left: 50 };
 
 interface Props {
   spots: Spot[];
@@ -22,25 +29,48 @@ interface Props {
 
 /**
  * Apple Maps (react-native-maps default provider, D2) with one pin per spot. Pins that overlap (D8: several spots at
- * one place) merge into a numbered cluster via react-native-map-clustering; tapping it zooms to its spots, and once
- * zoomed fully in (zoom >= 18) spots that still share a place fan out in a spiral so each pin can be tapped.
+ * one place) merge into a numbered cluster via react-native-map-clustering. Tapping a cluster zooms to its spots,
+ * unless they are all within SAME_PLACE_METERS of each other: zooming cannot separate those, so the tap lists them in
+ * an action sheet (iOS; other platforms just zoom). The library's spiral fan-out is off: it lost every cluster after
+ * the first when several were on screen at zoom >= 18.
  */
 export function SpotMap({ spots, currentLocation, onOpenSpot }: Props) {
   // Starting region only: after mount the user owns the camera, so filtering doesn't jump the map.
   const [region] = useState(() => initialRegion(spots, currentLocation));
   // Only track the user while this tab is on screen; a mounted-but-hidden map would keep GPS on.
   const focused = useIsFocused();
+  // preserveClusterPressBehavior stops the library zooming on cluster tap, so SpotMap zooms with its own ref.
+  const mapRef = useRef<NativeMapView | null>(null);
+  // index.d.ts types this argument as React.Ref<MapView>, but the library passes the react-native-maps instance.
+  const setMap = useCallback((map: unknown) => {
+    mapRef.current = map as NativeMapView | null;
+  }, []);
 
-  return (
-    <MapView
-      style={StyleSheet.absoluteFill}
-      initialRegion={region}
-      showsUserLocation={focused}
-      clusterColor={SPOT_PIN}
-      clusterTextColor={palette.white}
-      spiderLineColor={palette.gray[400]}
-    >
-      {spots.filter((s) => isKnownLocation(s.location)).map((spot) => {
+  // index.d.ts types the leaves as Markers; they are supercluster features (see ClusterLeaf).
+  const handleClusterPress = useCallback(
+    (_cluster: unknown, leaves?: unknown) => {
+      const { ids, coords, samePlace } = clusterPressTarget((leaves ?? []) as ClusterLeaf[]);
+      const listed = ids.map((id) => spots.find((s) => s.id === id)).filter((s): s is Spot => s !== undefined);
+      if (samePlace && listed.length > 0 && Platform.OS === 'ios') {
+        const names = listed.map(getSpotDisplayName);
+        ActionSheetIOS.showActionSheetWithOptions(
+          { title: `${names.length} spots here`, options: [...names, 'Cancel'], cancelButtonIndex: names.length },
+          (i) => {
+            if (i < names.length) onOpenSpot(listed[i].id);
+          },
+        );
+        return;
+      }
+      mapRef.current?.fitToCoordinates(coords, { edgePadding: EDGE_PADDING, animated: true });
+    },
+    [spots, onOpenSpot],
+  );
+
+  // Memoised so SpotsScreen re-renders (location fixes, media store, focus) don't rebuild the supercluster index,
+  // which the library redoes whenever its children change.
+  const markers = useMemo(
+    () =>
+      spots.filter((s) => isKnownLocation(s.location)).map((spot) => {
         const isDraft = spot.status === SpotStatus.Draft;
         return (
           <Marker
@@ -54,7 +84,25 @@ export function SpotMap({ spots, currentLocation, onOpenSpot }: Props) {
             onCalloutPress={() => onOpenSpot(spot.id)}
           />
         );
-      })}
+      }),
+    [spots, onOpenSpot],
+  );
+
+  return (
+    <MapView
+      mapRef={setMap}
+      style={StyleSheet.absoluteFill}
+      initialRegion={region}
+      showsUserLocation={focused}
+      clusterColor={SPOT_PIN}
+      clusterTextColor={palette.white}
+      spiralEnabled={false}
+      // The library's LayoutAnimation.configureNext on every region change would animate the whole app's next layout.
+      animationEnabled={false}
+      preserveClusterPressBehavior
+      onClusterPress={handleClusterPress}
+    >
+      {markers}
     </MapView>
   );
 }

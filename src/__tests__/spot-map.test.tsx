@@ -1,4 +1,4 @@
-import { StyleSheet } from 'react-native';
+import { ActionSheetIOS, Platform, StyleSheet } from 'react-native';
 import type { ReactTestInstance } from 'react-test-renderer';
 import { render, screen, fireEvent, act } from '@testing-library/react-native';
 import { useIsFocused } from 'expo-router';
@@ -9,6 +9,7 @@ import { SpotStatus } from '@/src/types';
 import type { Spot } from '@/src/types';
 import { createTestSpot } from './factories';
 import { NO_LOCATION } from '@/src/utils/geo';
+import { getSpotDisplayName } from '@/src/utils/spot-name';
 import { colors, palette } from '@/src/constants/theme';
 
 // The root __mocks__ file replaces react-native-maps (also for react-native-map-clustering's own import) and adds
@@ -169,36 +170,111 @@ describe('SpotMap', () => {
       expect(StyleSheet.flatten(count.props.style).color).toBe(palette.white);
     });
 
-    // Several spots at the exact same place (D8) can never separate by zooming, so once the user taps the cluster and
-    // the map settles fully zoomed in, the wrapper must fan them out ("spiral") as their own tappable pins.
-    it('fans out spots at the same coordinate when zoomed all the way in after a cluster press', () => {
-      const sameSpot = [0, 1, 2].map((i) =>
-        createTestSpot({ name: `Pier 57 feature ${i}`, status: SpotStatus.Complete, location: SEATTLE }),
-      );
-      const onOpenSpot = jest.fn();
-      renderMap(sameSpot, { onOpenSpot });
-      expect(screen.queryAllByTestId(/^spot-marker-/)).toHaveLength(0);
+    describe('cluster press', () => {
+      type SheetOptions = Parameters<typeof ActionSheetIOS.showActionSheetWithOptions>[0];
+      type SheetCallback = Parameters<typeof ActionSheetIOS.showActionSheetWithOptions>[1];
+      let sheet: jest.SpyInstance<void, [SheetOptions, SheetCallback]>;
 
-      fireEvent.press(clusterMarkerOf(screen.getByText('3')));
-      // The wrapper's zoom (GeoViewport over a bbox of +-delta on Jest's 750x1334 window) is 20 here: >= 18 spirals.
-      act(() => {
-        screen.getByTestId('map-view').props.onRegionChangeComplete({
-          ...SEATTLE,
-          latitudeDelta: 0.0005,
-          longitudeDelta: 0.0005,
-        });
+      // Restore only this spy: jest.restoreAllMocks() would also reset the global jest.fn mocks from jest.setup.ts.
+      beforeEach(() => {
+        sheet = jest.spyOn(ActionSheetIOS, 'showActionSheetWithOptions').mockImplementation(() => {});
+      });
+      afterEach(() => sheet.mockRestore());
+
+      // Spots 23 m apart (0.00021 deg of latitude) at Pier 57: two pairs, each pair sharing one exact coordinate.
+      const POINT_A = SEATTLE;
+      const POINT_B = { latitude: SEATTLE.latitude + 0.00021, longitude: SEATTLE.longitude };
+
+      // The iOS action sheet is the whole point of Platform.OS here: jest-expo's default preset must be iOS.
+      it('runs under the iOS platform, where ActionSheetIOS is available', () => {
+        expect(Platform.OS).toBe('ios');
       });
 
-      expect(screen.queryByText('3')).toBeNull();
-      const pins = screen.getAllByTestId(/^spot-marker-/);
-      expect(pins).toHaveLength(3);
-      // Fanned out: each clone sits at its own spiral coordinate, no longer stacked on the shared spot.
-      expect(new Set(pins.map((pin) => JSON.stringify(pin.props.coordinate))).size).toBe(3);
-      for (const spot of sameSpot) {
-        fireEvent(screen.getByTestId(`spot-marker-${spot.id}`), 'calloutPress');
-        expect(onOpenSpot).toHaveBeenLastCalledWith(spot.id);
-      }
-      expect(onOpenSpot).toHaveBeenCalledTimes(3);
+      // Spots at the exact same place can never be pulled apart by zooming, so tapping their cluster must list them.
+      it('lists spots that share one coordinate in an action sheet instead of zooming', () => {
+        const rail = createTestSpot({ name: 'Pier 57 rail', status: SpotStatus.Complete, location: SEATTLE });
+        const ledge = createTestSpot({ name: 'Pier 57 ledge', status: SpotStatus.Complete, location: SEATTLE });
+        const untitled = createTestSpot({ status: SpotStatus.Complete, location: SEATTLE });
+        const onOpenSpot = jest.fn();
+        renderMap([rail, ledge, untitled], { onOpenSpot });
+
+        fireEvent.press(clusterMarkerOf(screen.getByText('3')));
+
+        expect(sheet).toHaveBeenCalledTimes(1);
+        const [options, callback] = sheet.mock.calls[0];
+        const names = [rail, ledge, untitled].map(getSpotDisplayName);
+        expect(options.options).toHaveLength(4);
+        expect(options.options.slice(0, 3)).toEqual(expect.arrayContaining(names));
+        expect(options.options[3]).toBe('Cancel');
+        expect(options.cancelButtonIndex).toBe(3);
+        expect(mockMapMethods.fitToCoordinates).not.toHaveBeenCalled();
+
+        // Choosing a name opens that spot; Cancel opens nothing.
+        callback(options.options.indexOf('Pier 57 ledge'));
+        expect(onOpenSpot).toHaveBeenCalledTimes(1);
+        expect(onOpenSpot).toHaveBeenLastCalledWith(ledge.id);
+        callback(options.cancelButtonIndex as number);
+        expect(onOpenSpot).toHaveBeenCalledTimes(1);
+      });
+
+      // Reviewer's failing case: with the library's spiral, zooming in on two same-place groups made one vanish.
+      it('keeps both same-place groups tappable after zooming in on a mixed cluster', () => {
+        const groupA = ['Pier 57 rail', 'Pier 57 ledge'].map((name) =>
+          createTestSpot({ name, status: SpotStatus.Complete, location: POINT_A }),
+        );
+        const groupB = ['Pier 57 stairs', 'Pier 57 bank'].map((name) =>
+          createTestSpot({ name, status: SpotStatus.Complete, location: POINT_B }),
+        );
+        const onOpenSpot = jest.fn();
+        renderMap([...groupA, ...groupB], { onOpenSpot });
+
+        // At the initial zoom (15, ~72 m radius) all four merge, and 23 m apart they can be separated by zooming.
+        fireEvent.press(clusterMarkerOf(screen.getByText('4')));
+        expect(sheet).not.toHaveBeenCalled();
+        expect(mockMapMethods.fitToCoordinates).toHaveBeenCalledTimes(1);
+        expect(mockMapMethods.fitToCoordinates.mock.calls[0][0]).toHaveLength(4);
+
+        // The map settles zoomed in. Delta 0.0005 around the midpoint gives zoom 20 on Jest's 750x1334 window
+        // (0.050 m/px, cluster radius 45 px = 2.3 m), so A and B are ~465 px apart: separate clusters; both lie
+        // inside the +-0.0005 box (each ~11.7 m from the centre).
+        act(() => {
+          screen.getByTestId('map-view').props.onRegionChangeComplete({
+            latitude: (POINT_A.latitude + POINT_B.latitude) / 2,
+            longitude: POINT_A.longitude,
+            latitudeDelta: 0.0005,
+            longitudeDelta: 0.0005,
+          });
+        });
+
+        expect(screen.getAllByText('2')).toHaveLength(2);
+        expect(screen.queryByText('4')).toBeNull();
+
+        const groupNames = [groupA, groupB].map((group) => group.map(getSpotDisplayName).sort());
+        const opened: string[][] = [];
+        for (const index of [0, 1]) {
+          sheet.mockClear();
+          fireEvent.press(clusterMarkerOf(screen.getAllByText('2')[index]));
+          expect(sheet).toHaveBeenCalledTimes(1);
+          const { options, cancelButtonIndex } = sheet.mock.calls[0][0];
+          expect(options).toHaveLength(3);
+          expect(options[2]).toBe('Cancel');
+          expect(cancelButtonIndex).toBe(2);
+          opened.push(options.slice(0, 2).sort());
+        }
+        // One cluster lists group A, the other group B.
+        expect(opened).toEqual(expect.arrayContaining(groupNames));
+        expect(opened[0]).not.toEqual(opened[1]);
+      });
+
+      // A cluster whose spots are spread out (five spots up to ~31 m apart) is for zooming, never for the list.
+      it('opens no action sheet for a cluster of spread-out spots', () => {
+        renderMap(closeSpots);
+
+        fireEvent.press(clusterMarkerOf(screen.getByText('5')));
+
+        expect(sheet).not.toHaveBeenCalled();
+        expect(mockMapMethods.fitToCoordinates).toHaveBeenCalledTimes(1);
+      });
     });
   });
 });

@@ -303,6 +303,15 @@ _(exact commands / decisions, newest first)_
 
 ## Status log
 _(newest first: time · step · result · commit)_
+- 2026-10-15 00:51 · Wrap-up: end-of-night checks from a clean `npm ci` all green (table in spec §1.3);
+  final whole-branch review (incl. M7 docs) running on Opus.
+  **for PROGRESS.md:** HitList — overnight 2026-10-14/15 on `overnight/2026-10-14`: Expo SDK 54 → 57 in three
+  green hops (RN 0.86, TS 6, Jest 29 kept); first green CI ever, now on every branch; DB tests run on real
+  SQLite with `user_version` migrations; photos copied into app storage and shown (list thumbnail, detail
+  gallery); Apple Maps view with a List | Map toggle (review caught and fixed an Invalid-Region crash); untitled
+  spots read "Untitled · Seattle · Oct 13, 2:22 PM"; EXIF date/GPS fixed; distances live; Import Photos
+  reachable; phone handoff doc + `npm run start:tailscale`. 220 tests. Each milestone reviewed (Opus) +
+  /simplify. Open: two questions to Michael (geocoder privacy, Import button placement); stretch next.
 - 2026-10-15 00:50 · **M6 done** · `/simplify` (4 reviewers): one geocoder queue for every lookup (an import
   no longer bursts Apple's geocoder), one spot-update path, location refresh only on a real return from the
   background and never overlapping, memoised list filtering, shared date/point helpers. Found and fixed a

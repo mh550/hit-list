@@ -74,6 +74,24 @@ those answers and does not re-open them.
 | Real SQLite in Jest | probe (deleted after) | **works**: Node 24 ships `node:sqlite`; a 4-method adapter (`execAsync/runAsync/getAllAsync/getFirstAsync` over `DatabaseSync`) ran `migrateDb → insertSpot → getSpots` round-trip inside `jest-expo` in 4 ms |
 | Latest Expo on npm | `npm view expo dist-tags` | `latest = 57.0.28`, `next = 58.0.9`; SDK 55 shipped 2026-02-25, 56 2026-05-20, 57 2026-06-30, 58 2026-09-29 (`next`) |
 
+**End of night (2026-10-15 00:51, branch `overnight/2026-10-14` @ `4172570`):**
+
+| Check | Command | Result |
+|-------|---------|--------|
+| Install | `npm ci` (Node 24.21.0) | OK, 1116 packages |
+| Typecheck | `npm run typecheck` | **PASS** (TypeScript 6.0.3) |
+| Lint | `npm run lint` | **PASS**, 0 problems, no `eslint-disable` left |
+| Tests | `npx jest --ci` | **PASS** 220/220, 25 suites, 0 `console.error`, ~2.3 s; DB suites on real SQLite (`node:sqlite`) |
+| Native bundle | `npx expo export --platform ios` | **PASS** — 4.0 MB Hermes bundle (incl. react-native-maps) |
+| Doctor | `npx expo-doctor` | **21/21** |
+| CI | GitHub Actions on every branch push | **green** — https://github.com/mh550/hit-list/actions/runs/38683543737 |
+| Metro over the tailnet | `npm run start:tailscale`, manifest + launch bundle at `100.88.90.97:8081` | manifest 200 (SDK 57.0.0), bundle 200 (9.3 MB JS); QR URL `exp://100.88.90.97:8081` |
+| SDK | `expo` / `react-native` / `react` | 57.0.29 / 0.86.3 / 19.2.3 (Expo Go on the iPhone is SDK 57) |
+
+Bugs 1–5 below are fixed (photos display and persist; EXIF dates ISO; GPS refs applied; location on the
+Spots tab). Not verifiable headlessly: the first real run in Expo Go (see `docs/RUNNING-ON-PHONE.md`,
+"First things to check").
+
 ### 1.4 Bugs found by reading (each becomes a RED test first)
 
 1. **Photos never display.** `app/spot/[id]/index.tsx:101` uses `spot.primary_photo_id` (a UUID) as

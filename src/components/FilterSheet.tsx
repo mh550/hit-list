@@ -59,7 +59,6 @@ export function FilterSheet({ visible, onClose }: Props) {
 
 function FilterSheetContent({ onClose }: Omit<Props, 'visible'>) {
   const setFilters = useSpotsStore((s) => s.setFilters);
-  const resetFilters = useSpotsStore((s) => s.resetFilters);
 
   // Local draft state, seeded once per open and only committed on Apply
   const [draft, setDraft] = useState<SpotFilters>(() => useSpotsStore.getState().filters);
@@ -91,14 +90,18 @@ function FilterSheetContent({ onClose }: Omit<Props, 'visible'>) {
     }));
   };
 
+  // The search has its own field on the Spots tab: Apply and Reset always keep the store's current query.
+  const currentSearch = () => useSpotsStore.getState().filters.search_query;
+
   const handleApply = () => {
-    setFilters(draft);
+    setFilters({ ...draft, search_query: currentSearch() });
     onClose();
   };
 
   const handleReset = () => {
-    resetFilters();
-    setDraft({ ...DEFAULT_FILTERS });
+    const reset = { ...DEFAULT_FILTERS, search_query: currentSearch() };
+    setFilters(reset);
+    setDraft(reset);
   };
 
   return (

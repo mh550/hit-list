@@ -193,6 +193,7 @@ export function selectSortedSpots(
   return sorted;
 }
 
+/** Filters set in the Filter sheet. The search has its own field on the Spots tab, so it is not counted. */
 export function selectActiveFilterCount(filters: SpotFilters): number {
   let count = 0;
   if (filters.types.length > 0) count++;
@@ -202,6 +203,5 @@ export function selectActiveFilterCount(filters: SpotFilters): number {
   if (filters.bustability_min != null || filters.bustability_max != null) count++;
   if (filters.intensity_min != null || filters.intensity_max != null) count++;
   if (!filters.show_drafts) count++;
-  if (filters.search_query) count++;
   return count;
 }

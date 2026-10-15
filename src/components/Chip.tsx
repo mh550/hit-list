@@ -8,15 +8,28 @@ interface ChipProps {
   label: string;
   selected?: boolean;
   onPress?: () => void;
+  /** 'checkbox' (default) for toggles in a set; 'button' for one-of choices such as the sort chips. */
+  role?: 'checkbox' | 'button';
+  disabled?: boolean;
+  accessibilityLabel?: string;
 }
 
-export function Chip({ label, selected = false, onPress }: ChipProps) {
+export function Chip({
+  label,
+  selected = false,
+  onPress,
+  role = 'checkbox',
+  disabled = false,
+  accessibilityLabel,
+}: ChipProps) {
   return (
     <Pressable
       onPress={onPress}
-      style={[styles.chip, selected && styles.chipSelected]}
-      accessibilityRole="checkbox"
-      accessibilityState={{ checked: selected }}>
+      disabled={disabled}
+      style={[styles.chip, selected && styles.chipSelected, disabled && styles.chipDisabled]}
+      accessibilityRole={role}
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={role === 'button' ? { selected, disabled } : { checked: selected, disabled }}>
       <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
         {label}
       </Text>
@@ -47,6 +60,9 @@ const styles = StyleSheet.create({
   chipSelected: {
     backgroundColor: palette.blue[500],
     borderColor: palette.blue[500],
+  },
+  chipDisabled: {
+    opacity: 0.4,
   },
   chipText: {
     fontSize: 14,

@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import { Stack, useRouter } from 'expo-router';
-import { StyleSheet, View, Pressable, Text } from 'react-native';
+import { StyleSheet, View, Pressable, Text, TextInput } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 
 import { IconSymbol } from '@/components/ui/icon-symbol';
@@ -19,6 +19,7 @@ import { EmptyState } from '@/src/components/EmptyState';
 import { FilterSheet } from '@/src/components/FilterSheet';
 import { SegmentedControl } from '@/src/components/SegmentedControl';
 import { SpotMap } from '@/src/components/SpotMap';
+import { SortChips } from '@/src/components/SortChips';
 import { useCurrentLocation } from '@/src/hooks/use-current-location';
 import { featureLabel, getSpotDisplayName } from '@/src/utils/spot-name';
 import { resolvePhotoUri } from '@/src/utils/photo-storage';
@@ -27,7 +28,7 @@ import { haversineDistance, formatDistance, isKnownLocation } from '@/src/utils/
 import { SortField, SpotStatus, UnitSystem } from '@/src/types';
 import type { Spot } from '@/src/types';
 import type { ViewMode } from '@/src/stores/spots-store';
-import { palette, spacing } from '@/src/constants/theme';
+import { palette, radius, spacing } from '@/src/constants/theme';
 
 // Floating action column (bottom-right): shared by its style and the list's bottom padding so the two
 // cannot drift. The list pads past the column's full height so the last rows scroll clear of it.
@@ -47,6 +48,8 @@ export default function SpotsScreen() {
   const sortDirection = useSpotsStore((s) => s.sortDirection);
   const viewMode = useSpotsStore((s) => s.viewMode);
   const setViewMode = useSpotsStore((s) => s.setViewMode);
+  const setFilters = useSpotsStore((s) => s.setFilters);
+  const setSort = useSpotsStore((s) => s.setSort);
   const currentLocation = useLocationStore((s) => s.currentLocation);
   const units = useSettingsStore((s) => s.units);
   const mediaBySpot = useMediaStore((s) => s.mediaBySpot);
@@ -122,17 +125,47 @@ export default function SpotsScreen() {
           selectedValue={viewMode}
           onValueChange={setViewMode}
         />
+        {/* Search filters both views (it writes filters.search_query), so it sits above them. */}
+        <TextInput
+          style={styles.search}
+          value={filters.search_query}
+          onChangeText={(search_query) => setFilters({ search_query })}
+          placeholder="Search spots"
+          placeholderTextColor={palette.gray[500]}
+          accessibilityLabel="Search spots"
+          clearButtonMode="while-editing"
+          autoCorrect={false}
+          autoCapitalize="none"
+          returnKeyType="search"
+        />
       </View>
+      {viewMode === 'list' ? (
+        <SortChips
+          sortField={sortField}
+          sortDirection={sortDirection}
+          hasLocation={currentLocation != null}
+          onSort={setSort}
+        />
+      ) : null}
       <View style={styles.body}>
         {viewMode === 'map' ? (
           <SpotMap spots={filtered} currentLocation={currentLocation} onOpenSpot={handleSpotPress} />
         ) : null}
-        {viewMode === 'list' && sorted.length === 0 ? (
+        {viewMode === 'list' && spots.length === 0 ? (
           <EmptyState
             title="No Spots Yet"
             message="Tap the + button to add your first spot, or import from your photos"
             actionLabel="Add Spot"
             onAction={() => router.push('/add/camera')}
+          />
+        ) : null}
+        {viewMode === 'list' && spots.length > 0 && sorted.length === 0 ? (
+          <EmptyState
+            icon="magnifyingglass"
+            title="No matching spots"
+            message="Try a different search or clear the filters"
+            actionLabel={filters.search_query ? 'Clear search' : undefined}
+            onAction={filters.search_query ? () => setFilters({ search_query: '' }) : undefined}
           />
         ) : null}
         {viewMode === 'list' && sorted.length > 0 ? (
@@ -141,6 +174,8 @@ export default function SpotsScreen() {
             renderItem={renderItem}
             keyExtractor={keyExtractor}
             contentContainerStyle={styles.listContent}
+            keyboardDismissMode="on-drag"
+            keyboardShouldPersistTaps="handled"
           />
         ) : null}
       </View>
@@ -174,6 +209,16 @@ const styles = StyleSheet.create({
   modeBar: {
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
+    gap: spacing.sm,
+  },
+  search: {
+    backgroundColor: palette.gray[100],
+    borderRadius: radius.md,
+    borderCurve: 'continuous',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    fontSize: 16,
+    color: palette.gray[900],
   },
   body: {
     flex: 1,

@@ -58,6 +58,25 @@ describe('FilterSheet', () => {
     expect(useSpotsStore.getState().filters.gear).toHaveLength(0);
   });
 
+  it('Reset keeps the current search and clears the other filters', () => {
+    // Search has its own field on the Spots tab, so resetting the filter sheet must not wipe what the user typed.
+    useSpotsStore.setState({
+      filters: { ...DEFAULT_FILTERS, search_query: 'pier', types: [FeatureType.Rail], show_drafts: false },
+    });
+    render(<FilterSheet visible onClose={onClose} />);
+    fireEvent.press(screen.getByText('Reset'));
+    expect(useSpotsStore.getState().filters).toEqual({ ...DEFAULT_FILTERS, search_query: 'pier' });
+  });
+
+  it('Apply after Reset still keeps the current search', () => {
+    // The sheet's draft is reset too; applying it must not write an empty query over the user's search.
+    useSpotsStore.setState({ filters: { ...DEFAULT_FILTERS, search_query: 'pier', types: [FeatureType.Rail] } });
+    render(<FilterSheet visible onClose={onClose} />);
+    fireEvent.press(screen.getByText('Reset'));
+    fireEvent.press(screen.getByText('Apply'));
+    expect(useSpotsStore.getState().filters).toEqual({ ...DEFAULT_FILTERS, search_query: 'pier' });
+  });
+
   it('Apply calls onClose', () => {
     render(<FilterSheet visible onClose={onClose} />);
     fireEvent.press(screen.getByText('Apply'));

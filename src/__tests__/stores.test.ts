@@ -217,6 +217,11 @@ describe('selectActiveFilterCount', () => {
       }),
     ).toBe(3);
   });
+
+  it('does not count search_query', () => {
+    // Search has its own visible field on the Spots tab; counting it in "Filter (n)" would be confusing.
+    expect(selectActiveFilterCount({ ...DEFAULT_FILTERS, search_query: 'pier' })).toBe(0);
+  });
 });
 
 describe('useSettingsStore', () => {

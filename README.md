@@ -12,7 +12,9 @@ Works end to end in tests and bundles for iOS; first run on the phone is the nex
   place from GPS; the EXIF capture time sets each spot's date).
 - Photos are kept in the app's own storage and shown as list thumbnails and a detail gallery.
 - Spots list with filters (feature type, gear/build, drafts) and distance from where you are.
-- Apple Maps view (List | Map), drafts in a different pin colour, tap through to the spot.
+- Apple Maps view (List | Map), drafts in a different pin colour, tap through to the spot. Nearby spots
+  cluster into a numbered circle; spots at the same place open a list to pick from.
+- Search by name (both views) and sort by Date, Name, Distance or Intensity (list).
 - Unnamed spots read `Untitled · Seattle · Oct 13, 2:22 PM` (town from Apple's geocoder, which needs internet).
 - Offline-first SQLite storage with versioned migrations.
 
@@ -32,8 +34,6 @@ npx expo export --platform ios --output-dir /tmp/hl-export
 
 ## Not done yet
 
-- Pin clustering when several spots share one place (they overlap as pins for now).
-- Sort control and search on the Spots list.
 - Editing skate-stop details, removing a photo, moving a spot's pin in the edit screen.
 - Spots saved without GPS can't be placed on the map yet (they stay in the list).
 - Cloud sync, accounts, sharing, crews, folders; video; offline map tiles (needs a dev build).

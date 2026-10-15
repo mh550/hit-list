@@ -5,6 +5,7 @@ import { render, screen, fireEvent } from '@testing-library/react-native';
 import { selectFilteredSpots, useMediaStore, useSpotsStore } from '@/src/stores';
 import { useLocationStore } from '@/src/stores/location-store';
 import { DEFAULT_FILTERS, FeatureType, SortDirection, SortField, SpotStatus } from '@/src/types';
+import { getSpotDisplayName } from '@/src/utils/spot-name';
 import { CITIES, createTestSpot } from './factories';
 
 import SpotsScreen from '@/app/(tabs)/index';
@@ -46,14 +47,13 @@ const unnamed = createTestSpot({
 });
 const spots = [pier, library, bank, unnamed];
 
+/** The unnamed spot's row text: "Untitled · Tacoma · <date>". */
+const UNTITLED = getSpotDisplayName(unnamed);
 const ROW_NAME = /^(Pier 57 rail|Library ledge|Bank to wall|Untitled)/;
 
 /** The rendered list rows' display names, top to bottom (the FlashList mock renders every row in order). */
 function rowNames(): string[] {
-  return screen.queryAllByText(ROW_NAME).map((node) => {
-    const text = node.props.children as string;
-    return text.startsWith('Untitled') ? 'Untitled' : text;
-  });
+  return screen.queryAllByText(ROW_NAME).map((node) => node.props.children as string);
 }
 
 function searchField() {
@@ -68,25 +68,32 @@ function selectedOf(node: ReturnType<typeof chip>) {
   return node.props.accessibilityState?.selected;
 }
 
-describe('Spots tab search', () => {
-  beforeEach(() => {
-    useSpotsStore.setState({
-      spots,
-      filters: { ...DEFAULT_FILTERS },
-      sortField: SortField.DateAdded,
-      sortDirection: SortDirection.Desc,
-      viewMode: 'list',
-    });
-    useMediaStore.setState({ mediaBySpot: {} });
-    useLocationStore.setState({ currentLocation: null });
+beforeEach(() => {
+  useSpotsStore.setState({
+    spots,
+    filters: { ...DEFAULT_FILTERS },
+    searchQuery: '',
+    sortField: SortField.DateAdded,
+    sortDirection: SortDirection.Desc,
+    viewMode: 'list',
   });
+  useMediaStore.setState({ mediaBySpot: {} });
+  useLocationStore.setState({ currentLocation: null });
+});
 
-  it('shows a search field in list mode', () => {
+afterEach(() => {
+  jest.restoreAllMocks();
+});
+
+describe('Spots tab search', () => {
+  it('shows a labelled search field with the search role in list mode', () => {
     // The contract: a labelled field with a placeholder, reachable without opening the Filter sheet.
+    // The search role lets VoiceOver announce it as a search field and offers the rotor shortcut.
     render(<SpotsScreen />);
 
     expect(searchField()).toBeTruthy();
     expect(screen.getByPlaceholderText('Search spots')).toBe(searchField());
+    expect(searchField().props.accessibilityRole).toBe('search');
   });
 
   it('shows the search field in map mode too', () => {
@@ -98,13 +105,13 @@ describe('Spots tab search', () => {
     expect(searchField()).toBeTruthy();
   });
 
-  it('typing writes the query to filters.search_query', () => {
-    // The field drives the store's existing search_query, which selectFilteredSpots already honours.
+  it("typing writes the query to the store's searchQuery", () => {
+    // The field drives the store's searchQuery, which selectFilteredSpots honours.
     render(<SpotsScreen />);
 
     fireEvent.changeText(searchField(), 'pier');
 
-    expect(useSpotsStore.getState().filters.search_query).toBe('pier');
+    expect(useSpotsStore.getState().searchQuery).toBe('pier');
   });
 
   it('list shows only spots whose name matches, ignoring case', () => {
@@ -145,35 +152,27 @@ describe('Spots tab search', () => {
     expect(rowNames()).toHaveLength(4);
   });
 
-  it('shows "No matching spots", not the first-run empty state, when the search matches nothing', () => {
-    // Spots exist, so "No Spots Yet / Tap + to add your first spot" would be wrong. The field stays so the user can clear it.
+  it('a spaces-only query shows the list, not "No matching spots"', () => {
+    // Whitespace is not a search (see the selectFilteredSpots trimming tests below).
     render(<SpotsScreen />);
 
-    fireEvent.changeText(searchField(), 'zzz-nothing');
+    fireEvent.changeText(searchField(), '   ');
 
-    expect(screen.getByText('No matching spots')).toBeTruthy();
-    expect(screen.queryByText('No Spots Yet')).toBeNull();
-    expect(searchField()).toBeTruthy();
-  });
-
-  it('shows "No matching spots" when the filters (not the search) exclude every spot', () => {
-    // The plan covers "search or filters": no spot here has a rail feature type.
-    useSpotsStore.setState({ filters: { ...DEFAULT_FILTERS, types: [FeatureType.Rail] } });
-
-    render(<SpotsScreen />);
-
-    expect(screen.getByText('No matching spots')).toBeTruthy();
-    expect(screen.queryByText('No Spots Yet')).toBeNull();
-  });
-
-  it('still shows "No Spots Yet" when the store has no spots at all', () => {
-    // First-run state is unchanged: only an empty store gets the add-your-first-spot prompt.
-    useSpotsStore.setState({ spots: [] });
-
-    render(<SpotsScreen />);
-
-    expect(screen.getByText('No Spots Yet')).toBeTruthy();
     expect(screen.queryByText('No matching spots')).toBeNull();
+    expect(rowNames()).toHaveLength(4);
+  });
+
+  it('pressing a list row dismisses the keyboard and opens the spot', () => {
+    // A raised keyboard would cover the spot screen's content while the push animates.
+    const push = jest.fn();
+    jest.mocked(useRouter).mockReturnValue({ push, back: jest.fn(), replace: jest.fn() } as never);
+    const dismiss = jest.spyOn(Keyboard, 'dismiss').mockImplementation(() => {});
+    render(<SpotsScreen />);
+
+    fireEvent.press(screen.getByText('Pier 57 rail'));
+
+    expect(dismiss).toHaveBeenCalled();
+    expect(push).toHaveBeenCalledWith(`/spot/${pier.id}`);
   });
 
   describe('header Filter button badge', () => {
@@ -201,35 +200,78 @@ describe('Spots tab search', () => {
     it('does not gain a badge while searching', () => {
       // Search has its own visible field, so counting it in "Filter (n)" would be confusing.
       // Set via the store so this test depends only on the badge, not on the search field existing.
-      useSpotsStore.setState({ filters: { ...DEFAULT_FILTERS, search_query: 'pier' } });
+      useSpotsStore.setState({ searchQuery: 'pier' });
 
       render(<SpotsScreen />);
 
       expect(headerFilterLabel()).toBe('Filter spots');
     });
   });
+
+  describe('selectFilteredSpots matches name and town', () => {
+    // Fixed midday UTC so the generated label reads "Oct 13 ... PM" in practically every zone.
+    const FIXED_DATE = '2026-10-13T12:00:00.000Z';
+    const tacoma = createTestSpot({
+      status: SpotStatus.Complete,
+      generated_name: 'Tacoma',
+      created_at: FIXED_DATE,
+    });
+    const seattlePier = createTestSpot({
+      name: 'Pier 57 rail',
+      generated_name: 'Seattle',
+      status: SpotStatus.Complete,
+      created_at: FIXED_DATE,
+    });
+    // Neither name nor town: nothing to match against.
+    const nothing = createTestSpot({ status: SpotStatus.Complete, created_at: FIXED_DATE });
+    const all = [tacoma, seattlePier, nothing];
+    const search = (q: string) => selectFilteredSpots(all, DEFAULT_FILTERS, q);
+
+    it('a named spot matches its town and its name', () => {
+      // Both the user's name and the town are searched, so "seattle" finds a named spot in Seattle.
+      expect(search('seattle')).toEqual([seattlePier]);
+      expect(search('pier')).toEqual([seattlePier]);
+    });
+
+    it('an unnamed spot matches its town, case-insensitively', () => {
+      // The town is the only searchable text an unnamed spot has.
+      expect(search('TACO')).toEqual([tacoma]);
+    });
+
+    it('does not match the generated "Untitled" label', () => {
+      // "untitled" would otherwise match every unnamed spot; a letter of it ("t") finds only real names and towns.
+      expect(search('untitled')).toEqual([]);
+      expect(search('t')).toEqual([tacoma, seattlePier]);
+    });
+
+    it('does not match the generated date or time', () => {
+      // "oct" and "pm" come from the label's date/time, not from anything the user typed or the town.
+      expect(search('oct')).toEqual([]);
+      expect(search('pm')).toEqual([]);
+    });
+
+    it('"  pier  " behaves like "pier"', () => {
+      // Stray spaces (autocomplete, paste) must not break a match.
+      expect(selectFilteredSpots(spots, DEFAULT_FILTERS, '  pier  ')).toEqual([pier]);
+    });
+
+    it('a query of only spaces behaves like no search', () => {
+      // Whitespace is not a search.
+      expect(selectFilteredSpots(spots, DEFAULT_FILTERS, '   ')).toHaveLength(4);
+    });
+  });
 });
 
 describe('Spots tab sort chips', () => {
-  beforeEach(() => {
-    useSpotsStore.setState({
-      spots,
-      filters: { ...DEFAULT_FILTERS },
-      sortField: SortField.DateAdded,
-      sortDirection: SortDirection.Desc,
-      viewMode: 'list',
-    });
-    useMediaStore.setState({ mediaBySpot: {} });
-    useLocationStore.setState({ currentLocation: null });
-  });
-
-  it('list mode shows the four sort chips', () => {
-    // D10: Distance / Date / Name / Intensity are all reachable from the list.
+  it('orders the chips Distance, Date, Name, Intensity', () => {
+    // D10: all four are reachable from the list, "distance first, since the map already shows distance".
     render(<SpotsScreen />);
 
-    for (const name of ['Date', 'Name', 'Distance', 'Intensity'] as const) {
-      expect(screen.getByLabelText(new RegExp(`^Sort by ${name}`))).toBeTruthy();
-    }
+    const labels = screen
+      .getAllByLabelText(/^Sort by /)
+      .map((node) => (node.props.accessibilityLabel as string).replace(/^Sort by (\w+).*$/, '$1'));
+
+    expect(labels).toEqual(['Distance', 'Date', 'Name', 'Intensity']);
   });
 
   it('map mode shows no sort chips', () => {
@@ -247,11 +289,11 @@ describe('Spots tab sort chips', () => {
     // The store default (DateAdded, Desc) must be visible, and the other chips must read as inactive.
     render(<SpotsScreen />);
 
-    expect(rowNames()).toEqual(['Untitled', 'Library ledge', 'Bank to wall', 'Pier 57 rail']);
+    expect(rowNames()).toEqual([UNTITLED, 'Library ledge', 'Bank to wall', 'Pier 57 rail']);
     expect(selectedOf(chip('Date'))).toBe(true);
     expect(chip('Date')).toHaveTextContent(/Date ↓/);
     for (const name of ['Name', 'Distance', 'Intensity'] as const) {
-      expect(chip(name).props.accessibilityState?.selected).toBeFalsy();
+      expect(selectedOf(chip(name))).toBeFalsy();
       expect(chip(name)).not.toHaveTextContent(/[↑↓]/);
     }
   });
@@ -262,7 +304,7 @@ describe('Spots tab sort chips', () => {
 
     fireEvent.press(chip('Name'));
 
-    expect(rowNames()).toEqual(['Bank to wall', 'Library ledge', 'Pier 57 rail', 'Untitled']);
+    expect(rowNames()).toEqual(['Bank to wall', 'Library ledge', 'Pier 57 rail', UNTITLED]);
     expect(useSpotsStore.getState().sortField).toBe(SortField.Name);
     expect(useSpotsStore.getState().sortDirection).toBe(SortDirection.Asc);
     expect(selectedOf(chip('Name'))).toBe(true);
@@ -271,14 +313,13 @@ describe('Spots tab sort chips', () => {
   });
 
   it('tapping the active Name chip again flips to Z to A with a down arrow', () => {
-    // Tapping the active chip flips the direction.
+    // Tapping the active chip flips the direction; unnamed spots stay last in both directions.
     render(<SpotsScreen />);
 
     fireEvent.press(chip('Name'));
     fireEvent.press(chip('Name'));
 
-    // Unnamed spots stay last in both directions (review fix).
-    expect(rowNames()).toEqual(['Pier 57 rail', 'Library ledge', 'Bank to wall', 'Untitled']);
+    expect(rowNames()).toEqual(['Pier 57 rail', 'Library ledge', 'Bank to wall', UNTITLED]);
     expect(chip('Name')).toHaveTextContent(/Name ↓/);
   });
 
@@ -288,7 +329,7 @@ describe('Spots tab sort chips', () => {
 
     fireEvent.press(chip('Date'));
 
-    expect(rowNames()).toEqual(['Pier 57 rail', 'Bank to wall', 'Library ledge', 'Untitled']);
+    expect(rowNames()).toEqual(['Pier 57 rail', 'Bank to wall', 'Library ledge', UNTITLED]);
     expect(chip('Date')).toHaveTextContent(/Date ↑/);
   });
 
@@ -301,7 +342,7 @@ describe('Spots tab sort chips', () => {
 
     expect(useSpotsStore.getState().sortField).toBe(SortField.DateAdded);
     expect(useSpotsStore.getState().sortDirection).toBe(SortDirection.Desc);
-    expect(rowNames()).toEqual(['Untitled', 'Library ledge', 'Bank to wall', 'Pier 57 rail']);
+    expect(rowNames()).toEqual([UNTITLED, 'Library ledge', 'Bank to wall', 'Pier 57 rail']);
   });
 
   it('enables Distance once a location is known, and tapping it sorts nearest first with an up arrow', () => {
@@ -312,7 +353,7 @@ describe('Spots tab sort chips', () => {
     expect(chip('Distance').props.accessibilityState?.disabled).toBeFalsy();
     fireEvent.press(chip('Distance'));
 
-    expect(rowNames()).toEqual(['Pier 57 rail', 'Untitled', 'Library ledge', 'Bank to wall']);
+    expect(rowNames()).toEqual(['Pier 57 rail', UNTITLED, 'Library ledge', 'Bank to wall']);
     expect(selectedOf(chip('Distance'))).toBe(true);
     expect(chip('Distance')).toHaveTextContent(/Distance ↑/);
   });
@@ -323,7 +364,7 @@ describe('Spots tab sort chips', () => {
 
     fireEvent.press(chip('Intensity'));
 
-    expect(rowNames()).toEqual(['Library ledge', 'Untitled', 'Pier 57 rail', 'Bank to wall']);
+    expect(rowNames()).toEqual(['Library ledge', UNTITLED, 'Pier 57 rail', 'Bank to wall']);
     expect(selectedOf(chip('Intensity'))).toBe(true);
     expect(chip('Intensity')).toHaveTextContent(/Intensity ↓/);
   });
@@ -337,26 +378,8 @@ describe('Spots tab sort chips', () => {
 
     expect(rowNames()).toEqual(['Library ledge', 'Pier 57 rail']);
   });
-});
 
-describe('Spots tab review fixes', () => {
-  beforeEach(() => {
-    useSpotsStore.setState({
-      spots,
-      filters: { ...DEFAULT_FILTERS },
-      sortField: SortField.DateAdded,
-      sortDirection: SortDirection.Desc,
-      viewMode: 'list',
-    });
-    useMediaStore.setState({ mediaBySpot: {} });
-    useLocationStore.setState({ currentLocation: null });
-  });
-
-  afterEach(() => {
-    jest.restoreAllMocks();
-  });
-
-  describe('sort chip row layout', () => {
+  describe('row layout', () => {
     function renderChips(overrides: Partial<ComponentProps<typeof SortChips>> = {}) {
       return render(
         <SortChips
@@ -388,7 +411,7 @@ describe('Spots tab review fixes', () => {
     });
   });
 
-  describe('sort chip accessibility', () => {
+  describe('accessibility', () => {
     it('inactive chips keep the plain "Sort by <Field>" label', () => {
       // The label must not repeat the direction for chips that are not sorting.
       render(<SpotsScreen />);
@@ -417,137 +440,52 @@ describe('Spots tab review fixes', () => {
       expect(screen.getByLabelText(label)).toBeTruthy();
     });
 
-    it('the active chip hints "Double-tap to reverse"', () => {
-      // Tells VoiceOver users that re-tapping flips the direction.
+    // Only the active chip reverses on tap, so only it says so; the disabled Distance chip explains why it is dimmed.
+    it.each([
+      ['the active Date chip', 'Date', 'Double-tap to reverse'],
+      ['an inactive enabled chip (Name)', 'Name', undefined],
+      ['the disabled Distance chip', 'Distance', 'Needs your location'],
+    ] as const)('%s hints %p', (_, name, hint) => {
       render(<SpotsScreen />);
 
-      expect(chip('Date').props.accessibilityHint).toBe('Double-tap to reverse');
-    });
-
-    it('inactive enabled chips have no reverse hint', () => {
-      // Only the active chip reverses on tap.
-      render(<SpotsScreen />);
-
-      expect(chip('Name').props.accessibilityHint).toBeUndefined();
-    });
-
-    it('the disabled Distance chip hints "Needs your location"', () => {
-      // Explains why the chip is dimmed and inert.
-      render(<SpotsScreen />);
-
-      expect(chip('Distance').props.accessibilityHint).toBe('Needs your location');
+      expect(chip(name).props.accessibilityHint).toBe(hint);
     });
   });
+});
 
-  it('orders the chips Distance, Date, Name, Intensity', () => {
-    // D10: "distance first, since the map already shows distance".
+describe('Spots tab no-match state', () => {
+  it('shows "No matching spots", not the first-run empty state, when the search matches nothing', () => {
+    // Spots exist, so "No Spots Yet / Tap + to add your first spot" would be wrong. The field stays so the user can clear it.
     render(<SpotsScreen />);
 
-    const labels = screen
-      .getAllByLabelText(/^Sort by /)
-      .map((node) => (node.props.accessibilityLabel as string).replace(/^Sort by (\w+).*$/, '$1'));
+    fireEvent.changeText(searchField(), 'zzz-nothing');
 
-    expect(labels).toEqual(['Distance', 'Date', 'Name', 'Intensity']);
+    expect(screen.getByText('No matching spots')).toBeTruthy();
+    expect(screen.queryByText('No Spots Yet')).toBeNull();
+    expect(searchField()).toBeTruthy();
   });
 
-  it('still defaults to Date newest first', () => {
-    // Reordering the chips must not change the default sort.
+  it('shows "No matching spots" when the filters (not the search) exclude every spot', () => {
+    // The plan covers "search or filters": no spot here has a rail feature type.
+    useSpotsStore.setState({ filters: { ...DEFAULT_FILTERS, types: [FeatureType.Rail] } });
+
     render(<SpotsScreen />);
 
-    expect(selectedOf(chip('Date'))).toBe(true);
-    expect(selectedOf(chip('Distance'))).toBeFalsy();
-    expect(rowNames()).toEqual(['Untitled', 'Library ledge', 'Bank to wall', 'Pier 57 rail']);
+    expect(screen.getByText('No matching spots')).toBeTruthy();
+    expect(screen.queryByText('No Spots Yet')).toBeNull();
   });
 
-  describe('search matches name and town', () => {
-    // Fixed midday UTC so the generated label reads "Oct 13 ... PM" in practically every zone.
-    const FIXED_DATE = '2026-10-13T12:00:00.000Z';
-    const tacoma = createTestSpot({
-      status: SpotStatus.Complete,
-      generated_name: 'Tacoma',
-      created_at: FIXED_DATE,
-    });
-    const seattlePier = createTestSpot({
-      name: 'Pier 57 rail',
-      generated_name: 'Seattle',
-      status: SpotStatus.Complete,
-      created_at: FIXED_DATE,
-    });
-    const nothing = createTestSpot({ status: SpotStatus.Complete, created_at: FIXED_DATE });
-    const all = [tacoma, seattlePier, nothing];
-    const search = (q: string) => selectFilteredSpots(all, { ...DEFAULT_FILTERS, search_query: q });
+  it('still shows "No Spots Yet" when the store has no spots at all', () => {
+    // First-run state is unchanged: only an empty store gets the add-your-first-spot prompt.
+    useSpotsStore.setState({ spots: [] });
 
-    it('a named spot matches its town and its name', () => {
-      // Today only the display name is searched, so "seattle" never finds a named spot in Seattle.
-      expect(search('seattle')).toEqual([seattlePier]);
-      expect(search('pier')).toEqual([seattlePier]);
-    });
-
-    it('an unnamed spot matches its town, case-insensitively', () => {
-      // The town is the only searchable text an unnamed spot has.
-      expect(search('TACO')).toEqual([tacoma]);
-    });
-
-    it('does not match the generated "Untitled" label', () => {
-      // "untitled" would otherwise match every unnamed spot.
-      expect(search('untitled')).toEqual([]);
-    });
-
-    it('does not match the generated date or time', () => {
-      // "oct" and "pm" come from the label's date/time, not from anything the user typed or the town.
-      expect(search('oct')).toEqual([]);
-      expect(search('pm')).toEqual([]);
-    });
-
-    it('a spot with neither name nor town matches no non-empty query', () => {
-      // Nothing to match against.
-      // 'untitled', 'oct' and 't' all appear in its generated label today.
-      for (const q of ['untitled', 'oct', 't', 'pm']) {
-        expect(search(q)).not.toContain(nothing);
-      }
-    });
-  });
-
-  describe('search query trimming', () => {
-    it('"  pier  " behaves like "pier"', () => {
-      // Stray spaces (autocomplete, paste) must not break a match.
-      const result = selectFilteredSpots(spots, { ...DEFAULT_FILTERS, search_query: '  pier  ' });
-
-      expect(result).toEqual([pier]);
-    });
-
-    it('a query of only spaces behaves like no search', () => {
-      // Whitespace is not a search.
-      const result = selectFilteredSpots(spots, { ...DEFAULT_FILTERS, search_query: '   ' });
-
-      expect(result).toHaveLength(4);
-    });
-
-    it('a spaces-only query shows the list, not "No matching spots"', () => {
-      // Screen-level check of the same rule.
-      render(<SpotsScreen />);
-
-      fireEvent.changeText(searchField(), '   ');
-
-      expect(screen.queryByText('No matching spots')).toBeNull();
-      expect(rowNames()).toHaveLength(4);
-    });
-  });
-
-  it('pressing a list row dismisses the keyboard and opens the spot', () => {
-    // A raised keyboard would cover the spot screen's content while the push animates.
-    const push = jest.fn();
-    jest.mocked(useRouter).mockReturnValue({ push, back: jest.fn(), replace: jest.fn() } as never);
-    const dismiss = jest.spyOn(Keyboard, 'dismiss').mockImplementation(() => {});
     render(<SpotsScreen />);
 
-    fireEvent.press(screen.getByText('Pier 57 rail'));
-
-    expect(dismiss).toHaveBeenCalled();
-    expect(push).toHaveBeenCalledWith(`/spot/${pier.id}`);
+    expect(screen.getByText('No Spots Yet')).toBeTruthy();
+    expect(screen.queryByText('No matching spots')).toBeNull();
   });
 
-  describe('no-match state offers a way out', () => {
+  describe('offers a way out', () => {
     const draft = createTestSpot({ name: 'Draft rail', status: SpotStatus.Draft });
 
     beforeEach(() => {
@@ -574,20 +512,13 @@ describe('Spots tab review fixes', () => {
       expect(screen.getByText('Draft rail')).toBeTruthy();
     });
 
-    it('with a search active the action stays "Clear search"', () => {
+    it('with a search active the action is "Clear search"', () => {
       // A search with no match is cleared by clearing it, not by touching filters.
-      useSpotsStore.setState({ filters: { ...DEFAULT_FILTERS, show_drafts: true, search_query: 'zzz-nothing' } });
+      useSpotsStore.setState({ filters: { ...DEFAULT_FILTERS }, searchQuery: 'zzz-nothing' });
       render(<SpotsScreen />);
 
       expect(screen.getByText('Clear search')).toBeTruthy();
       expect(screen.queryByText('Reset filters')).toBeNull();
     });
-  });
-
-  it('the search field has the search accessibility role', () => {
-    // Lets VoiceOver announce it as a search field and offers the rotor shortcut.
-    render(<SpotsScreen />);
-
-    expect(searchField().props.accessibilityRole).toBe('search');
   });
 });

@@ -16,7 +16,7 @@ import {
 } from '@/src/types';
 import type { SpotFilters } from '@/src/types';
 import { NO_LOCATION } from '@/src/utils/geo';
-import { createTestSpot } from './factories';
+import { CITIES, createTestSpot } from './factories';
 
 describe('selectFilteredSpots', () => {
   const spotWithWinch = createTestSpot({
@@ -94,8 +94,7 @@ describe('selectFilteredSpots', () => {
   });
 
   it('filters by search query (case insensitive)', () => {
-    const filters: SpotFilters = { ...DEFAULT_FILTERS, search_query: 'winch' };
-    const result = selectFilteredSpots(allSpots, filters);
+    const result = selectFilteredSpots(allSpots, DEFAULT_FILTERS, 'winch');
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe('winch-spot');
   });
@@ -155,14 +154,14 @@ describe('selectSortedSpots', () => {
     name: 'Alpha',
     created_at: '2025-01-01T00:00:00Z',
     metadata: { intensity: 3 },
-    location: { latitude: 47.6062, longitude: -122.3321 },
+    location: CITIES.seattle,
   });
 
   const spotB = createTestSpot({
     name: 'Beta',
     created_at: '2025-02-01T00:00:00Z',
     metadata: { intensity: 5 },
-    location: { latitude: 45.5152, longitude: -122.6784 },
+    location: CITIES.portland,
   });
 
   it('sorts by name ascending', () => {
@@ -186,21 +185,19 @@ describe('selectSortedSpots', () => {
   });
 
   it('sorts by distance from user location', () => {
-    const userLoc = { latitude: 47.6062, longitude: -122.3321 }; // Seattle
     const result = selectSortedSpots(
       [spotB, spotA],
       SortField.Distance,
       SortDirection.Asc,
-      userLoc,
+      CITIES.seattle,
     );
     expect(result[0].name).toBe('Alpha'); // closer to Seattle
   });
 });
 
 describe('selectSortedSpots: missing data sorts last in both directions', () => {
-  const SEATTLE = { latitude: 47.6062, longitude: -122.3321 };
   const seattleSpot = createTestSpot({ name: 'seattle', location: { latitude: 47.61, longitude: -122.33 }, created_at: '2025-01-01T00:00:00Z' });
-  const portlandSpot = createTestSpot({ name: 'portland', location: { latitude: 45.5152, longitude: -122.6784 }, created_at: '2025-01-02T00:00:00Z' });
+  const portlandSpot = createTestSpot({ name: 'portland', location: CITIES.portland, created_at: '2025-01-02T00:00:00Z' });
   const nowhereOld = createTestSpot({ name: 'nowhere-old', location: NO_LOCATION, created_at: '2025-01-03T00:00:00Z' });
   const nowhereNew = createTestSpot({ name: 'nowhere-new', location: NO_LOCATION, created_at: '2025-01-04T00:00:00Z' });
   const names = (list: { name?: string }[]) => list.map((s) => s.name);
@@ -217,7 +214,7 @@ describe('selectSortedSpots: missing data sorts last in both directions', () => 
 
   it('Distance descending: located spots farthest first, and no-location spots still last', () => {
     // Flipping the direction must not bring the unknowns to the top.
-    const result = selectSortedSpots([nowhereOld, seattleSpot, portlandSpot], SortField.Distance, SortDirection.Desc, SEATTLE);
+    const result = selectSortedSpots([nowhereOld, seattleSpot, portlandSpot], SortField.Distance, SortDirection.Desc, CITIES.seattle);
 
     expect(names(result)).toEqual(['portland', 'seattle', 'nowhere-old']);
   });
@@ -225,7 +222,7 @@ describe('selectSortedSpots: missing data sorts last in both directions', () => 
   it('Distance: spots with no location break ties by created_at newest first (both directions)', () => {
     // The missing group is ordered deterministically.
     for (const direction of [SortDirection.Asc, SortDirection.Desc]) {
-      const result = selectSortedSpots([nowhereOld, nowhereNew, seattleSpot], SortField.Distance, direction, SEATTLE);
+      const result = selectSortedSpots([nowhereOld, nowhereNew, seattleSpot], SortField.Distance, direction, CITIES.seattle);
 
       expect(names(result)).toEqual(['seattle', 'nowhere-new', 'nowhere-old']);
     }
@@ -244,18 +241,22 @@ describe('selectSortedSpots: missing data sorts last in both directions', () => 
   });
 
   it('Intensity ascending: lowest first, unrated still last', () => {
-    // Today unrated counts as 0 and floats to the top ascending.
+    // Unrated is not counted as 0, which would float it to the top ascending.
     const result = selectSortedSpots([unratedOld, high, low], SortField.Intensity, SortDirection.Asc);
 
     expect(names(result)).toEqual(['low', 'high', 'unrated-old']);
   });
 
   it('Intensity: equal and unrated spots break ties by created_at newest first (both directions)', () => {
-    // Deterministic order within the missing group.
+    // Deterministic order within the missing group, and between two spots rated 3 whichever way the sort runs.
+    const older = createTestSpot({ name: 'older', metadata: { intensity: 3 }, created_at: '2025-01-01T00:00:00Z' });
+    const newer = createTestSpot({ name: 'newer', metadata: { intensity: 3 }, created_at: '2025-01-02T00:00:00Z' });
+
     for (const direction of [SortDirection.Asc, SortDirection.Desc]) {
       const result = selectSortedSpots([unratedOld, unratedNew, low], SortField.Intensity, direction);
 
       expect(names(result)).toEqual(['low', 'unrated-new', 'unrated-old']);
+      expect(names(selectSortedSpots([older, newer], SortField.Intensity, direction))).toEqual(['newer', 'older']);
     }
   });
 
@@ -286,16 +287,6 @@ describe('selectSortedSpots: missing data sorts last in both directions', () => 
       expect(result.map((s) => s.id)).toEqual([alpha.id, unnamedNew.id, unnamedOld.id]);
     }
   });
-
-  it('equal values break ties by created_at newest first, in both directions', () => {
-    // Two spots rated 3: the newer one is first whichever way the intensity sort runs.
-    const older = createTestSpot({ name: 'older', metadata: { intensity: 3 }, created_at: '2025-01-01T00:00:00Z' });
-    const newer = createTestSpot({ name: 'newer', metadata: { intensity: 3 }, created_at: '2025-01-02T00:00:00Z' });
-
-    for (const direction of [SortDirection.Asc, SortDirection.Desc]) {
-      expect(names(selectSortedSpots([older, newer], SortField.Intensity, direction))).toEqual(['newer', 'older']);
-    }
-  });
 });
 
 describe('selectActiveFilterCount', () => {
@@ -318,11 +309,6 @@ describe('selectActiveFilterCount', () => {
         show_drafts: false,
       }),
     ).toBe(3);
-  });
-
-  it('does not count search_query', () => {
-    // Search has its own visible field on the Spots tab; counting it in "Filter (n)" would be confusing.
-    expect(selectActiveFilterCount({ ...DEFAULT_FILTERS, search_query: 'pier' })).toBe(0);
   });
 });
 

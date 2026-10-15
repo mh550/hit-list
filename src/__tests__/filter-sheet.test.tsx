@@ -9,7 +9,7 @@ describe('FilterSheet', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    useSpotsStore.setState({ filters: { ...DEFAULT_FILTERS } });
+    useSpotsStore.setState({ filters: { ...DEFAULT_FILTERS }, searchQuery: '' });
   });
 
   it('renders feature type chips', () => {
@@ -58,23 +58,19 @@ describe('FilterSheet', () => {
     expect(useSpotsStore.getState().filters.gear).toHaveLength(0);
   });
 
-  it('Reset keeps the current search and clears the other filters', () => {
-    // Search has its own field on the Spots tab, so resetting the filter sheet must not wipe what the user typed.
+  it('Reset and Apply clear the filters but leave the search alone', () => {
+    // Search has its own field on the Spots tab, so the filter sheet must not wipe what the user typed.
     useSpotsStore.setState({
-      filters: { ...DEFAULT_FILTERS, search_query: 'pier', types: [FeatureType.Rail], show_drafts: false },
+      filters: { ...DEFAULT_FILTERS, types: [FeatureType.Rail], show_drafts: false },
+      searchQuery: 'pier',
     });
     render(<FilterSheet visible onClose={onClose} />);
     fireEvent.press(screen.getByText('Reset'));
-    expect(useSpotsStore.getState().filters).toEqual({ ...DEFAULT_FILTERS, search_query: 'pier' });
-  });
-
-  it('Apply after Reset still keeps the current search', () => {
-    // The sheet's draft is reset too; applying it must not write an empty query over the user's search.
-    useSpotsStore.setState({ filters: { ...DEFAULT_FILTERS, search_query: 'pier', types: [FeatureType.Rail] } });
-    render(<FilterSheet visible onClose={onClose} />);
-    fireEvent.press(screen.getByText('Reset'));
+    expect(useSpotsStore.getState().filters).toEqual(DEFAULT_FILTERS);
+    expect(useSpotsStore.getState().searchQuery).toBe('pier');
     fireEvent.press(screen.getByText('Apply'));
-    expect(useSpotsStore.getState().filters).toEqual({ ...DEFAULT_FILTERS, search_query: 'pier' });
+    expect(useSpotsStore.getState().filters).toEqual(DEFAULT_FILTERS);
+    expect(useSpotsStore.getState().searchQuery).toBe('pier');
   });
 
   it('Apply calls onClose', () => {

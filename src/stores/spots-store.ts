@@ -9,6 +9,8 @@ interface SpotsState {
   spots: Spot[];
   viewMode: ViewMode;
   filters: SpotFilters;
+  /** The Spots tab's search field. Kept apart from `filters`: the Filter sheet neither shows nor resets it. */
+  searchQuery: string;
   sortField: SortField;
   sortDirection: SortDirection;
 
@@ -19,7 +21,8 @@ interface SpotsState {
   removeSpot: (id: string) => void;
   setFilters: (filters: Partial<SpotFilters>) => void;
   resetFilters: () => void;
-  setSort: (field: SortField, direction?: SortDirection) => void;
+  setSearchQuery: (searchQuery: string) => void;
+  setSort: (sortField: SortField, sortDirection: SortDirection) => void;
   setViewMode: (viewMode: ViewMode) => void;
 }
 
@@ -34,6 +37,7 @@ export const useSpotsStore = create<SpotsState>((set) => ({
   spots: [],
   viewMode: 'list',
   filters: { ...DEFAULT_FILTERS },
+  searchQuery: '',
   sortField: SortField.DateAdded,
   sortDirection: SortDirection.Desc,
 
@@ -59,26 +63,22 @@ export const useSpotsStore = create<SpotsState>((set) => ({
 
   resetFilters: () => set({ filters: { ...DEFAULT_FILTERS } }),
 
+  setSearchQuery: (searchQuery) => set({ searchQuery }),
+
   setViewMode: (viewMode) => set({ viewMode }),
 
-  setSort: (field, direction) =>
-    set((state) => ({
-      sortField: field,
-      sortDirection: direction ?? (
-        state.sortField === field && state.sortDirection === SortDirection.Asc
-          ? SortDirection.Desc
-          : SortDirection.Asc
-      ),
-    })),
+  setSort: (sortField, sortDirection) => set({ sortField, sortDirection }),
 }));
 
 // ── Selectors ───────────────────────────────────────────
 
+/** The spots the filters and the search (`searchQuery`, trimmed, case-insensitive) let through. */
 export function selectFilteredSpots(
   spots: Spot[],
   filters: SpotFilters,
+  searchQuery = '',
 ): Spot[] {
-  const query = filters.search_query.trim().toLowerCase();
+  const query = searchQuery.trim().toLowerCase();
   return spots.filter((spot) => {
     // Status filter
     if (!filters.show_drafts && spot.status === SpotStatus.Draft) return false;
@@ -162,7 +162,10 @@ function matchesSearch(spot: Spot, query: string): boolean {
   return [spot.name, spot.generated_name].some((text) => text?.toLowerCase().includes(query));
 }
 
-/** A spot's value for the sort field, or `null` when it has none (no location, no intensity, no name). */
+/**
+ * A spot's value for the sort field, or `null` when it has none (no location, no intensity, no name).
+ * Names come back lowercased, so they compare case-insensitively.
+ */
 function sortKey(spot: Spot, field: SortField, userLocation?: GeoPoint): number | string | null {
   switch (field) {
     case SortField.Distance:
@@ -170,18 +173,18 @@ function sortKey(spot: Spot, field: SortField, userLocation?: GeoPoint): number 
     case SortField.Intensity:
       return spot.metadata.intensity ?? null;
     case SortField.Name:
-      return spot.name || null;
+      return spot.name ? spot.name.toLowerCase() : null;
     case SortField.DateAdded:
       return createdAt(spot);
   }
 }
 
-/** Ascending order of two keys of the same field: names case-insensitively, numbers by value. */
+// The default locale's collation, as `String.prototype.localeCompare` with no arguments uses.
+const nameCollator = new Intl.Collator();
+
+/** Ascending order of two keys of the same field: names (already lowercased) by collation, numbers by value. */
 function compareKeys(a: number | string, b: number | string): number {
-  if (typeof a === 'string' && typeof b === 'string') {
-    return a.toLowerCase().localeCompare(b.toLowerCase());
-  }
-  return Number(a) - Number(b);
+  return typeof a === 'string' && typeof b === 'string' ? nameCollator.compare(a, b) : Number(a) - Number(b);
 }
 
 function createdAt(spot: Spot): number {
@@ -200,21 +203,18 @@ export function selectSortedSpots(
   userLocation?: GeoPoint,
 ): Spot[] {
   const sign = sortDirection === SortDirection.Asc ? 1 : -1;
-  const keyed = spots.map((spot) => ({ spot, key: sortKey(spot, sortField, userLocation) }));
+  const keyed = spots.map((spot) => ({ spot, key: sortKey(spot, sortField, userLocation), t: createdAt(spot) }));
 
   keyed.sort((a, b) => {
-    if (a.key === null || b.key === null) {
-      // Missing values go last; within the missing group the default order (newest first) applies.
-      if (a.key !== b.key) return a.key === null ? 1 : -1;
-      return createdAt(b.spot) - createdAt(a.spot);
-    }
-    return sign * compareKeys(a.key, b.key) || createdAt(b.spot) - createdAt(a.spot);
+    // Missing values go last; within the missing group the default order (newest first) applies.
+    if (a.key === null || b.key === null) return a.key === b.key ? b.t - a.t : a.key === null ? 1 : -1;
+    return sign * compareKeys(a.key, b.key) || b.t - a.t;
   });
 
   return keyed.map(({ spot }) => spot);
 }
 
-/** Filters set in the Filter sheet. The search has its own field on the Spots tab, so it is not counted. */
+/** How many filters are set in the Filter sheet (the Filter button's badge). */
 export function selectActiveFilterCount(filters: SpotFilters): number {
   let count = 0;
   if (filters.types.length > 0) count++;

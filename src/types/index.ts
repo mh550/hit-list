@@ -193,7 +193,6 @@ export interface SpotFilters {
   intensity_min?: number;
   intensity_max?: number;
   show_drafts: boolean;
-  search_query: string;
 }
 
 export const DEFAULT_FILTERS: SpotFilters = {
@@ -201,7 +200,6 @@ export const DEFAULT_FILTERS: SpotFilters = {
   gear: [],
   exclude_build: [],
   show_drafts: true,
-  search_query: '',
 };
 
 export const DEFAULT_USER_SETTINGS: UserSettings = {

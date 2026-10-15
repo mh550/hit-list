@@ -25,7 +25,7 @@ import { featureLabel, getSpotDisplayName } from '@/src/utils/spot-name';
 import { resolvePhotoUri } from '@/src/utils/photo-storage';
 import { primaryPhoto } from '@/src/utils/spot-photos';
 import { haversineDistance, formatDistance, isKnownLocation } from '@/src/utils/geo';
-import { DEFAULT_FILTERS, SortField, SpotStatus, UnitSystem } from '@/src/types';
+import { SortField, SpotStatus, UnitSystem } from '@/src/types';
 import type { Spot } from '@/src/types';
 import type { ViewMode } from '@/src/stores/spots-store';
 import { palette, radius, spacing } from '@/src/constants/theme';
@@ -44,11 +44,13 @@ export default function SpotsScreen() {
   useCurrentLocation(); // distances in the list and the map's own position (bug 5)
   const spots = useSpotsStore((s) => s.spots);
   const filters = useSpotsStore((s) => s.filters);
+  const searchQuery = useSpotsStore((s) => s.searchQuery);
   const sortField = useSpotsStore((s) => s.sortField);
   const sortDirection = useSpotsStore((s) => s.sortDirection);
   const viewMode = useSpotsStore((s) => s.viewMode);
   const setViewMode = useSpotsStore((s) => s.setViewMode);
-  const setFilters = useSpotsStore((s) => s.setFilters);
+  const resetFilters = useSpotsStore((s) => s.resetFilters);
+  const setSearchQuery = useSpotsStore((s) => s.setSearchQuery);
   const setSort = useSpotsStore((s) => s.setSort);
   const currentLocation = useLocationStore((s) => s.currentLocation);
   const units = useSettingsStore((s) => s.units);
@@ -56,11 +58,12 @@ export default function SpotsScreen() {
 
   const [filterVisible, setFilterVisible] = useState(false);
   const activeFilterCount = selectActiveFilterCount(filters);
-  // Whitespace is not a search (selectFilteredSpots trims the same way).
-  const searchActive = filters.search_query.trim() !== '';
 
   // The map takes the filtered spots: order doesn't matter to it, and a new array would re-cluster its markers.
-  const filtered = useMemo(() => selectFilteredSpots(spots, filters), [spots, filters]);
+  const filtered = useMemo(
+    () => selectFilteredSpots(spots, filters, searchQuery),
+    [spots, filters, searchQuery],
+  );
   // Location only matters to the Distance sort; other sorts ignore location updates.
   const sortLocation = sortField === SortField.Distance ? currentLocation : null;
   const sorted = useMemo(
@@ -106,12 +109,12 @@ export default function SpotsScreen() {
 
   const keyExtractor = useCallback((item: Spot) => item.id, []);
 
-  // "No matching spots" offers the way out: clear the search if there is one, otherwise reset the filters
-  // (keeping the query, which may be whitespace only).
-  const noMatchAction = searchActive
-    ? { label: 'Clear search', run: () => setFilters({ search_query: '' }) }
+  // "No matching spots" offers the way out: clear the search if there is one (whitespace is not a search;
+  // selectFilteredSpots trims the same way), otherwise reset the filters.
+  const noMatchAction = searchQuery.trim() !== ''
+    ? { label: 'Clear search', run: () => setSearchQuery('') }
     : activeFilterCount > 0
-      ? { label: 'Reset filters', run: () => setFilters({ ...DEFAULT_FILTERS, search_query: filters.search_query }) }
+      ? { label: 'Reset filters', run: resetFilters }
       : undefined;
 
   const filterButton = (
@@ -136,11 +139,11 @@ export default function SpotsScreen() {
           selectedValue={viewMode}
           onValueChange={setViewMode}
         />
-        {/* Search filters both views (it writes filters.search_query), so it sits above them. */}
+        {/* Search filters both views (it writes the store's searchQuery), so it sits above them. */}
         <TextInput
           style={styles.search}
-          value={filters.search_query}
-          onChangeText={(search_query) => setFilters({ search_query })}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
           placeholder="Search spots"
           placeholderTextColor={palette.gray[500]}
           accessibilityLabel="Search spots"

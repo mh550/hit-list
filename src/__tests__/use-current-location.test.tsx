@@ -87,4 +87,22 @@ describe('Spots tab distance', () => {
 
     expect(await screen.findByText(/^\d+ ft$/)).toBeTruthy();
   });
+
+  it('shows no distance for a spot saved without a location', async () => {
+    jest.mocked(requestForegroundPermissionsAsync).mockResolvedValueOnce(granted);
+    jest.mocked(getCurrentPositionAsync).mockResolvedValueOnce(at(47.6062, -122.3321));
+    useSpotsStore.setState({
+      spots: [
+        createTestSpot({ name: 'Near', location: { latitude: 47.6072, longitude: -122.3321 } }),
+        createTestSpot({ name: 'No fix', location: { latitude: 0, longitude: 0 } }),
+      ],
+      filters: { ...DEFAULT_FILTERS },
+      viewMode: 'list',
+    });
+
+    render(<SpotsScreen />);
+
+    expect(await screen.findByText(/^\d+ ft$/)).toBeTruthy();
+    expect(screen.queryAllByText(/ (ft|mi)$/)).toHaveLength(1);
+  });
 });

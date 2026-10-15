@@ -21,7 +21,7 @@ import { useCurrentLocation } from '@/src/hooks/use-current-location';
 import { featureLabel, getSpotDisplayName } from '@/src/utils/spot-name';
 import { resolvePhotoUri } from '@/src/utils/photo-storage';
 import { primaryPhoto } from '@/src/utils/spot-photos';
-import { haversineDistance, formatDistance } from '@/src/utils/geo';
+import { haversineDistance, formatDistance, isKnownLocation } from '@/src/utils/geo';
 import { SpotStatus, UnitSystem } from '@/src/types';
 import type { Spot } from '@/src/types';
 import type { ViewMode } from '@/src/stores/spots-store';
@@ -55,7 +55,7 @@ export default function SpotsScreen() {
 
   const getDistance = useCallback(
     (spot: Spot): string | undefined => {
-      if (!currentLocation) return undefined;
+      if (!currentLocation || !isKnownLocation(spot.location)) return undefined;
       const km = haversineDistance(currentLocation, spot.location);
       return formatDistance(km, units === UnitSystem.Imperial);
     },

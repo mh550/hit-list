@@ -268,6 +268,9 @@ Write the start time in the Status log. For each hop N in 55, 56, 57:
 ## Direction from Michael
 _(append messages from the phone here, newest first)_
 
+- **2026-10-14 23:39:** switched the session model to Opus (`/model claude-opus-5-5`) and said
+  "Try again" after the M2 review subagent died on a session rate limit → relaunched the M2 review
+  on Opus; queue otherwise unchanged.
 - **2026-10-14 (morning, before the run):** answered every §0 question — Expo Go is SDK 57;
   Apple Maps is fine; no camera-roll writes; keep spots untitled until named but show
   date/time/town in the placeholder; CI on all branches fine; he has an Apple developer account

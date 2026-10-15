@@ -153,10 +153,10 @@ Write the start time in the Status log. For each hop N in 55, 56, 57:
 - [x] `.github/workflows/ci.yml`: `on.push.branches: ['**']` (keep the PR trigger). Commit,
       push, then `gh run list --repo mh550/hit-list --limit 1` → a run on your branch; wait for
       it (`gh run watch`), expect success. If it fails, that is your next bug.
-- [ ] Review, `/simplify`, milestone push.
+- [x] Review, `/simplify`, milestone push.
 
 ### M3 — Real-SQLite test harness + migrations (spec §2.2 M3) (≈45 min)
-- [ ] Plan: `docs/plans/<date>-sqlite-harness.md`.
+- [x] Plan: `docs/plans/<date>-sqlite-harness.md`.
 - [ ] TDD `src/__tests__/helpers/node-sqlite-db.ts` (`createTestDb()` over `node:sqlite`
       `DatabaseSync(':memory:')` with `execAsync/runAsync/getAllAsync/getFirstAsync`;
       `getFirstAsync` returns `null` for undefined). First test: `migrateDb` then
@@ -293,6 +293,17 @@ _(exact commands / decisions, newest first)_
 
 ## Status log
 _(newest first: time · step · result · commit)_
+- 2026-10-14 23:48 · **M2 done — CI green** · run https://github.com/mh550/hit-list/actions/runs/38678065234
+  (head `6250f04`). Review (Opus; the first attempt died on a rate limit): 0 Critical / 0 Important,
+  5 Minor fixed — lint override now keeps expo's options, **no `eslint-disable` left anywhere**,
+  actions bumped v4→v7 (Node 24 runtime, deprecation annotation gone), CI concurrency group, a
+  second FilterSheet regression test. `/simplify` (4 reviewers): test mocks for icon-symbol and
+  expo-image hoisted into `jest.setup.ts` (were copied ×4 / ×2), lint options trimmed to the ones
+  that matter, db-init tests flush in one tick (≈250 ms → ≈20 ms) with a duplicate test folded in,
+  same-repo `pull_request` runs skipped (push already covers every branch; trigger kept for fork
+  PRs). Skipped: dropping `--coverage` from CI (harmless, Michael's choice). Suite **116** passing,
+  0 `console.error`, lint 0, typecheck 0, export ok. M3 plan committed
+  (`docs/plans/2026-10-14-sqlite-harness.md`). Next: M3 Task 1.
 - 2026-10-14 07:44 · M2 steps 1–3 done · `a279973` lint, `adcca80` act(), `62a5c64` ci. **First green CI run
   ever: https://github.com/mh550/hit-list/actions/runs/38558430720** (branch push → Lint ✓ Typecheck ✓
   Test ✓). Lint root cause: eslint-config-expo registers `@typescript-eslint` only for `*.ts/*.tsx`,

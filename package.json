@@ -18,7 +18,7 @@
     "preset": "jest-expo",
     "globalSetup": "<rootDir>/jest.global-setup.js",
     "transformIgnorePatterns": [
-      "node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|@sentry/react-native|native-base|react-native-svg|@shopify/flash-list|zustand|uuid)"
+      "node_modules/(?!((jest-)?react-native|@react-native(-community)?)|expo(nent)?|@expo(nent)?/.*|@expo-google-fonts/.*|@sentry/react-native|native-base|react-native-svg|@shopify/flash-list|zustand|uuid|supercluster|kdbush)"
     ],
     "setupFilesAfterEnv": [
       "<rootDir>/jest.setup.ts"

@@ -27,11 +27,11 @@ clusters any child with a `coordinate`). No other file changes behaviour.
 4. Cluster colour comes from the theme, readable on Apple Maps.
 
 ### Task 1: Clustered SpotMap
-- [ ] `npx expo install react-native-map-clustering` → `chore: add react-native-map-clustering`.
-- [ ] RED (`spot-map.test.tsx`): five spots ~5–30 m apart render one marker whose text is `5` and no
+- [x] `npx expo install react-native-map-clustering` → `chore: add react-native-map-clustering`.
+- [x] RED (`spot-map.test.tsx`): five spots ~5–30 m apart render one marker whose text is `5` and no
   `spot-marker-*`; a far-apart pair renders two `spot-marker-*`; pressing the cluster marker calls the
   mock's `fitToCoordinates` with five coordinates.
-- [ ] GREEN: `SpotMap` imports `MapView` from `react-native-map-clustering`; `clusterColor =
+- [x] GREEN: `SpotMap` imports `MapView` from `react-native-map-clustering`; `clusterColor =
   colors.light.primary`, `clusterTextColor = palette.white`; mock + `transformIgnorePatterns` as above.
-- [ ] Gates: jest (0 `console.error`), typecheck, lint, `npx expo export --platform ios`. Commit
+- [x] Gates: jest (0 `console.error`), typecheck, lint, `npx expo export --platform ios`. Commit
   `feat: cluster pins of spots at one place (D8, S1)`.

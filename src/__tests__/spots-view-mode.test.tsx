@@ -5,10 +5,11 @@ import { createTestSpot } from './factories';
 
 import SpotsScreen from '@/app/(tabs)/index';
 
+// Cities far apart so the map's clustering never merges these pins.
 const spots = [
-  createTestSpot({ name: 'Pier 57 rail', status: SpotStatus.Complete }),
-  createTestSpot({ name: 'Library ledge', status: SpotStatus.Draft }),
-  createTestSpot({ name: 'Bank to wall', status: SpotStatus.Complete }),
+  createTestSpot({ name: 'Pier 57 rail', status: SpotStatus.Complete, location: { latitude: 47.6062, longitude: -122.3421 } }),
+  createTestSpot({ name: 'Library ledge', status: SpotStatus.Draft, location: { latitude: 45.5152, longitude: -122.6784 } }),
+  createTestSpot({ name: 'Bank to wall', status: SpotStatus.Complete, location: { latitude: 47.6588, longitude: -117.426 } }),
 ];
 
 describe('Spots tab Map | List toggle', () => {

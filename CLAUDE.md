@@ -15,9 +15,9 @@ spec: `APP_SPECIFICATIONS.md`. Native-only (web is a stub). Runs on Michael's iP
 
 ## Stack (as of 2026-10-15)
 
-Expo **SDK 57** (expo 57.0.29) · React Native 0.86.3 (New Architecture, Hermes) · React 19.2.3 ·
+Expo **SDK 57** (expo 57.0.30) · React Native 0.86.3 (New Architecture, Hermes) · React 19.2.3 ·
 expo-router 57 · zustand 5 · expo-sqlite 57 · expo-file-system 57 (`File`/`Directory`/`Paths`) ·
-expo-location 57 · expo-image · react-native-maps 1.27.2 (Apple Maps) · TypeScript 6.0 strict ·
+expo-location 57 · expo-image · react-native-maps 1.27.2 (Apple Maps) · react-native-map-clustering 4 · TypeScript 6.0 strict ·
 Jest **29.7** with jest-expo 57 (Jest 30 is not required; keep `@types/jest` 29.5.14) ·
 react-test-renderer pinned to 19.2.3 (= React).
 
@@ -74,9 +74,13 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   (`createTestDb` / `createMigratedTestDb`, Node's built-in `node:sqlite`), not mocks.
 - **Fakes mirror the real API**: open the package's `.d.ts` in `node_modules` and copy the member
   names and signatures before mocking. Existing fakes: `__mocks__/expo-file-system.ts`
-  (+ `helpers/fake-fs.ts` for its test hooks), `__mocks__/react-native-maps.tsx`, and global mocks in
+  (+ `helpers/fake-fs.ts` for its test hooks), `__mocks__/react-native-maps.tsx` (its forwardRef
+  MapView exposes the shared `mockMapMethods` spies, reset with `resetMockMapMethods()`; import it via
+  `import * as ReactNativeMaps from 'react-native-maps'`, not `jest.requireMock`), and global mocks in
   `jest.setup.ts` (expo-router with overridable `useRouter`/`useLocalSearchParams`, expo-location,
   expo-image, FlashList, icons).
+- `supercluster` and `kdbush` (ES modules used by react-native-map-clustering) are in Jest's
+  `transformIgnorePatterns` so they get transformed.
 - Only `*.test.ts(x)` files are tests.
 
 ## Git

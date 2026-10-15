@@ -1,11 +1,10 @@
 import { Suspense } from 'react';
 import { View, ActivityIndicator } from 'react-native';
-import { DarkTheme, DefaultTheme, Stack, ThemeProvider } from 'expo-router';
+import { DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SQLiteProvider } from 'expo-sqlite';
 import 'react-native-reanimated';
 
-import { useColorScheme } from '@/hooks/use-color-scheme';
 import { DB_NAME } from '@/src/db';
 import { DBInitializer } from '@/src/components/DBInitializer';
 import { palette } from '@/src/constants/theme';
@@ -18,11 +17,11 @@ function LoadingScreen() {
   );
 }
 
+// Light only (app.json userInterfaceStyle "light"): the screens use light-theme colours and set no
+// backgrounds, so DarkTheme's near-black would hide their text.
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
-
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+    <ThemeProvider value={DefaultTheme}>
       <Suspense fallback={<LoadingScreen />}>
         <SQLiteProvider databaseName={DB_NAME} useSuspense>
           <DBInitializer>
@@ -44,7 +43,7 @@ export default function RootLayout() {
           </DBInitializer>
         </SQLiteProvider>
       </Suspense>
-      <StatusBar style="auto" />
+      <StatusBar style="dark" />
     </ThemeProvider>
   );
 }

@@ -3,7 +3,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 
 import { insertSpot, updateSpot as dbUpdateSpot, softDeleteSpot } from '@/src/db';
 import { useSpotsStore } from '@/src/stores';
-import type { Spot } from '@/src/types';
+import type { Spot, SpotUpdate } from '@/src/types';
 import { geocodeTown } from '@/src/utils/reverse-geocode';
 
 export function useSpotActions() {
@@ -13,7 +13,7 @@ export function useSpotActions() {
   const storeRemoveSpot = useSpotsStore((s) => s.removeSpot);
 
   const updateSpot = useCallback(
-    async (id: string, updates: Partial<Spot>) => {
+    async (id: string, updates: SpotUpdate) => {
       storeUpdateSpot(id, updates);
       try {
         await dbUpdateSpot(db, id, updates);

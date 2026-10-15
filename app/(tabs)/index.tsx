@@ -29,6 +29,15 @@ import type { Spot } from '@/src/types';
 import type { ViewMode } from '@/src/stores/spots-store';
 import { palette, spacing } from '@/src/constants/theme';
 
+// Floating action column (bottom-right): shared by its style and the list's bottom padding so the two
+// cannot drift. The list pads past the column's full height so the last rows scroll clear of it.
+const FAB_BOTTOM = 32;
+const FAB_SIZE = 56;
+const FAB_SECONDARY_SIZE = 44;
+const FAB_GAP = spacing.md;
+const LIST_BOTTOM_MARGIN = spacing.md;
+const LIST_BOTTOM_PADDING = FAB_BOTTOM + FAB_SIZE + FAB_GAP + FAB_SECONDARY_SIZE + LIST_BOTTOM_MARGIN;
+
 export default function SpotsScreen() {
   const router = useRouter();
   useCurrentLocation(); // distances in the list and the map's own position (bug 5)
@@ -125,7 +134,12 @@ export default function SpotsScreen() {
           />
         ) : null}
         {viewMode === 'list' && sorted.length > 0 ? (
-          <FlashList data={sorted} renderItem={renderItem} keyExtractor={keyExtractor} />
+          <FlashList
+            data={sorted}
+            renderItem={renderItem}
+            keyExtractor={keyExtractor}
+            contentContainerStyle={styles.listContent}
+          />
         ) : null}
       </View>
       <View style={styles.fabColumn}>
@@ -179,10 +193,13 @@ const styles = StyleSheet.create({
   // Floating actions: the secondary "Import photos" button stacked above the "+" FAB (D12).
   fabColumn: {
     position: 'absolute',
-    bottom: 32,
+    bottom: FAB_BOTTOM,
     right: 32,
     alignItems: 'center',
-    gap: spacing.md,
+    gap: FAB_GAP,
+  },
+  listContent: {
+    paddingBottom: LIST_BOTTOM_PADDING,
   },
   fabShadow: {
     alignItems: 'center',
@@ -194,15 +211,15 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   fab: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: FAB_SIZE,
+    height: FAB_SIZE,
+    borderRadius: FAB_SIZE / 2,
     backgroundColor: palette.blue[500],
   },
   fabSecondary: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: FAB_SECONDARY_SIZE,
+    height: FAB_SECONDARY_SIZE,
+    borderRadius: FAB_SECONDARY_SIZE / 2,
     backgroundColor: palette.white,
   },
   fabText: {

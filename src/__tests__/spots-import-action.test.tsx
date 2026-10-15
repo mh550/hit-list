@@ -1,5 +1,8 @@
 import { render, screen, fireEvent } from '@testing-library/react-native';
 import { useRouter } from 'expo-router';
+import { FlashList } from '@shopify/flash-list';
+import type { StyleProp, ViewStyle } from 'react-native';
+import { StyleSheet } from 'react-native';
 import { useMediaStore, useSpotsStore } from '@/src/stores';
 import { DEFAULT_FILTERS, SpotStatus } from '@/src/types';
 import { createTestSpot } from './factories';
@@ -63,5 +66,15 @@ describe('Spots tab Import photos action', () => {
     render(<SpotsScreen />);
 
     expect(screen.getByLabelText('Import photos').props.accessibilityRole).toBe('button');
+  });
+
+  it('pads the list bottom so the last rows can scroll clear of the floating buttons', () => {
+    // The two floating buttons stack ~148pt tall bottom-right; without paddingBottom the last rows stay hidden.
+    render(<SpotsScreen />);
+
+    const { contentContainerStyle } = screen.UNSAFE_getByType(FlashList).props as {
+      contentContainerStyle?: StyleProp<ViewStyle>;
+    };
+    expect(StyleSheet.flatten(contentContainerStyle)?.paddingBottom ?? 0).toBeGreaterThanOrEqual(148);
   });
 });

@@ -152,6 +152,9 @@ export interface Spot {
   primary_photo_id?: string;
 }
 
+/** A patch for a spot. `name: null` clears the name; an absent or undefined field is left alone. */
+export type SpotUpdate = Omit<Partial<Spot>, 'name'> & { name?: string | null };
+
 export interface Media {
   id: string;
   spot_id: string;

@@ -66,4 +66,26 @@ describe('spots against real SQLite', () => {
 
     expect(await getSpot(db, s.id)).toEqual(s);
   });
+
+  it('updateSpot with name: null clears the stored name and leaves other columns alone', async () => {
+    // Clearing the name in Edit must persist; today undefined/skip keeps the old name after relaunch.
+    const s = createTestSpot({
+      name: 'Pier 57 rail',
+      generated_name: 'Seattle',
+      status: SpotStatus.Complete,
+      feature: { type: FeatureType.Rail },
+      metadata: { notes: 'kinked' },
+    });
+    await insertSpot(db, s);
+
+    // Cast: the type forbids null today; the fix is expected to allow it.
+    await updateSpot(db, s.id, { name: null } as unknown as Parameters<typeof updateSpot>[2]);
+
+    const { name, updated_at: _updatedAt, ...rest } = s; // updateSpot rewrites updated_at itself
+    expect(name).toBe('Pier 57 rail');
+    const read = await getSpot(db, s.id);
+    expect(read?.name ?? null).toBeNull();
+    expect(read).toMatchObject(rest);
+    expect((await getSpots(db))[0].name ?? null).toBeNull();
+  });
 });

@@ -79,6 +79,9 @@ describe('Import Photos entry point', () => {
     // D12 (Michael, 2026-10-15): Import Photos moved to the Spots tab; Profile must not offer it.
     render(<ProfileScreen />);
 
-    expect(screen.queryByText('Import Photos')).toBeNull();
+    // Case-insensitive so a relabelled "Import photos" button would also be caught. Anchored because the
+    // Import Radius help text legitimately contains the phrase "import photos from the Spots tab".
+    expect(screen.queryByText(/^\s*import photos\s*$/i)).toBeNull();
+    expect(screen.queryByLabelText(/import photos/i)).toBeNull();
   });
 });

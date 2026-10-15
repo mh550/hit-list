@@ -1,5 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
-import type { Spot, FeatureDetails, InRun, Landing, SpotMetadata } from '@/src/types';
+import type { Spot, SpotUpdate, FeatureDetails, InRun, Landing, SpotMetadata } from '@/src/types';
 import { SpotStatus } from '@/src/types';
 
 interface SpotRow {
@@ -76,7 +76,7 @@ export async function getSpots(db: SQLiteDatabase): Promise<Spot[]> {
 export async function updateSpot(
   db: SQLiteDatabase,
   id: string,
-  updates: Partial<Omit<Spot, 'id' | 'created_at'>>,
+  updates: Omit<SpotUpdate, 'id' | 'created_at'>,
 ): Promise<void> {
   const setClauses: string[] = [];
   const values: (string | number | null)[] = [];

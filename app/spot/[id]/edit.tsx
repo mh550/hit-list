@@ -27,7 +27,7 @@ import {
   GearItem,
   BuildItem,
 } from '@/src/types';
-import type { Spot, SetupOption, Requirement } from '@/src/types';
+import type { SpotUpdate, SetupOption, Requirement } from '@/src/types';
 
 function SectionHeader({ title }: { title: string }) {
   return <Text style={styles.sectionHeader}>{title}</Text>;
@@ -81,8 +81,8 @@ export default function EditSpotScreen() {
   const handleSave = useCallback(async () => {
     if (!spot) return;
 
-    const updates: Partial<Spot> = {
-      name: name.trim() || undefined,
+    const updates: SpotUpdate = {
+      name: name.trim() || null, // null clears the stored name; undefined would keep the old one
       status,
       feature: {
         type: featureType,

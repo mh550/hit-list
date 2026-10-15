@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState, useEffect } from 'react';
-import { StyleSheet, View, Text, Pressable, ScrollView } from 'react-native';
+import { StyleSheet, View, Text, Pressable, ScrollView, Linking } from 'react-native';
 import { useRouter } from 'expo-router';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as Location from 'expo-location';
@@ -62,21 +62,45 @@ export default function CameraScreen() {
     router.back();
   }, [router]);
 
+  // The screen has no header, so both permission states carry their own Close (router.back).
+  const closePermissionButton = (
+    <Pressable
+      style={styles.permCloseButton}
+      onPress={handleClose}
+      hitSlop={12}
+      accessibilityRole="button">
+      <Text style={styles.closeButton}>Close</Text>
+    </Pressable>
+  );
+
   if (!permission) {
     return (
       <View style={styles.container}>
         <Text style={styles.permissionText}>Loading camera...</Text>
+        {closePermissionButton}
       </View>
     );
   }
 
   if (!permission.granted) {
+    // Once iOS has been declined it never prompts again; only the Settings app can grant it then.
+    const canAsk = permission.canAskAgain !== false;
     return (
       <View style={styles.container}>
         <Text style={styles.permissionText}>Camera permission required</Text>
-        <Pressable style={styles.permButton} onPress={requestPermission}>
-          <Text style={styles.permButtonText}>Grant Permission</Text>
-        </Pressable>
+        {canAsk ? (
+          <Pressable style={styles.permButton} onPress={requestPermission} accessibilityRole="button">
+            <Text style={styles.permButtonText}>Grant Permission</Text>
+          </Pressable>
+        ) : (
+          <Pressable
+            style={styles.permButton}
+            onPress={() => Linking.openSettings()}
+            accessibilityRole="button">
+            <Text style={styles.permButtonText}>Open Settings</Text>
+          </Pressable>
+        )}
+        {closePermissionButton}
       </View>
     );
   }
@@ -214,6 +238,11 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     borderRadius: radius.md,
     borderCurve: 'continuous',
+  },
+  permCloseButton: {
+    marginTop: spacing.xl,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.md,
   },
   permButtonText: {
     color: palette.white,

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Spot, SpotFilters, GeoPoint } from '@/src/types';
+import type { Spot, SpotFilters, GeoPoint, SpotUpdate } from '@/src/types';
 import { DEFAULT_FILTERS, SortField, SortDirection, SpotStatus } from '@/src/types';
 import { haversineDistance } from '@/src/utils/geo';
 import { getSpotDisplayName } from '@/src/utils/spot-name';
@@ -16,12 +16,19 @@ interface SpotsState {
   // Actions
   setSpots: (spots: Spot[]) => void;
   addSpot: (spot: Spot) => void;
-  updateSpot: (id: string, updates: Partial<Spot>) => void;
+  updateSpot: (id: string, updates: SpotUpdate) => void;
   removeSpot: (id: string) => void;
   setFilters: (filters: Partial<SpotFilters>) => void;
   resetFilters: () => void;
   setSort: (field: SortField, direction?: SortDirection) => void;
   setViewMode: (viewMode: ViewMode) => void;
+}
+
+/** Merges a patch into a spot; `name: null` (cleared in Edit) becomes no name, so it shows as untitled. */
+function applySpotUpdate(spot: Spot, { name, ...rest }: SpotUpdate): Spot {
+  const next: Spot = { ...spot, ...rest };
+  if (name !== undefined) next.name = name ?? undefined;
+  return next;
 }
 
 export const useSpotsStore = create<SpotsState>((set) => ({
@@ -38,7 +45,7 @@ export const useSpotsStore = create<SpotsState>((set) => ({
 
   updateSpot: (id, updates) =>
     set((state) => ({
-      spots: state.spots.map((s) => (s.id === id ? { ...s, ...updates } : s)),
+      spots: state.spots.map((s) => (s.id === id ? applySpotUpdate(s, updates) : s)),
     })),
 
   removeSpot: (id) =>

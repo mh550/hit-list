@@ -1,7 +1,8 @@
-# HitList — simplification design (2026-10-16)
+# HitList — simplification design (2026-10-16), rev 2
 
 Written from Michael's 2026-10-16 feedback on the app as it stands after `overnight/2026-10-14`
-(schema v2, suite green). This is the specification for the **next `/loop` run**. The loop plans
+(schema v2, suite green; merged into `main` the same day). **Rev 2** (later on 2026-10-16):
+Michael dropped gear from the model entirely — see D22. This is the specification for the **next `/loop` run**. The loop plans
 from it (superpowers:writing-plans) and does not re-open anything in §0 or §1; it brings anything
 new to **§9 Needs Michael** and keeps going.
 
@@ -28,8 +29,8 @@ re-hydrated per user ("add the features and fields you want"); none of that is b
 
 ### Goals
 1. A spot can be saved with nothing but a location. Photos, name and every tag are optional.
-2. Tagging a spot (what features are there, is it stopped, what gear to bring, how much natural
-   speed) takes a few taps on one short screen.
+2. Tagging a spot (what features are there, is it stopped, how much natural speed) takes a few
+   taps on one short screen.
 3. Photos at a spot can be browsed full-screen, swipe to the next, pinch to zoom **[F1]**.
 4. The rest of the app (list, map, filters, sort, search, import, profile) stops referring to
    anything removed; there are no dead filters, badges or settings.
@@ -56,15 +57,15 @@ re-hydrated per user ("add the features and fields you want"); none of that is b
 | # | Decision | Built as | Source |
 |---|----------|----------|--------|
 | D17 | **Fields removed from a spot** | Custom type, shape, length/height/width, material, feature difficulty, skate-stop type / description / removable, setup options (nested), landing difficulty, landing surface, intensity, bustability, bustability notes, draft/complete status. | Michael 2026-10-16 **[F2]** |
-| D18 | **Fields kept** | `name` (optional), `location`, photos (`media`), **feature types (multi-select)**, **skate-stopped (yes/no toggle, spot level)**, **natural speed (0–4 ordinal, see §2.3)**, **gear to bring (multi-select)**, **notes (free text, one field)**. | Michael 2026-10-16 **[F2]**; notes kept is *my call* (§9 Q1) |
+| D18 | **Fields kept** | `name` (optional), `location`, photos (`media`), **feature types (multi-select)**, **skate-stopped (yes/no toggle, spot level)**, **natural speed (0–4 ordinal, see §2.3)**, **notes (free text, one field)**. | Michael 2026-10-16 **[F2]**; notes kept is *my call* (§9 Q1) |
 | D19 | **Feature type becomes multi-select** | A spot carries `feature_types: FeatureType[]` (ordered as tapped). `Other` is removed with custom type. The list shows the first type with "+N" if more. | Michael: "mark one or multiple types of features that are there" |
 | D20 | **No draft mode** | `status` is dropped from the model, the schema, the list badge, the map pin colour, the filter sheet and the Save button ("Save as Draft" → "Save"). Every saved spot is a spot. | Michael 2026-10-16 **[F2]** |
 | D21 | **Natural speed is a labelled 5-step scale, not stars** | Five tappable segments with words, not stars: **None · Little · Some · Enough · Too much**, with a one-line description under the selected one. Stored as `natural_speed: 0–4` (0 = none). Unset is `undefined`. Details §2.3. | Michael: "make the measurement & units and the UX more clear than stars"; the words are *my call* (§9 Q2) |
-| D22 | **Gear is a flat multi-select** | `gear: GearItem[]` on the spot — "what to bring". The build items (speed humps, lip build, landing build) and the gear/build two-stage filter are removed. The Profile "My Gear" list stays and the Filter sheet keeps **"Gear I have"**, now a plain superset match (§2.5). | Michael: "a simple multi-select — select one or multiple pieces of gear to bring" |
+| D22 | **Gear is removed entirely (rev 2)** | No gear on the spot, no build items, no setup options, no "Gear I have" filter, no "My Gear" on the Profile tab, no `gear` in `UserSettings`. The `GearItem` and `BuildItem` enums go. Old setup options are archived in `legacy_json` (§4) and nothing else. | Michael, rev 2: filtering on "what I have" is the wrong way round (he would rather hide spots he *lacks* gear for), and alternatives ("a bungee *or* a drop-in would work") make any gear list ambiguous; what gear really encodes is "needs extra speed", which natural speed already says. "KISS and remove it entirely, at least for now." |
 | D23 | **Import radius in the user's unit** | Stored in **metres** as today; **displayed and typed in feet** when units are imperial (`Import radius · ft`), metres otherwise; converted on save, rounded to a whole unit on display. Default stays 50 m (shown as 164 ft). | Michael 2026-10-16 **[F4]** |
 | D24 | **Photo gallery** | A full-screen pager (swipe between photos, pinch to zoom, double-tap to zoom, swipe down or ✕ to close, "3 / 7" counter) opened from any photo on the detail screen. The detail screen's photo area becomes a **grid** (hero + 3-across thumbnails) instead of hero + one horizontal strip. Details §3. | Michael 2026-10-16 **[F1]** |
 | D25 | **Nearby-spot grouping on save** | When a new spot (Quick Add or import group) is saved within the import radius of an existing spot, the review screen offers **"Add photos to *<existing name>*"** beside "Save as new spot". Picking it adds the photos to the existing spot instead of creating one. No automatic merge, ever. Details §5. | Michael **[F3]**: posed as a question; building the offer is *my call* (§9 Q3) |
-| D26 | **Old data is archived, not deleted** | Migration 3 copies each spot's removed fields into one `legacy_json` column on the row (and maps `feature.type` → `feature_types`, `skate_stops.is_stopped` → `stopped`, `metadata.notes` → `notes`, in-run gear → `gear`). Nothing reads `legacy_json` except a one-line "Older details" disclosure on the detail screen when it is non-empty. Details §4. | *my call* (§9 Q4) |
+| D26 | **Old data is archived, not deleted** | Migration 3 copies each spot's removed fields into one `legacy_json` column on the row (and maps `feature.type` → `feature_types`, `skate_stops.is_stopped` → `stopped`, `metadata.notes` → `notes`). Nothing reads `legacy_json` except a one-line "Older details" disclosure on the detail screen when it is non-empty. Details §4. | *my call* (§9 Q4) |
 | D27 | **Groups / sharing deferred** | §7 is direction, not scope. Nothing in §7 is built this run. | Michael: "consider deferring #5 until after the simplification has been done and tested" |
 
 ---
@@ -85,7 +86,6 @@ export interface Spot {
   feature_types: FeatureType[];   // [] = untagged
   stopped: boolean;               // skate stops present; default false
   natural_speed?: NaturalSpeed;   // 0 | 1 | 2 | 3 | 4, undefined = not rated
-  gear: GearItem[];               // what to bring; [] = nothing
   notes?: string;
   primary_photo_id?: string;
 }
@@ -96,21 +96,19 @@ export enum FeatureType {           // 'other' removed (D19)
 }
 
 export type NaturalSpeed = 0 | 1 | 2 | 3 | 4;
-
-export enum GearItem {              // unchanged
-  Bungee = 'bungee', DropInPlatform = 'drop_in_platform', Scaffolding = 'scaffolding',
-  ShovelPull = 'shovel_pull', Winch = 'winch',
-}
 ```
 
-Removed types: `SpotStatus`, `Material`, `StopType`, `BuildItem`, `LandingSurface`,
+Removed types: `SpotStatus`, `Material`, `StopType`, `GearItem`, `BuildItem`, `LandingSurface`,
 `Requirement`, `SetupOption`, `SkateStopInfo`, `Dimensions`, `FeatureDetails`, `InRun`, `Landing`,
 `SpotMetadata`, `RequirementCategory`. `SortField.Intensity` is removed (§2.6).
 
 `SpotUpdate` stays a patch type; `name`, `notes`, `natural_speed` and `primary_photo_id` accept
 `null` to clear.
 
-`UserSettings` is unchanged: `{ units, batch_import_radius /* metres */, gear }`.
+`UserSettings` becomes `{ units, batch_import_radius /* metres */ }`. The settings blob is
+one JSON row merged over `DEFAULT_USER_SETTINGS` on read, so a stored `gear` key from an older
+build is simply ignored; `saveUserSettings` writes the new shape and the key disappears on the
+next save. No migration step is needed for settings.
 
 ### 2.2 Edit screen (`app/spot/[id]/edit.tsx`) — one screen, no section skeleton
 
@@ -130,10 +128,8 @@ Top to bottom. Every control is optional; the Save button is always enabled.
    are filled. No header word beyond the label.
 4. **Skate stopped** — one `Switch`, label "Skate stopped". Nothing unfolds when on (D17).
 5. **Natural speed** — the five-segment control of §2.3.
-6. **Bring** — chip row of the five gear items, multi-select (D22). Hint under it: *"Gear this
-   spot needs."*
-7. **Notes** — one multiline field, placeholder *"Anything else"*.
-8. **Delete spot** — unchanged (confirm, soft delete).
+6. **Notes** — one multiline field, placeholder *"Anything else"*.
+7. **Delete spot** — unchanged (confirm, soft delete).
 
 Removed from this screen: Basic Info / Feature / In-Run / Landing / Details / Status headers,
 Custom Type, Shape, Length/Height/Width, Material, Stop type/details/removable, Difficulty (both),
@@ -180,9 +176,8 @@ subtracting one (§4).
 3. **Tag line**: feature-type chips (read-only), then **"Skate stopped"** as a red-outlined
    chip when `stopped` is true (absent when false — the absence is the "no").
 4. **Natural speed** read-only bar + word, only when rated.
-5. **Bring**: gear chips, only when non-empty.
-6. **Notes**, only when present.
-7. **Older details** (D26): a collapsed disclosure, only when `legacy_json` is non-empty, that
+5. **Notes**, only when present.
+6. **Older details** (D26): a collapsed disclosure, only when `legacy_json` is non-empty, that
    expands to a plain key/value list of whatever was archived (`Material: steel`, `Length: 12.0
    ft`, `Bustability: 3/5`, …). Read-only; editing and saving the spot leaves it untouched.
 
@@ -197,18 +192,14 @@ export interface SpotFilters {
   stopped?: boolean;              // undefined = any; true = only stopped; false = only not stopped
   natural_speed_min?: NaturalSpeed;
   natural_speed_max?: NaturalSpeed;
-  gear: GearItem[];               // "Gear I have": [] = no gear filter (today's meaning); otherwise
-                                  // spot.gear ⊆ filters.gear, and a spot with gear [] always matches
 }
 ```
 
 Sheet, top to bottom: **What's here** (type chips) · **Skate stopped** (three-way segmented:
 Any / Not stopped / Stopped) · **Natural speed** (range on `SpeedScale`; the current sheet has no
-speed control at all though the store filters on it — this run adds it) · **Gear I have** (chips,
-empty by default so the filter is off; a **"Use my gear"** link beside the header copies the
-Profile "My Gear" list into the chips — *my call*: no silent pre-fill, because an empty "My Gear"
-would otherwise make the filter mean "nothing" for exactly the rider who has not set it up).
-Removed: Exclude Build, Show Drafts, the unused bustability/intensity ranges.
+speed control at all though the store filters on it — this run adds it).
+Removed: Gear I have, Exclude Build, Show Drafts, the unused bustability/intensity ranges.
+Three filters is the whole sheet; `selectActiveFilterCount` counts exactly those three.
 
 A spot with `natural_speed === undefined` is **kept** when a speed range is set (today's
 behaviour for unset values; unchanged).
@@ -225,13 +216,13 @@ behaviour for unset values; unchanged).
 
 ### 2.7 Quick Add and import review
 
-- `app/add/review.tsx`: the button says **Save**. Below the name field, the same four tag
-  controls as edit (§2.2 items 3–6) — *optional, collapsed under a "Add details" link by
+- `app/add/review.tsx`: the button says **Save**. Below the name field, the same three tag
+  controls as edit (§2.2 items 3–5) — *optional, collapsed under a "Add details" link by
   default* so the sub-30-second path is unchanged: photo → Save. (*My call*: tags are reachable
   from the review screen but not in the way.)
 - `app/import/review.tsx`: each group card keeps its photo strip and optional name. It gains the
   §5 nearby-spot offer. No tag controls here (an import is many spots; tag them later).
-- Both: no `status` is written; `feature_types: []`, `stopped: false`, `gear: []`.
+- Both: no `status` is written; `feature_types: []`, `stopped: false`.
 
 ---
 
@@ -283,20 +274,15 @@ the gestures themselves do not need a device test.
 Append `migration3`. Never edit 1 or 2.
 
 1. `ALTER TABLE spots ADD COLUMN feature_types_json TEXT NOT NULL DEFAULT '[]'`,
-   `stopped INTEGER NOT NULL DEFAULT 0`, `natural_speed INTEGER`, `gear_json TEXT NOT NULL DEFAULT '[]'`,
-   `notes TEXT`, `legacy_json TEXT`.
+   `stopped INTEGER NOT NULL DEFAULT 0`, `natural_speed INTEGER`, `notes TEXT`, `legacy_json TEXT`.
 2. Read every row (`SELECT id, feature_json, in_run_json, landing_json, metadata_json, status`),
    in JS (the migration function already receives the db), and for each:
    - `feature_types` = `[feature.type]` if `type` is set and not `'other'`, else `[]`.
      If `type === 'other'` and `custom_type` is set, `legacy.custom_type` keeps the text.
    - `stopped` = `feature.skate_stops?.is_stopped === true`.
    - `natural_speed` = `in_run.natural_speed - 1` when 1–5, else NULL.
-   - `gear` = the gear items (`category === 'gear'`) present in **every** setup option — the
-     intersection, in order of first appearance. One option → its gear; several options (they
-     were alternatives, "either works") → only what all of them need, which may be `[]`. A union
-     would turn "winch *or* bungee" into "bring winch *and* bungee" and hide the spot from a rider
-     who owns one of them. The full `setup_options` are archived in `legacy` either way.
-     Quantities dropped. *My call.*
+   - Setup options (gear and build) are **not** mapped to anything; they go to `legacy` whole
+     (rev 2, D22).
    - `notes` = `metadata.notes` or NULL.
    - `legacy` = every other non-empty value, flattened with readable keys and the unit applied
      at **read** time, not here (store metres): `custom_type, shape, length_m, height_m,
@@ -316,7 +302,7 @@ Append `migration3`. Never edit 1 or 2.
 
 Tests (`db-migrate.test.ts`, real SQLite harness): a v2 fixture with a full-fat spot (every old
 field set, two setup options, type `other` + custom type, draft) migrates to v3 with the exact
-expected `feature_types`, `stopped`, `natural_speed`, `gear`, `notes`, `legacy_json`; a v2 spot
+expected `feature_types`, `stopped`, `natural_speed`, `notes`, `legacy_json`; a v2 spot
 with everything empty gets `legacy_json` NULL; a v1 DB migrates 1→2→3; migrating an already-v3
 DB is a no-op; media rows survive (count unchanged, FK still satisfied after `foreign_keys = ON`).
 
@@ -357,6 +343,7 @@ The loop greps for each removed symbol and leaves zero references. Checklist:
 |---------|-------------------|
 | `SpotStatus`, `status`, "Draft" | types, schema v1 (stays, history), `spots.ts` mapper/insert/update, `spots-store` filter, `FilterSheet` Show Drafts, `SpotListItem` isDraft, `SpotMap` DRAFT_PIN, detail Draft badge, edit Status section, `add/review` + `import/review` `status: Draft`, README, CLAUDE.md, APP_SPECIFICATIONS |
 | `StarRating`, `RatingBadge` | components/index, edit, detail, list item |
+| `GearItem`, `UserSettings.gear`, Profile "My Gear" section + `GEAR_LABELS`, `toggleGear` (`use-settings-actions.ts`, `settings-store.ts`), FilterSheet "Gear I have" + `GEAR_LABELS`, gear cases in `profile.test.tsx` / `db-settings.test.ts` / `stores.test.ts` | types, profile, FilterSheet, settings store / actions / db defaults, tests |
 | `Material`, `LandingSurface`, `StopType`, `STOP_TYPE_LABELS` (`constants/labels.ts`), `BuildItem`, `SetupOption`, `Requirement` | types, edit, detail, FilterSheet labels, spots-store two-stage filter, `units.ts` dimension helpers (`displayLength`, `inputToMeters`, `metersToDisplay`, `initialDimText`, `dimensionFromInput`: keep **only** what §4 legacy display and §D23 radius need; delete the rest) |
 | `SortField.Intensity` | types, `SortChips`, `spots-store` sortKey, `selectActiveFilterCount` |
 | `featureLabel(spot)` (`spot-name.ts`) | becomes `featureTypesLabel(spot)` → `"Rail"`, `"Rail +1"`, or `undefined` |
@@ -378,11 +365,10 @@ one mechanism. Recorded here so the simplification does not paint them into a co
 built this run**, and the next spec starts from here after the simplified app has been used.
 
 ### 7.1 Sport (skate / snow / wake / …) is a *tag*, not a folder
-A spot is often good for more than one sport, and a sport changes which feature types and gear
-make sense (a skater never needs speed humps; a wakeboarder's "features" are not rails and
-ledges at all). Design: `sports: Sport[]` on the spot (multi-select chips like feature types), a
+A spot is often good for more than one sport, and a sport changes which feature types make
+sense (a wakeboarder's "features" are not rails and ledges at all). Design: `sports: Sport[]` on the spot (multi-select chips like feature types), a
 **sport filter** on the sheet, and later a per-user "sports I ride" setting that *hides* the
-feature types and gear that do not apply (this is the first instance of "hydrate the model per
+feature types that do not apply (this is the first instance of "hydrate the model per
 user", and it is why custom type was removed now: the user-level list of visible types is the
 right place for it). Not a folder, because one spot would need to be in two folders.
 
@@ -419,7 +405,10 @@ here requires a server-side ACL engine; it is a per-share allow-list recomputed 
 collection → geographic circle scope → accounts → live share. Each is its own spec.
 
 ### 7.4 Also noted, not built
-- Per-user visible feature types and gear (add / hide), replacing "custom type".
+- Per-user visible feature types (add / hide), replacing "custom type".
+- Gear, if it ever returns: as a per-spot *outcome* ("needs extra speed", "needs a drop-in
+  surface") rather than a list of equipment, since alternatives make equipment lists ambiguous
+  (Michael, rev 2). Natural speed already covers the first of those.
 - Per-spot *optional* detail packs (dimensions, material, stops detail, bust risk) a user turns
   on in settings — the hydrated model. The archived `legacy_json` is the seed data for it.
 - "Move photo to another spot" from the viewer; merging two spots.
@@ -427,7 +416,7 @@ collection → geographic circle scope → accounts → live share. Each is its 
 
 ---
 
-## 8. Order of work for the loop (one branch, `simplify/2026-10-16` from `spec/2026-10-16`, which is `overnight/2026-10-14` + this document; or from `main` once those have been merged — D7)
+## 8. Order of work for the loop (one branch, `simplify/2026-10-16` from `spec/2026-10-16`, which is `main` + this document)
 
 Each milestone: failing tests first, green, `npm run typecheck && npm run lint && npx jest --ci`,
 small commits, status log line. Time boxes are guidance.
@@ -443,7 +432,7 @@ small commits, status log line. Time boxes are guidance.
 | M6 | Quick Add / import review: Save wording, optional tags, nearby-spot offer (§2.7, §5). | 1 h 30 |
 | M7 | Import radius in the user's unit (D23). | 30 min |
 | M8 | Sweep (§6): grep every removed symbol to zero; docs (`APP_SPECIFICATIONS.md` section, README, CLAUDE.md); `npx expo export --platform ios`; `npx expo-doctor`. | 1 h |
-| Wrap | Status log, `HANDOFF` note, push, PR against the branch M0 cut from (§9 item 6) **not** merged (Michael reviews on the phone). | 20 min |
+| Wrap | Status log, `HANDOFF` note, push, PR against `main` **not** merged (Michael reviews on the phone). | 20 min |
 
 Stretch, in order, only if all above is green: (a) FilterSheet range mode polish; (b) a
 "Move to…" entry in the viewer's long-press sheet.
@@ -466,10 +455,9 @@ Stretch, in order, only if all above is green: (a) FilterSheet range mode polish
    is the only copy).
 5. **Tags on the Quick Add review screen (§2.7).** **Default: collapsed under "Add details"** so
    the fast path stays photo → Save. Say "always show" or "never show".
-6. **Merge first?** `main` is 119 commits behind `overnight/2026-10-14` and nothing has merged
-   yet (D7). The loop branches from `overnight/2026-10-14` and opens its PR against that branch
-   unless `main` has caught up by M0 (§8). Merging `overnight/2026-10-14` into `main` before the
-   loop starts keeps the PR small; your call, no answer needed.
+6. ~~Merge first?~~ **Done 2026-10-16:** `main` fast-forwarded to `overnight/2026-10-14`
+   (D7). `spec/2026-10-16` = `main` + this document; the loop branches from it and opens its PR
+   against `main`.
 7. Still open from before: **D15** (town in list search) and **D16** (untitled import label date).
 
 ---

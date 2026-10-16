@@ -13,6 +13,8 @@ interface SpotsState {
   searchQuery: string;
   sortField: SortField;
   sortDirection: SortDirection;
+  /** Whether the user tapped a sort chip. Until then the list may open by Distance (see selectEffectiveSort). */
+  sortChosen: boolean;
 
   // Actions
   setSpots: (spots: Spot[]) => void;
@@ -44,6 +46,7 @@ export const useSpotsStore = create<SpotsState>((set) => ({
   searchQuery: '',
   sortField: SortField.DateAdded,
   sortDirection: SortDirection.Desc,
+  sortChosen: false,
 
   setSpots: (spots) => set({ spots }),
 
@@ -71,7 +74,7 @@ export const useSpotsStore = create<SpotsState>((set) => ({
 
   setViewMode: (viewMode) => set({ viewMode }),
 
-  setSort: (sortField, sortDirection) => set({ sortField, sortDirection }),
+  setSort: (sortField, sortDirection) => set({ sortField, sortDirection, sortChosen: true }),
 }));
 
 // ── Selectors ───────────────────────────────────────────
@@ -216,6 +219,18 @@ export function selectSortedSpots(
   });
 
   return keyed.map(({ spot }) => spot);
+}
+
+/**
+ * The sort the list uses. Until the user taps a chip, it is Distance, nearest first, whenever their position is
+ * known (D14), and the stored default (Date, newest first) before a fix arrives. A chosen sort is kept as is.
+ */
+export function selectEffectiveSort(
+  { sortField, sortDirection, sortChosen }: Pick<SpotsState, 'sortField' | 'sortDirection' | 'sortChosen'>,
+  hasLocation: boolean,
+): { sortField: SortField; sortDirection: SortDirection } {
+  if (!sortChosen && hasLocation) return { sortField: SortField.Distance, sortDirection: SortDirection.Asc };
+  return { sortField, sortDirection };
 }
 
 /** How many filters are set in the Filter sheet (the Filter button's badge). */

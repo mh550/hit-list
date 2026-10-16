@@ -10,6 +10,7 @@ import {
   useMediaStore,
   selectFilteredSpots,
   selectSortedSpots,
+  selectEffectiveSort,
   selectActiveFilterCount,
 } from '@/src/stores';
 import { useLocationStore } from '@/src/stores/location-store';
@@ -45,8 +46,9 @@ export default function SpotsScreen() {
   const spots = useSpotsStore((s) => s.spots);
   const filters = useSpotsStore((s) => s.filters);
   const searchQuery = useSpotsStore((s) => s.searchQuery);
-  const sortField = useSpotsStore((s) => s.sortField);
-  const sortDirection = useSpotsStore((s) => s.sortDirection);
+  const storedSortField = useSpotsStore((s) => s.sortField);
+  const storedSortDirection = useSpotsStore((s) => s.sortDirection);
+  const sortChosen = useSpotsStore((s) => s.sortChosen);
   const viewMode = useSpotsStore((s) => s.viewMode);
   const setViewMode = useSpotsStore((s) => s.setViewMode);
   const resetFilters = useSpotsStore((s) => s.resetFilters);
@@ -58,6 +60,11 @@ export default function SpotsScreen() {
 
   const [filterVisible, setFilterVisible] = useState(false);
   const activeFilterCount = selectActiveFilterCount(filters);
+  // Distance, nearest first, once the position is known and until the user taps a chip (D14).
+  const { sortField, sortDirection } = selectEffectiveSort(
+    { sortField: storedSortField, sortDirection: storedSortDirection, sortChosen },
+    currentLocation != null,
+  );
 
   // The map takes the filtered spots: order doesn't matter to it, and a new array would re-cluster its markers.
   const filtered = useMemo(

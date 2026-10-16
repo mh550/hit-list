@@ -1,7 +1,7 @@
 import type { ComponentProps, ReactElement } from 'react';
 import { Keyboard, ScrollView, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
-import { render, screen, fireEvent } from '@testing-library/react-native';
+import { act, render, screen, fireEvent } from '@testing-library/react-native';
 import { selectFilteredSpots, useMediaStore, useSpotsStore } from '@/src/stores';
 import { useLocationStore } from '@/src/stores/location-store';
 import { DEFAULT_FILTERS, FeatureType, SortDirection, SortField, SpotStatus } from '@/src/types';
@@ -75,6 +75,7 @@ beforeEach(() => {
     searchQuery: '',
     sortField: SortField.DateAdded,
     sortDirection: SortDirection.Desc,
+    sortChosen: false,
     viewMode: 'list',
   });
   useMediaStore.setState({ mediaBySpot: {} });
@@ -298,6 +299,29 @@ describe('Spots tab sort chips', () => {
     }
   });
 
+  it('opens sorted by Distance, nearest first, once a location is known (D14)', () => {
+    // No sort chosen yet and the user's position is known: the list opens by Distance, not Date.
+    useLocationStore.setState({ currentLocation: CITIES.seattle });
+
+    render(<SpotsScreen />);
+
+    expect(rowNames()).toEqual(['Pier 57 rail', UNTITLED, 'Library ledge', 'Bank to wall']);
+    expect(selectedOf(chip('Distance'))).toBe(true);
+    expect(chip('Distance')).toHaveTextContent(/Distance ↑/);
+    expect(selectedOf(chip('Date'))).toBeFalsy();
+  });
+
+  it('keeps a sort the user chose when the location arrives', () => {
+    // A tap on Date is a choice; a later GPS fix must not override it.
+    render(<SpotsScreen />);
+    fireEvent.press(chip('Date')); // flips the default to oldest first: proves the choice, not just the field, is kept
+    act(() => useLocationStore.setState({ currentLocation: CITIES.seattle }));
+
+    expect(rowNames()).toEqual(['Pier 57 rail', 'Bank to wall', 'Library ledge', UNTITLED]);
+    expect(selectedOf(chip('Date'))).toBe(true);
+    expect(chip('Date')).toHaveTextContent(/Date ↑/);
+  });
+
   it('tapping Name sorts A to Z with an up arrow', () => {
     // Natural first direction for Name is ascending; the unnamed spot ("Untitled ...") sorts last.
     render(<SpotsScreen />);
@@ -346,8 +370,10 @@ describe('Spots tab sort chips', () => {
   });
 
   it('enables Distance once a location is known, and tapping it sorts nearest first with an up arrow', () => {
-    // Natural first direction for Distance is ascending (nearest first).
+    // Natural first direction for Distance is ascending (nearest first). The user had chosen Date, so the
+    // location alone does not switch the sort (D14); the tap does.
     useLocationStore.setState({ currentLocation: CITIES.seattle });
+    useSpotsStore.setState({ sortChosen: true });
     render(<SpotsScreen />);
 
     expect(chip('Distance').props.accessibilityState?.disabled).toBeFalsy();
@@ -433,7 +459,7 @@ describe('Spots tab sort chips', () => {
     ])('active chip for %s %s is labelled "%s"', (field, direction, label) => {
       // VoiceOver hides the visible "Date ↓" behind the label, so the label must say the direction in words.
       useLocationStore.setState({ currentLocation: CITIES.seattle });
-      useSpotsStore.setState({ sortField: field, sortDirection: direction });
+      useSpotsStore.setState({ sortField: field, sortDirection: direction, sortChosen: true });
 
       render(<SpotsScreen />);
 

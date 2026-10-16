@@ -85,14 +85,21 @@ export async function migrateDb(
   migrations: readonly Migration[] = MIGRATIONS,
 ): Promise<void> {
   await db.execAsync('PRAGMA journal_mode = WAL;'); // not allowed inside a transaction
-  // Per connection and a no-op inside a transaction, so every launch sets it here, never in a migration.
-  // Makes media's ON DELETE CASCADE real and rejects media rows for a spot that doesn't exist.
-  await db.execAsync('PRAGMA foreign_keys = ON;');
-  const current = await getSchemaVersion(db);
-  for (let v = current; v < migrations.length; v++) {
-    await db.withTransactionAsync(async () => {
-      await migrations[v](db);
-      await db.execAsync(`PRAGMA user_version = ${v + 1}`);
-    });
+  // Foreign keys are per connection and can't be toggled inside a transaction, so they are set here, never in a
+  // migration. They stay OFF while migrations run (SQLite's procedure for schema changes): a table rebuild's
+  // DROP TABLE spots would otherwise cascade-delete every media row, and copying media would fail on old orphan
+  // rows. They are ON afterwards for the app, even if a migration throws: media's ON DELETE CASCADE is real and
+  // a media row for a missing spot is rejected.
+  await db.execAsync('PRAGMA foreign_keys = OFF;');
+  try {
+    const current = await getSchemaVersion(db);
+    for (let v = current; v < migrations.length; v++) {
+      await db.withTransactionAsync(async () => {
+        await migrations[v](db);
+        await db.execAsync(`PRAGMA user_version = ${v + 1}`);
+      });
+    }
+  } finally {
+    await db.execAsync('PRAGMA foreign_keys = ON;');
   }
 }

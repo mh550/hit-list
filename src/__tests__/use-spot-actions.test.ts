@@ -107,8 +107,8 @@ describe('useSpotActions', () => {
       await result.current.removeSpot('doomed-spot');
     });
 
-    // Only the first two args: the hook also passes the shared `at` timestamp (see the timestamp tests below).
-    expect(mockSoftDeleteSpot.mock.calls[0].slice(1, 2)).toEqual(['doomed-spot']);
+    // The hook also passes the shared `at` timestamp (see the timestamp tests below).
+    expect(mockSoftDeleteSpot).toHaveBeenCalledWith(expect.anything(), 'doomed-spot', expect.any(String));
   });
 
   it('DB write errors do not crash the app', async () => {

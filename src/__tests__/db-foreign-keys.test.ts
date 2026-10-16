@@ -1,7 +1,13 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { createTestDb, createMigratedTestDb } from './helpers/node-sqlite-db';
 import { insertSpot, insertMedia, getMediaForSpot, softDeleteSpot } from '@/src/db';
-import { migrateDb, LATEST_SCHEMA_VERSION } from '@/src/db/schema';
+import {
+  migrateDb,
+  MIGRATIONS,
+  LATEST_SCHEMA_VERSION,
+  getSchemaVersion,
+  type Migration,
+} from '@/src/db/schema';
 import { createTestMedia, createTestSpot } from './factories';
 
 const foreignKeys = async (db: SQLiteDatabase) =>
@@ -32,6 +38,88 @@ describe('foreign keys', () => {
     await migrateDb(db);
 
     expect(await foreignKeys(db)).toBe(1);
+  });
+
+  it('migrateDb leaves foreign keys on when a migration throws', async () => {
+    // Guards the `finally`: the app keeps using this connection after a failed migration, and needs enforcement.
+    const db = createTestDb();
+    const boom: Migration = () => Promise.reject(new Error('boom'));
+
+    await expect(migrateDb(db, [...MIGRATIONS, boom])).rejects.toThrow('boom');
+
+    expect(await foreignKeys(db)).toBe(1);
+  });
+
+  describe('table-rebuild migrations (foreign keys must be off while schema changes run)', () => {
+    // SQLite's documented rebuild: create X_new, copy, DROP X, rename. Same DDL as migration 1.
+    const rebuildSpots: Migration = async (d) => {
+      await d.execAsync(`
+        CREATE TABLE spots_new (
+          id TEXT PRIMARY KEY NOT NULL,
+          name TEXT,
+          generated_name TEXT,
+          latitude REAL NOT NULL,
+          longitude REAL NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+          deleted_at TEXT,
+          status TEXT NOT NULL DEFAULT 'draft',
+          feature_json TEXT NOT NULL DEFAULT '{}',
+          in_run_json TEXT NOT NULL DEFAULT '{"setup_options":[]}',
+          landing_json TEXT NOT NULL DEFAULT '{}',
+          metadata_json TEXT NOT NULL DEFAULT '{}',
+          primary_photo_id TEXT
+        );
+        INSERT INTO spots_new SELECT * FROM spots;
+        DROP TABLE spots;
+        ALTER TABLE spots_new RENAME TO spots;
+      `);
+    };
+    const rebuildMedia: Migration = async (d) => {
+      await d.execAsync(`
+        CREATE TABLE media_new (
+          id TEXT PRIMARY KEY NOT NULL,
+          spot_id TEXT NOT NULL,
+          file_path TEXT NOT NULL,
+          captured_at TEXT,
+          latitude REAL,
+          longitude REAL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          FOREIGN KEY (spot_id) REFERENCES spots(id) ON DELETE CASCADE
+        );
+        INSERT INTO media_new SELECT * FROM media;
+        DROP TABLE media;
+        ALTER TABLE media_new RENAME TO media;
+      `);
+    };
+    const byId = (rows: { id: string }[]) => [...rows].sort((a, b) => a.id.localeCompare(b.id));
+
+    it('rebuilding spots keeps the spot media', async () => {
+      // DROP TABLE spots does an implicit DELETE; with foreign keys on, ON DELETE CASCADE wipes every photo.
+      const db = await createMigratedTestDb();
+      const spot = createTestSpot();
+      await insertSpot(db, spot);
+      const photos = [createTestMedia({ spot_id: spot.id }), createTestMedia({ spot_id: spot.id })];
+      for (const photo of photos) await insertMedia(db, photo);
+
+      await migrateDb(db, [...MIGRATIONS, rebuildSpots]);
+
+      expect(byId(await getMediaForSpot(db, spot.id))).toEqual(byId(photos));
+    });
+
+    it('rebuilding media succeeds and keeps an old orphan row', async () => {
+      // Phones may hold orphans from before enforcement; copying them into the new table must not hit a FK error.
+      const db = createTestDb(); // foreign keys off, like the phone before this change
+      await MIGRATIONS[0](db);
+      await db.execAsync('PRAGMA user_version = 1');
+      const orphan = createTestMedia({ spot_id: 'no-such-spot' });
+      await insertMedia(db, orphan);
+
+      await expect(migrateDb(db, [...MIGRATIONS, rebuildMedia])).resolves.toBeUndefined();
+
+      expect(await getSchemaVersion(db)).toBe(LATEST_SCHEMA_VERSION + 1);
+      expect(await getMediaForSpot(db, 'no-such-spot')).toEqual([orphan]);
+    });
   });
 
   describe('once migrated', () => {

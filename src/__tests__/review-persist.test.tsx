@@ -69,6 +69,25 @@ describe('review screens persist photos before saving (D3)', () => {
     expect(useMediaStore.getState().mediaBySpot[m.spot_id]).toEqual([m]);
   });
 
+  it('Import dates the spot by the import and keeps the capture date on the photo (D13)', async () => {
+    // An old photo must not sink to the bottom of the newest-first list; its capture date stays on the media row.
+    const group: ImportPhoto[] = [
+      { uri: 'file:///c/old.jpg', location: { latitude: 47.6, longitude: -122.3 }, capturedAt: '2019-07-04T14:22:01' },
+    ];
+    setParams({ groupsJson: JSON.stringify([group]) });
+    fs.__putFile('file:///c/old.jpg');
+    const before = Date.now();
+
+    render(<ImportReview />);
+    fireEvent.press(screen.getByText('Import 1 Spot'));
+    await waitFor(() => expect(mockDismissAll).toHaveBeenCalled());
+
+    const [spot] = useSpotsStore.getState().spots;
+    expect(new Date(spot.created_at).getTime()).toBeGreaterThanOrEqual(before);
+    expect(spot.created_at).toBe(spot.updated_at);
+    expect(insertedMedia()[0].captured_at).toBe('2019-07-04T14:22:01');
+  });
+
   it('still saves the media row with the original URI when the copy fails', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     setParams({ photoUris: 'file:///c/gone.jpg', latitude: '0', longitude: '0' }); // never created

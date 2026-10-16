@@ -66,7 +66,7 @@ export default function ImportReviewScreen() {
             id: spotId,
             name: group.name.trim() || undefined,
             location,
-            created_at: firstPhoto?.capturedAt ?? now,
+            created_at: now, // the import, not the photo's capture date (D13); media keeps captured_at
             updated_at: now,
             status: SpotStatus.Draft,
             feature: {},

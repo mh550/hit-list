@@ -89,3 +89,13 @@ jest.mock('expo-location', () => ({
   Accuracy: { Lowest: 1, Low: 2, Balanced: 3, High: 4, Highest: 5, BestForNavigation: 6 },
 }));
 
+
+// expo-crypto is native; back it with Node's crypto (same names as expo-crypto/build/Crypto.d.ts).
+jest.mock('expo-crypto', () => {
+  const nodeCrypto = jest.requireActual<typeof import('node:crypto')>('node:crypto');
+  return {
+    randomUUID: jest.fn(() => nodeCrypto.randomUUID()),
+    getRandomValues: jest.fn((array: Uint8Array<ArrayBuffer>) => nodeCrypto.getRandomValues(array)),
+    getRandomBytes: jest.fn((byteCount: number) => new Uint8Array(nodeCrypto.randomBytes(byteCount))),
+  };
+});

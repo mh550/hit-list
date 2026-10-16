@@ -2,10 +2,10 @@ import { useCallback, useState, useMemo } from 'react';
 import { StyleSheet, View, Text, ScrollView, TextInput, Pressable } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
-import { v4 as uuid } from 'uuid';
 
 import { useSpotActions } from '@/src/hooks/use-spot-actions';
 import { useMediaActions } from '@/src/hooks/use-media-actions';
+import { newId } from '@/src/utils/id';
 import { isKnownLocation, NO_LOCATION } from '@/src/utils/geo';
 import { palette, spacing, radius } from '@/src/constants/theme';
 import { SpotStatus } from '@/src/types';
@@ -37,8 +37,8 @@ export default function ReviewScreen() {
     setSaving(true);
 
     const now = new Date().toISOString();
-    const spotId = uuid();
-    const firstPhotoId = photoUris.length > 0 ? uuid() : undefined;
+    const spotId = newId();
+    const firstPhotoId = photoUris.length > 0 ? newId() : undefined;
 
     const spot: Spot = {
       id: spotId,
@@ -59,7 +59,7 @@ export default function ReviewScreen() {
     await savePhotos(
       photoUris.map((uri, i) => ({
         sourceUri: uri,
-        id: i === 0 ? firstPhotoId! : uuid(),
+        id: i === 0 ? firstPhotoId! : newId(),
         spot_id: spotId,
         location: hasLocation ? { latitude, longitude } : undefined,
         created_at: now,

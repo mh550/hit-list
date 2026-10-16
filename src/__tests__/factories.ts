@@ -1,4 +1,4 @@
-import { v4 as uuid } from 'uuid';
+import { newId } from '@/src/utils/id';
 import type { GeoPoint, Spot, Media } from '@/src/types';
 import { SpotStatus } from '@/src/types';
 
@@ -12,7 +12,7 @@ export const CITIES = {
 export function createTestSpot(overrides: Partial<Spot> = {}): Spot {
   const now = new Date().toISOString();
   return {
-    id: uuid(),
+    id: newId(),
     location: CITIES.seattle,
     created_at: now,
     updated_at: now,
@@ -28,9 +28,9 @@ export function createTestSpot(overrides: Partial<Spot> = {}): Spot {
 export function createTestMedia(overrides: Partial<Media> = {}): Media {
   const now = new Date().toISOString();
   return {
-    id: uuid(),
-    spot_id: overrides.spot_id ?? uuid(),
-    file_path: `/photos/${uuid()}.jpg`,
+    id: newId(),
+    spot_id: overrides.spot_id ?? newId(),
+    file_path: `/photos/${newId()}.jpg`,
     created_at: now,
     ...overrides,
   };

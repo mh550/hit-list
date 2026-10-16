@@ -10,10 +10,10 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
-import { v4 as uuid } from 'uuid';
 
 import { useSpotActions } from '@/src/hooks/use-spot-actions';
 import { useMediaActions } from '@/src/hooks/use-media-actions';
+import { newId } from '@/src/utils/id';
 import { formatSpotDate } from '@/src/utils/spot-name';
 import { NO_LOCATION } from '@/src/utils/geo';
 import { palette, spacing, radius } from '@/src/constants/theme';
@@ -59,8 +59,8 @@ export default function ImportReviewScreen() {
           const firstPhoto = group.photos[0];
           const location = firstPhoto?.location ?? NO_LOCATION;
           const now = new Date().toISOString();
-          const spotId = uuid();
-          const firstMediaId = uuid();
+          const spotId = newId();
+          const firstMediaId = newId();
 
           const spot: Spot = {
             id: spotId,
@@ -81,7 +81,7 @@ export default function ImportReviewScreen() {
           await savePhotos(
             group.photos.map((photo, i) => ({
               sourceUri: photo.uri,
-              id: i === 0 ? firstMediaId : uuid(),
+              id: i === 0 ? firstMediaId : newId(),
               spot_id: spotId,
               location: photo.location ?? undefined,
               captured_at: photo.capturedAt,

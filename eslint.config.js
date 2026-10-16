@@ -11,6 +11,11 @@ module.exports = defineConfig([
     rules: {
       'react/jsx-no-leaked-render': ['error', { validStrategies: ['ternary', 'coerce'] }],
       'no-console': ['warn', { allow: ['warn', 'error'] }],
+      // Hermes has no crypto.getRandomValues, so the uuid package throws on the phone; ids come from newId().
+      'no-restricted-imports': [
+        'error',
+        { paths: [{ name: 'uuid', message: "Use newId() from '@/src/utils/id' (expo-crypto); uuid throws on Hermes." }] },
+      ],
     },
   },
   {

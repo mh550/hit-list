@@ -259,12 +259,12 @@ Write the start time in the Status log. For each hop N in 55, 56, 57:
 - [x] `updateSpot` writes the caller's ISO `updated_at` instead of SQLite's `datetime('now')`.
 
 ### Wrap-up (always, even if stopping early)
-- [ ] Update spec §0 with any new defaults (as direct questions), spec §1.3 with the end-of-night
+- [x] Update spec §0 with any new defaults (as direct questions), spec §1.3 with the end-of-night
       check results, README "Not done yet", and `~/projects/ideas/PROGRESS.md` is **not** yours
       to edit (other session's tree) — put the one-paragraph progress entry in the Status log
       instead, marked `for PROGRESS.md`.
-- [ ] Final "What Michael will see" table; status page republished.
-- [ ] Commit + push `overnight/<date>`. Final push notification. Stop the loop and write the
+- [x] Final "What Michael will see" table; status page republished.
+- [x] Commit + push `overnight/<date>`. Final push notification. Stop the loop and write the
       outcome as visible text, including every open question in full **and a reminder that
       the review conversation ends by merging `overnight/<date>` into `main` and deleting
       `wip/laptop-2026-10-13` (D7) — no new branch until it has.**
@@ -310,6 +310,19 @@ _(exact commands / decisions, newest first)_
 
 ## Status log
 _(newest first: time · step · result · commit)_
+- 2026-10-15 20:10 · **Wrap-up (second session)** · End-of-night checks from a clean `npm ci` all green (spec §1.3 "Second session"): 374 tests / 37 suites, 0 console.error, typecheck 0, lint 0, export ok (4.1 MB), doctor 21/21, CI green. Spec §0 holds D13–D15 as open defaults; README "Not done yet" current. **Status page:** https://claude.ai/artifact/4Nxu9UfVeHKNcjR5DmGwY1 (private; `docs/overnight-status.html`). Metro over the tailnet not re-smoked this session; the export is the headless check.
+
+  **What Michael will see** (Spots tab, list view, 3 spots, location allowed):
+
+  | Place | What it shows |
+|---|---|
+  | Under the List · Map toggle | "Search spots" field; sort chips Distance ↑ / Date ↓ (active by default) / Name / Intensity |
+  | Rows | "Pier 57 rail" 0.2 mi with thumbnail · "Untitled · Seattle · Oct 13, 2:22 PM" 0.8 mi · draft "Library ledge" (draft badge) |
+  | Bottom-right | small white photo button (Import photos) above the blue + |
+  | Map view | blue pins, yellow for drafts; nearby spots as a blue circle with a count; same-place spots open a list |
+  | Edit sheet | Photos row with × and Undo note; Skate stops switch; Save once |
+
+  **for PROGRESS.md:** HitList, second overnight session 2026-10-15 on `overnight/2026-10-14`: Import Photos moved to the Spots tab (Michael's call); a whole-branch review fixed dark-mode text, a camera-denial dead end, rows hidden under the buttons and cleared names not saving; pin clustering with a same-place list (the library's spiral had a bug that hid clusters); sort and search (name or town); Edit gained skate stops, photo removal with Undo, and exact dimensions (it used to round and accept NaN); SQLite foreign keys on, safely off during migrations; ISO timestamps. 374 tests. Every item: tests first by a Sonnet subagent, code by an Opus subagent, Opus review, fixes. Open: three questions (import date, default sort, town search).
 - 2026-10-15 20:06 · **Review: foreign keys + timestamps** (Opus, checked against the expo-sqlite 57 source: one shared connection, pragma applied before any query, insert order right, nothing reads the timestamp columns): **0 Critical / 1 Important / 4 Minor**. **Important, reproduced:** with foreign keys ON during migrations (and `PRAGMA foreign_keys = OFF` a no-op inside the migration transaction), a future table rebuild of `spots` would silently cascade-delete every media row, and rebuilding `media` would fail on old orphan rows. Fixed per SQLite's documented procedure: `migrateDb` turns foreign keys OFF around the migration loop and back ON in a `finally`. RED tests by Sonnet (2 RED: media gone; FOREIGN KEY constraint failed; + a throw-still-ON guard); the few-line fix done here. Also: a loosened assertion tightened; CLAUDE.md notes that only the provider connection has foreign keys on; next-migration notes (normalise old timestamps; orphan photo files) under Needs Michael. **374 tests**, 0 console.error, typecheck 0, lint 0, export ok. Next: Wrap-up.
 - 2026-10-15 19:59 · **ISO timestamps** · `updateSpot` keeps the caller's `updated_at` (else now, as ISO); `softDeleteSpot` writes one ISO time to `deleted_at` and `updated_at`; `useSpotActions` stamps once so the store and the DB agree (the town backfill and primary-photo change used to leave the in-memory time stale). Nothing parses these two columns today (`deleted_at` is only `IS NULL`; sorting uses `created_at`, always ISO), so old rows in SQLite's format are harmless and no migration was added. Migration 1's `datetime('now')` DEFAULTs stay (append-only; never fire, inserts bind values). CI on the foreign-keys commit: green on Node 22. RED tests by Sonnet (6 RED + 1 guard), code by Opus, one stale exact-match expectation updated here. **371 tests**, 0 console.error, typecheck 0, lint 0, export ok. **Stretch list done.** Next: one review over foreign keys + timestamps, then Wrap-up.
 - 2026-10-15 19:53 · **Foreign keys on** · `migrateDb` runs `PRAGMA foreign_keys = ON` next to the WAL line on every launch (per connection; a no-op inside a transaction). Media's `ON DELETE CASCADE` now works and a photo row for a missing spot is rejected; both save paths insert the spot first, and nothing hard-deletes (soft delete keeps photos, D3; guard test). **Found by the Sonnet test writer:** `node:sqlite` turns foreign keys ON by default while expo-sqlite starts OFF, so the test harness had silently enforced what the phone never did; the harness now opens with them off (guard test). RED tests by Sonnet (4 RED + 2 guards); the one-line fix done here. **364 tests**, 0 console.error, typecheck 0, lint 0, export ok. Next: `updateSpot` writes the caller's ISO `updated_at`.

@@ -1,0 +1,134 @@
+<title>HitList Overnight Status</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400&display=swap">
+<style>
+  /* Layout: one phone-first column; questions first, then phone checks, then the record. Concrete greys + the app's own blue. */
+  :root {
+    --bg: #f3f4f6;
+    --surface: #ffffff;
+    --fg: #1d2330;
+    --muted: #5b6474;
+    --line: #d9dde4;
+    --accent: #2563eb;
+    --ok: #15803d;
+    --ask: #b45309;
+    --ask-bg: #fff7ed;
+    --display: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+    --body: "Source Sans 3", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #12151b; --surface: #1b2029; --fg: #e6e9ef; --muted: #9aa3b2; --line: #2c3340;
+      --accent: #6b9bff; --ok: #4ade80; --ask: #fbbf24; --ask-bg: #2a2214; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #12151b; --surface: #1b2029; --fg: #e6e9ef; --muted: #9aa3b2; --line: #2c3340;
+    --accent: #6b9bff; --ok: #4ade80; --ask: #fbbf24; --ask-bg: #2a2214; color-scheme: dark;
+  }
+  body { background: var(--bg); color: var(--fg); font-family: var(--body); font-size: 16px; line-height: 1.55; }
+  .wrap { max-width: 44rem; margin: 0 auto; padding-inline: 16px; padding-block: 24px 48px; display: grid; gap: 28px; }
+  header { display: grid; gap: 6px; }
+  .eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  h1 { font-family: var(--display); font-weight: 700; font-size: 2.4rem; line-height: 1.05; margin: 0; text-wrap: balance; }
+  h2 { font-family: var(--display); font-weight: 600; font-size: 1.5rem; margin: 0 0 10px; letter-spacing: .01em; }
+  p { margin: 0; max-width: 65ch; }
+  .lede { color: var(--muted); }
+  section { display: grid; gap: 10px; }
+  .q { background: var(--ask-bg); border: 1px solid var(--line); border-left: 4px solid var(--ask); border-radius: 8px; padding: 14px 16px; display: grid; gap: 6px; }
+  .q .tag { font-family: var(--mono); font-size: 12px; color: var(--ask); letter-spacing: .04em; }
+  .q strong { font-weight: 600; }
+  .default { color: var(--muted); font-size: 15px; }
+  ol, ul { margin: 0; padding-left: 1.3rem; display: grid; gap: 6px; }
+  li { max-width: 65ch; }
+  code { font-family: var(--mono); font-size: 13.5px; background: var(--surface); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; overflow-wrap: anywhere; }
+  .table-wrap { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr:last-child td { border-bottom: 0; }
+  th { font-family: var(--mono); font-size: 12px; font-weight: 400; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .pass { color: var(--ok); font-weight: 600; white-space: nowrap; }
+  .small { font-size: 14px; color: var(--muted); }
+  a { color: var(--accent); }
+  a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Branch overnight/2026-10-14 · 15 Oct 2026, evening</div>
+    <h1>HitList is ready for your phone</h1>
+    <p class="lede">Every runbook item and stretch item is done, reviewed and pushed. Three questions need your answer. Each already has a working default.</p>
+  </header>
+
+  <section aria-labelledby="questions">
+    <h2 id="questions">Questions for you</h2>
+    <div class="q">
+      <span class="tag">D13 · Imported spot dates</span>
+      <p><strong>Should imported spots keep the photo's capture date, or be dated when you imported them?</strong> The list shows newest first, so importing last year's photos puts those spots at the bottom.</p>
+      <p class="default">Today: capture date.</p>
+    </div>
+    <div class="q">
+      <span class="tag">D14 · Default sort</span>
+      <p><strong>Should the list open sorted by Distance whenever your location is known?</strong> The Distance chip is first in the row, as you asked.</p>
+      <p class="default">Today: opens sorted by Date, newest first.</p>
+    </div>
+    <div class="q">
+      <span class="tag">D15 · Search by town</span>
+      <p><strong>Should search match a spot's town as well as its name?</strong> Searching "seattle" finds every spot in Seattle, named or not.</p>
+      <p class="default">Today: name or town.</p>
+    </div>
+  </section>
+
+  <section aria-labelledby="phone">
+    <h2 id="phone">On the phone</h2>
+    <p>On the desktop, run <code>npm run start:tailscale</code> in the project folder. Then scan the QR code with the iPhone camera, and it opens in Expo Go. The full guide is <code>docs/RUNNING-ON-PHONE.md</code>.</p>
+    <p>A few things can only be checked on a real phone:</p>
+    <ol>
+      <li>The sort chips under the search field are one short row, not half the screen.</li>
+      <li>Two spots at the same place show a blue circle marked 2. Tapping it lists both by name.</li>
+      <li>Tapping a pin's bubble opens that spot.</li>
+      <li>In Edit, the photo row fits, and the × on each thumbnail is easy to hit.</li>
+      <li>Declining the camera shows Close and Open Settings.</li>
+    </ol>
+  </section>
+
+  <section aria-labelledby="checks">
+    <h2 id="checks">End-of-night checks</h2>
+    <p class="small">From a clean install on Node 24.</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Check</th><th>Result</th></tr></thead>
+        <tbody>
+          <tr><td>Tests (Jest, real SQLite for the database)</td><td class="pass">374 passed</td></tr>
+          <tr><td>Typecheck and lint</td><td class="pass">0 errors</td></tr>
+          <tr><td>iOS bundle (the headless "opens in Expo Go" check)</td><td class="pass">Builds, 4.1 MB</td></tr>
+          <tr><td>expo-doctor</td><td class="pass">21 of 21</td></tr>
+          <tr><td>CI on GitHub</td><td class="pass">Green</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="new">
+    <h2 id="new">New since this afternoon</h2>
+    <ul>
+      <li><strong>Import Photos</strong> moved to the Spots tab, as the small photo button above +.</li>
+      <li><strong>Map clusters:</strong> nearby spots merge into a numbered circle. Spots at the same place open a list to pick from.</li>
+      <li><strong>Search and sort:</strong> search by name or town in both views. Sort the list by Distance, Date, Name or Intensity.</li>
+      <li><strong>Edit:</strong> you can set skate stops and remove photos, with an Undo before you save. Dimensions keep their exact values.</li>
+      <li><strong>Fixes from reviews:</strong> light mode only, so dark-mode phones can read the text. Declining the camera no longer traps you. The last rows clear the buttons. Clearing a name now saves.</li>
+      <li><strong>Data safety:</strong> foreign keys are on, and turned off safely while the database upgrades. All timestamps are ISO.</li>
+    </ul>
+  </section>
+
+  <section aria-labelledby="after">
+    <h2 id="after">After you've tried it</h2>
+    <ul>
+      <li>The review conversation merges <code>overnight/2026-10-14</code> into <code>main</code> and deletes <code>wip/laptop-2026-10-13</code> (decision D7). Start no new branch until then.</li>
+      <li>To push workflow-file changes over HTTPS, run <code>gh auth refresh -h github.com -s workflow</code> once on the desktop.</li>
+      <li>To run the app without the desktop, you run <code>eas login</code>, then <code>eas build:configure</code>, then a TestFlight build.</li>
+    </ul>
+  </section>
+</div>

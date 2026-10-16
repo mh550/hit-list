@@ -91,6 +91,8 @@ those answers and does not re-open them.
 | Metro over the tailnet | `npm run start:tailscale`, manifest + launch bundle at `100.88.90.97:8081` | manifest 200 (SDK 57.0.0), bundle 200 (9.3 MB JS); QR URL `exp://100.88.90.97:8081` |
 | SDK | `expo` / `react-native` / `react` | 57.0.29 / 0.86.3 / 19.2.3 (Expo Go on the iPhone is SDK 57) |
 
+**Second session (2026-10-15 afternoon/evening, same branch, head after wrap-up):** from a clean `npm ci` (Node 24.21.0): typecheck **PASS**, lint **PASS** (0 problems), Jest **374/374** in 37 suites (0 `console.error`, ~4 s), `npx expo export --platform ios` **PASS** (4.1 MB Hermes bundle incl. clustering), `npx expo-doctor` **21/21**, CI green on every push. Versions: expo 57.0.30, react-native 0.86.3, react 19.2.3, react-native-maps 1.27.2, react-native-map-clustering 4.0.0. Added since the first session: D12 Import Photos on the Spots tab; final-review fixes (light mode only, camera Close/Open Settings, list clears the floating buttons, cleared names saved); S1 clustering with a same-place list; S2 sort + search; skate stops, dimensions precision, and photo removal in Edit; foreign keys on (off during migrations); ISO timestamps. Metro over the tailnet was not re-smoked this session (the export is the headless phone check).
+
 Bugs 1–5 below are fixed (photos display and persist; EXIF dates ISO; GPS refs applied; location on the
 Spots tab). Not verifiable headlessly: the first real run in Expo Go (see `docs/RUNNING-ON-PHONE.md`,
 "First things to check").

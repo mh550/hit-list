@@ -274,6 +274,7 @@ Write the start time in the Status log. For each hop N in 55, 56, 57:
 ## Direction from Michael
 _(append messages from the phone here, newest first)_
 
+- **2026-10-15 (evening, review of overnight/2026-10-14):** **Bug:** importing several photos threw `crypto.getRandomValues() not supported` at `app/import/review.tsx:62` → the `uuid` package needs a global Hermes lacks; ids now come from expo-crypto (`newId()`), uuid removed, lint rule blocks it. **D13:** import date = when the spot was created (the import); keep each photo's capture date and who uploaded it, to show later. **D14:** yes, open by Distance, for now. **D15:** town matching yes on the map, unsure in the list, asked what I think → kept in both (see Needs Michael).
 - **2026-10-15 (afternoon, before resuming the loop):** answered both open questions. **D4 geocoder:** keep it — Apple's geocoder is the first line for the town, "Untitled · <date>" is the fallback (no code change). **D12 Import Photos:** must **not** live on the Profile tab (bad UX); put it on the Spots tab or somewhere else → moved to the Spots tab as a second action beside the + button. Also asked: delegate implementation to an Opus subagent and testing to a Sonnet subagent, each with a clear spec.
 - **2026-10-14 23:39:** switched the session model to Opus (`/model claude-opus-5-5`) and said
   "Try again" after the M2 review subagent died on a session rate limit → relaunched the M2 review
@@ -287,16 +288,12 @@ _(append messages from the phone here, newest first)_
 
 ## Needs Michael
 _(exact commands / decisions, newest first)_
-- **Question (D15):** search finds a spot by its **name or its town**, so "seattle" finds every spot in Seattle, named or not. It never matches "Untitled" or the date. Is matching the town what you want, or only the name?
-- **Question (D14):** the sort row puts **Distance first** (as you said), but the list still **opens sorted by Date, newest first**, because Distance needs your location. Should the list open sorted by Distance whenever your location is known?
-- **Question (D13):** photos you import become spots dated by **when the photo was taken**, and the list sorts newest first. So importing last year's photos puts those spots at the **bottom** of the list, which can look like the import failed. Keep that (date = capture time), or should imports sort by when you imported them?
+- **Question (D15), half-answered 2026-10-15:** town matching is wanted on the map, unsure for the list. Recommendation (no change made): keep it in both, since both views share one search field and the query survives switching; different matching per view would show different spots for the same text. **Confirm or say "name only in the list".**
+- ~~Question (D14): open sorted by Distance?~~ **Answered 2026-10-15: yes, for now** → done: Distance, nearest first, once the position is known; a tapped sort sticks.
+- ~~Question (D13): import date~~ **Answered 2026-10-15: the import time** → done. Each photo keeps `captured_at`; `media.uploaded_by` added (schema v2) for when accounts exist.
 - ~~Question (D4 note): geocoder privacy~~ **Answered 2026-10-15:** keep Apple's geocoder first, untitled as fallback.
 - ~~Question (D12): Import Photos placement~~ **Answered 2026-10-15:** not on Profile; goes on the Spots tab beside the + button (queued under M7).
-- **For the next migration (not tonight), also:** normalise old `updated_at`/`deleted_at` rows written in SQLite's `YYYY-MM-DD HH:MM:SS` format to ISO (`UPDATE spots SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', updated_at) WHERE updated_at NOT LIKE '%T%'`, same for `deleted_at`); nothing reads them today. Photo files copied for a spot whose insert failed have no row now (foreign keys reject it); a later cleanup could remove such files.
-- **For the next migration (not tonight):** when `MIGRATIONS` gets a second entry, `useDbInit` must
-  still load spots if `migrateDb` throws (today it skips the load, so a failed upgrade would look like
-  every spot vanished). And per-connection pragmas such as `foreign_keys = ON` go next to the WAL
-  line in `migrateDb`, never inside a migration (they do nothing in a transaction).
+- ~~For the next migration: normalise old `updated_at`/`deleted_at` to ISO; `useDbInit` must still load spots if `migrateDb` throws~~ **Done 2026-10-15 in migration 2** (with `media.uploaded_by`). Still open: photo files copied for a spot whose insert failed have no row (foreign keys reject it); a later cleanup could remove such files.
 - **GitHub token lacks the `workflow` scope**, so `git push` over HTTPS rejects any commit that
   touches `.github/workflows/*` ("refusing to allow an OAuth App to create or update workflow").
   The overnight session pushed that one commit over SSH on the command line

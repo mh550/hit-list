@@ -45,7 +45,7 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   afterwards, so a table rebuild is safe; only the `SQLiteProvider` connection has them on (a second connection, e.g.
   `withExclusiveTransactionAsync`, would start with them off).
 - `src/stores/` zustand: spots (+ Filter-sheet filters, a separate `searchQuery`, sort, `viewMode`; filtering and sorting live in its selectors), media (`mediaBySpot`), settings, location.
-- `src/hooks/` `useDbInit` (migrate, load spots/media/settings, background town backfill),
+- `src/hooks/` `useDbInit` (migrate, then load spots/media/settings even if the migration threw, background town backfill),
   `useSpotActions`, `useMediaActions` (photo save and remove; removal deletes the row only, D3), `useCurrentLocation`.
 - `src/utils/` pure logic: geo (`NO_LOCATION`, `isKnownLocation`, haversine), exif,
   photo-storage, reverse-geocode, spot-name (D4 label), map-region, import-clustering.
@@ -61,6 +61,11 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   roll; files are not deleted on soft delete.
 - **No location** is stored as `(0, 0)` (`NO_LOCATION`); always test with `isKnownLocation` (map,
   distance, geocoding).
+- **Ids** come from `newId()` in `src/utils/id.ts` (expo-crypto's native `randomUUID`). Never the `uuid`
+  package: Hermes has no `crypto.getRandomValues`, so it throws on the phone while Jest (Node) passes. A
+  lint rule blocks the import; Jest backs expo-crypto with Node's crypto in `jest.setup.ts`.
+- **Timestamps** are ISO 8601 written by the app; migration 2 rewrote the rows SQLite had stamped. An
+  imported spot's `created_at` is the import time; the photo's capture time is `media.captured_at`.
 - **Unnamed spots** display as `Untitled · <Town> · Oct 13, 2:22 PM` (two lines allowed in the list);
   imported groups start with a blank name so they stay untitled. The town lives in
   `generated_name` (Apple's CLGeocoder via expo-location: a network service, coordinates go to

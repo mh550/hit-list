@@ -270,8 +270,9 @@ Each media item:
 |-------|------|-------------|
 | `id` | UUID | Unique identifier |
 | `file_path` | string | Local/remote storage path |
-| `captured_at` | timestamp | When photo/video was taken |
+| `captured_at` | timestamp | When photo/video was taken (EXIF). Kept on every photo; an imported spot's own `created_at` is the import time (D13) |
 | `location` | GeoPoint | Where media was captured |
+| `uploaded_by` | UUID | `[ADDITION]` The user who added it. Stored from day one (schema v2) so it can be shown later; unset until accounts exist |
 
 ---
 
@@ -340,7 +341,8 @@ Each media item:
 │  4. App groups photos by location proximity             │
 │     (default 50m, configurable in Settings)             │
 │           ↓                                             │
-│  5. Each group becomes a draft spot                     │
+│  5. Each group becomes a draft spot, dated by the       │
+│     import (D13); each photo keeps its capture date     │
 │           ↓                                             │
 │  6. User reviews/names each spot                        │
 │     (unknown location photos can be placed manually     │
@@ -440,10 +442,13 @@ Editing uses the same UI as Detail Entry, pre-populated with existing data.
   - `[ADDITION]` Difficulty rating badge (1-2 green, 3 yellow, 4-5 red)
   - `[ADDITION]` Distance from current location
 - Sortable by: Name, Distance, Date Added, Intensity
+- `[ADDITION]` Opens sorted by Distance, nearest first, once the location is known (D14); by Date,
+  newest first, before that. A sort the user taps is kept for the session, whatever the location does.
 
 ### `[ADDITION]` Search
 
-- Search by spot name
+- Search by spot name or town, in both List and Map (D15; the two views share one search field, so
+  they match the same spots). Never the generated "Untitled" label or the date.
 - `[FUTURE]` Semantic search with RAG for queries like "steep rail with natural speed"
 
 ### Filters
@@ -605,6 +610,15 @@ Public (opt-in, future)
 
 6. ~~**Native app vs PWA**~~
    - `[RESOLVED]` Native app (React Native / Expo). Offline-first + camera + maps requirements make PWA impractical.
+
+7. ~~**Import date** (D13): is an imported spot dated by the photo's capture time or by the import?~~
+   - `[RESOLVED 2026-10-15]` By the import. Each photo keeps its capture date (`captured_at`) and, once accounts exist, who uploaded it (`uploaded_by`).
+
+8. ~~**Default sort** (D14): should the list open sorted by Distance whenever the location is known?~~
+   - `[RESOLVED 2026-10-15]` Yes, for now. Date, newest first, until a fix arrives; a sort the user taps sticks.
+
+9. **Town search** (D15): should search match a spot's town as well as its name? Michael: on the map yes; in the list unsure.
+   - Current behaviour, recommended to keep: town matches in both views, because both share one search field and the query survives switching views. Different matching per view would make the same text show different spots. Open for Michael to confirm.
 
 ---
 

@@ -134,6 +134,28 @@ describe('useDbInit', () => {
     );
   });
 
+  it('still loads spots, media and settings when migrateDb throws', async () => {
+    // A failed upgrade leaves the DB at the last good version, which this build can still read;
+    // skipping the load would look like every spot vanished.
+    mockMigrateDb.mockRejectedValueOnce(new Error('migration 2 failed'));
+    const spot = createTestSpot({ name: 'still here' });
+    const m = createTestMedia({ spot_id: spot.id });
+    mockGetSpots.mockResolvedValue([spot]);
+    mockGetAllMedia.mockResolvedValue([m]);
+    mockGetUserSettings.mockResolvedValue({ units: UnitSystem.Metric, batch_import_radius: 50, gear: [] });
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const { result } = renderHook(() => useDbInit());
+    await flushInit();
+
+    expect(result.current.isReady).toBe(true);
+    expect(useSpotsStore.getState().spots).toEqual([spot]);
+    expect(useMediaStore.getState().mediaBySpot).toEqual({ [spot.id]: [m] });
+    expect(useSettingsStore.getState().units).toBe(UnitSystem.Metric);
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('migrat'), expect.any(Error));
+    consoleSpy.mockRestore();
+  });
+
   it('handles DB errors gracefully — still marks ready', async () => {
     mockMigrateDb.mockRejectedValueOnce(new Error('DB error'));
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});

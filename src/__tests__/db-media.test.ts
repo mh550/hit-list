@@ -29,6 +29,22 @@ describe('media against real SQLite', () => {
     expect(await getMediaForSpot(db, spot.id)).toEqual([a, b]);
   });
 
+  it('keeps who uploaded a photo, and leaves it unset when nobody did', async () => {
+    // Accounts are later work; the column is kept now so old photos can be attributed when they arrive.
+    const spot = createTestSpot();
+    await insertSpot(db, spot);
+    const mine = createTestMedia({ spot_id: spot.id, created_at: '2026-10-13T11:00:00.000Z', uploaded_by: 'user-1' });
+    const nobody = createTestMedia({ spot_id: spot.id, created_at: '2026-10-13T12:00:00.000Z' });
+    await insertMedia(db, mine);
+    await insertMedia(db, nobody);
+
+    const [a, b] = await getMediaForSpot(db, spot.id);
+
+    expect(a.uploaded_by).toBe('user-1');
+    expect(b.uploaded_by).toBeUndefined();
+    expect([a, b]).toEqual([mine, nobody]);
+  });
+
   it('deleteMedia removes only that row', async () => {
     const spot = createTestSpot();
     await insertSpot(db, spot);

@@ -162,9 +162,10 @@ export interface Media {
   id: string;
   spot_id: string;
   file_path: string;
-  captured_at?: string; // ISO 8601
+  captured_at?: string; // ISO 8601, when the photo was taken (EXIF); kept apart from the spot's created_at
   location?: GeoPoint;
   created_at: string; // ISO 8601
+  uploaded_by?: string; // the account that added it; unset until accounts exist (spec: User, [FUTURE])
 }
 
 export interface UserSettings {

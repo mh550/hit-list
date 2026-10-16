@@ -9,6 +9,7 @@ interface MediaRow {
   latitude: number | null;
   longitude: number | null;
   created_at: string;
+  uploaded_by: string | null;
 }
 
 function rowToMedia(row: MediaRow): Media {
@@ -18,6 +19,7 @@ function rowToMedia(row: MediaRow): Media {
     file_path: row.file_path,
     captured_at: row.captured_at ?? undefined,
     created_at: row.created_at,
+    uploaded_by: row.uploaded_by ?? undefined,
   };
   if (row.latitude != null && row.longitude != null) {
     media.location = { latitude: row.latitude, longitude: row.longitude } as GeoPoint;
@@ -27,8 +29,8 @@ function rowToMedia(row: MediaRow): Media {
 
 export async function insertMedia(db: SQLiteDatabase, media: Media): Promise<void> {
   await db.runAsync(
-    `INSERT INTO media (id, spot_id, file_path, captured_at, latitude, longitude, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO media (id, spot_id, file_path, captured_at, latitude, longitude, created_at, uploaded_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     media.id,
     media.spot_id,
     media.file_path,
@@ -36,6 +38,7 @@ export async function insertMedia(db: SQLiteDatabase, media: Media): Promise<voi
     media.location?.latitude ?? null,
     media.location?.longitude ?? null,
     media.created_at,
+    media.uploaded_by ?? null,
   );
 }
 

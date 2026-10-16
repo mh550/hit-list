@@ -66,8 +66,21 @@ async function migration1(db: SQLiteDatabase): Promise<void> {
   `);
 }
 
+/**
+ * Version 2: who uploaded a photo (`media.uploaded_by`, unset until accounts exist), and the
+ * `updated_at` / `deleted_at` rows that SQLite stamped as `YYYY-MM-DD HH:MM:SS` before the app
+ * wrote ISO 8601 itself become ISO, so every timestamp has one format.
+ */
+async function migration2(db: SQLiteDatabase): Promise<void> {
+  await db.execAsync(`ALTER TABLE media ADD COLUMN uploaded_by TEXT;`);
+  await db.execAsync(`
+    UPDATE spots SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', updated_at) WHERE updated_at NOT LIKE '%T%';
+    UPDATE spots SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ', deleted_at) WHERE deleted_at NOT LIKE '%T%';
+  `);
+}
+
 /** MIGRATIONS[i] takes the DB from version i to i + 1. */
-export const MIGRATIONS: readonly Migration[] = [migration1];
+export const MIGRATIONS: readonly Migration[] = [migration1, migration2];
 export const LATEST_SCHEMA_VERSION = MIGRATIONS.length;
 
 export async function getSchemaVersion(db: SQLiteDatabase): Promise<number> {

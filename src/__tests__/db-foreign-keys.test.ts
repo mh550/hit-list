@@ -51,7 +51,7 @@ describe('foreign keys', () => {
   });
 
   describe('table-rebuild migrations (foreign keys must be off while schema changes run)', () => {
-    // SQLite's documented rebuild: create X_new, copy, DROP X, rename. Same DDL as migration 1.
+    // SQLite's documented rebuild: create X_new, copy, DROP X, rename. Same DDL as the tables at the latest version.
     const rebuildSpots: Migration = async (d) => {
       await d.execAsync(`
         CREATE TABLE spots_new (
@@ -85,6 +85,7 @@ describe('foreign keys', () => {
           latitude REAL,
           longitude REAL,
           created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          uploaded_by TEXT,
           FOREIGN KEY (spot_id) REFERENCES spots(id) ON DELETE CASCADE
         );
         INSERT INTO media_new SELECT * FROM media;
@@ -113,7 +114,14 @@ describe('foreign keys', () => {
       await MIGRATIONS[0](db);
       await db.execAsync('PRAGMA user_version = 1');
       const orphan = createTestMedia({ spot_id: 'no-such-spot' });
-      await insertMedia(db, orphan);
+      await db.runAsync(
+        // the version 1 row shape: insertMedia writes today's columns
+        'INSERT INTO media (id, spot_id, file_path, created_at) VALUES (?, ?, ?, ?)',
+        orphan.id,
+        orphan.spot_id,
+        orphan.file_path,
+        orphan.created_at,
+      );
 
       await expect(migrateDb(db, [...MIGRATIONS, rebuildMedia])).resolves.toBeUndefined();
 

@@ -18,8 +18,14 @@ export function useDbInit(): { isReady: boolean } {
 
   useEffect(() => {
     (async () => {
+      // A failed upgrade leaves the DB at its last good version, which this build can still read, so the
+      // load goes ahead: skipping it would look like every spot had vanished.
       try {
         await migrateDb(db);
+      } catch (err) {
+        console.error('[useDbInit] Database migration failed:', err);
+      }
+      try {
         const spots = await getSpots(db);
         setSpots(spots);
         setAllMedia(await getAllMedia(db));

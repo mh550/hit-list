@@ -14,7 +14,10 @@ module.exports = defineConfig([
       // Hermes has no crypto.getRandomValues, so the uuid package throws on the phone; ids come from newId().
       'no-restricted-imports': [
         'error',
-        { paths: [{ name: 'uuid', message: "Use newId() from '@/src/utils/id' (expo-crypto); uuid throws on Hermes." }] },
+        {
+          paths: [{ name: 'uuid', message: "Use newId() from '@/src/utils/id' (expo-crypto); uuid throws on Hermes." }],
+          patterns: [{ group: ['uuid/*'], message: "Use newId() from '@/src/utils/id' (expo-crypto); uuid throws on Hermes." }],
+        },
       ],
     },
   },

@@ -288,6 +288,7 @@ _(append messages from the phone here, newest first)_
 
 ## Needs Michael
 _(exact commands / decisions, newest first)_
+- **Question (D16, from the review of D13):** untitled spots from one import now all carry the same date, so their labels read alike: `Untitled · Seattle · Oct 15, 9:40 PM` three times. The import review card showed each group's capture date, and that is lost from the list once saved. Should the *label* of an untitled imported spot use its first photo's capture date (the spot's own `created_at` stays the import time, so sorting is unchanged)?
 - **Question (D15), half-answered 2026-10-15:** town matching is wanted on the map, unsure for the list. Recommendation (no change made): keep it in both, since both views share one search field and the query survives switching; different matching per view would show different spots for the same text. **Confirm or say "name only in the list".**
 - ~~Question (D14): open sorted by Distance?~~ **Answered 2026-10-15: yes, for now** → done: Distance, nearest first, once the position is known; a tapped sort sticks.
 - ~~Question (D13): import date~~ **Answered 2026-10-15: the import time** → done. Each photo keeps `captured_at`; `media.uploaded_by` added (schema v2) for when accounts exist.

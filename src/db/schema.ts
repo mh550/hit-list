@@ -69,13 +69,16 @@ async function migration1(db: SQLiteDatabase): Promise<void> {
 /**
  * Version 2: who uploaded a photo (`media.uploaded_by`, unset until accounts exist), and the
  * `updated_at` / `deleted_at` rows that SQLite stamped as `YYYY-MM-DD HH:MM:SS` before the app
- * wrote ISO 8601 itself become ISO, so every timestamp has one format.
+ * wrote ISO 8601 itself become ISO, so every timestamp has one format. A value strftime cannot
+ * parse is left alone: NULL would un-delete a spot or abort the migration.
  */
 async function migration2(db: SQLiteDatabase): Promise<void> {
   await db.execAsync(`ALTER TABLE media ADD COLUMN uploaded_by TEXT;`);
   await db.execAsync(`
-    UPDATE spots SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', updated_at) WHERE updated_at NOT LIKE '%T%';
-    UPDATE spots SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ', deleted_at) WHERE deleted_at NOT LIKE '%T%';
+    UPDATE spots SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', updated_at)
+      WHERE updated_at NOT LIKE '%T%' AND strftime('%Y-%m-%dT%H:%M:%fZ', updated_at) IS NOT NULL;
+    UPDATE spots SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ', deleted_at)
+      WHERE deleted_at NOT LIKE '%T%' AND strftime('%Y-%m-%dT%H:%M:%fZ', deleted_at) IS NOT NULL;
   `);
 }
 

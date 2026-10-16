@@ -156,15 +156,18 @@ describe('useDbInit', () => {
     consoleSpy.mockRestore();
   });
 
-  it('handles DB errors gracefully — still marks ready', async () => {
-    mockMigrateDb.mockRejectedValueOnce(new Error('DB error'));
+  it('still marks ready when the load itself fails', async () => {
+    // The migration is handled above; this is the second catch: a failing getSpots must not strand the splash screen.
+    mockGetSpots.mockRejectedValueOnce(new Error('DB error'));
+    mockGetUserSettings.mockResolvedValue(null);
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
     const { result } = renderHook(() => useDbInit());
     await flushInit();
     expect(result.current.isReady).toBe(true);
 
-    expect(consoleSpy).toHaveBeenCalled();
+    expect(useSpotsStore.getState().spots).toEqual([]);
+    expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('initialize'), expect.any(Error));
     consoleSpy.mockRestore();
   });
 });

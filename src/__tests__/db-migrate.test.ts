@@ -104,6 +104,21 @@ describe('migrateDb (PRAGMA user_version)', () => {
       ]);
     });
 
+    it('leaves a value it cannot parse alone rather than nulling it', async () => {
+      // strftime of garbage is NULL: that would un-delete a spot (deleted_at) or abort the migration (updated_at NOT NULL).
+      const db = await v1Db();
+      const spot = createTestSpot();
+      await insertSpot(db, spot);
+      await db.runAsync(`UPDATE spots SET updated_at = 'garbage', deleted_at = 'more garbage' WHERE id = ?`, spot.id);
+
+      await migrateDb(db);
+
+      expect(await getSchemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
+      expect(
+        await db.getFirstAsync('SELECT updated_at, deleted_at FROM spots WHERE id = ?', spot.id),
+      ).toEqual({ updated_at: 'garbage', deleted_at: 'more garbage' });
+    });
+
     it('leaves ISO timestamps as they are', async () => {
       const db = await v1Db();
       const spot = createTestSpot({ updated_at: '2026-10-13T12:34:56.789Z' });

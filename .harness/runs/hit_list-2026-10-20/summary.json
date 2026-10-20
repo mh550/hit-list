@@ -3,7 +3,7 @@
   "project": "hit_list",
   "branch": "harness/hit_list-2026-10-20",
   "started": "2026-10-20T16:54:49.000Z",
-  "ended_at": "2026-10-20T17:10:52.000Z",
+  "ended_at": "2026-10-20T17:11:16.000Z",
   "end_reason": "stopped by Michael",
   "continuations": 0,
   "features": {
@@ -75,15 +75,17 @@
     "end": 387
   },
   "cost": {
-    "total": 7.07,
-    "per_passing_feature": 7.07,
+    "total": 7.18,
+    "per_passing_feature": 7.18,
     "by_role": {
       "init": 5.63,
-      "plan": 1.44
+      "plan": 1.44,
+      "retro": 0.11
     },
     "by_model": {
       "claude-fable-5-1": 5.63,
-      "claude-opus-5-5": 1.44
+      "claude-opus-5-5": 1.44,
+      "claude-sonnet-5-5": 0.11
     },
     "manager": 0
   },
@@ -93,12 +95,13 @@
     "driver_h": 0.03,
     "by_role_h": {
       "init": 0.18,
-      "plan": 0.06
+      "plan": 0.06,
+      "retro": 0.01
     }
   },
   "sessions": {
-    "total": 2,
-    "real": 2,
+    "total": 3,
+    "real": 3,
     "environmental": 0
   },
   "guards": {

@@ -12,6 +12,15 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-20 · M1-01 · passes
+
+- Wrote `docs/plans/2026-10-20-m1-model.md`: final types (Spot, SpotUpdate, SpotLegacy, SpotFilters, UserSettings, NaturalSpeed), migration 3 SQL (5 ADD COLUMN, JS backfill via pure `migrateSpotRowV3`, rebuild with explicit column list, `idx_spots_deleted_at` recreated), the 16 legacy keys, the M1-02/03/04 type split, `FEATURE_TYPE_LABELS`, the exact v2 fixture (full/empty/rail) with expected values, and a per-file table for all 20 tests (+ db-migrate, review-persist, screens, spot-name). Docs only; tests 387 → 387.
+- Verified: `check.sh` green (387 tests); every required section and all 20 file rows grepped present.
+- Next session (M1-02): existing db-migrate v0/v1 cases call `insertSpot` before migrating; switch them to raw old-column inserts. `db-foreign-keys` `rebuildSpots` DDL must match the v3 column order in the plan. In the interim `rowToSpot` returns `status: Complete` and the factory uses Complete, so round trips stay `toEqual`.
+- Builder calls (reversible, in the plan): `removable: false` is not archived (edit wrote it by default); unparseable JSON column goes to `legacy.raw_<column>` instead of aborting the migration (a throw would leave the phone at v2 with a v3 mapper, so no spots would load).
+- Questions for Michael: none new.
+- Proposed change: M1-01 step 3 says edit has a "private TYPE_LABELS copy"; it actually labels chips inline with `t.replace(/_/g, ' ')`. The plan covers both.
+
 ---
 
 ## 2026-10-20 · Initializer

@@ -14,7 +14,7 @@
         "The plan says where FEATURE_TYPE_LABELS lives (src/constants/labels.ts, replacing STOP_TYPE_LABELS) and that FilterSheet's and edit's private TYPE_LABELS copies are replaced by it.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes (nothing but the plan changed)."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M1-02",

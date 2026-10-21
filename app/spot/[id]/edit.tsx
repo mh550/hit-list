@@ -85,6 +85,16 @@ export default function EditSpotScreen() {
     AccessibilityInfo.announceForAccessibility('Photo will be removed when you save');
   }, []);
 
+  // The removed photos come back into their slots, so the newest picks that no longer fit give way.
+  const undoRemovals = useCallback(() => {
+    setRemovedIds([]);
+    const room = MAX_PHOTOS - photos.length;
+    if (staged.length > room) {
+      setStaged(staged.slice(0, Math.max(0, room)));
+      Alert.alert(`${MAX_PHOTOS} photos per spot`, 'The removed photos are back, so the newest added ones were taken off.');
+    }
+  }, [photos.length, staged]);
+
   // ✕ on a draft just unstages it: it was never saved, so there is nothing to remove on Save.
   const unstagePhoto = useCallback((photoId: string) => {
     setStaged((prev) => prev.filter((p) => p.id !== photoId));
@@ -104,6 +114,7 @@ export default function EditSpotScreen() {
           <Pressable
             style={styles.removeBadge}
             onPress={() => (isNew ? unstagePhoto(m.id) : stagePhotoRemoval(m.id))}
+            disabled={saving}
             hitSlop={10}
             accessibilityRole="button"
             accessibilityLabel={`Remove photo ${index + 1}`}>
@@ -112,7 +123,7 @@ export default function EditSpotScreen() {
         </View>
       );
     },
-    [stagedIds, stagePhotoRemoval, unstagePhoto],
+    [stagedIds, saving, stagePhotoRemoval, unstagePhoto],
   );
 
   const handleAddPhotos = useCallback(async () => {
@@ -269,7 +280,8 @@ export default function EditSpotScreen() {
             {removedIds.length === 1 ? '1 photo' : `${removedIds.length} photos`} will be removed when you save.
           </Text>
           <Pressable
-            onPress={() => setRemovedIds([])}
+            onPress={undoRemovals}
+            disabled={saving}
             hitSlop={10}
             accessibilityRole="button"
             accessibilityLabel="Undo">
@@ -306,7 +318,7 @@ export default function EditSpotScreen() {
       {/* Actions */}
       <View style={styles.actions}>
         <Button title="Save" onPress={handleSave} variant="primary" size="lg" disabled={saving} />
-        <Button title="Delete spot" onPress={handleDelete} variant="destructive" size="lg" />
+        <Button title="Delete spot" onPress={handleDelete} variant="destructive" size="lg" disabled={saving} />
       </View>
     </ScrollView>
   );

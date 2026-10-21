@@ -7,3 +7,4 @@ export { EmptyState } from './EmptyState';
 export { SpotListItem } from './SpotListItem';
 export { SpeedScale, SPEED_LABELS } from './SpeedScale';
 export { PhotoGrid } from './PhotoGrid';
+export { SpotTagFields, type SpotTags } from './SpotTagFields';

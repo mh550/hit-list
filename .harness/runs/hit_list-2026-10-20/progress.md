@@ -12,6 +12,15 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 · M2-04 · passes
+
+- New `src/components/SpotTagFields.tsx` (exported with `SpotTags` from `src/components/index.ts`): controlled; "What's here" + eight `Chip`s in `FEATURE_TYPE_LABELS` order (tap order kept, D19), 'Skate stopped' `Switch`, "Natural speed" + `SpeedScale`; every `onChange` passes the full next value.
+- `app/spot/[id]/edit.tsx` rewritten in §2.2 order, no section headers: `PhotoGrid` with a ✕ badge `Remove photo N` (staged removal, Undo, primary and partial-failure logic unchanged), Name ('Name (optional)', a11y 'Name'), `SpotTagFields`, Notes (multiline, 'Anything else'), Save, 'Delete spot'. The Save patch now carries `feature_types`, `stopped`, `natural_speed ?? null` (0 kept), `notes trim || null`; never `location`.
+- Tests: new `spot-tag-fields.test.tsx` (6) and `edit-spot-tags.test.tsx` (11); `edit-remove-photo` "Photos heading" cases → grid/no-header cases; `edit-spot-name` "only name + updated_at" case → full-patch case. Tests 387 → 404.
+- Verified: `check.sh` green (404), `npx jest --ci` 0 console.error; RED seen for both new files before the code. Opus review: no Critical; the one Important (keyboard covered Notes) fixed with `automaticallyAdjustKeyboardInsets` + test; the duplicate VoiceOver stops on 'Skate stopped' / 'Notes' fixed (label Texts hidden; tests query with `includeHiddenElements: true`).
+- Next session (M2-05) must know: the grid gets `visiblePhotos` only, with no `trailing` yet; add the '+' tile and staged drafts there. Hint/Undo now render under the grid whenever `removedIds.length > 0`.
+- Proposed changes (M2-07, Minor, not done): SpotTagFields `onChange` spreads the `value` prop, so two changes in one batch before a re-render would lose the first (an updater-style `onChange` fixes it); tie the radiogroup to its "Natural speed" heading for VoiceOver; PhotoGrid tiles in edit are dimmed `imagebutton` stops (no `onPressPhoto`), so use role `image` there, as M2-03 already proposed.
+
 ### 2026-10-21 · M2-03 · passes
 
 - New `src/components/PhotoGrid.tsx` (exported from `src/components/index.ts`): hero `photo-tile-0` `width '100%'`, `aspectRatio 4/3`; the rest in a `flexWrap` row of square tiles (`aspectRatio 1`, `spacing.xs` gaps, width = row width from `onLayout` minus gaps, /3, **floored to the pixel grid** so three always fit; `'31%'` before layout). Tiles are `imagebutton` "Photo N of M", `disabled` without `onPressPhoto`; images via `resolvePhotoUri`; `trailing` is a square tile after the last photo; 0 photos + no trailing → `null`.

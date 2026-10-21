@@ -10,25 +10,25 @@ import {
   Alert,
   AccessibilityInfo,
 } from 'react-native';
-import { Image } from 'expo-image';
-
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useSpotsStore, useMediaStore } from '@/src/stores';
 import { useSpotActions } from '@/src/hooks/use-spot-actions';
 import { useMediaActions } from '@/src/hooks/use-media-actions';
-import { resolvePhotoUri } from '@/src/utils/photo-storage';
 import { primaryPhoto, spotPhotos } from '@/src/utils/spot-photos';
 import { getSpotDisplayName } from '@/src/utils/spot-name';
 import { Button } from '@/src/components/Button';
+import { PhotoGrid } from '@/src/components/PhotoGrid';
+import { SpotTagFields, type SpotTags } from '@/src/components/SpotTagFields';
 import { palette, spacing, radius } from '@/src/constants/theme';
-import type { SpotUpdate } from '@/src/types';
+import type { Media, SpotUpdate } from '@/src/types';
 
-function SectionHeader({ title }: { title: string }) {
-  return <Text style={styles.sectionHeader}>{title}</Text>;
-}
-
+/** Visible only: the input carries the same accessibilityLabel, so VoiceOver skips this Text. */
 function FieldLabel({ label }: { label: string }) {
-  return <Text style={styles.fieldLabel}>{label}</Text>;
+  return (
+    <Text style={styles.fieldLabel} accessibilityElementsHidden importantForAccessibility="no">
+      {label}
+    </Text>
+  );
 }
 
 export default function EditSpotScreen() {
@@ -41,6 +41,12 @@ export default function EditSpotScreen() {
 
   // Edit state (local copy)
   const [name, setName] = useState(spot?.name ?? '');
+  const [tags, setTags] = useState<SpotTags>({
+    feature_types: spot?.feature_types ?? [],
+    stopped: spot?.stopped ?? false,
+    natural_speed: spot?.natural_speed,
+  });
+  const [notes, setNotes] = useState(spot?.notes ?? '');
   // Photos staged for removal; nothing is deleted until Save (Cancel/back undoes them, like an edited name).
   const [removedIds, setRemovedIds] = useState<string[]>([]);
   // Save awaits the deletes before router.back(), so a second tap must not start another run.
@@ -56,6 +62,20 @@ export default function EditSpotScreen() {
     AccessibilityInfo.announceForAccessibility('Photo will be removed when you save');
   }, []);
 
+  const renderRemoveBadge = useCallback(
+    (m: Media, index: number) => (
+      <Pressable
+        style={styles.removeBadge}
+        onPress={() => stagePhotoRemoval(m.id)}
+        hitSlop={10}
+        accessibilityRole="button"
+        accessibilityLabel={`Remove photo ${index + 1}`}>
+        <IconSymbol name="xmark" size={14} color={palette.white} />
+      </Pressable>
+    ),
+    [stagePhotoRemoval],
+  );
+
   const handleSave = useCallback(async () => {
     if (!spot || savingRef.current) return;
     savingRef.current = true;
@@ -63,6 +83,10 @@ export default function EditSpotScreen() {
     try {
       const updates: SpotUpdate = {
         name: name.trim() || null, // null clears the stored name; undefined would keep the old one
+        feature_types: tags.feature_types,
+        stopped: tags.stopped,
+        natural_speed: tags.natural_speed ?? null, // 0 (None) is kept; only unrated clears
+        notes: notes.trim() || null,
         updated_at: new Date().toISOString(),
       };
 
@@ -94,7 +118,7 @@ export default function EditSpotScreen() {
       setSaving(false);
       Alert.alert("Couldn't save", 'Please try again.');
     }
-  }, [spot, name, removedIds, media, updateSpot, removePhotos, router]);
+  }, [spot, name, tags, notes, removedIds, media, updateSpot, removePhotos, router]);
 
   const handleDelete = useCallback(() => {
     if (!spot) return;
@@ -127,63 +151,53 @@ export default function EditSpotScreen() {
     <ScrollView
       style={styles.container}
       contentContainerStyle={styles.content}
-      keyboardShouldPersistTaps="handled">
-      {photos.length > 0 ? (
-        <>
-          <SectionHeader title="Photos" />
-          {visiblePhotos.length > 0 ? (
-            <ScrollView
-              horizontal
-              style={styles.photoRow}
-              contentContainerStyle={styles.photoRowContent}
-              showsHorizontalScrollIndicator={false}>
-              {visiblePhotos.map((m, i) => (
-                <View key={m.id} style={styles.thumbWrap}>
-                  <Image source={{ uri: resolvePhotoUri(m.file_path) }} style={styles.thumb} contentFit="cover" />
-                  <Pressable
-                    style={styles.thumbRemove}
-                    onPress={() => stagePhotoRemoval(m.id)}
-                    hitSlop={10}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Remove photo ${i + 1}`}>
-                    <IconSymbol name="xmark" size={14} color={palette.white} />
-                  </Pressable>
-                </View>
-              ))}
-            </ScrollView>
-          ) : null}
-          {removedIds.length > 0 ? (
-            <View style={styles.pendingRow}>
-              <Text style={styles.photoHint}>
-                {removedIds.length === 1 ? '1 photo' : `${removedIds.length} photos`} will be removed when you save.
-              </Text>
-              <Pressable
-                onPress={() => setRemovedIds([])}
-                hitSlop={10}
-                accessibilityRole="button"
-                accessibilityLabel="Undo">
-                <Text style={styles.undoText}>Undo</Text>
-              </Pressable>
-            </View>
-          ) : null}
-        </>
+      keyboardShouldPersistTaps="handled"
+      automaticallyAdjustKeyboardInsets>
+      <PhotoGrid photos={visiblePhotos} renderBadge={renderRemoveBadge} />
+      {removedIds.length > 0 ? (
+        <View style={styles.pendingRow}>
+          <Text style={styles.photoHint}>
+            {removedIds.length === 1 ? '1 photo' : `${removedIds.length} photos`} will be removed when you save.
+          </Text>
+          <Pressable
+            onPress={() => setRemovedIds([])}
+            hitSlop={10}
+            accessibilityRole="button"
+            accessibilityLabel="Undo">
+            <Text style={styles.undoText}>Undo</Text>
+          </Pressable>
+        </View>
       ) : null}
 
+      <TextInput
+        style={styles.input}
+        value={name}
+        onChangeText={setName}
+        placeholder="Name (optional)"
+        placeholderTextColor={palette.gray[400]}
+        accessibilityLabel="Name"
+      />
+
+      <SpotTagFields value={tags} onChange={setTags} />
+
       <View style={styles.field}>
-        <FieldLabel label="Name" />
+        <FieldLabel label="Notes" />
         <TextInput
-          style={styles.input}
-          value={name}
-          onChangeText={setName}
-          placeholder="Name (optional)"
+          style={[styles.input, styles.notes]}
+          value={notes}
+          onChangeText={setNotes}
+          placeholder="Anything else"
           placeholderTextColor={palette.gray[400]}
+          accessibilityLabel="Notes"
+          multiline
+          textAlignVertical="top"
         />
       </View>
 
       {/* Actions */}
       <View style={styles.actions}>
         <Button title="Save" onPress={handleSave} variant="primary" size="lg" disabled={saving} />
-        <Button title="Delete Spot" onPress={handleDelete} variant="destructive" size="lg" />
+        <Button title="Delete spot" onPress={handleDelete} variant="destructive" size="lg" />
       </View>
     </ScrollView>
   );
@@ -203,38 +217,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  sectionHeader: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: palette.gray[900],
-    marginTop: spacing.lg,
-  },
   field: {
     gap: spacing.sm,
   },
-  photoRow: {
-    flexGrow: 0, // a horizontal ScrollView grows to fill the column by default
-  },
-  photoRowContent: {
-    gap: spacing.sm,
-    paddingTop: spacing.xs,
-    paddingRight: spacing.xs,
-  },
-  thumbWrap: {
-    width: 72,
-    height: 72,
-  },
-  thumb: {
-    width: 72,
-    height: 72,
-    borderRadius: radius.md,
-    borderCurve: 'continuous',
-    backgroundColor: palette.gray[200],
-  },
-  thumbRemove: {
-    position: 'absolute',
-    top: 4,
-    right: 4,
+  removeBadge: {
     width: 24,
     height: 24,
     borderRadius: radius.full,
@@ -273,6 +259,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: palette.gray[900],
     backgroundColor: palette.white,
+  },
+  notes: {
+    minHeight: 88,
   },
   actions: {
     gap: spacing.md,

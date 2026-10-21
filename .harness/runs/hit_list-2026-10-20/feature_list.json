@@ -139,7 +139,7 @@
         "The rendered edit tree has no text 'Basic Info', 'Feature', 'In-Run', 'Landing', 'Details', 'Status', 'Save as Draft', 'Material', 'Shape', 'Length', 'Bustability' or 'Intensity'; the name placeholder is 'Name (optional)' and the notes placeholder is 'Anything else'; the photo grid is PhotoGrid with an accessibilityLabel 'Remove photo N' button on each tile (edit-remove-photo.test.tsx updated and passing, staged removal with Undo unchanged).",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M2-05",

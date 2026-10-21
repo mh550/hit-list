@@ -31,7 +31,8 @@ describe('Edit spot: clearing the name', () => {
     });
   });
 
-  it('Save writes only the name and updated_at (nothing from the removed model)', () => {
+  it('Save writes the name, the three tags, notes and updated_at, and never the location', () => {
+    // Adding or editing never moves the spot, and nothing from the removed model is written.
     const spot = createTestSpot({ name: 'Old', feature_types: [FeatureType.Rail], stopped: true, notes: 'keep' });
     useSpotsStore.setState({ spots: [spot] });
     jest.mocked(useLocalSearchParams).mockReturnValue({ id: spot.id });
@@ -44,8 +45,10 @@ describe('Edit spot: clearing the name', () => {
     return waitFor(() => {
       expect(mockUpdateSpot).toHaveBeenCalledTimes(1);
       const [, updates] = mockUpdateSpot.mock.calls[0] as unknown as [string, SpotUpdate];
-      expect(Object.keys(updates).sort()).toEqual(['name', 'updated_at']);
-      expect(updates.name).toBe('New');
+      expect(Object.keys(updates).sort()).toEqual(
+        ['feature_types', 'name', 'natural_speed', 'notes', 'stopped', 'updated_at'],
+      );
+      expect(updates).toMatchObject({ name: 'New', feature_types: [FeatureType.Rail], stopped: true, notes: 'keep' });
     });
   });
 });

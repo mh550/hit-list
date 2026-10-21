@@ -350,6 +350,25 @@ describe('migrateDb (PRAGMA user_version)', () => {
       expect(JSON.parse(row?.legacy_json ?? 'null')).toEqual({ raw_feature: 'not json' });
     });
 
+    it('a throw late in migration 3 (at the rebuild) leaves version 2 and the v2 spots table intact', async () => {
+      const db = await v2Db();
+      const spot = createTestSpot();
+      await insertOldSpot(db, spot, { feature_json: '{"type":"rail"}' });
+      await addTwoPhotos(db, spot.id);
+      await db.execAsync('CREATE TABLE spots_new (x)'); // the ALTERs and backfill run, then CREATE TABLE spots_new fails
+
+      await expect(migrateDb(db)).rejects.toThrow(/spots_new/);
+
+      expect(await getSchemaVersion(db)).toBe(2);
+      const columns = (await db.getAllAsync<{ name: string }>('PRAGMA table_info(spots)')).map((c) => c.name);
+      expect(columns).toContain('feature_json');
+      expect(columns).not.toContain('feature_types_json');
+      expect(await db.getAllAsync('SELECT id, feature_json FROM spots')).toEqual([
+        { id: spot.id, feature_json: '{"type":"rail"}' },
+      ]);
+      expect(await db.getFirstAsync('SELECT COUNT(*) AS n FROM media')).toEqual({ n: 2 });
+    });
+
     it('migrates soft-deleted spots too', async () => {
       const db = await v2Db();
       const gone = createTestSpot({ deleted_at: '2026-10-14T01:02:03.000Z' });

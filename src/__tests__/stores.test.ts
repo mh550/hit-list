@@ -274,4 +274,13 @@ describe('useSpotsStore.updateSpot: notes and natural_speed', () => {
 
     expect(useSpotsStore.getState().spots[0].natural_speed).toBe(0);
   });
+
+  it('an undefined key in the patch keeps the stored value, as updateSpot in the DB does', () => {
+    const spot = createTestSpot({ id: 'u1', feature_types: [FeatureType.Rail], stopped: true });
+    useSpotsStore.setState({ spots: [spot] });
+
+    useSpotsStore.getState().updateSpot('u1', { feature_types: undefined, stopped: undefined, updated_at: 'x' });
+
+    expect(useSpotsStore.getState().spots[0]).toMatchObject({ feature_types: [FeatureType.Rail], stopped: true });
+  });
 });

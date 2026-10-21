@@ -227,7 +227,7 @@
         "The file records npx jest --silent totals (tests, suites, zero console.error) and npx expo export --platform ios --output-dir /tmp/hl-export exit 0.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M3-04",

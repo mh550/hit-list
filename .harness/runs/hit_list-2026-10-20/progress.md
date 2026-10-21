@@ -12,6 +12,12 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 · M3-03 · passes
+
+- New `docs/plans/2026-10-20-m3-what-michael-will-see.md`: ordered texts/labels for (a) 7-photo tagged spot, (b) 2-photo bare spot (grid + title only), (c) `fullLegacy` spot with Older details closed then open. Scratch test deleted; no code changed.
+- Verified: `check.sh` green; `npx jest --ci` 43 suites / 458 tests, 0 `console.error`; `expo export --platform ios` exit 0.
+- Look at on phone: width 0.05 m shows '0.1 m'; `fullLegacy` has no `raw_feature` (earlier note was wrong).
+
 ### 2026-10-21 · M3-02 · passes
 
 - `app/spot/[id]/index.tsx` rewritten in §2.4 order: `PhotoGrid` (no photos → dashed 'Add photos' tile → `router.push('/spot/<id>/edit')`), title, `ChipGroup` of new read-only `Tag`s (stored type order, then 'Skate stopped' red-outlined, `testID="tag-stopped"`), `SpeedScale readonly`, notes, `OlderDetails` (getSpotLegacy once per mount, deps `[db, spotId]`; reject → one `console.warn`, no disclosure; collapsed button with `expanded` state; units from settings store). `Tag` added to `src/components/Chip.tsx` + index; `chevron.down` icon mapped. Header 'Edit' now has role button.

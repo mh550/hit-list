@@ -37,3 +37,4 @@
 - 2026-10-21 13:01 · M4-06 · claude-sonnet-5-5 · passes=true · 1 min · 22/39 passing
 - 2026-10-21 13:11 · M4-07 · claude-opus-5-5 · passes=true · 10 min · 23/39 passing
 - 2026-10-21 13:11 · merged main into harness/hit_list-2026-10-20
+- 2026-10-21 13:12 · verify M4: M4-04 failed the re-check, back in the queue (one more attempt)

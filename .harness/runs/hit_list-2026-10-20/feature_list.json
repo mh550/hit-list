@@ -355,7 +355,7 @@
         "src/__tests__/stores.test.ts passes with the final filter semantics: stopped undefined keeps all, true keeps stopped only, false keeps not-stopped only; types any-of; natural_speed_min 1 and max 3 keeps speeds 1,2,3 and undefined and drops 0 and 4; selectActiveFilterCount returns 1 for { types: ['rail'] }, 1 for { stopped: false }, 1 for { natural_speed_min: 0, natural_speed_max: 2 }, 3 for all three, 0 for DEFAULT_FILTERS.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M5-02",

@@ -12,6 +12,14 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 18:10 · M5-01 · passes
+
+- New plan `docs/plans/2026-10-20-m5-filters-list.md`: sheet layout (What's here chips · Skate stopped segmented Any/Not stopped/Stopped · Natural speed range), SpeedScale range API (`rangeValue`/`onRangeChange`, tap table in a pure `nextSpeedRange`, a11y), SpotListItem props, callout `' · '` rule (`featureTypesList`), test list.
+- Store: the filter semantics were already built in M1/M2. `selectActiveFilterCount` now checks `!== undefined` instead of `!= null`. `stores.test.ts` gains 6 tests (speeds 0–4 with min 1/max 3, stopped undefined, count `{min:0,max:2}`/`{max:0}`, `setFilters` all three, explicit undefined clears, reset copy). Tests 530 → 536.
+- Verified: if the count tested truthiness, the `{min:0,max:2}` test would fail (mutation tried, then reverted). `check.sh` green (536), `jest --ci` 0 console.error.
+- Next (M5-02): build the sheet and range mode per the plan. Keys must always be present (explicit undefined) so Apply's merge clears an old range or stopped value.
+- My calls on the plan (§10, no question for Michael): the first tap emits `[t,t]`, a tap outside a complete range starts a new range, `[0,4]` is kept as chosen. Questions for Michael: none.
+
 ### 2026-10-21 · verify M4
 
 | Feature | Step | What you ran or read | What you saw | Holds |

@@ -83,7 +83,7 @@
         "CLAUDE.md Layout/Conventions and README.md Status no longer mention drafts, gear/build filters, ratings or Intensity, and describe feature_types/stopped/natural_speed/notes/legacy_json and getSpotLegacy; docs/RUNNING-ON-PHONE.md lines 33–42 no longer mention the Draft badge or yellow pins.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M2-01",

@@ -1,0 +1,4861 @@
+diff --git a/app/(tabs)/index.tsx b/app/(tabs)/index.tsx
+index fc6d996..a8b4c2c 100644
+--- a/app/(tabs)/index.tsx
++++ b/app/(tabs)/index.tsx
+@@ -22,11 +22,11 @@ import { SegmentedControl } from '@/src/components/SegmentedControl';
+ import { SpotMap } from '@/src/components/SpotMap';
+ import { SortChips } from '@/src/components/SortChips';
+ import { useCurrentLocation } from '@/src/hooks/use-current-location';
+-import { featureLabel, getSpotDisplayName } from '@/src/utils/spot-name';
++import { featureTypesLabel, getSpotDisplayName } from '@/src/utils/spot-name';
+ import { resolvePhotoUri } from '@/src/utils/photo-storage';
+ import { primaryPhoto } from '@/src/utils/spot-photos';
+ import { haversineDistance, formatDistance, isKnownLocation } from '@/src/utils/geo';
+-import { SortField, SpotStatus, UnitSystem } from '@/src/types';
++import { SortField, UnitSystem } from '@/src/types';
+ import type { Spot } from '@/src/types';
+ import type { ViewMode } from '@/src/stores/spots-store';
+ import { palette, radius, spacing } from '@/src/constants/theme';
+@@ -103,10 +103,8 @@ export default function SpotsScreen() {
+           id={item.id}
+           displayName={getSpotDisplayName(item)}
+           thumbnailUri={thumbnail ? resolvePhotoUri(thumbnail.file_path) : undefined}
+-          featureType={featureLabel(item)}
+-          difficulty={item.feature.difficulty as 1 | 2 | 3 | 4 | 5 | undefined}
++          featureType={featureTypesLabel(item)}
+           distance={getDistance(item)}
+-          isDraft={item.status === SpotStatus.Draft}
+           onPress={handleSpotPress}
+         />
+       );
+diff --git a/app/(tabs)/profile.tsx b/app/(tabs)/profile.tsx
+index 7e2a06f..6949dc8 100644
+--- a/app/(tabs)/profile.tsx
++++ b/app/(tabs)/profile.tsx
+@@ -3,27 +3,17 @@ import { StyleSheet, ScrollView, View, Text, TextInput, Pressable } from 'react-
+ 
+ import { useSettingsStore } from '@/src/stores/settings-store';
+ import { useSettingsActions } from '@/src/hooks/use-settings-actions';
+-import { Chip, ChipGroup } from '@/src/components/Chip';
+ import { palette, spacing, radius } from '@/src/constants/theme';
+-import { GearItem, UnitSystem } from '@/src/types';
++import { UnitSystem } from '@/src/types';
+ 
+ function SectionHeader({ title }: { title: string }) {
+   return <Text style={styles.sectionHeader}>{title}</Text>;
+ }
+ 
+-const GEAR_LABELS: Record<GearItem, string> = {
+-  [GearItem.Winch]: 'winch',
+-  [GearItem.Bungee]: 'bungee',
+-  [GearItem.DropInPlatform]: 'drop in platform',
+-  [GearItem.Scaffolding]: 'scaffolding',
+-  [GearItem.ShovelPull]: 'shovel pull',
+-};
+-
+ export default function ProfileScreen() {
+   const units = useSettingsStore((s) => s.units);
+   const batchRadius = useSettingsStore((s) => s.batch_import_radius);
+-  const gear = useSettingsStore((s) => s.gear);
+-  const { setUnits, setBatchImportRadius, toggleGear } = useSettingsActions();
++  const { setUnits, setBatchImportRadius } = useSettingsActions();
+ 
+   const [radiusText, setRadiusText] = useState(String(batchRadius));
+ 
+@@ -65,19 +55,6 @@ export default function ProfileScreen() {
+         </Pressable>
+       </View>
+ 
+-      <SectionHeader title="My Gear" />
+-      <Text style={styles.hint}>Select the gear you own for smart spot filtering.</Text>
+-      <ChipGroup>
+-        {Object.values(GearItem).map((item) => (
+-          <Chip
+-            key={item}
+-            label={GEAR_LABELS[item]}
+-            selected={gear.includes(item)}
+-            onPress={() => toggleGear(item)}
+-          />
+-        ))}
+-      </ChipGroup>
+-
+       <SectionHeader title="Import Settings" />
+       <View style={styles.field}>
+         <Text style={styles.fieldLabel}>Import Radius</Text>
+@@ -114,10 +91,6 @@ const styles = StyleSheet.create({
+     color: palette.gray[900],
+     marginTop: spacing.lg,
+   },
+-  hint: {
+-    fontSize: 13,
+-    color: palette.gray[500],
+-  },
+   unitsRow: {
+     flexDirection: 'row',
+     gap: spacing.sm,
+diff --git a/app/add/review.tsx b/app/add/review.tsx
+index e386f71..ba42889 100644
+--- a/app/add/review.tsx
++++ b/app/add/review.tsx
+@@ -8,7 +8,6 @@ import { useMediaActions } from '@/src/hooks/use-media-actions';
+ import { newId } from '@/src/utils/id';
+ import { isKnownLocation, NO_LOCATION } from '@/src/utils/geo';
+ import { palette, spacing, radius } from '@/src/constants/theme';
+-import { SpotStatus } from '@/src/types';
+ import type { Spot } from '@/src/types';
+ 
+ export default function ReviewScreen() {
+@@ -46,11 +45,8 @@ export default function ReviewScreen() {
+       location: { latitude, longitude },
+       created_at: now,
+       updated_at: now,
+-      status: SpotStatus.Draft,
+-      feature: {},
+-      in_run: { setup_options: [] },
+-      landing: {},
+-      metadata: {},
++      feature_types: [],
++      stopped: false,
+       primary_photo_id: firstPhotoId,
+     };
+ 
+@@ -133,7 +129,7 @@ export default function ReviewScreen() {
+         disabled={saving}
+         accessibilityLabel="Save spot"
+         accessibilityRole="button">
+-        <Text style={styles.saveText}>{saving ? 'Saving…' : 'Save as Draft'}</Text>
++        <Text style={styles.saveText}>{saving ? 'Saving…' : 'Save'}</Text>
+       </Pressable>
+     </ScrollView>
+   );
+diff --git a/app/import/review.tsx b/app/import/review.tsx
+index 4278d2e..3359f4a 100644
+--- a/app/import/review.tsx
++++ b/app/import/review.tsx
+@@ -17,7 +17,6 @@ import { newId } from '@/src/utils/id';
+ import { formatSpotDate } from '@/src/utils/spot-name';
+ import { NO_LOCATION } from '@/src/utils/geo';
+ import { palette, spacing, radius } from '@/src/constants/theme';
+-import { SpotStatus } from '@/src/types';
+ import type { Spot } from '@/src/types';
+ import type { ImportPhoto } from '@/src/utils/import-clustering';
+ 
+@@ -68,11 +67,8 @@ export default function ImportReviewScreen() {
+             location,
+             created_at: now, // the import, not the photo's capture date (D13); media keeps captured_at
+             updated_at: now,
+-            status: SpotStatus.Draft,
+-            feature: {},
+-            in_run: { setup_options: [] },
+-            landing: {},
+-            metadata: {},
++            feature_types: [],
++            stopped: false,
+             primary_photo_id: group.photos.length > 0 ? firstMediaId : undefined,
+           };
+ 
+diff --git a/app/spot/[id]/edit.tsx b/app/spot/[id]/edit.tsx
+index 20fd358..b06ad38 100644
+--- a/app/spot/[id]/edit.tsx
++++ b/app/spot/[id]/edit.tsx
+@@ -7,7 +7,6 @@ import {
+   Text,
+   TextInput,
+   Pressable,
+-  Switch,
+   Alert,
+   AccessibilityInfo,
+ } from 'react-native';
+@@ -15,28 +14,14 @@ import { Image } from 'expo-image';
+ 
+ import { IconSymbol } from '@/components/ui/icon-symbol';
+ import { useSpotsStore, useMediaStore } from '@/src/stores';
+-import { useSettingsStore } from '@/src/stores/settings-store';
+ import { useSpotActions } from '@/src/hooks/use-spot-actions';
+ import { useMediaActions } from '@/src/hooks/use-media-actions';
+ import { resolvePhotoUri } from '@/src/utils/photo-storage';
+ import { primaryPhoto, spotPhotos } from '@/src/utils/spot-photos';
+ import { getSpotDisplayName } from '@/src/utils/spot-name';
+-import { initialDimText, dimensionFromInput } from '@/src/utils/units';
+-import { StarRating } from '@/src/components/StarRating';
+-import { Chip, ChipGroup } from '@/src/components/Chip';
+ import { Button } from '@/src/components/Button';
+ import { palette, spacing, radius } from '@/src/constants/theme';
+-import { STOP_TYPE_LABELS } from '@/src/constants/labels';
+-import {
+-  SpotStatus,
+-  FeatureType,
+-  Material,
+-  LandingSurface,
+-  StopType,
+-  GearItem,
+-  BuildItem,
+-} from '@/src/types';
+-import type { SpotUpdate, SetupOption, Requirement } from '@/src/types';
++import type { SpotUpdate } from '@/src/types';
+ 
+ function SectionHeader({ title }: { title: string }) {
+   return <Text style={styles.sectionHeader}>{title}</Text>;
+@@ -53,40 +38,10 @@ export default function EditSpotScreen() {
+   const { updateSpot, removeSpot } = useSpotActions();
+   const { removePhotos } = useMediaActions();
+   const media = useMediaStore((s) => (spot ? s.mediaBySpot[spot.id] : undefined));
+-  const units = useSettingsStore((s) => s.units);
+ 
+   // Edit state (local copy)
+   const [name, setName] = useState(spot?.name ?? '');
+-  const [featureType, setFeatureType] = useState(spot?.feature.type);
+-  const [customType, setCustomType] = useState(spot?.feature.custom_type ?? '');
+-  const [shape, setShape] = useState(spot?.feature.shape ?? '');
+-  // Display texts as first shown; a field still equal to its initial text saves the stored metres exactly.
+-  const [initialDims] = useState(() => ({
+-    length: initialDimText(spot?.feature.dimensions?.length, units),
+-    height: initialDimText(spot?.feature.dimensions?.height, units),
+-    width: initialDimText(spot?.feature.dimensions?.width, units),
+-  }));
+-  const [length, setLength] = useState(initialDims.length);
+-  const [height, setHeight] = useState(initialDims.height);
+-  const [width, setWidth] = useState(initialDims.width);
+-  const [material, setMaterial] = useState(spot?.feature.material);
+-  const [isStopped, setIsStopped] = useState(spot?.feature.skate_stops?.is_stopped ?? false);
+-  const [stopType, setStopType] = useState<StopType | undefined>(spot?.feature.skate_stops?.stop_type);
+-  const [stopDetails, setStopDetails] = useState(spot?.feature.skate_stops?.stop_description ?? '');
+-  const [removable, setRemovable] = useState(spot?.feature.skate_stops?.removable ?? false);
+-  const [difficulty, setDifficulty] = useState(spot?.feature.difficulty ?? 0);
+-  const [naturalSpeed, setNaturalSpeed] = useState(spot?.in_run.natural_speed ?? 0);
+-  const [setupOptions, setSetupOptions] = useState<SetupOption[]>(
+-    spot?.in_run.setup_options ?? [],
+-  );
+-  const [landingDifficulty, setLandingDifficulty] = useState(spot?.landing.difficulty ?? 0);
+-  const [landingSurface, setLandingSurface] = useState(spot?.landing.surface);
+-  const [intensity, setIntensity] = useState(spot?.metadata.intensity ?? 0);
+-  const [bustability, setBustability] = useState(spot?.metadata.bustability ?? 0);
+-  const [bustNotes, setBustNotes] = useState(spot?.metadata.bustability_notes ?? '');
+-  const [notes, setNotes] = useState(spot?.metadata.notes ?? '');
+-  const [status, setStatus] = useState(spot?.status ?? SpotStatus.Draft);
+-  // Photos staged for removal; nothing is deleted until Save (Cancel/back undoes, like the other fields).
++  // Photos staged for removal; nothing is deleted until Save (Cancel/back undoes them, like an edited name).
+   const [removedIds, setRemovedIds] = useState<string[]>([]);
+   // Save awaits the deletes before router.back(), so a second tap must not start another run.
+   const savingRef = useRef(false);
+@@ -106,45 +61,8 @@ export default function EditSpotScreen() {
+     savingRef.current = true;
+     setSaving(true);
+     try {
+-      const stored = spot.feature.dimensions;
+-
+       const updates: SpotUpdate = {
+         name: name.trim() || null, // null clears the stored name; undefined would keep the old one
+-        status,
+-        feature: {
+-          type: featureType,
+-          custom_type: featureType === FeatureType.Other ? customType : undefined,
+-          shape: shape || undefined,
+-          dimensions: {
+-            length: dimensionFromInput(length, initialDims.length, stored?.length, units),
+-            height: dimensionFromInput(height, initialDims.height, stored?.height, units),
+-            width: dimensionFromInput(width, initialDims.width, stored?.width, units),
+-          },
+-          material,
+-          skate_stops: isStopped
+-            ? {
+-                is_stopped: true,
+-                stop_type: stopType,
+-                stop_description: stopDetails.trim() || undefined,
+-                removable,
+-              }
+-            : undefined,
+-          difficulty: difficulty || undefined,
+-        },
+-        in_run: {
+-          natural_speed: naturalSpeed || undefined,
+-          setup_options: setupOptions,
+-        },
+-        landing: {
+-          difficulty: landingDifficulty || undefined,
+-          surface: landingSurface,
+-        },
+-        metadata: {
+-          intensity: intensity || undefined,
+-          bustability: bustability || undefined,
+-          bustability_notes: bustNotes || undefined,
+-          notes: notes || undefined,
+-        },
+         updated_at: new Date().toISOString(),
+       };
+ 
+@@ -176,12 +94,7 @@ export default function EditSpotScreen() {
+       setSaving(false);
+       Alert.alert("Couldn't save", 'Please try again.');
+     }
+-  }, [
+-    spot, name, status, featureType, customType, shape, length, height, width, initialDims,
+-    material, isStopped, stopType, stopDetails, removable, difficulty, naturalSpeed, setupOptions, landingDifficulty,
+-    landingSurface, intensity, bustability, bustNotes, notes, units, removedIds, media,
+-    updateSpot, removePhotos, router,
+-  ]);
++  }, [spot, name, removedIds, media, updateSpot, removePhotos, router]);
+ 
+   const handleDelete = useCallback(() => {
+     if (!spot) return;
+@@ -202,31 +115,6 @@ export default function EditSpotScreen() {
+     );
+   }, [spot, removeSpot, router]);
+ 
+-  const addSetupOption = useCallback(() => {
+-    setSetupOptions((prev) => [...prev, { requires: [] }]);
+-  }, []);
+-
+-  const removeSetupOption = useCallback((index: number) => {
+-    setSetupOptions((prev) => prev.filter((_, i) => i !== index));
+-  }, []);
+-
+-  const toggleRequirement = useCallback(
+-    (optionIndex: number, item: GearItem | BuildItem, category: 'gear' | 'build') => {
+-      setSetupOptions((prev) =>
+-        prev.map((opt, i) => {
+-          if (i !== optionIndex) return opt;
+-          const exists = opt.requires.find((r) => r.item === item);
+-          if (exists) {
+-            return { requires: opt.requires.filter((r) => r.item !== item) };
+-          }
+-          const req: Requirement = { item, category };
+-          return { requires: [...opt.requires, req] };
+-        }),
+-      );
+-    },
+-    [],
+-  );
+-
+   if (!spot) {
+     return (
+       <View style={styles.centered}>
+@@ -235,11 +123,6 @@ export default function EditSpotScreen() {
+     );
+   }
+ 
+-  const featureTypes = Object.values(FeatureType);
+-  const materials = Object.values(Material);
+-  const stopTypes = Object.values(StopType);
+-  const surfaces = Object.values(LandingSurface);
+-
+   return (
+     <ScrollView
+       style={styles.container}
+@@ -286,281 +169,17 @@ export default function EditSpotScreen() {
+         </>
+       ) : null}
+ 
+-      {/* Basic Info */}
+-      <SectionHeader title="Basic Info" />
+       <View style={styles.field}>
+         <FieldLabel label="Name" />
+         <TextInput
+           style={styles.input}
+           value={name}
+           onChangeText={setName}
+-          placeholder="Spot name (optional)"
+-          placeholderTextColor={palette.gray[400]}
+-        />
+-      </View>
+-
+-      {/* Feature */}
+-      <SectionHeader title="Feature" />
+-      <View style={styles.field}>
+-        <FieldLabel label="Type" />
+-        <ChipGroup>
+-          {featureTypes.map((t) => (
+-            <Chip
+-              key={t}
+-              label={t.replace(/_/g, ' ')}
+-              selected={featureType === t}
+-              onPress={() => setFeatureType(featureType === t ? undefined : t)}
+-            />
+-          ))}
+-        </ChipGroup>
+-      </View>
+-
+-      {featureType === FeatureType.Other ? (
+-        <View style={styles.field}>
+-          <FieldLabel label="Custom Type" />
+-          <TextInput
+-            style={styles.input}
+-            value={customType}
+-            onChangeText={setCustomType}
+-            placeholder="Enter custom type"
+-            placeholderTextColor={palette.gray[400]}
+-          />
+-        </View>
+-      ) : null}
+-
+-      <View style={styles.field}>
+-        <FieldLabel label="Shape" />
+-        <TextInput
+-          style={styles.input}
+-          value={shape}
+-          onChangeText={setShape}
+-          placeholder="e.g. DFD, Flat, Kinked..."
++          placeholder="Name (optional)"
+           placeholderTextColor={palette.gray[400]}
+         />
+       </View>
+ 
+-      <View style={styles.dimensionsRow}>
+-        <View style={styles.dimField}>
+-          <FieldLabel label="Length" />
+-          <TextInput
+-            style={styles.input}
+-            accessibilityLabel="Length"
+-            value={length}
+-            onChangeText={setLength}
+-            keyboardType="decimal-pad"
+-            placeholder="0"
+-            placeholderTextColor={palette.gray[400]}
+-          />
+-        </View>
+-        <View style={styles.dimField}>
+-          <FieldLabel label="Height" />
+-          <TextInput
+-            style={styles.input}
+-            accessibilityLabel="Height"
+-            value={height}
+-            onChangeText={setHeight}
+-            keyboardType="decimal-pad"
+-            placeholder="0"
+-            placeholderTextColor={palette.gray[400]}
+-          />
+-        </View>
+-        <View style={styles.dimField}>
+-          <FieldLabel label="Width" />
+-          <TextInput
+-            style={styles.input}
+-            accessibilityLabel="Width"
+-            value={width}
+-            onChangeText={setWidth}
+-            keyboardType="decimal-pad"
+-            placeholder="0"
+-            placeholderTextColor={palette.gray[400]}
+-          />
+-        </View>
+-      </View>
+-
+-      <View style={styles.field}>
+-        <FieldLabel label="Material" />
+-        <ChipGroup>
+-          {materials.map((m) => (
+-            <Chip
+-              key={m}
+-              label={m.replace(/_/g, ' ')}
+-              selected={material === m}
+-              onPress={() => setMaterial(material === m ? undefined : m)}
+-            />
+-          ))}
+-        </ChipGroup>
+-      </View>
+-
+-      <View style={styles.switchRow}>
+-        <Text style={styles.switchLabel} accessibilityElementsHidden importantForAccessibility="no">
+-          Skate stops
+-        </Text>
+-        <Switch
+-          accessibilityLabel="Skate stops"
+-          value={isStopped}
+-          onValueChange={setIsStopped}
+-          trackColor={{ true: palette.blue[500] }}
+-        />
+-      </View>
+-
+-      {isStopped ? (
+-        <>
+-          <View style={styles.field}>
+-            <FieldLabel label="Stop type" />
+-            <ChipGroup>
+-              {stopTypes.map((t) => (
+-                <Chip
+-                  key={t}
+-                  label={STOP_TYPE_LABELS[t]}
+-                  selected={stopType === t}
+-                  onPress={() => setStopType(stopType === t ? undefined : t)}
+-                />
+-              ))}
+-            </ChipGroup>
+-          </View>
+-          <View style={styles.field}>
+-            <FieldLabel label="Stop details" />
+-            <TextInput
+-              style={styles.input}
+-              accessibilityLabel="Stop details"
+-              value={stopDetails}
+-              onChangeText={setStopDetails}
+-              placeholder="Knobbed at kinks"
+-              placeholderTextColor={palette.gray[400]}
+-            />
+-          </View>
+-          <View style={styles.switchRow}>
+-            <Text style={styles.switchLabel} accessibilityElementsHidden importantForAccessibility="no">
+-              Removable with tools
+-            </Text>
+-            <Switch
+-              accessibilityLabel="Removable with tools"
+-              value={removable}
+-              onValueChange={setRemovable}
+-              trackColor={{ true: palette.blue[500] }}
+-            />
+-          </View>
+-        </>
+-      ) : null}
+-
+-      <View style={styles.field}>
+-        <FieldLabel label="Difficulty" />
+-        <StarRating value={difficulty} onChange={setDifficulty} />
+-      </View>
+-
+-      {/* In-Run */}
+-      <SectionHeader title="In-Run" />
+-      <View style={styles.field}>
+-        <FieldLabel label="Natural Speed" />
+-        <StarRating value={naturalSpeed} onChange={setNaturalSpeed} />
+-      </View>
+-
+-      <View style={styles.field}>
+-        <FieldLabel label="Setup Options" />
+-        {setupOptions.map((opt, optIdx) => (
+-          <View key={optIdx} style={styles.setupCard}>
+-            <View style={styles.setupHeader}>
+-              <Text style={styles.setupTitle}>Option {optIdx + 1}</Text>
+-              <Pressable onPress={() => removeSetupOption(optIdx)} hitSlop={8}>
+-                <Text style={styles.removeText}>Remove</Text>
+-              </Pressable>
+-            </View>
+-            <Text style={styles.reqLabel}>Gear</Text>
+-            <ChipGroup>
+-              {Object.values(GearItem).map((g) => (
+-                <Chip
+-                  key={g}
+-                  label={g.replace(/_/g, ' ')}
+-                  selected={opt.requires.some((r) => r.item === g)}
+-                  onPress={() => toggleRequirement(optIdx, g, 'gear')}
+-                />
+-              ))}
+-            </ChipGroup>
+-            <Text style={styles.reqLabel}>Build</Text>
+-            <ChipGroup>
+-              {Object.values(BuildItem).map((b) => (
+-                <Chip
+-                  key={b}
+-                  label={b.replace(/_/g, ' ')}
+-                  selected={opt.requires.some((r) => r.item === b)}
+-                  onPress={() => toggleRequirement(optIdx, b, 'build')}
+-                />
+-              ))}
+-            </ChipGroup>
+-          </View>
+-        ))}
+-        <Button title="Add Setup Option" onPress={addSetupOption} variant="secondary" />
+-      </View>
+-
+-      {/* Landing */}
+-      <SectionHeader title="Landing" />
+-      <View style={styles.field}>
+-        <FieldLabel label="Difficulty" />
+-        <StarRating value={landingDifficulty} onChange={setLandingDifficulty} />
+-      </View>
+-      <View style={styles.field}>
+-        <FieldLabel label="Surface" />
+-        <ChipGroup>
+-          {surfaces.map((s) => (
+-            <Chip
+-              key={s}
+-              label={s.replace(/_/g, ' ')}
+-              selected={landingSurface === s}
+-              onPress={() => setLandingSurface(landingSurface === s ? undefined : s)}
+-            />
+-          ))}
+-        </ChipGroup>
+-      </View>
+-
+-      {/* Metadata */}
+-      <SectionHeader title="Details" />
+-      <View style={styles.field}>
+-        <FieldLabel label="Intensity" />
+-        <StarRating value={intensity} onChange={setIntensity} />
+-      </View>
+-      <View style={styles.field}>
+-        <FieldLabel label="Bustability" />
+-        <StarRating value={bustability} onChange={setBustability} />
+-      </View>
+-      <View style={styles.field}>
+-        <FieldLabel label="Bust Notes" />
+-        <TextInput
+-          style={[styles.input, styles.multiline]}
+-          value={bustNotes}
+-          onChangeText={setBustNotes}
+-          placeholder="Security patrols, neighbors..."
+-          placeholderTextColor={palette.gray[400]}
+-          multiline
+-        />
+-      </View>
+-      <View style={styles.field}>
+-        <FieldLabel label="Notes" />
+-        <TextInput
+-          style={[styles.input, styles.multiline]}
+-          value={notes}
+-          onChangeText={setNotes}
+-          placeholder="Additional notes..."
+-          placeholderTextColor={palette.gray[400]}
+-          multiline
+-        />
+-      </View>
+-
+-      {/* Status */}
+-      <SectionHeader title="Status" />
+-      <View style={styles.statusRow}>
+-        <Chip
+-          label="Draft"
+-          selected={status === SpotStatus.Draft}
+-          onPress={() => setStatus(SpotStatus.Draft)}
+-        />
+-        <Chip
+-          label="Complete"
+-          selected={status === SpotStatus.Complete}
+-          onPress={() => setStatus(SpotStatus.Complete)}
+-        />
+-      </View>
+-
+       {/* Actions */}
+       <View style={styles.actions}>
+         <Button title="Save" onPress={handleSave} variant="primary" size="lg" disabled={saving} />
+@@ -655,64 +274,6 @@ const styles = StyleSheet.create({
+     color: palette.gray[900],
+     backgroundColor: palette.white,
+   },
+-  switchRow: {
+-    flexDirection: 'row',
+-    justifyContent: 'space-between',
+-    alignItems: 'center',
+-    paddingVertical: spacing.sm,
+-  },
+-  switchLabel: {
+-    flexShrink: 1,
+-    marginRight: spacing.sm,
+-    fontSize: 16,
+-    color: palette.gray[900],
+-    fontWeight: '500',
+-  },
+-  multiline: {
+-    minHeight: 80,
+-    textAlignVertical: 'top',
+-  },
+-  dimensionsRow: {
+-    flexDirection: 'row',
+-    gap: spacing.sm,
+-  },
+-  dimField: {
+-    flex: 1,
+-    gap: spacing.xs,
+-  },
+-  setupCard: {
+-    backgroundColor: palette.gray[50],
+-    borderRadius: radius.md,
+-    borderCurve: 'continuous',
+-    padding: spacing.md,
+-    gap: spacing.sm,
+-  },
+-  setupHeader: {
+-    flexDirection: 'row',
+-    justifyContent: 'space-between',
+-    alignItems: 'center',
+-  },
+-  setupTitle: {
+-    fontSize: 15,
+-    fontWeight: '600',
+-    color: palette.gray[700],
+-  },
+-  removeText: {
+-    fontSize: 14,
+-    color: palette.red[500],
+-    fontWeight: '500',
+-  },
+-  reqLabel: {
+-    fontSize: 13,
+-    fontWeight: '500',
+-    color: palette.gray[500],
+-    textTransform: 'uppercase',
+-    marginTop: spacing.xs,
+-  },
+-  statusRow: {
+-    flexDirection: 'row',
+-    gap: spacing.sm,
+-  },
+   actions: {
+     gap: spacing.md,
+     marginTop: spacing['2xl'],
+diff --git a/app/spot/[id]/index.tsx b/app/spot/[id]/index.tsx
+index 8fc0386..b76c9c1 100644
+--- a/app/spot/[id]/index.tsx
++++ b/app/spot/[id]/index.tsx
+@@ -4,17 +4,11 @@ import { StyleSheet, ScrollView, View, Text, Pressable } from 'react-native';
+ import { Image, type ImageProps } from 'expo-image';
+ 
+ import { useSpotsStore, useMediaStore } from '@/src/stores';
+-import { useSettingsStore } from '@/src/stores/settings-store';
+-import { featureLabel, getSpotDisplayName } from '@/src/utils/spot-name';
++import { getSpotDisplayName } from '@/src/utils/spot-name';
+ import { resolvePhotoUri } from '@/src/utils/photo-storage';
+ import { spotPhotos } from '@/src/utils/spot-photos';
+-import { displayLength } from '@/src/utils/units';
+-import { RatingBadge } from '@/src/components/RatingBadge';
+-import { StarRating } from '@/src/components/StarRating';
+ import { palette, spacing, radius } from '@/src/constants/theme';
+-import { STOP_TYPE_LABELS } from '@/src/constants/labels';
+-import { SpotStatus } from '@/src/types';
+-import type { Media, Spot, SetupOption } from '@/src/types';
++import type { Media } from '@/src/types';
+ 
+ function Photo({ media, style, testID }: { media: Media; style: ImageProps['style']; testID: string }) {
+   return (
+@@ -22,57 +16,10 @@ function Photo({ media, style, testID }: { media: Media; style: ImageProps['styl
+   );
+ }
+ 
+-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+-  return (
+-    <View style={styles.section}>
+-      <Text style={styles.sectionTitle}>{title}</Text>
+-      {children}
+-    </View>
+-  );
+-}
+-
+-function InfoRow({ label, value }: { label: string; value: string | undefined }) {
+-  return value ? (
+-    <View style={styles.infoRow}>
+-      <Text style={styles.infoLabel}>{label}</Text>
+-      <Text style={styles.infoValue}>{value}</Text>
+-    </View>
+-  ) : null;
+-}
+-
+-function SetupOptionCard({ option, index }: { option: SetupOption; index: number }) {
+-  if (option.requires.length === 0) {
+-    return (
+-      <View style={styles.setupCard}>
+-        <Text style={styles.setupTitle}>Option {index + 1}</Text>
+-        <Text style={styles.setupItem}>No equipment needed (natural speed)</Text>
+-      </View>
+-    );
+-  }
+-
+-  return (
+-    <View style={styles.setupCard}>
+-      <Text style={styles.setupTitle}>Option {index + 1}</Text>
+-      {option.requires.map((req, i) => (
+-        <View key={`${req.item}-${i}`} style={styles.setupReqRow}>
+-          <View style={[styles.categoryTag, req.category === 'gear' ? styles.gearTag : styles.buildTag]}>
+-            <Text style={styles.categoryText}>{req.category}</Text>
+-          </View>
+-          <Text style={styles.setupItem}>
+-            {req.item.replace(/_/g, ' ')}
+-            {req.quantity && req.quantity > 1 ? ` x${req.quantity}` : ''}
+-          </Text>
+-        </View>
+-      ))}
+-    </View>
+-  );
+-}
+-
+ export default function SpotDetailScreen() {
+   const { id } = useLocalSearchParams<{ id: string }>();
+   const router = useRouter();
+   const spot = useSpotsStore((s) => s.spots.find((sp) => sp.id === id));
+-  const units = useSettingsStore((s) => s.units);
+   const media = useMediaStore((s) => (id ? s.mediaBySpot[id] : undefined));
+ 
+   const handleEdit = useCallback(() => {
+@@ -116,120 +63,21 @@ export default function SpotDetailScreen() {
+           </ScrollView>
+         ) : null}
+ 
+-        {/* Status */}
+         <View style={styles.headerRow}>
+           <Text style={styles.title}>{displayName}</Text>
+-          {spot.status === SpotStatus.Draft ? (
+-            <View style={styles.draftBadge}>
+-              <Text style={styles.draftText}>Draft</Text>
+-            </View>
+-          ) : null}
+         </View>
+ 
+-        {/* Feature Details */}
+-        {hasFeatureDetails(spot) ? (
+-          <Section title="Feature">
+-            <InfoRow label="Type" value={featureLabel(spot)} />
+-            <InfoRow label="Shape" value={spot.feature.shape} />
+-            {spot.feature.dimensions?.length != null ? (
+-              <InfoRow label="Length" value={displayLength(spot.feature.dimensions.length, units)} />
+-            ) : null}
+-            {spot.feature.dimensions?.height != null ? (
+-              <InfoRow label="Height" value={displayLength(spot.feature.dimensions.height, units)} />
+-            ) : null}
+-            {spot.feature.dimensions?.width != null ? (
+-              <InfoRow label="Width" value={displayLength(spot.feature.dimensions.width, units)} />
+-            ) : null}
+-            <InfoRow label="Material" value={spot.feature.material?.replace(/_/g, ' ')} />
+-            {spot.feature.difficulty != null ? (
+-              <View style={styles.infoRow}>
+-                <Text style={styles.infoLabel}>Difficulty</Text>
+-                <RatingBadge rating={spot.feature.difficulty as 1 | 2 | 3 | 4 | 5} />
+-              </View>
+-            ) : null}
+-            {spot.feature.skate_stops?.is_stopped ? (
+-              <>
+-                <InfoRow label="Stop Type" value={spot.feature.skate_stops.stop_type ? STOP_TYPE_LABELS[spot.feature.skate_stops.stop_type] : undefined} />
+-                <InfoRow label="Stop Details" value={spot.feature.skate_stops.stop_description} />
+-                <InfoRow label="Removable" value={spot.feature.skate_stops.removable ? 'Yes' : 'No'} />
+-              </>
+-            ) : null}
+-          </Section>
+-        ) : null}
+-
+-        {/* In-Run */}
+-        {hasInRunDetails(spot) ? (
+-          <Section title="In-Run">
+-            {spot.in_run.natural_speed != null ? (
+-              <View style={styles.infoRow}>
+-                <Text style={styles.infoLabel}>Natural Speed</Text>
+-                <StarRating value={spot.in_run.natural_speed} readonly size={18} />
+-              </View>
+-            ) : null}
+-            {spot.in_run.setup_options.length > 0 ? (
+-              <View style={styles.setupOptions}>
+-                <Text style={styles.setupLabel}>Setup Options</Text>
+-                {spot.in_run.setup_options.map((opt, i) => (
+-                  <SetupOptionCard key={i} option={opt} index={i} />
+-                ))}
+-              </View>
+-            ) : null}
+-          </Section>
+-        ) : null}
+-
+-        {/* Landing */}
+-        {hasLandingDetails(spot) ? (
+-          <Section title="Landing">
+-            {spot.landing.difficulty != null ? (
+-              <View style={styles.infoRow}>
+-                <Text style={styles.infoLabel}>Difficulty</Text>
+-                <RatingBadge rating={spot.landing.difficulty as 1 | 2 | 3 | 4 | 5} />
+-              </View>
+-            ) : null}
+-            <InfoRow label="Surface" value={spot.landing.surface?.replace(/_/g, ' ')} />
+-          </Section>
+-        ) : null}
+-
+-        {/* Metadata */}
+-        {hasMetadata(spot) ? (
+-          <Section title="Details">
+-            {spot.metadata.intensity != null ? (
+-              <View style={styles.infoRow}>
+-                <Text style={styles.infoLabel}>Intensity</Text>
+-                <StarRating value={spot.metadata.intensity} readonly size={18} />
+-              </View>
+-            ) : null}
+-            {spot.metadata.bustability != null ? (
+-              <View style={styles.infoRow}>
+-                <Text style={styles.infoLabel}>Bustability</Text>
+-                <StarRating value={spot.metadata.bustability} readonly size={18} />
+-              </View>
+-            ) : null}
+-            <InfoRow label="Bust Notes" value={spot.metadata.bustability_notes} />
+-            <InfoRow label="Notes" value={spot.metadata.notes} />
+-          </Section>
++        {spot.notes ? (
++          <View style={styles.notes}>
++            <Text style={styles.notesLabel}>Notes</Text>
++            <Text style={styles.notesText}>{spot.notes}</Text>
++          </View>
+         ) : null}
+       </ScrollView>
+     </>
+   );
+ }
+ 
+-function hasFeatureDetails(spot: Spot): boolean {
+-  return !!(spot.feature.type || spot.feature.shape || spot.feature.dimensions || spot.feature.material || spot.feature.difficulty != null || spot.feature.skate_stops?.is_stopped);
+-}
+-
+-function hasInRunDetails(spot: Spot): boolean {
+-  return !!(spot.in_run.natural_speed != null || spot.in_run.setup_options.length > 0);
+-}
+-
+-function hasLandingDetails(spot: Spot): boolean {
+-  return !!(spot.landing.difficulty != null || spot.landing.surface);
+-}
+-
+-function hasMetadata(spot: Spot): boolean {
+-  return !!(spot.metadata.intensity != null || spot.metadata.bustability != null || spot.metadata.notes);
+-}
+-
+ const styles = StyleSheet.create({
+   container: {
+     flex: 1,
+@@ -274,96 +122,23 @@ const styles = StyleSheet.create({
+     color: palette.gray[900],
+     flex: 1,
+   },
+-  draftBadge: {
+-    backgroundColor: palette.yellow[100],
+-    paddingHorizontal: spacing.sm,
+-    paddingVertical: spacing.xs,
+-    borderRadius: radius.sm,
+-    borderCurve: 'continuous',
+-  },
+-  draftText: {
+-    fontSize: 12,
+-    fontWeight: '600',
+-    color: palette.yellow[700],
+-  },
+   editButton: {
+     fontSize: 17,
+     color: palette.blue[500],
+     fontWeight: '600',
+   },
+-  section: {
++  notes: {
+     paddingHorizontal: spacing.lg,
+-    paddingTop: spacing.lg,
+-    gap: spacing.sm,
+-  },
+-  sectionTitle: {
+-    fontSize: 18,
+-    fontWeight: '600',
+-    color: palette.gray[900],
+-    marginBottom: spacing.xs,
+-  },
+-  infoRow: {
+-    flexDirection: 'row',
+-    justifyContent: 'space-between',
+-    alignItems: 'center',
+-    paddingVertical: spacing.xs,
++    paddingTop: spacing.md,
++    gap: spacing.xs,
+   },
+-  infoLabel: {
++  notesLabel: {
+     fontSize: 15,
+     color: palette.gray[500],
+   },
+-  infoValue: {
+-    fontSize: 15,
++  notesText: {
++    fontSize: 16,
++    lineHeight: 22,
+     color: palette.gray[900],
+-    fontWeight: '500',
+-    textTransform: 'capitalize',
+-  },
+-  setupOptions: {
+-    gap: spacing.sm,
+-  },
+-  setupLabel: {
+-    fontSize: 15,
+-    color: palette.gray[500],
+-    marginBottom: spacing.xs,
+-  },
+-  setupCard: {
+-    backgroundColor: palette.gray[50],
+-    borderRadius: radius.md,
+-    borderCurve: 'continuous',
+-    padding: spacing.md,
+-    gap: spacing.xs,
+-  },
+-  setupTitle: {
+-    fontSize: 14,
+-    fontWeight: '600',
+-    color: palette.gray[700],
+-  },
+-  setupReqRow: {
+-    flexDirection: 'row',
+-    alignItems: 'center',
+-    gap: spacing.sm,
+-  },
+-  categoryTag: {
+-    paddingHorizontal: spacing.sm,
+-    paddingVertical: 1,
+-    borderRadius: radius.sm,
+-    borderCurve: 'continuous',
+-  },
+-  gearTag: {
+-    backgroundColor: palette.blue[500] + '20',
+-  },
+-  buildTag: {
+-    backgroundColor: palette.yellow[500] + '20',
+-  },
+-  categoryText: {
+-    fontSize: 11,
+-    fontWeight: '600',
+-    textTransform: 'uppercase',
+-    color: palette.gray[600],
+-  },
+-  setupItem: {
+-    fontSize: 14,
+-    color: palette.gray[700],
+-    textTransform: 'capitalize',
+   },
+ });
+diff --git a/src/__tests__/components.test.tsx b/src/__tests__/components.test.tsx
+index 4cc5e0d..20a5ab4 100644
+--- a/src/__tests__/components.test.tsx
++++ b/src/__tests__/components.test.tsx
+@@ -2,8 +2,6 @@ import React from 'react';
+ import { render, screen, fireEvent } from '@testing-library/react-native';
+ 
+ import { Button } from '@/src/components/Button';
+-import { RatingBadge } from '@/src/components/RatingBadge';
+-import { StarRating } from '@/src/components/StarRating';
+ import { SegmentedControl } from '@/src/components/SegmentedControl';
+ import { Chip } from '@/src/components/Chip';
+ import { EmptyState } from '@/src/components/EmptyState';
+@@ -31,44 +29,6 @@ describe('Button', () => {
+   });
+ });
+ 
+-describe('RatingBadge', () => {
+-  it('renders rating value', () => {
+-    render(<RatingBadge rating={3} />);
+-    expect(screen.getByText('3')).toBeTruthy();
+-  });
+-
+-  it('renders with label', () => {
+-    render(<RatingBadge rating={4} label="Difficulty" />);
+-    expect(screen.getByText('Difficulty 4')).toBeTruthy();
+-  });
+-
+-  it('has correct accessibility label', () => {
+-    render(<RatingBadge rating={2} label="Speed" />);
+-    expect(screen.getByLabelText('Speed: 2')).toBeTruthy();
+-  });
+-
+-  it.each([1, 2, 3, 4, 5] as const)('renders rating %i', (rating) => {
+-    render(<RatingBadge rating={rating} />);
+-    expect(screen.getByText(String(rating))).toBeTruthy();
+-  });
+-});
+-
+-describe('StarRating', () => {
+-  it('calls onChange with tapped star value', () => {
+-    const onChange = jest.fn();
+-    render(<StarRating value={0} onChange={onChange} />);
+-    fireEvent.press(screen.getByLabelText('3 stars'));
+-    expect(onChange).toHaveBeenCalledWith(3);
+-  });
+-
+-  it('does not call onChange when readonly', () => {
+-    const onChange = jest.fn();
+-    render(<StarRating value={3} onChange={onChange} readonly />);
+-    fireEvent.press(screen.getByLabelText('1 star'));
+-    expect(onChange).not.toHaveBeenCalled();
+-  });
+-});
+-
+ describe('SegmentedControl', () => {
+   const segments = [
+     { label: 'Map', value: 'map' },
+diff --git a/src/__tests__/db-foreign-keys.test.ts b/src/__tests__/db-foreign-keys.test.ts
+index c4a608b..4349e32 100644
+--- a/src/__tests__/db-foreign-keys.test.ts
++++ b/src/__tests__/db-foreign-keys.test.ts
+@@ -63,11 +63,11 @@ describe('foreign keys', () => {
+           created_at TEXT NOT NULL DEFAULT (datetime('now')),
+           updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+           deleted_at TEXT,
+-          status TEXT NOT NULL DEFAULT 'draft',
+-          feature_json TEXT NOT NULL DEFAULT '{}',
+-          in_run_json TEXT NOT NULL DEFAULT '{"setup_options":[]}',
+-          landing_json TEXT NOT NULL DEFAULT '{}',
+-          metadata_json TEXT NOT NULL DEFAULT '{}',
++          feature_types_json TEXT NOT NULL DEFAULT '[]',
++          stopped INTEGER NOT NULL DEFAULT 0,
++          natural_speed INTEGER,
++          notes TEXT,
++          legacy_json TEXT,
+           primary_photo_id TEXT
+         );
+         INSERT INTO spots_new SELECT * FROM spots;
+diff --git a/src/__tests__/db-init.test.ts b/src/__tests__/db-init.test.ts
+index dc05097..8fb11b2 100644
+--- a/src/__tests__/db-init.test.ts
++++ b/src/__tests__/db-init.test.ts
+@@ -4,7 +4,7 @@ import { useDbInit } from '@/src/hooks/use-db-init';
+ import { useSpotsStore } from '@/src/stores';
+ import { useSettingsStore } from '@/src/stores/settings-store';
+ import { useMediaStore } from '@/src/stores/media-store';
+-import { SpotStatus, UnitSystem } from '@/src/types';
++import { UnitSystem } from '@/src/types';
+ import { createTestMedia, createTestSpot } from './factories';
+ 
+ const mockDb = {
+@@ -48,7 +48,6 @@ describe('useDbInit', () => {
+     useSettingsStore.setState({
+       units: UnitSystem.Imperial,
+       batch_import_radius: 50,
+-      gear: [],
+     });
+   });
+ 
+@@ -63,7 +62,7 @@ describe('useDbInit', () => {
+   });
+ 
+   it('loads spots from DB into store', async () => {
+-    const spot = createTestSpot({ id: 'db-spot-1', name: 'DB Spot', status: SpotStatus.Complete });
++    const spot = createTestSpot({ id: 'db-spot-1', name: 'DB Spot' });
+     mockGetSpots.mockResolvedValue([spot]);
+     mockGetUserSettings.mockResolvedValue(null);
+ 
+@@ -79,7 +78,6 @@ describe('useDbInit', () => {
+     mockGetUserSettings.mockResolvedValue({
+       units: UnitSystem.Metric,
+       batch_import_radius: 100,
+-      gear: [],
+     });
+ 
+     renderHook(() => useDbInit());
+@@ -142,7 +140,7 @@ describe('useDbInit', () => {
+     const m = createTestMedia({ spot_id: spot.id });
+     mockGetSpots.mockResolvedValue([spot]);
+     mockGetAllMedia.mockResolvedValue([m]);
+-    mockGetUserSettings.mockResolvedValue({ units: UnitSystem.Metric, batch_import_radius: 50, gear: [] });
++    mockGetUserSettings.mockResolvedValue({ units: UnitSystem.Metric, batch_import_radius: 50 });
+     const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+ 
+     const { result } = renderHook(() => useDbInit());
+diff --git a/src/__tests__/db-migrate.test.ts b/src/__tests__/db-migrate.test.ts
+index 7c74a5b..405429c 100644
+--- a/src/__tests__/db-migrate.test.ts
++++ b/src/__tests__/db-migrate.test.ts
+@@ -1,15 +1,43 @@
+ import type { SQLiteDatabase } from 'expo-sqlite';
+ import { createTestDb } from './helpers/node-sqlite-db';
+-import { insertSpot, getSpots, insertMedia, getMediaForSpot } from '@/src/db';
++import { insertSpot, getSpot, getSpots, getSpotLegacy, insertMedia, getMediaForSpot } from '@/src/db';
+ import {
+   migrateDb,
+   MIGRATIONS,
+   LATEST_SCHEMA_VERSION,
+   getSchemaVersion,
++  migrateSpotRowV3,
+   type Migration,
+ } from '@/src/db/schema';
++import { FeatureType, type Spot } from '@/src/types';
+ import { createTestMedia, createTestSpot } from './factories';
+ 
++type OldColumns = Partial<
++  Record<'status' | 'feature_json' | 'in_run_json' | 'landing_json' | 'metadata_json', string>
++>;
++
++/** Inserts `spot` as builds before migration 3 stored it (status and four JSON columns); insertSpot writes v3's columns. */
++async function insertOldSpot(db: SQLiteDatabase, spot: Spot, old: OldColumns = {}): Promise<void> {
++  await db.runAsync(
++    `INSERT INTO spots (id, name, generated_name, latitude, longitude, created_at, updated_at, deleted_at, status, feature_json, in_run_json, landing_json, metadata_json, primary_photo_id)
++     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
++    spot.id,
++    spot.name ?? null,
++    spot.generated_name ?? null,
++    spot.location.latitude,
++    spot.location.longitude,
++    spot.created_at,
++    spot.updated_at,
++    spot.deleted_at ?? null,
++    old.status ?? 'draft',
++    old.feature_json ?? '{}',
++    old.in_run_json ?? '{"setup_options":[]}',
++    old.landing_json ?? '{}',
++    old.metadata_json ?? '{}',
++    spot.primary_photo_id ?? null,
++  );
++}
++
+ const tables = async (db: SQLiteDatabase) =>
+   (
+     await db.getAllAsync<{ name: string }>(
+@@ -41,7 +69,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
+     const db = createTestDb();
+     await MIGRATIONS[0](db); // an earlier build: tables exist, user_version still 0
+     const spot = createTestSpot({ name: 'kept' });
+-    await insertSpot(db, spot);
++    await insertOldSpot(db, spot);
+     expect(await getSchemaVersion(db)).toBe(0);
+ 
+     await migrateDb(db);
+@@ -62,7 +90,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
+     it('adds media.uploaded_by and keeps every spot and photo', async () => {
+       const db = await v1Db();
+       const spot = createTestSpot({ name: 'kept' });
+-      await insertSpot(db, spot);
++      await insertOldSpot(db, spot);
+       await db.runAsync(
+         `INSERT INTO media (id, spot_id, file_path, created_at) VALUES ('m1', ?, 'photos/a/m1.jpg', '2026-10-13T11:00:00.000Z')`,
+         spot.id,
+@@ -85,8 +113,8 @@ describe('migrateDb (PRAGMA user_version)', () => {
+       const db = await v1Db();
+       const live = createTestSpot({ created_at: '2026-10-13T12:00:00.000Z' });
+       const gone = createTestSpot({ created_at: '2026-10-13T12:00:00.000Z' });
+-      await insertSpot(db, live);
+-      await insertSpot(db, gone);
++      await insertOldSpot(db, live);
++      await insertOldSpot(db, gone);
+       await db.runAsync(`UPDATE spots SET updated_at = '2026-10-13 12:34:56' WHERE id = ?`, live.id);
+       await db.runAsync(
+         `UPDATE spots SET updated_at = '2026-10-14 01:02:03', deleted_at = '2026-10-14 01:02:03' WHERE id = ?`,
+@@ -108,7 +136,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
+       // strftime of garbage is NULL: that would un-delete a spot (deleted_at) or abort the migration (updated_at NOT NULL).
+       const db = await v1Db();
+       const spot = createTestSpot();
+-      await insertSpot(db, spot);
++      await insertOldSpot(db, spot);
+       await db.runAsync(`UPDATE spots SET updated_at = 'garbage', deleted_at = 'more garbage' WHERE id = ?`, spot.id);
+ 
+       await migrateDb(db);
+@@ -122,7 +150,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
+     it('leaves ISO timestamps as they are', async () => {
+       const db = await v1Db();
+       const spot = createTestSpot({ updated_at: '2026-10-13T12:34:56.789Z' });
+-      await insertSpot(db, spot);
++      await insertOldSpot(db, spot);
+ 
+       await migrateDb(db);
+ 
+@@ -142,6 +170,343 @@ describe('migrateDb (PRAGMA user_version)', () => {
+     });
+   });
+ 
++  describe('migration 3 (trimmed spot: feature_types, stopped, natural_speed, notes; the rest archived)', () => {
++    /** A DB as the builds before the simplification left it: at version 2. */
++    const v2Db = async () => {
++      const db = createTestDb();
++      await migrateDb(db, MIGRATIONS.slice(0, 2));
++      expect(await getSchemaVersion(db)).toBe(2);
++      return db;
++    };
++
++    type V3Row = {
++      feature_types_json: string;
++      stopped: number;
++      natural_speed: number | null;
++      notes: string | null;
++      legacy_json: string | null;
++    };
++    const v3Row = async (db: SQLiteDatabase, id: string) =>
++      db.getFirstAsync<V3Row>(
++        'SELECT feature_types_json, stopped, natural_speed, notes, legacy_json FROM spots WHERE id = ?',
++        id,
++      );
++    const addTwoPhotos = async (db: SQLiteDatabase, spotId: string) => {
++      for (const photo of [createTestMedia({ spot_id: spotId }), createTestMedia({ spot_id: spotId })]) {
++        await db.runAsync(
++          'INSERT INTO media (id, spot_id, file_path, created_at) VALUES (?, ?, ?, ?)',
++          photo.id,
++          photo.spot_id,
++          photo.file_path,
++          photo.created_at,
++        );
++      }
++    };
++
++    const SETUP_OPTIONS = [
++      { requires: [{ item: 'winch', category: 'gear' }] },
++      {
++        requires: [
++          { item: 'drop_in_platform', category: 'gear' },
++          { item: 'speed_humps', category: 'build', quantity: 2 },
++        ],
++      },
++    ];
++    /** Every old field set: type other + custom type, stops, two setup options, a draft. */
++    const FULL: OldColumns = {
++      status: 'draft',
++      feature_json: JSON.stringify({
++        type: 'other',
++        custom_type: 'curved rail',
++        shape: 'kinked',
++        dimensions: { length: 12.5, height: 1.2, width: 0.05 },
++        material: 'steel',
++        skate_stops: { is_stopped: true, stop_type: 'knobs', stop_description: 'every 50 cm', removable: true },
++        difficulty: 3,
++      }),
++      in_run_json: JSON.stringify({ natural_speed: 4, setup_options: SETUP_OPTIONS }),
++      landing_json: JSON.stringify({ difficulty: 2, surface: 'snow_built' }),
++      metadata_json: JSON.stringify({
++        intensity: 5,
++        bustability: 3,
++        bustability_notes: 'security at 9pm',
++        notes: 'hello',
++      }),
++    };
++    const FULL_LEGACY = {
++      custom_type: 'curved rail',
++      shape: 'kinked',
++      length_m: 12.5,
++      height_m: 1.2,
++      width_m: 0.05,
++      material: 'steel',
++      stop_type: 'knobs',
++      stop_description: 'every 50 cm',
++      removable: true,
++      difficulty: 3,
++      setup_options: SETUP_OPTIONS,
++      landing_difficulty: 2,
++      landing_surface: 'snow_built',
++      intensity: 5,
++      bustability: 3,
++      bustability_notes: 'security at 9pm',
++    };
++    /** Every old field present but empty, as the edit screen wrote them. */
++    const EMPTY: OldColumns = {
++      status: 'complete',
++      feature_json: JSON.stringify({
++        custom_type: '',
++        shape: '',
++        dimensions: {},
++        skate_stops: { is_stopped: false, removable: false },
++      }),
++      in_run_json: '{"setup_options":[]}',
++      landing_json: '{}',
++      metadata_json: JSON.stringify({ notes: '', bustability_notes: '' }),
++    };
++
++    it('maps the full-fat v2 spot and archives every removed field (but not status, is_stopped or notes)', async () => {
++      const db = await v2Db();
++      const full = createTestSpot({ name: 'full' });
++      await insertOldSpot(db, full, FULL);
++
++      await migrateDb(db);
++
++      expect(await getSchemaVersion(db)).toBe(3);
++      const row = await v3Row(db, full.id);
++      expect(row).toMatchObject({ feature_types_json: '[]', stopped: 1, natural_speed: 3, notes: 'hello' });
++      expect(JSON.parse(row?.legacy_json ?? 'null')).toEqual(FULL_LEGACY);
++      expect(await getSpot(db, full.id)).toMatchObject({
++        name: 'full',
++        feature_types: [],
++        stopped: true,
++        natural_speed: 3,
++        notes: 'hello',
++      });
++      expect(await getSpotLegacy(db, full.id)).toEqual(FULL_LEGACY);
++    });
++
++    it("a v2 rail spot with nothing else gets feature_types ['rail'] and no legacy", async () => {
++      const db = await v2Db();
++      const rail = createTestSpot();
++      await insertOldSpot(db, rail, { feature_json: '{"type":"rail"}' });
++
++      await migrateDb(db);
++
++      expect(await v3Row(db, rail.id)).toEqual({
++        feature_types_json: '["rail"]',
++        stopped: 0,
++        natural_speed: null,
++        notes: null,
++        legacy_json: null,
++      });
++      expect((await getSpot(db, rail.id))?.feature_types).toEqual([FeatureType.Rail]);
++    });
++
++    it('a v2 spot with every field empty gets defaults and legacy_json NULL', async () => {
++      const db = await v2Db();
++      const empty = createTestSpot();
++      await insertOldSpot(db, empty, EMPTY);
++
++      await migrateDb(db);
++
++      expect(await v3Row(db, empty.id)).toEqual({
++        feature_types_json: '[]',
++        stopped: 0,
++        natural_speed: null,
++        notes: null,
++        legacy_json: null,
++      });
++      expect(await getSpots(db)).toEqual([empty]);
++      expect(await getSpotLegacy(db, empty.id)).toBeNull();
++    });
++
++    it('old natural speed 1 becomes 0, which survives getSpot as a real value', async () => {
++      const db = await v2Db();
++      const slow = createTestSpot();
++      await insertOldSpot(db, slow, { in_run_json: '{"natural_speed":1,"setup_options":[]}' });
++
++      await migrateDb(db);
++
++      expect((await v3Row(db, slow.id))?.natural_speed).toBe(0);
++      expect((await getSpot(db, slow.id))?.natural_speed).toBe(0);
++    });
++
++    it('keeps a column that is not JSON verbatim in legacy and still maps the others', async () => {
++      // A throw here would leave the phone at v2 with a v3 mapper: no spot would load.
++      const db = await v2Db();
++      const odd = createTestSpot();
++      await insertOldSpot(db, odd, {
++        feature_json: 'not json',
++        in_run_json: '{"natural_speed":5,"setup_options":[]}',
++        metadata_json: '{"notes":"still here"}',
++      });
++
++      await migrateDb(db);
++
++      expect(await getSchemaVersion(db)).toBe(3);
++      const row = await v3Row(db, odd.id);
++      expect(row).toMatchObject({ feature_types_json: '[]', stopped: 0, natural_speed: 4, notes: 'still here' });
++      expect(JSON.parse(row?.legacy_json ?? 'null')).toEqual({ raw_feature: 'not json' });
++    });
++
++    it('migrates soft-deleted spots too', async () => {
++      const db = await v2Db();
++      const gone = createTestSpot({ deleted_at: '2026-10-14T01:02:03.000Z' });
++      await insertOldSpot(db, gone, { feature_json: '{"type":"ledge","shape":"long"}' });
++
++      await migrateDb(db);
++
++      expect(await v3Row(db, gone.id)).toMatchObject({
++        feature_types_json: '["ledge"]',
++        legacy_json: '{"shape":"long"}',
++      });
++      expect(
++        (await db.getFirstAsync<{ deleted_at: string }>('SELECT deleted_at FROM spots WHERE id = ?', gone.id))
++          ?.deleted_at,
++      ).toBe('2026-10-14T01:02:03.000Z');
++    });
++
++    it('a v1 DB migrates 1 → 2 → 3', async () => {
++      const db = createTestDb();
++      await migrateDb(db, [MIGRATIONS[0]]);
++      const spot = createTestSpot({ name: 'from v1' });
++      await insertOldSpot(db, spot, FULL);
++      await db.runAsync(`UPDATE spots SET updated_at = '2026-10-13 12:34:56' WHERE id = ?`, spot.id);
++
++      await migrateDb(db);
++
++      expect(await getSchemaVersion(db)).toBe(3);
++      const columns = (await db.getAllAsync<{ name: string }>('PRAGMA table_info(media)')).map((c) => c.name);
++      expect(columns).toContain('uploaded_by'); // migration 2 ran
++      expect(await getSpot(db, spot.id)).toMatchObject({
++        updated_at: '2026-10-13T12:34:56.000Z', // migration 2 ran
++        stopped: true,
++        natural_speed: 3,
++        notes: 'hello',
++      });
++      expect(await getSpotLegacy(db, spot.id)).toEqual(FULL_LEGACY);
++    });
++
++    it('migrating a v3 DB again changes nothing', async () => {
++      const db = await v2Db();
++      const spots = [createTestSpot(), createTestSpot(), createTestSpot()];
++      await insertOldSpot(db, spots[0], FULL);
++      await insertOldSpot(db, spots[1], EMPTY);
++      await insertOldSpot(db, spots[2], { feature_json: '{"type":"rail"}' });
++      await migrateDb(db);
++      const before = await db.getAllAsync('SELECT * FROM spots ORDER BY id');
++
++      await migrateDb(db);
++
++      expect(await getSchemaVersion(db)).toBe(3);
++      expect(await db.getAllAsync('SELECT * FROM spots ORDER BY id')).toEqual(before);
++    });
++
++    it('keeps the two photos of every spot and leaves no foreign key violation', async () => {
++      const db = await v2Db();
++      const full = createTestSpot();
++      const empty = createTestSpot();
++      await insertOldSpot(db, full, FULL);
++      await insertOldSpot(db, empty, EMPTY);
++      await addTwoPhotos(db, full.id);
++      await addTwoPhotos(db, empty.id);
++
++      await migrateDb(db);
++
++      expect(await getMediaForSpot(db, full.id)).toHaveLength(2);
++      expect(await getMediaForSpot(db, empty.id)).toHaveLength(2);
++      expect(await db.getAllAsync('PRAGMA foreign_key_check')).toEqual([]);
++    });
++
++    describe('migrateSpotRowV3 (one row, pure)', () => {
++      const row = (old: OldColumns) => ({
++        feature_json: old.feature_json ?? '{}',
++        in_run_json: old.in_run_json ?? '{"setup_options":[]}',
++        landing_json: old.landing_json ?? '{}',
++        metadata_json: old.metadata_json ?? '{}',
++      });
++
++      it('drops a type that is not one of the eight kept ones', () => {
++        expect(migrateSpotRowV3(row({ feature_json: '{"type":"tree"}' })).feature_types_json).toBe('[]');
++        expect(migrateSpotRowV3(row({ feature_json: '{"type":"stair_set"}' })).feature_types_json).toBe(
++          '["stair_set"]',
++        );
++      });
++
++      it('maps only an integer natural speed 1–5', () => {
++        const speed = (v: unknown) =>
++          migrateSpotRowV3(row({ in_run_json: JSON.stringify({ natural_speed: v, setup_options: [] }) }))
++            .natural_speed;
++        expect([1, 2, 3, 4, 5].map(speed)).toEqual([0, 1, 2, 3, 4]);
++        expect([0, 6, 2.5, '3', null].map(speed)).toEqual([null, null, null, null, null]);
++      });
++
++      it('treats whitespace-only text as empty and keeps real notes as typed', () => {
++        const r = migrateSpotRowV3(
++          row({ metadata_json: JSON.stringify({ notes: '  ', bustability_notes: ' \n' }) }),
++        );
++        expect(r).toMatchObject({ notes: null, legacy_json: null });
++        expect(migrateSpotRowV3(row({ metadata_json: '{"notes":" gap "}' })).notes).toBe(' gap ');
++      });
++
++      it('keeps JSON that is not an object verbatim', () => {
++        const r = migrateSpotRowV3(row({ landing_json: '[1]', metadata_json: 'null' }));
++        expect(JSON.parse(r.legacy_json ?? 'null')).toEqual({ raw_landing: '[1]', raw_metadata: 'null' });
++      });
++
++      it('drops setup options with nothing picked (edit appended { requires: [] })', () => {
++        const opts = (v: unknown) =>
++          migrateSpotRowV3(row({ in_run_json: JSON.stringify({ setup_options: v }) })).legacy_json;
++        expect(opts([{ requires: [] }, { requires: [] }])).toBeNull();
++        expect(JSON.parse(opts([{ requires: [] }, { requires: [{ item: 'winch', category: 'gear' }] }]) ?? 'null')).toEqual({
++          setup_options: [{ requires: [{ item: 'winch', category: 'gear' }] }],
++        });
++      });
++
++      it('a blank column is empty, not archived as raw', () => {
++        expect(migrateSpotRowV3(row({ feature_json: '', landing_json: '  ' })).legacy_json).toBeNull();
++      });
++
++      it('never archives is_stopped or removable: false (edit wrote it by default)', () => {
++        const r = migrateSpotRowV3(
++          row({ feature_json: '{"skate_stops":{"is_stopped":false,"removable":false,"stop_type":"caps"}}' }),
++        );
++        expect(r.stopped).toBe(0);
++        expect(JSON.parse(r.legacy_json ?? 'null')).toEqual({ stop_type: 'caps' });
++      });
++    });
++
++    it('drops the old columns and idx_spots_status, keeps idx_spots_deleted_at', async () => {
++      const db = await v2Db();
++
++      await migrateDb(db);
++
++      const columns = (await db.getAllAsync<{ name: string }>('PRAGMA table_info(spots)')).map((c) => c.name);
++      expect(columns).toEqual([
++        'id',
++        'name',
++        'generated_name',
++        'latitude',
++        'longitude',
++        'created_at',
++        'updated_at',
++        'deleted_at',
++        'feature_types_json',
++        'stopped',
++        'natural_speed',
++        'notes',
++        'legacy_json',
++        'primary_photo_id',
++      ]);
++      const indexes = (
++        await db.getAllAsync<{ name: string }>(`SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'spots'`)
++      ).map((r) => r.name);
++      expect(indexes).toContain('idx_spots_deleted_at');
++      expect(indexes).not.toContain('idx_spots_status');
++    });
++  });
++
+   it('rolls back a failing migration and stays at the previous version', async () => {
+     const db = createTestDb();
+     const boom: Migration = async (d) => {
+diff --git a/src/__tests__/db-settings.test.ts b/src/__tests__/db-settings.test.ts
+index 4eafffd..7110209 100644
+--- a/src/__tests__/db-settings.test.ts
++++ b/src/__tests__/db-settings.test.ts
+@@ -1,7 +1,7 @@
+ import type { SQLiteDatabase } from 'expo-sqlite';
+ import { createMigratedTestDb } from './helpers/node-sqlite-db';
+ import { getUserSettings, saveUserSettings, setSetting } from '@/src/db';
+-import { DEFAULT_USER_SETTINGS, GearItem, UnitSystem } from '@/src/types';
++import { DEFAULT_USER_SETTINGS, UnitSystem } from '@/src/types';
+ 
+ describe('user settings against real SQLite', () => {
+   let db: SQLiteDatabase;
+@@ -15,13 +15,23 @@ describe('user settings against real SQLite', () => {
+   });
+ 
+   it('round-trips saved settings', async () => {
+-    const s = { units: UnitSystem.Metric, batch_import_radius: 120, gear: [GearItem.Winch] };
++    const s = { units: UnitSystem.Metric, batch_import_radius: 120 };
+ 
+     await saveUserSettings(db, s);
+ 
+     expect(await getUserSettings(db)).toEqual(s);
+   });
+ 
++  it('drops the gear key an older build saved (D22)', async () => {
++    await setSetting(db, 'user_settings', JSON.stringify({ units: 'metric', batch_import_radius: 30, gear: ['winch'] }));
++
++    const settings = await getUserSettings(db);
++
++    expect(settings).toStrictEqual({ units: UnitSystem.Metric, batch_import_radius: 30 });
++    await saveUserSettings(db, settings);
++    expect(await getUserSettings(db)).toStrictEqual({ units: UnitSystem.Metric, batch_import_radius: 30 });
++  });
++
+   it('fills keys missing from an older saved blob with defaults', async () => {
+     await setSetting(db, 'user_settings', JSON.stringify({ units: UnitSystem.Metric }));
+ 
+diff --git a/src/__tests__/db-spots.test.ts b/src/__tests__/db-spots.test.ts
+index efee7d3..a829d6a 100644
+--- a/src/__tests__/db-spots.test.ts
++++ b/src/__tests__/db-spots.test.ts
+@@ -1,7 +1,7 @@
+ import type { SQLiteDatabase } from 'expo-sqlite';
+ import { createMigratedTestDb } from './helpers/node-sqlite-db';
+-import { insertSpot, getSpot, getSpots, updateSpot, softDeleteSpot } from '@/src/db';
+-import { FeatureType, SpotStatus, StopType } from '@/src/types';
++import { insertSpot, getSpot, getSpots, getSpotLegacy, updateSpot, softDeleteSpot } from '@/src/db';
++import { FeatureType } from '@/src/types';
+ import { createTestSpot } from './factories';
+ 
+ describe('spots against real SQLite', () => {
+@@ -37,48 +37,88 @@ describe('spots against real SQLite', () => {
+     expect(await getSpot(db, s.id)).toBeNull();
+   });
+ 
+-  it('partial updateSpot leaves the other JSON columns intact', async () => {
++  it('round-trips feature_types, stopped, natural_speed and notes', async () => {
+     const s = createTestSpot({
+-      feature: { type: FeatureType.Rail },
+-      in_run: { natural_speed: 3, setup_options: [] },
+-      landing: { difficulty: 2 },
+-      metadata: { notes: 'kinked' },
++      feature_types: [FeatureType.Rail, FeatureType.Ledge],
++      stopped: true,
++      natural_speed: 0, // None is a real rating: it must not come back as unset
++      notes: 'kinked, wax it',
++    });
++
++    await insertSpot(db, s);
++
++    const read = await getSpot(db, s.id);
++    expect(read).toEqual(s);
++    expect(read?.natural_speed).toBe(0);
++  });
++
++  it('a spot saved without tags reads back untagged: [] / false / unset', async () => {
++    const s = createTestSpot();
++    await insertSpot(db, s);
++
++    const read = await getSpot(db, s.id);
++    expect(read).toMatchObject({ feature_types: [], stopped: false });
++    expect(read?.natural_speed).toBeUndefined();
++    expect(read?.notes).toBeUndefined();
++  });
++
++  it('partial updateSpot leaves the other columns intact', async () => {
++    const s = createTestSpot({
++      feature_types: [FeatureType.Rail],
++      stopped: true,
++      natural_speed: 2,
++      notes: 'kinked',
+     });
+     await insertSpot(db, s);
+ 
+-    await updateSpot(db, s.id, { name: 'Kinked rail', status: SpotStatus.Complete });
++    await updateSpot(db, s.id, { name: 'Kinked rail' });
+ 
+     expect(await getSpot(db, s.id)).toMatchObject({
+       name: 'Kinked rail',
+-      status: SpotStatus.Complete,
+-      feature: s.feature,
+-      in_run: s.in_run,
+-      landing: s.landing,
+-      metadata: s.metadata,
++      feature_types: [FeatureType.Rail],
++      stopped: true,
++      natural_speed: 2,
++      notes: 'kinked',
++    });
++  });
++
++  it('updateSpot writes feature_types, stopped, natural_speed 0 and notes', async () => {
++    const s = createTestSpot({ feature_types: [FeatureType.Rail], stopped: true, natural_speed: 4 });
++    await insertSpot(db, s);
++
++    await updateSpot(db, s.id, {
++      feature_types: [FeatureType.Bank, FeatureType.Hip],
++      stopped: false,
++      natural_speed: 0,
++      notes: 'icy',
++    });
++
++    expect(await getSpot(db, s.id)).toMatchObject({
++      feature_types: [FeatureType.Bank, FeatureType.Hip],
++      stopped: false,
++      natural_speed: 0,
++      notes: 'icy',
+     });
+   });
+ 
+-  it('updateSpot with skate_stops: undefined removes the stops and leaves the other feature fields', async () => {
+-    // Guard: turning skate stops off in Edit must really drop them from the stored feature JSON.
+-    const feature = {
+-      type: FeatureType.Rail,
+-      shape: 'DFD',
+-      difficulty: 3,
+-      skate_stops: { is_stopped: true, stop_type: StopType.Knobs, stop_description: 'x', removable: true },
+-    };
+-    const s = createTestSpot({ feature });
++  it('updateSpot with natural_speed: null and notes: null clears them', async () => {
++    const s = createTestSpot({ natural_speed: 3, notes: 'hello', feature_types: [FeatureType.Gap] });
+     await insertSpot(db, s);
+ 
+-    await updateSpot(db, s.id, { feature: { ...feature, skate_stops: undefined } });
++    await updateSpot(db, s.id, { natural_speed: null, notes: null });
+ 
+-    const stored = await getSpot(db, s.id);
+-    expect(stored?.feature.skate_stops).toBeUndefined();
+-    expect(stored?.feature).toMatchObject({ type: FeatureType.Rail, shape: 'DFD', difficulty: 3 });
++    const read = await getSpot(db, s.id);
++    expect(read?.natural_speed).toBeUndefined();
++    expect(read?.notes).toBeUndefined();
++    expect(read?.feature_types).toEqual([FeatureType.Gap]);
++    expect(
++      await db.getFirstAsync('SELECT natural_speed, notes FROM spots WHERE id = ?', s.id),
++    ).toEqual({ natural_speed: null, notes: null });
+   });
+ 
+   it('round-trips quotes, dashes and emoji in text fields', async () => {
+     const name = `O'Brien's "kink" rail — Pier 57 🛹`;
+-    const s = createTestSpot({ name, metadata: { notes: `it's "fine"; DROP TABLE spots; --` } });
++    const s = createTestSpot({ name, notes: `it's "fine"; DROP TABLE spots; --` });
+ 
+     await insertSpot(db, s);
+ 
+@@ -90,9 +130,8 @@ describe('spots against real SQLite', () => {
+     const s = createTestSpot({
+       name: 'Pier 57 rail',
+       generated_name: 'Seattle',
+-      status: SpotStatus.Complete,
+-      feature: { type: FeatureType.Rail },
+-      metadata: { notes: 'kinked' },
++      feature_types: [FeatureType.Rail],
++      notes: 'kinked',
+     });
+     await insertSpot(db, s);
+ 
+@@ -105,6 +144,33 @@ describe('spots against real SQLite', () => {
+     expect(read).toMatchObject(rest);
+   });
+ 
++  describe('getSpotLegacy', () => {
++    it('returns null for a spot saved since migration 3', async () => {
++      const s = createTestSpot({ feature_types: [FeatureType.Rail] });
++      await insertSpot(db, s);
++
++      expect(await getSpotLegacy(db, s.id)).toBeNull();
++    });
++
++    it('returns null for an unknown id', async () => {
++      expect(await getSpotLegacy(db, 'no-such-spot')).toBeNull();
++    });
++
++    it('returns the archived object for a migrated spot, which getSpot never carries', async () => {
++      // Migration 3 writes legacy_json (db-migrate.test.ts runs it on v2 rows); here the column is set directly.
++      const s = createTestSpot({ feature_types: [FeatureType.Rail] });
++      await insertSpot(db, s);
++      await db.runAsync(
++        'UPDATE spots SET legacy_json = ? WHERE id = ?',
++        '{"material":"steel","landing_surface":"snow_built"}',
++        s.id,
++      );
++
++      expect(await getSpotLegacy(db, s.id)).toEqual({ material: 'steel', landing_surface: 'snow_built' });
++      expect(await getSpot(db, s.id)).toEqual(s);
++    });
++  });
++
+   describe('timestamps are ISO 8601 UTC', () => {
+     const ISO_Z = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+     const NOW = new Date('2026-10-15T12:34:56.789Z');
+diff --git a/src/__tests__/edit-dimensions.test.tsx b/src/__tests__/edit-dimensions.test.tsx
+deleted file mode 100644
+index 63fd1a1..0000000
+--- a/src/__tests__/edit-dimensions.test.tsx
++++ /dev/null
+@@ -1,148 +0,0 @@
+-import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
+-import { useLocalSearchParams } from 'expo-router';
+-import { useSpotsStore } from '@/src/stores';
+-import { useSettingsStore } from '@/src/stores/settings-store';
+-import { UnitSystem } from '@/src/types';
+-import type { Dimensions, Spot, SpotUpdate } from '@/src/types';
+-import { createTestSpot } from './factories';
+-
+-const mockUpdateSpot = jest.fn(async () => {});
+-jest.mock('@/src/hooks/use-spot-actions', () => ({
+-  useSpotActions: () => ({ updateSpot: mockUpdateSpot, addSpot: jest.fn(), removeSpot: jest.fn() }),
+-}));
+-
+-import EditSpotScreen from '@/app/spot/[id]/edit';
+-
+-const STORED: Dimensions = { length: 1.234, height: 0.456, width: 2 };
+-const FEET_PER_METER = 3.28084;
+-
+-function renderEdit(spot: Spot) {
+-  useSpotsStore.setState({ spots: [spot] });
+-  jest.mocked(useLocalSearchParams).mockReturnValue({ id: spot.id });
+-  render(<EditSpotScreen />);
+-}
+-
+-// The dimension TextInputs are labelled "Length"/"Height"/"Width" for accessibility; these lookups use them.
+-const lengthInput = () => screen.getByLabelText('Length');
+-
+-async function saveAndGetDimensions(): Promise<Dimensions | undefined> {
+-  fireEvent.press(screen.getByText('Save'));
+-  await waitFor(() => expect(mockUpdateSpot).toHaveBeenCalledTimes(1));
+-  const updates = (mockUpdateSpot.mock.calls[0] as unknown as [string, SpotUpdate])[1];
+-  return updates.feature?.dimensions;
+-}
+-
+-describe('Edit spot: dimensions', () => {
+-  beforeEach(() => {
+-    mockUpdateSpot.mockClear();
+-    useSettingsStore.setState({ units: UnitSystem.Metric });
+-  });
+-
+-  it('saves the stored dimensions exactly when only the name is changed (metric)', async () => {
+-    // Regression: the one-decimal display text was parsed back on save, so 1.234 m became 1.2 m.
+-    renderEdit(createTestSpot({ name: 'Pier rail', feature: { dimensions: STORED } }));
+-
+-    fireEvent.changeText(screen.getByDisplayValue('Pier rail'), 'Pier rail 2');
+-
+-    const dims = await saveAndGetDimensions();
+-    expect(dims?.length).toBe(1.234);
+-    expect(dims?.height).toBe(0.456);
+-    expect(dims?.width).toBe(2);
+-  });
+-
+-  it('saves the stored length exactly on an untouched save in imperial units', async () => {
+-    // Regression: metres -> feet (1 decimal) -> metres drifts on every save.
+-    useSettingsStore.setState({ units: UnitSystem.Imperial });
+-    renderEdit(createTestSpot({ name: 'Pier rail', feature: { dimensions: STORED } }));
+-
+-    fireEvent.changeText(screen.getByDisplayValue('Pier rail'), 'Pier rail 2');
+-
+-    const dims = await saveAndGetDimensions();
+-    expect(dims?.length).toBe(1.234);
+-    expect(dims?.height).toBe(0.456);
+-    expect(dims?.width).toBe(2);
+-  });
+-
+-  it('saves a changed length as typed and leaves the other dimensions alone (metric)', async () => {
+-    // Guard: editing one field must not disturb the untouched ones.
+-    renderEdit(createTestSpot({ feature: { dimensions: STORED } }));
+-
+-    fireEvent.changeText(lengthInput(), '2.5');
+-
+-    const dims = await saveAndGetDimensions();
+-    expect(dims?.length).toBe(2.5);
+-    expect(dims?.height).toBe(0.456);
+-    expect(dims?.width).toBe(2);
+-  });
+-
+-  it('converts a changed length from feet to metres on save (imperial)', async () => {
+-    // Guard: typed values are in the user's units and are stored in metres.
+-    useSettingsStore.setState({ units: UnitSystem.Imperial });
+-    renderEdit(createTestSpot({ feature: { dimensions: STORED } }));
+-
+-    fireEvent.changeText(lengthInput(), '10');
+-
+-    const dims = await saveAndGetDimensions();
+-    expect(dims?.length).toBeCloseTo(10 / FEET_PER_METER, 6);
+-    expect(dims?.height).toBe(0.456);
+-    expect(dims?.width).toBe(2);
+-  });
+-
+-  it('accepts a comma decimal such as "1,5" (iPhone decimal pad in many locales)', async () => {
+-    // Regression: parseFloat("1,5") truncates to 1.
+-    renderEdit(createTestSpot({ feature: { dimensions: STORED } }));
+-
+-    fireEvent.changeText(lengthInput(), '1,5');
+-
+-    const dims = await saveAndGetDimensions();
+-    expect(dims?.length).toBe(1.5);
+-  });
+-
+-  it('removes the length when the field is cleared and keeps the others', async () => {
+-    // Guard: an empty field means "no dimension", not 0 or the old value.
+-    renderEdit(createTestSpot({ feature: { dimensions: STORED } }));
+-
+-    fireEvent.changeText(lengthInput(), '');
+-
+-    const dims = await saveAndGetDimensions();
+-    expect(dims?.length).toBeUndefined();
+-    expect(dims?.height).toBe(0.456);
+-    expect(dims?.width).toBe(2);
+-  });
+-
+-  it.each(['abc', '-2'])(
+-    'keeps the stored length and never saves NaN when "%s" is typed',
+-    async (text) => {
+-      // Regression: parseFloat of non-numbers gave NaN; negative sizes are not valid either.
+-      renderEdit(createTestSpot({ feature: { dimensions: STORED } }));
+-
+-      fireEvent.changeText(lengthInput(), text);
+-
+-      const dims = await saveAndGetDimensions();
+-      expect(Number.isNaN(dims?.length)).toBe(false);
+-      expect(dims?.length).toBe(1.234);
+-    },
+-  );
+-
+-  it('removes the length when "0" is typed and keeps the others', async () => {
+-    // The placeholder is "0", so a user typing 0 means "no length"; it must not silently keep the old value.
+-    renderEdit(createTestSpot({ feature: { dimensions: STORED } }));
+-
+-    fireEvent.changeText(lengthInput(), '0');
+-
+-    const dims = await saveAndGetDimensions();
+-    expect(dims?.length).toBeUndefined();
+-    expect(dims?.height).toBe(0.456);
+-    expect(dims?.width).toBe(2);
+-  });
+-
+-  it('saves an undefined width when there was none and the user types "abc"', async () => {
+-    // Regression: invalid text on a previously empty field stored NaN instead of nothing.
+-    renderEdit(createTestSpot({ feature: { dimensions: { length: 1.234 } } }));
+-
+-    fireEvent.changeText(screen.getByLabelText('Width'), 'abc');
+-
+-    const dims = await saveAndGetDimensions();
+-    expect(dims?.width).toBeUndefined();
+-  });
+-});
+diff --git a/src/__tests__/edit-skate-stops.test.tsx b/src/__tests__/edit-skate-stops.test.tsx
+deleted file mode 100644
+index 77f2ab7..0000000
+--- a/src/__tests__/edit-skate-stops.test.tsx
++++ /dev/null
+@@ -1,188 +0,0 @@
+-import { StyleSheet } from 'react-native';
+-import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
+-import { useLocalSearchParams } from 'expo-router';
+-import { useSpotsStore } from '@/src/stores';
+-import { StopType } from '@/src/types';
+-import type { Spot, SpotUpdate } from '@/src/types';
+-import { createTestSpot } from './factories';
+-
+-const mockUpdateSpot = jest.fn(async () => {});
+-jest.mock('@/src/hooks/use-spot-actions', () => ({
+-  useSpotActions: () => ({ updateSpot: mockUpdateSpot, addSpot: jest.fn(), removeSpot: jest.fn() }),
+-}));
+-
+-import EditSpotScreen from '@/app/spot/[id]/edit';
+-
+-const EXISTING_STOPS = {
+-  is_stopped: true,
+-  stop_type: StopType.Knobs,
+-  stop_description: 'Knobbed at kinks',
+-  removable: false,
+-};
+-
+-function renderEdit(spot: Spot) {
+-  useSpotsStore.setState({ spots: [spot] });
+-  jest.mocked(useLocalSearchParams).mockReturnValue({ id: spot.id });
+-  render(<EditSpotScreen />);
+-}
+-
+-const stopsSwitch = () => screen.getByLabelText('Skate stops');
+-const chip = (name: string) => screen.getByRole('checkbox', { name });
+-const turnStopsOn = () => fireEvent(stopsSwitch(), 'valueChange', true);
+-const turnStopsOff = () => fireEvent(stopsSwitch(), 'valueChange', false);
+-
+-async function saveAndGetUpdates(): Promise<SpotUpdate> {
+-  fireEvent.press(screen.getByText('Save'));
+-  await waitFor(() => expect(mockUpdateSpot).toHaveBeenCalledTimes(1));
+-  return (mockUpdateSpot.mock.calls[0] as unknown as [string, SpotUpdate])[1];
+-}
+-
+-describe('Edit spot: skate stops', () => {
+-  beforeEach(() => {
+-    mockUpdateSpot.mockClear();
+-  });
+-
+-  it('hides the stop fields while the switch is off and shows them once it is turned on', () => {
+-    // The details only make sense for a stopped feature, so they must not clutter the form until asked for.
+-    renderEdit(createTestSpot());
+-
+-    expect(stopsSwitch().props.value).toBe(false);
+-    expect(screen.queryByRole('checkbox', { name: 'Knobs' })).toBeNull();
+-    expect(screen.queryByLabelText('Stop details')).toBeNull();
+-    expect(screen.queryByLabelText('Removable with tools')).toBeNull();
+-
+-    turnStopsOn();
+-
+-    for (const label of ['Knobs', 'Caps', 'Brackets', 'Welds', 'Other']) {
+-      expect(chip(label)).toBeOnTheScreen();
+-    }
+-    expect(screen.getByLabelText('Stop details')).toBeOnTheScreen();
+-    expect(screen.getByPlaceholderText('Knobbed at kinks')).toBeOnTheScreen();
+-    expect(screen.getByLabelText('Removable with tools')).toBeOnTheScreen();
+-  });
+-
+-  it('saves is_stopped, type, trimmed details and removable when the switch is on with everything filled in', async () => {
+-    // The core feature: what the user picked ends up in the feature that is written to the spot.
+-    renderEdit(createTestSpot());
+-
+-    turnStopsOn();
+-    fireEvent.press(chip('Welds'));
+-    fireEvent.changeText(screen.getByLabelText('Stop details'), '  Welded at the lip  ');
+-    fireEvent(screen.getByLabelText('Removable with tools'), 'valueChange', true);
+-
+-    const updates = await saveAndGetUpdates();
+-    expect(updates.feature?.skate_stops).toEqual({
+-      is_stopped: true,
+-      stop_type: StopType.Welds,
+-      stop_description: 'Welded at the lip',
+-      removable: true,
+-    });
+-  });
+-
+-  it('saves only is_stopped and removable: false when the switch is on and nothing else is chosen', async () => {
+-    // Empty details and no chip must be omitted (undefined), not stored as '' or a default type.
+-    // Matcher: toEqual, which treats an undefined property the same as a missing one (toStrictEqual would not).
+-    renderEdit(createTestSpot());
+-
+-    turnStopsOn();
+-
+-    const updates = await saveAndGetUpdates();
+-    expect(updates.feature?.skate_stops).toEqual({
+-      is_stopped: true,
+-      stop_type: undefined,
+-      stop_description: undefined,
+-      removable: false,
+-    });
+-  });
+-
+-  it('saves skate_stops as undefined when the switch is off', async () => {
+-    // A spot nobody marked stays "unknown"; off must not write is_stopped: false.
+-    renderEdit(createTestSpot());
+-
+-    const updates = await saveAndGetUpdates();
+-    expect(updates.feature?.skate_stops).toBeUndefined();
+-  });
+-
+-  it('opens a spot that already has skate stops with the switch on and the stored values filled in', () => {
+-    // Editing must start from what is stored, not from a blank form.
+-    renderEdit(createTestSpot({ feature: { skate_stops: EXISTING_STOPS } }));
+-
+-    expect(stopsSwitch().props.value).toBe(true);
+-    expect(chip('Knobs')).toBeChecked();
+-    expect(chip('Caps')).not.toBeChecked();
+-    expect(screen.getByLabelText('Stop details').props.value).toBe('Knobbed at kinks');
+-    expect(screen.getByLabelText('Removable with tools').props.value).toBe(false);
+-  });
+-
+-  it('keeps existing skate_stops when an unrelated field (the name) is edited and saved', async () => {
+-    // Regression: handleSave rebuilt `feature` without skate_stops, so any save wiped existing stop data.
+-    renderEdit(createTestSpot({ name: 'Pier 57 rail', feature: { skate_stops: EXISTING_STOPS } }));
+-
+-    fireEvent.changeText(screen.getByDisplayValue('Pier 57 rail'), 'Pier 57 kinked rail');
+-
+-    const updates = await saveAndGetUpdates();
+-    expect(updates.name).toBe('Pier 57 kinked rail');
+-    expect(updates.feature?.skate_stops).toEqual(EXISTING_STOPS);
+-  });
+-
+-  it('keeps the chosen chip and typed details when the switch is turned off and on again', async () => {
+-    // Toggling is not destructive within one edit; only Save drops the data of an off switch.
+-    renderEdit(createTestSpot());
+-
+-    turnStopsOn();
+-    fireEvent.press(chip('Brackets'));
+-    fireEvent.changeText(screen.getByLabelText('Stop details'), 'Bolted every 2m');
+-    turnStopsOff();
+-    turnStopsOn();
+-
+-    expect(chip('Brackets')).toBeChecked();
+-    expect(screen.getByLabelText('Stop details').props.value).toBe('Bolted every 2m');
+-
+-    const updates = await saveAndGetUpdates();
+-    expect(updates.feature?.skate_stops).toEqual({
+-      is_stopped: true,
+-      stop_type: StopType.Brackets,
+-      stop_description: 'Bolted every 2m',
+-      removable: false,
+-    });
+-  });
+-
+-  it('clears the stop type when the selected chip is tapped again', async () => {
+-    // Same tap-again-to-clear behavior as the Type and Material chips; a type is optional.
+-    renderEdit(createTestSpot({ feature: { skate_stops: EXISTING_STOPS } }));
+-
+-    expect(chip('Knobs')).toBeChecked();
+-    fireEvent.press(chip('Knobs'));
+-    expect(chip('Knobs')).not.toBeChecked();
+-
+-    const updates = await saveAndGetUpdates();
+-    expect(updates.feature?.skate_stops).toEqual({
+-      is_stopped: true,
+-      stop_type: undefined,
+-      stop_description: 'Knobbed at kinks',
+-      removable: false,
+-    });
+-  });
+-
+-  it.each(['Skate stops', 'Removable with tools'])(
+-    'hides the visible "%s" label from VoiceOver so the switch row is read once',
+-    (label) => {
+-      // The Switch already carries accessibilityLabel; the visible Text beside it would be read a second time.
+-      renderEdit(createTestSpot({ feature: { skate_stops: EXISTING_STOPS } }));
+-
+-      const text = screen.getByText(label, { includeHiddenElements: true });
+-      expect(text.props.accessibilityElementsHidden).toBe(true); // iOS
+-      expect(text.props.importantForAccessibility).toBe('no'); // Android
+-    },
+-  );
+-
+-  it.each(['Skate stops', 'Removable with tools'])(
+-    'lets the "%s" label shrink so a long label at large text sizes cannot push the switch off-screen',
+-    (label) => {
+-      // Without flexShrink the label keeps its full width and the Switch is squeezed out of the row.
+-      renderEdit(createTestSpot({ feature: { skate_stops: EXISTING_STOPS } }));
+-
+-      expect(StyleSheet.flatten(screen.getByText(label, { includeHiddenElements: true }).props.style).flexShrink).toBe(1);
+-    },
+-  );
+-});
+diff --git a/src/__tests__/edit-spot-name.test.tsx b/src/__tests__/edit-spot-name.test.tsx
+index 4e36493..aabe418 100644
+--- a/src/__tests__/edit-spot-name.test.tsx
++++ b/src/__tests__/edit-spot-name.test.tsx
+@@ -1,6 +1,7 @@
+ import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
+ import { useLocalSearchParams } from 'expo-router';
+ import { useSpotsStore } from '@/src/stores';
++import { FeatureType } from '@/src/types';
+ import type { SpotUpdate } from '@/src/types';
+ import { createTestSpot } from './factories';
+ 
+@@ -29,4 +30,22 @@ describe('Edit spot: clearing the name', () => {
+       expect(updates).toHaveProperty('name', null);
+     });
+   });
++
++  it('Save writes only the name and updated_at (nothing from the removed model)', () => {
++    const spot = createTestSpot({ name: 'Old', feature_types: [FeatureType.Rail], stopped: true, notes: 'keep' });
++    useSpotsStore.setState({ spots: [spot] });
++    jest.mocked(useLocalSearchParams).mockReturnValue({ id: spot.id });
++    mockUpdateSpot.mockClear();
++
++    render(<EditSpotScreen />);
++    fireEvent.changeText(screen.getByDisplayValue('Old'), 'New');
++    fireEvent.press(screen.getByText('Save'));
++
++    return waitFor(() => {
++      expect(mockUpdateSpot).toHaveBeenCalledTimes(1);
++      const [, updates] = mockUpdateSpot.mock.calls[0] as unknown as [string, SpotUpdate];
++      expect(Object.keys(updates).sort()).toEqual(['name', 'updated_at']);
++      expect(updates.name).toBe('New');
++    });
++  });
+ });
+diff --git a/src/__tests__/factories.ts b/src/__tests__/factories.ts
+index 674f2a4..3a21171 100644
+--- a/src/__tests__/factories.ts
++++ b/src/__tests__/factories.ts
+@@ -1,6 +1,5 @@
+ import { newId } from '@/src/utils/id';
+ import type { GeoPoint, Spot, Media } from '@/src/types';
+-import { SpotStatus } from '@/src/types';
+ 
+ /** Cities hundreds of km apart: their pins never merge into a map cluster, whatever zoom initialRegion picks. */
+ export const CITIES = {
+@@ -16,11 +15,8 @@ export function createTestSpot(overrides: Partial<Spot> = {}): Spot {
+     location: CITIES.seattle,
+     created_at: now,
+     updated_at: now,
+-    status: SpotStatus.Draft,
+-    feature: {},
+-    in_run: { setup_options: [] },
+-    landing: {},
+-    metadata: {},
++    feature_types: [],
++    stopped: false,
+     ...overrides,
+   };
+ }
+diff --git a/src/__tests__/filter-sheet.test.tsx b/src/__tests__/filter-sheet.test.tsx
+index 53f1878..a7a4c54 100644
+--- a/src/__tests__/filter-sheet.test.tsx
++++ b/src/__tests__/filter-sheet.test.tsx
+@@ -2,7 +2,7 @@ import React from 'react';
+ import { render, screen, fireEvent } from '@testing-library/react-native';
+ import { FilterSheet } from '@/src/components/FilterSheet';
+ import { useSpotsStore } from '@/src/stores';
+-import { DEFAULT_FILTERS, FeatureType, GearItem } from '@/src/types';
++import { DEFAULT_FILTERS, FeatureType } from '@/src/types';
+ 
+ describe('FilterSheet', () => {
+   const onClose = jest.fn();
+@@ -12,20 +12,21 @@ describe('FilterSheet', () => {
+     useSpotsStore.setState({ filters: { ...DEFAULT_FILTERS }, searchQuery: '' });
+   });
+ 
+-  it('renders feature type chips', () => {
++  it("offers exactly the eight What's here chips (no Other)", () => {
+     render(<FilterSheet visible onClose={onClose} />);
+-    expect(screen.getByText('rail')).toBeTruthy();
+-    expect(screen.getByText('ledge')).toBeTruthy();
++    expect(screen.getByText("What's here")).toBeTruthy();
++    const labels = ['Rail', 'Ledge', 'Bank', 'Hip', 'Stair set', 'Gap', 'Wall ride', 'Quarter pipe'];
++    for (const label of labels) expect(screen.getByText(label)).toBeTruthy();
++    expect(screen.queryByText(/^other$/i)).toBeNull();
++    expect(screen.getAllByRole('checkbox')).toHaveLength(8);
+   });
+ 
+-  it('renders gear filter chips', () => {
++  it('has no gear, build or drafts filter (D20, D22)', () => {
+     render(<FilterSheet visible onClose={onClose} />);
+-    expect(screen.getByText('winch')).toBeTruthy();
+-  });
+-
+-  it('renders show drafts toggle', () => {
+-    render(<FilterSheet visible onClose={onClose} />);
+-    expect(screen.getByText('Show Drafts')).toBeTruthy();
++    expect(screen.queryByText(/gear i have/i)).toBeNull();
++    expect(screen.queryByText(/exclude build/i)).toBeNull();
++    expect(screen.queryByText(/show drafts/i)).toBeNull();
++    expect(screen.queryByText('winch')).toBeNull();
+   });
+ 
+   it('renders Reset and Apply buttons', () => {
+@@ -36,32 +37,24 @@ describe('FilterSheet', () => {
+ 
+   it('toggling a type chip updates filter state on Apply', () => {
+     render(<FilterSheet visible onClose={onClose} />);
+-    fireEvent.press(screen.getByText('rail'));
++    fireEvent.press(screen.getByText('Rail'));
+     fireEvent.press(screen.getByText('Apply'));
+     expect(useSpotsStore.getState().filters.types).toContain(FeatureType.Rail);
+   });
+ 
+-  it('toggling gear chip updates filter state on Apply', () => {
+-    render(<FilterSheet visible onClose={onClose} />);
+-    fireEvent.press(screen.getByText('winch'));
+-    fireEvent.press(screen.getByText('Apply'));
+-    expect(useSpotsStore.getState().filters.gear).toContain(GearItem.Winch);
+-  });
+-
+   it('Reset clears all filters', () => {
+     useSpotsStore.setState({
+-      filters: { ...DEFAULT_FILTERS, types: [FeatureType.Rail], gear: [GearItem.Winch] },
++      filters: { ...DEFAULT_FILTERS, types: [FeatureType.Rail], stopped: true },
+     });
+     render(<FilterSheet visible onClose={onClose} />);
+     fireEvent.press(screen.getByText('Reset'));
+-    expect(useSpotsStore.getState().filters.types).toHaveLength(0);
+-    expect(useSpotsStore.getState().filters.gear).toHaveLength(0);
++    expect(useSpotsStore.getState().filters).toEqual(DEFAULT_FILTERS);
+   });
+ 
+   it('Reset and Apply clear the filters but leave the search alone', () => {
+     // Search has its own field on the Spots tab, so the filter sheet must not wipe what the user typed.
+     useSpotsStore.setState({
+-      filters: { ...DEFAULT_FILTERS, types: [FeatureType.Rail], show_drafts: false },
++      filters: { ...DEFAULT_FILTERS, types: [FeatureType.Rail], stopped: false },
+       searchQuery: 'pier',
+     });
+     render(<FilterSheet visible onClose={onClose} />);
+@@ -91,7 +84,7 @@ describe('FilterSheet', () => {
+ 
+   it('drops unsaved edits when the sheet is closed and reopened', () => {
+     const { rerender } = render(<FilterSheet visible onClose={onClose} />);
+-    fireEvent.press(screen.getByText('rail'));
++    fireEvent.press(screen.getByText('Rail'));
+ 
+     rerender(<FilterSheet visible={false} onClose={onClose} />);
+     rerender(<FilterSheet visible onClose={onClose} />);
+diff --git a/src/__tests__/profile.test.tsx b/src/__tests__/profile.test.tsx
+index 626896d..696c4c8 100644
+--- a/src/__tests__/profile.test.tsx
++++ b/src/__tests__/profile.test.tsx
+@@ -2,7 +2,7 @@ import React from 'react';
+ import { render, screen, fireEvent } from '@testing-library/react-native';
+ import ProfileScreen from '@/app/(tabs)/profile';
+ import { useSettingsStore } from '@/src/stores/settings-store';
+-import { GearItem, UnitSystem } from '@/src/types';
++import { UnitSystem } from '@/src/types';
+ 
+ jest.mock('expo-sqlite', () => ({
+   useSQLiteContext: () => ({
+@@ -25,7 +25,6 @@ describe('ProfileScreen', () => {
+     useSettingsStore.setState({
+       units: UnitSystem.Imperial,
+       batch_import_radius: 50,
+-      gear: [],
+     });
+   });
+ 
+@@ -35,11 +34,11 @@ describe('ProfileScreen', () => {
+     expect(screen.getByText('Metric')).toBeTruthy();
+   });
+ 
+-  it('renders all gear items', () => {
++  it('has no My Gear section or gear chips (D22)', () => {
+     render(<ProfileScreen />);
+-    expect(screen.getByText('winch')).toBeTruthy();
+-    expect(screen.getByText('bungee')).toBeTruthy();
+-    expect(screen.getByText('drop in platform')).toBeTruthy();
++    expect(screen.queryByText(/my gear/i)).toBeNull();
++    expect(screen.queryByText('winch')).toBeNull();
++    expect(screen.queryByText('bungee')).toBeNull();
+   });
+ 
+   it('shows current units as selected', () => {
+@@ -55,19 +54,6 @@ describe('ProfileScreen', () => {
+     expect(useSettingsStore.getState().units).toBe(UnitSystem.Metric);
+   });
+ 
+-  it('tapping a gear item adds it to store', () => {
+-    render(<ProfileScreen />);
+-    fireEvent.press(screen.getByText('winch'));
+-    expect(useSettingsStore.getState().gear).toContain(GearItem.Winch);
+-  });
+-
+-  it('tapping an already-selected gear item removes it', () => {
+-    useSettingsStore.setState({ gear: [GearItem.Winch], units: UnitSystem.Imperial, batch_import_radius: 50 });
+-    render(<ProfileScreen />);
+-    fireEvent.press(screen.getByText('winch'));
+-    expect(useSettingsStore.getState().gear).not.toContain(GearItem.Winch);
+-  });
+-
+   it('renders batch import radius field', () => {
+     render(<ProfileScreen />);
+     expect(screen.getByText('Import Radius')).toBeTruthy();
+diff --git a/src/__tests__/review-persist.test.tsx b/src/__tests__/review-persist.test.tsx
+index 1f20f16..81c0af2 100644
+--- a/src/__tests__/review-persist.test.tsx
++++ b/src/__tests__/review-persist.test.tsx
+@@ -41,7 +41,7 @@ describe('review screens persist photos before saving (D3)', () => {
+     fs.__putFile('file:///c/b.jpg');
+ 
+     render(<QuickAddReview />);
+-    fireEvent.press(screen.getByText('Save as Draft'));
++    fireEvent.press(screen.getByText('Save'));
+     await waitFor(() => expect(mockDismissAll).toHaveBeenCalled());
+ 
+     const media = insertedMedia();
+@@ -51,6 +51,34 @@ describe('review screens persist photos before saving (D3)', () => {
+     expect(useMediaStore.getState().mediaBySpot[media[0].spot_id]).toHaveLength(2);
+   });
+ 
++  it('Quick Add saves an untagged, not-stopped spot with no status (D20)', async () => {
++    setParams({ photoUris: '', latitude: '47.6', longitude: '-122.3' });
++
++    render(<QuickAddReview />);
++    fireEvent.press(screen.getByText('Save'));
++    await waitFor(() => expect(mockDismissAll).toHaveBeenCalled());
++
++    const [spot] = useSpotsStore.getState().spots;
++    expect(spot).toMatchObject({ feature_types: [], stopped: false });
++    expect(spot).not.toHaveProperty('status');
++  });
++
++  it('Import saves untagged, not-stopped spots with no status (D20)', async () => {
++    const group: ImportPhoto[] = [
++      { uri: 'file:///c/i2.jpg', location: { latitude: 47.6, longitude: -122.3 }, capturedAt: '2026-10-13T14:22:01' },
++    ];
++    setParams({ groupsJson: JSON.stringify([group]) });
++    fs.__putFile('file:///c/i2.jpg');
++
++    render(<ImportReview />);
++    fireEvent.press(screen.getByText('Import 1 Spot'));
++    await waitFor(() => expect(mockDismissAll).toHaveBeenCalled());
++
++    const [spot] = useSpotsStore.getState().spots;
++    expect(spot).toMatchObject({ feature_types: [], stopped: false });
++    expect(spot).not.toHaveProperty('status');
++  });
++
+   it('Import stores relative photo paths and fills the media store', async () => {
+     const group: ImportPhoto[] = [
+       { uri: 'file:///c/i1.jpg', location: { latitude: 47.6, longitude: -122.3 }, capturedAt: '2026-10-13T14:22:01' },
+@@ -93,7 +121,7 @@ describe('review screens persist photos before saving (D3)', () => {
+     setParams({ photoUris: 'file:///c/gone.jpg', latitude: '0', longitude: '0' }); // never created
+ 
+     render(<QuickAddReview />);
+-    fireEvent.press(screen.getByText('Save as Draft'));
++    fireEvent.press(screen.getByText('Save'));
+     await waitFor(() => expect(mockDismissAll).toHaveBeenCalled());
+ 
+     expect(insertedMedia().map((m) => m.file_path)).toEqual(['file:///c/gone.jpg']);
+@@ -106,7 +134,7 @@ describe('review screens persist photos before saving (D3)', () => {
+     setParams({ photoUris: '', latitude: '47.6', longitude: '-122.3' });
+ 
+     render(<QuickAddReview />);
+-    fireEvent.press(screen.getByText('Save as Draft'));
++    fireEvent.press(screen.getByText('Save'));
+ 
+     await waitFor(() =>
+       expect(mockUpdateSpot).toHaveBeenCalledWith(expect.anything(), expect.any(String), { generated_name: 'Seattle', updated_at: expect.any(String) }),
+diff --git a/src/__tests__/screens.test.tsx b/src/__tests__/screens.test.tsx
+index 8848a2c..f00fdec 100644
+--- a/src/__tests__/screens.test.tsx
++++ b/src/__tests__/screens.test.tsx
+@@ -40,7 +40,7 @@ describe('Screen smoke tests', () => {
+   it('renders Profile screen', () => {
+     render(<ProfileScreen />);
+     expect(screen.getByText('Units')).toBeTruthy();
+-    expect(screen.getByText('My Gear')).toBeTruthy();
++    expect(screen.queryByText('My Gear')).toBeNull();
+   });
+ 
+   it('renders Camera screen (permission request state)', () => {
+@@ -50,7 +50,8 @@ describe('Screen smoke tests', () => {
+ 
+   it('renders Review screen', () => {
+     render(<ReviewScreen />);
+-    expect(screen.getByText('Save as Draft')).toBeTruthy();
++    expect(screen.getByText('Save')).toBeTruthy();
++    expect(screen.queryByText(/draft/i)).toBeNull();
+   });
+ 
+   it('renders Import screen', () => {
+diff --git a/src/__tests__/spot-detail-stops.test.tsx b/src/__tests__/spot-detail-stops.test.tsx
+deleted file mode 100644
+index cbb810a..0000000
+--- a/src/__tests__/spot-detail-stops.test.tsx
++++ /dev/null
+@@ -1,36 +0,0 @@
+-import { render, screen } from '@testing-library/react-native';
+-import { useLocalSearchParams } from 'expo-router';
+-import { useMediaStore, useSpotsStore } from '@/src/stores';
+-import { StopType } from '@/src/types';
+-import type { Spot } from '@/src/types';
+-import { createTestSpot } from './factories';
+-
+-import SpotDetailScreen from '@/app/spot/[id]/index';
+-
+-function renderDetail(feature: Spot['feature']) {
+-  const spot = createTestSpot({ feature });
+-  useSpotsStore.setState({ spots: [spot] });
+-  useMediaStore.setState({ mediaBySpot: {} });
+-  jest.mocked(useLocalSearchParams).mockReturnValue({ id: spot.id } as never);
+-  render(<SpotDetailScreen />);
+-}
+-
+-describe('Spot detail: skate stops', () => {
+-  it('shows the Stop Type row for a spot whose only feature data is skate stops', () => {
+-    // hasFeatureDetails ignored skate_stops, so the section was hidden unless some other feature field was set.
+-    renderDetail({ skate_stops: { is_stopped: true, stop_type: StopType.Knobs } });
+-
+-    expect(screen.getByText('Stop Type')).toBeOnTheScreen();
+-    expect(screen.getByText('Knobs')).toBeOnTheScreen();
+-  });
+-
+-  it('labels the stop description row "Stop Details", matching the Edit screen', () => {
+-    // (shape keeps the Feature section visible regardless of the hasFeatureDetails fix.)
+-    // Edit calls the field "Stop details"; the detail row said "Stop Info".
+-    renderDetail({ shape: 'DFD', skate_stops: { is_stopped: true, stop_description: 'Knobbed at kinks' } });
+-
+-    expect(screen.getByText('Stop Details')).toBeOnTheScreen();
+-    expect(screen.getByText('Knobbed at kinks')).toBeOnTheScreen();
+-    expect(screen.queryByText('Stop Info')).toBeNull();
+-  });
+-});
+diff --git a/src/__tests__/spot-detail.test.tsx b/src/__tests__/spot-detail.test.tsx
+new file mode 100644
+index 0000000..3959df2
+--- /dev/null
++++ b/src/__tests__/spot-detail.test.tsx
+@@ -0,0 +1,37 @@
++import { render, screen } from '@testing-library/react-native';
++import { useLocalSearchParams } from 'expo-router';
++import { useMediaStore, useSpotsStore } from '@/src/stores';
++import type { Spot } from '@/src/types';
++import { createTestSpot } from './factories';
++
++import SpotDetailScreen from '@/app/spot/[id]/index';
++
++function renderDetail(overrides: Partial<Spot>) {
++  const spot = createTestSpot(overrides);
++  useSpotsStore.setState({ spots: [spot] });
++  useMediaStore.setState({ mediaBySpot: {} });
++  jest.mocked(useLocalSearchParams).mockReturnValue({ id: spot.id } as never);
++  render(<SpotDetailScreen />);
++}
++
++describe('Spot detail: notes', () => {
++  it('shows the notes paragraph when the spot has notes', () => {
++    renderDetail({ name: 'Pier 57', notes: 'under the bridge' });
++
++    expect(screen.getByText('Pier 57')).toBeOnTheScreen();
++    expect(screen.getByText('under the bridge')).toBeOnTheScreen();
++  });
++
++  it('shows no Notes label when the spot has no notes', () => {
++    renderDetail({ name: 'Pier 57' });
++
++    expect(screen.getByText('Pier 57')).toBeOnTheScreen();
++    expect(screen.queryByText('Notes')).toBeNull();
++  });
++
++  it('shows none of the removed sections (D17)', () => {
++    renderDetail({ name: 'Pier 57', notes: 'under the bridge' });
++
++    for (const title of ['Feature', 'In-Run', 'Landing', 'Details']) expect(screen.queryByText(title)).toBeNull();
++  });
++});
+diff --git a/src/__tests__/spot-list.test.tsx b/src/__tests__/spot-list.test.tsx
+index af4a5b2..4603714 100644
+--- a/src/__tests__/spot-list.test.tsx
++++ b/src/__tests__/spot-list.test.tsx
+@@ -4,13 +4,12 @@ import { render, screen, fireEvent } from '@testing-library/react-native';
+ import { SpotListItem } from '@/src/components/SpotListItem';
+ import { getSpotDisplayName } from '@/src/utils/spot-name';
+ import { createTestSpot } from './factories';
+-import { FeatureType, SpotStatus } from '@/src/types';
++import { FeatureType } from '@/src/types';
+ 
+ describe('SpotListItem', () => {
+   const defaultProps = {
+     id: 'test-id',
+     displayName: 'Downtown Rail',
+-    isDraft: false,
+     onPress: jest.fn(),
+   };
+ 
+@@ -24,13 +23,8 @@ describe('SpotListItem', () => {
+   });
+ 
+   it('renders feature type badge', () => {
+-    render(<SpotListItem {...defaultProps} featureType="rail" />);
+-    expect(screen.getByText('rail')).toBeTruthy();
+-  });
+-
+-  it('renders difficulty badge', () => {
+-    render(<SpotListItem {...defaultProps} difficulty={4} />);
+-    expect(screen.getByText('4')).toBeTruthy();
++    render(<SpotListItem {...defaultProps} featureType="Stair set +1" />);
++    expect(screen.getByText('Stair set +1')).toBeTruthy();
+   });
+ 
+   it('renders distance', () => {
+@@ -38,14 +32,9 @@ describe('SpotListItem', () => {
+     expect(screen.getByText('2.3 mi')).toBeTruthy();
+   });
+ 
+-  it('renders draft badge for draft spots', () => {
+-    render(<SpotListItem {...defaultProps} isDraft={true} />);
+-    expect(screen.getByText('Draft')).toBeTruthy();
+-  });
+-
+-  it('does not render draft badge for complete spots', () => {
+-    render(<SpotListItem {...defaultProps} isDraft={false} />);
+-    expect(screen.queryByText('Draft')).toBeNull();
++  it('never shows a status badge (D20: no drafts)', () => {
++    render(<SpotListItem {...defaultProps} featureType="rail" distance="2.3 mi" />);
++    expect(screen.queryByText(/draft/i)).toBeNull();
+   });
+ 
+   it('calls onPress with id when pressed', () => {
+@@ -89,10 +78,8 @@ describe('SpotListItem memo behavior', () => {
+       <SpotListItem
+         id="test"
+         displayName="Test Spot"
+-        featureType="rail"
+-        difficulty={3}
++        featureType="Rail +1"
+         distance="1.2 mi"
+-        isDraft={false}
+         onPress={() => {}}
+       />,
+     );
+@@ -105,8 +92,8 @@ describe('Spot list with many items', () => {
+     const spots = Array.from({ length: 150 }, (_, i) =>
+       createTestSpot({
+         name: `Spot ${i}`,
+-        feature: { type: FeatureType.Rail },
+-        status: i % 3 === 0 ? SpotStatus.Draft : SpotStatus.Complete,
++        feature_types: [FeatureType.Rail],
++        stopped: i % 3 === 0,
+       }),
+     );
+ 
+diff --git a/src/__tests__/spot-map.test.tsx b/src/__tests__/spot-map.test.tsx
+index 96be51f..8e4526d 100644
+--- a/src/__tests__/spot-map.test.tsx
++++ b/src/__tests__/spot-map.test.tsx
+@@ -3,9 +3,9 @@ import type { ReactTestInstance } from 'react-test-renderer';
+ import { render, screen, fireEvent, act } from '@testing-library/react-native';
+ import { useIsFocused } from 'expo-router';
+ import * as ReactNativeMaps from 'react-native-maps';
+-import { SpotMap, DRAFT_PIN, SPOT_PIN } from '@/src/components/SpotMap';
++import { SpotMap, SPOT_PIN } from '@/src/components/SpotMap';
+ import { initialRegion } from '@/src/utils/map-region';
+-import { SpotStatus } from '@/src/types';
++import { FeatureType } from '@/src/types';
+ import type { Spot } from '@/src/types';
+ import { CITIES, createTestSpot } from './factories';
+ import { NO_LOCATION } from '@/src/utils/geo';
+@@ -17,9 +17,9 @@ import { palette } from '@/src/constants/theme';
+ // second, separate instance of the mock, whose spies the MapView never calls.
+ const { mockMapMethods } = ReactNativeMaps as unknown as typeof import('../../__mocks__/react-native-maps');
+ 
+-const named = createTestSpot({ name: 'Pier 57 rail', status: SpotStatus.Complete, location: CITIES.seattle });
+-const draft = createTestSpot({ name: 'Library ledge', status: SpotStatus.Draft, location: CITIES.portland });
+-const unnamed = createTestSpot({ status: SpotStatus.Complete, location: CITIES.spokane });
++const named = createTestSpot({ name: 'Pier 57 rail', location: CITIES.seattle });
++const stopped = createTestSpot({ name: 'Library ledge', stopped: true, location: CITIES.portland });
++const unnamed = createTestSpot({ location: CITIES.spokane });
+ 
+ /** The background colour of the nearest ancestor that paints one (the cluster's coloured circle behind its count). */
+ function backgroundBehind(element: ReactTestInstance): unknown {
+@@ -55,7 +55,6 @@ const closeSpots = [
+ ].map(([dLat, dLng], i) =>
+   createTestSpot({
+     name: `Pier 57 spot ${i}`,
+-    status: SpotStatus.Complete,
+     location: { latitude: CITIES.seattle.latitude + dLat, longitude: CITIES.seattle.longitude + dLng },
+   }),
+ );
+@@ -64,18 +63,22 @@ describe('SpotMap', () => {
+   beforeEach(() => mockMapMethods.fitToCoordinates.mockReset());
+ 
+   it('renders one marker per spot, titled with the display name', () => {
+-    renderMap([named, draft, unnamed]);
++    renderMap([named, stopped, unnamed]);
+ 
+     expect(screen.getAllByTestId(/^spot-marker-/)).toHaveLength(3);
+     expect(screen.getByTestId(`spot-marker-${named.id}`).props.title).toBe('Pier 57 rail');
+   });
+ 
+-  it('colours drafts differently from complete spots', () => {
+-    renderMap([draft, named]);
++  it('gives every pin the one spot colour (D20: no draft colour)', () => {
++    renderMap([named, stopped, unnamed]);
+ 
+-    expect(screen.getByTestId(`spot-marker-${draft.id}`).props.pinColor).toBe(DRAFT_PIN);
+-    expect(screen.getByTestId(`spot-marker-${named.id}`).props.pinColor).toBe(SPOT_PIN);
+-    expect(DRAFT_PIN).not.toBe(SPOT_PIN);
++    for (const marker of screen.getAllByTestId(/^spot-marker-/)) expect(marker.props.pinColor).toBe(SPOT_PIN);
++  });
++
++  it('leaves the callout description empty for a spot with no feature types', () => {
++    renderMap([named]);
++
++    expect(screen.getByTestId(`spot-marker-${named.id}`).props.description).toBeUndefined();
+   });
+ 
+   it('opens the spot when its callout is pressed', () => {
+@@ -104,11 +107,11 @@ describe('SpotMap', () => {
+     expect(screen.queryByTestId(`spot-marker-${lost.id}`)).toBeNull();
+   });
+ 
+-  it('shows the custom feature name for "other" in the callout', () => {
+-    const custom = createTestSpot({ status: SpotStatus.Complete, feature: { type: 'other' as never, custom_type: 'kinked hubba' } });
+-    renderMap([custom]);
++  it('shows the feature types label in the callout', () => {
++    const tagged = createTestSpot({ feature_types: [FeatureType.Rail, FeatureType.Ledge] });
++    renderMap([tagged]);
+ 
+-    expect(screen.getByTestId(`spot-marker-${custom.id}`).props.description).toBe('kinked hubba');
++    expect(screen.getByTestId(`spot-marker-${tagged.id}`).props.description).toBe('Rail +1');
+   });
+ 
+   it('tracks the user only while the tab is focused', () => {
+@@ -130,7 +133,7 @@ describe('SpotMap', () => {
+ 
+     // Spots in different cities must stay separate pins, not be pulled into a cluster.
+     it('keeps spots far apart as individual pins with no cluster', () => {
+-      renderMap([named, draft]);
++      renderMap([named, stopped]);
+ 
+       expect(screen.getAllByTestId(/^spot-marker-/)).toHaveLength(2);
+       expect(screen.queryAllByText(/^\d+$/)).toHaveLength(0);
+@@ -175,9 +178,9 @@ describe('SpotMap', () => {
+ 
+       // Spots at the exact same place can never be pulled apart by zooming, so tapping their cluster must list them.
+       it('lists spots that share one coordinate in an action sheet instead of zooming', () => {
+-        const rail = createTestSpot({ name: 'Pier 57 rail', status: SpotStatus.Complete, location: CITIES.seattle });
+-        const ledge = createTestSpot({ name: 'Pier 57 ledge', status: SpotStatus.Complete, location: CITIES.seattle });
+-        const untitled = createTestSpot({ status: SpotStatus.Complete, location: CITIES.seattle });
++        const rail = createTestSpot({ name: 'Pier 57 rail', location: CITIES.seattle });
++        const ledge = createTestSpot({ name: 'Pier 57 ledge', location: CITIES.seattle });
++        const untitled = createTestSpot({ location: CITIES.seattle });
+         const onOpenSpot = jest.fn();
+         renderMap([rail, ledge, untitled], { onOpenSpot });
+ 
+@@ -204,12 +207,12 @@ describe('SpotMap', () => {
+       it('keeps both same-place groups tappable after zooming in on a mixed cluster', () => {
+         // Two pairs, each pair sharing one exact coordinate.
+         const groupA = [
+-          createTestSpot({ name: 'Pier 57 rail', status: SpotStatus.Complete, location: CITIES.seattle }),
+-          createTestSpot({ name: 'Pier 57 ledge', status: SpotStatus.Complete, location: CITIES.seattle }),
++          createTestSpot({ name: 'Pier 57 rail', location: CITIES.seattle }),
++          createTestSpot({ name: 'Pier 57 ledge', location: CITIES.seattle }),
+         ];
+         const groupB = [
+-          createTestSpot({ name: 'Pier 57 stairs', status: SpotStatus.Complete, location: POINT_B }),
+-          createTestSpot({ name: 'Pier 57 bank', status: SpotStatus.Complete, location: POINT_B }),
++          createTestSpot({ name: 'Pier 57 stairs', location: POINT_B }),
++          createTestSpot({ name: 'Pier 57 bank', location: POINT_B }),
+         ];
+         const onOpenSpot = jest.fn();
+         renderMap([...groupA, ...groupB], { onOpenSpot });
+diff --git a/src/__tests__/spot-name.test.ts b/src/__tests__/spot-name.test.ts
+index 3b22333..3607da2 100644
+--- a/src/__tests__/spot-name.test.ts
++++ b/src/__tests__/spot-name.test.ts
+@@ -1,4 +1,5 @@
+-import { getSpotDisplayName, formatSpotTime } from '@/src/utils/spot-name';
++import { getSpotDisplayName, formatSpotTime, featureTypesLabel } from '@/src/utils/spot-name';
++import { FeatureType } from '@/src/types';
+ import type { Spot } from '@/src/types';
+ import { createTestSpot } from './factories';
+ 
+@@ -43,3 +44,20 @@ describe('formatSpotTime', () => {
+     expect(formatSpotTime('nope')).toBe('');
+   });
+ });
++
++describe('featureTypesLabel', () => {
++  const label = (feature_types: FeatureType[]) => featureTypesLabel(createTestSpot({ feature_types }));
++
++  it('shows a single type by its label', () => {
++    expect(label([FeatureType.Rail])).toBe('Rail');
++  });
++
++  it('shows the first type and +N for the rest', () => {
++    expect(label([FeatureType.Rail, FeatureType.Ledge])).toBe('Rail +1');
++    expect(label([FeatureType.StairSet, FeatureType.Rail, FeatureType.Gap])).toBe('Stair set +2');
++  });
++
++  it('is undefined for an untagged spot', () => {
++    expect(label([])).toBeUndefined();
++  });
++});
+diff --git a/src/__tests__/spots-import-action.test.tsx b/src/__tests__/spots-import-action.test.tsx
+index 7572767..ce277da 100644
+--- a/src/__tests__/spots-import-action.test.tsx
++++ b/src/__tests__/spots-import-action.test.tsx
+@@ -4,14 +4,14 @@ import { FlashList } from '@shopify/flash-list';
+ import type { StyleProp, ViewStyle } from 'react-native';
+ import { StyleSheet } from 'react-native';
+ import { useMediaStore, useSpotsStore } from '@/src/stores';
+-import { DEFAULT_FILTERS, SpotStatus } from '@/src/types';
++import { DEFAULT_FILTERS } from '@/src/types';
+ import { createTestSpot } from './factories';
+ 
+ import SpotsScreen from '@/app/(tabs)/index';
+ 
+ const spots = [
+-  createTestSpot({ name: 'Pier 57 rail', status: SpotStatus.Complete }),
+-  createTestSpot({ name: 'Library ledge', status: SpotStatus.Draft }),
++  createTestSpot({ name: 'Pier 57 rail' }),
++  createTestSpot({ name: 'Library ledge' }),
+ ];
+ 
+ describe('Spots tab Import photos action', () => {
+diff --git a/src/__tests__/spots-sort-search.test.tsx b/src/__tests__/spots-sort-search.test.tsx
+index 9ccc924..3dd3f80 100644
+--- a/src/__tests__/spots-sort-search.test.tsx
++++ b/src/__tests__/spots-sort-search.test.tsx
+@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
+ import { act, render, screen, fireEvent } from '@testing-library/react-native';
+ import { selectFilteredSpots, useMediaStore, useSpotsStore } from '@/src/stores';
+ import { useLocationStore } from '@/src/stores/location-store';
+-import { DEFAULT_FILTERS, FeatureType, SortDirection, SortField, SpotStatus } from '@/src/types';
++import { DEFAULT_FILTERS, FeatureType, SortDirection, SortField } from '@/src/types';
+ import { getSpotDisplayName } from '@/src/utils/spot-name';
+ import { CITIES, createTestSpot } from './factories';
+ 
+@@ -14,36 +14,27 @@ import { SortChips } from '@/src/components/SortChips';
+ // Four spots whose orders differ per sort, with the user standing in Seattle:
+ //   date added (newest first): unnamed, Library, Bank, Pier
+ //   name A to Z:               Bank, Library, Pier, Untitled
+-//   intensity (highest first): Library, unnamed, Pier, Bank
+ //   distance (nearest first):  Pier (0 km), unnamed (Tacoma ~40 km), Library (Portland ~230 km), Bank (Spokane ~370 km)
+ const TACOMA = { latitude: 47.2529, longitude: -122.4443 };
+ const pier = createTestSpot({
+   name: 'Pier 57 rail',
+-  status: SpotStatus.Complete,
+   location: CITIES.seattle,
+   created_at: '2026-10-10T12:00:00.000Z',
+-  metadata: { intensity: 3 },
+ });
+ const library = createTestSpot({
+   name: 'Library ledge',
+-  status: SpotStatus.Complete,
+   location: CITIES.portland,
+   created_at: '2026-10-12T12:00:00.000Z',
+-  metadata: { intensity: 5 },
+ });
+ const bank = createTestSpot({
+   name: 'Bank to wall',
+-  status: SpotStatus.Complete,
+   location: CITIES.spokane,
+   created_at: '2026-10-11T12:00:00.000Z',
+-  metadata: { intensity: 1 },
+ });
+ const unnamed = createTestSpot({
+-  status: SpotStatus.Complete,
+   location: TACOMA,
+   generated_name: 'Tacoma',
+   created_at: '2026-10-13T15:00:00.000Z',
+-  metadata: { intensity: 4 },
+ });
+ const spots = [pier, library, bank, unnamed];
+ 
+@@ -60,7 +51,7 @@ function searchField() {
+   return screen.getByLabelText('Search spots');
+ }
+ 
+-function chip(name: 'Date' | 'Name' | 'Distance' | 'Intensity') {
++function chip(name: 'Date' | 'Name' | 'Distance') {
+   return screen.getByLabelText(new RegExp(`^Sort by ${name}`));
+ }
+ 
+@@ -191,7 +182,7 @@ describe('Spots tab search', () => {
+ 
+     it('shows the badge for a real filter (control: proves the header is observable)', () => {
+       // Without this control, a passing "no badge while searching" test could just be reading nothing.
+-      useSpotsStore.setState({ filters: { ...DEFAULT_FILTERS, show_drafts: false } });
++      useSpotsStore.setState({ filters: { ...DEFAULT_FILTERS, stopped: true } });
+ 
+       render(<SpotsScreen />);
+ 
+@@ -213,18 +204,16 @@ describe('Spots tab search', () => {
+     // Fixed midday UTC so the generated label reads "Oct 13 ... PM" in practically every zone.
+     const FIXED_DATE = '2026-10-13T12:00:00.000Z';
+     const tacoma = createTestSpot({
+-      status: SpotStatus.Complete,
+       generated_name: 'Tacoma',
+       created_at: FIXED_DATE,
+     });
+     const seattlePier = createTestSpot({
+       name: 'Pier 57 rail',
+       generated_name: 'Seattle',
+-      status: SpotStatus.Complete,
+       created_at: FIXED_DATE,
+     });
+     // Neither name nor town: nothing to match against.
+-    const nothing = createTestSpot({ status: SpotStatus.Complete, created_at: FIXED_DATE });
++    const nothing = createTestSpot({ created_at: FIXED_DATE });
+     const all = [tacoma, seattlePier, nothing];
+     const search = (q: string) => selectFilteredSpots(all, DEFAULT_FILTERS, q);
+ 
+@@ -264,15 +253,15 @@ describe('Spots tab search', () => {
+ });
+ 
+ describe('Spots tab sort chips', () => {
+-  it('orders the chips Distance, Date, Name, Intensity', () => {
+-    // D10: all four are reachable from the list, "distance first, since the map already shows distance".
++  it('orders the chips Distance, Date, Name', () => {
++    // D10: "distance first, since the map already shows distance". Three chips since D17.
+     render(<SpotsScreen />);
+ 
+     const labels = screen
+       .getAllByLabelText(/^Sort by /)
+       .map((node) => (node.props.accessibilityLabel as string).replace(/^Sort by (\w+).*$/, '$1'));
+ 
+-    expect(labels).toEqual(['Distance', 'Date', 'Name', 'Intensity']);
++    expect(labels).toEqual(['Distance', 'Date', 'Name']);
+   });
+ 
+   it('map mode shows no sort chips', () => {
+@@ -281,7 +270,7 @@ describe('Spots tab sort chips', () => {
+ 
+     render(<SpotsScreen />);
+ 
+-    for (const name of ['Date', 'Name', 'Distance', 'Intensity']) {
++    for (const name of ['Date', 'Name', 'Distance']) {
+       expect(screen.queryByLabelText(new RegExp(`^Sort by ${name}`))).toBeNull();
+     }
+   });
+@@ -293,7 +282,7 @@ describe('Spots tab sort chips', () => {
+     expect(rowNames()).toEqual([UNTITLED, 'Library ledge', 'Bank to wall', 'Pier 57 rail']);
+     expect(selectedOf(chip('Date'))).toBe(true);
+     expect(chip('Date')).toHaveTextContent(/Date ↓/);
+-    for (const name of ['Name', 'Distance', 'Intensity'] as const) {
++    for (const name of ['Name', 'Distance'] as const) {
+       expect(selectedOf(chip(name))).toBeFalsy();
+       expect(chip(name)).not.toHaveTextContent(/[↑↓]/);
+     }
+@@ -384,17 +373,6 @@ describe('Spots tab sort chips', () => {
+     expect(chip('Distance')).toHaveTextContent(/Distance ↑/);
+   });
+ 
+-  it('tapping Intensity sorts highest first with a down arrow', () => {
+-    // Natural first direction for Intensity is descending (the most intense spot on top).
+-    render(<SpotsScreen />);
+-
+-    fireEvent.press(chip('Intensity'));
+-
+-    expect(rowNames()).toEqual(['Library ledge', UNTITLED, 'Pier 57 rail', 'Bank to wall']);
+-    expect(selectedOf(chip('Intensity'))).toBe(true);
+-    expect(chip('Intensity')).toHaveTextContent(/Intensity ↓/);
+-  });
+-
+   it('keeps the chosen sort when the search narrows the list', () => {
+     // Search and sort compose: "r" matches only Library ledge and Pier 57 rail, which keep their Name order.
+     render(<SpotsScreen />);
+@@ -442,7 +420,7 @@ describe('Spots tab sort chips', () => {
+       // The label must not repeat the direction for chips that are not sorting.
+       render(<SpotsScreen />);
+ 
+-      for (const name of ['Distance', 'Name', 'Intensity'] as const) {
++      for (const name of ['Distance', 'Name'] as const) {
+         expect(chip(name).props.accessibilityLabel).toBe(`Sort by ${name}`);
+       }
+     });
+@@ -454,8 +432,6 @@ describe('Spots tab sort chips', () => {
+       [SortField.Name, SortDirection.Desc, 'Sort by Name, Z to A'],
+       [SortField.Distance, SortDirection.Asc, 'Sort by Distance, nearest first'],
+       [SortField.Distance, SortDirection.Desc, 'Sort by Distance, farthest first'],
+-      [SortField.Intensity, SortDirection.Desc, 'Sort by Intensity, highest first'],
+-      [SortField.Intensity, SortDirection.Asc, 'Sort by Intensity, lowest first'],
+     ])('active chip for %s %s is labelled "%s"', (field, direction, label) => {
+       // VoiceOver hides the visible "Date ↓" behind the label, so the label must say the direction in words.
+       useLocationStore.setState({ currentLocation: CITIES.seattle });
+@@ -512,10 +488,10 @@ describe('Spots tab no-match state', () => {
+   });
+ 
+   describe('offers a way out', () => {
+-    const draft = createTestSpot({ name: 'Draft rail', status: SpotStatus.Draft });
++    const notStopped = createTestSpot({ name: 'Open rail' });
+ 
+     beforeEach(() => {
+-      useSpotsStore.setState({ spots: [draft], filters: { ...DEFAULT_FILTERS, show_drafts: false } });
++      useSpotsStore.setState({ spots: [notStopped], filters: { ...DEFAULT_FILTERS, stopped: true } });
+     });
+ 
+     it('filters excluding everything show a "Reset filters" action', () => {
+@@ -528,14 +504,14 @@ describe('Spots tab no-match state', () => {
+     });
+ 
+     it('pressing "Reset filters" restores the default filters and shows the spot', () => {
+-      // Reset means DEFAULT_FILTERS: drafts are shown again.
++      // Reset means DEFAULT_FILTERS: spots that are not stopped are shown again.
+       render(<SpotsScreen />);
+ 
+       fireEvent.press(screen.getByText('Reset filters'));
+ 
+       expect(useSpotsStore.getState().filters).toEqual(DEFAULT_FILTERS);
+       expect(screen.queryByText('No matching spots')).toBeNull();
+-      expect(screen.getByText('Draft rail')).toBeTruthy();
++      expect(screen.getByText('Open rail')).toBeTruthy();
+     });
+ 
+     it('with a search active the action is "Clear search"', () => {
+diff --git a/src/__tests__/spots-view-mode.test.tsx b/src/__tests__/spots-view-mode.test.tsx
+index 59f30ce..3df6809 100644
+--- a/src/__tests__/spots-view-mode.test.tsx
++++ b/src/__tests__/spots-view-mode.test.tsx
+@@ -1,14 +1,14 @@
+ import { render, screen, fireEvent } from '@testing-library/react-native';
+ import { useMediaStore, useSpotsStore } from '@/src/stores';
+-import { DEFAULT_FILTERS, SpotStatus } from '@/src/types';
++import { DEFAULT_FILTERS } from '@/src/types';
+ import { CITIES, createTestSpot } from './factories';
+ 
+ import SpotsScreen from '@/app/(tabs)/index';
+ 
+ const spots = [
+-  createTestSpot({ name: 'Pier 57 rail', status: SpotStatus.Complete, location: CITIES.seattle }),
+-  createTestSpot({ name: 'Library ledge', status: SpotStatus.Draft, location: CITIES.portland }),
+-  createTestSpot({ name: 'Bank to wall', status: SpotStatus.Complete, location: CITIES.spokane }),
++  createTestSpot({ name: 'Pier 57 rail', location: CITIES.seattle }),
++  createTestSpot({ name: 'Library ledge', stopped: true, location: CITIES.portland }),
++  createTestSpot({ name: 'Bank to wall', location: CITIES.spokane }),
+ ];
+ 
+ describe('Spots tab Map | List toggle', () => {
+@@ -37,7 +37,7 @@ describe('Spots tab Map | List toggle', () => {
+   });
+ 
+   it('shows exactly the filtered spots on the map', () => {
+-    useSpotsStore.setState({ viewMode: 'map', filters: { ...DEFAULT_FILTERS, show_drafts: false } });
++    useSpotsStore.setState({ viewMode: 'map', filters: { ...DEFAULT_FILTERS, stopped: false } });
+ 
+     render(<SpotsScreen />);
+ 
+diff --git a/src/__tests__/stores.test.ts b/src/__tests__/stores.test.ts
+index 6a2076c..1f566bc 100644
+--- a/src/__tests__/stores.test.ts
++++ b/src/__tests__/stores.test.ts
+@@ -8,11 +8,8 @@ import { useSpotsStore } from '@/src/stores';
+ import {
+   DEFAULT_FILTERS,
+   FeatureType,
+-  GearItem,
+-  BuildItem,
+   SortField,
+   SortDirection,
+-  SpotStatus,
+   UnitSystem,
+ } from '@/src/types';
+ import type { SpotFilters } from '@/src/types';
+@@ -20,133 +17,77 @@ import { NO_LOCATION } from '@/src/utils/geo';
+ import { CITIES, createTestSpot } from './factories';
+ 
+ describe('selectFilteredSpots', () => {
+-  const spotWithWinch = createTestSpot({
+-    id: 'winch-spot',
+-    name: 'Winch Spot',
+-    feature: { type: FeatureType.Rail, difficulty: 3 },
+-    in_run: {
+-      natural_speed: 2,
+-      setup_options: [
+-        { requires: [{ item: GearItem.Winch, category: 'gear' }] },
+-      ],
+-    },
+-    metadata: { intensity: 4, bustability: 2 },
+-    status: SpotStatus.Complete,
++  const railSpot = createTestSpot({
++    id: 'rail-spot',
++    name: 'Rail Spot',
++    feature_types: [FeatureType.Rail],
++    stopped: true,
+   });
+ 
+-  const spotWithPlatform = createTestSpot({
+-    id: 'platform-spot',
+-    name: 'Platform Spot',
+-    feature: { type: FeatureType.Ledge },
+-    in_run: {
+-      setup_options: [
+-        {
+-          requires: [
+-            { item: GearItem.DropInPlatform, category: 'gear' },
+-            { item: BuildItem.SpeedHumps, category: 'build', quantity: 3 },
+-          ],
+-        },
+-      ],
+-    },
+-    status: SpotStatus.Complete,
++  const ledgeSpot = createTestSpot({
++    id: 'ledge-spot',
++    name: 'Ledge Spot',
++    feature_types: [FeatureType.Ledge],
+   });
+ 
+-  const spotWithMultipleOptions = createTestSpot({
+-    id: 'multi-spot',
+-    name: 'Multi Option Spot',
+-    feature: { type: FeatureType.Rail },
+-    in_run: {
+-      setup_options: [
+-        { requires: [{ item: GearItem.Winch, category: 'gear' }] },
+-        {
+-          requires: [
+-            { item: GearItem.DropInPlatform, category: 'gear' },
+-            { item: BuildItem.SpeedHumps, category: 'build', quantity: 3 },
+-          ],
+-        },
+-      ],
+-    },
+-    status: SpotStatus.Complete,
+-  });
+-
+-  const draftSpot = createTestSpot({
+-    id: 'draft-spot',
+-    name: 'Draft Spot',
+-    status: SpotStatus.Draft,
+-  });
++  const untaggedSpot = createTestSpot({ id: 'untagged-spot', name: 'Untagged Spot' });
+ 
+-  const allSpots = [spotWithWinch, spotWithPlatform, spotWithMultipleOptions, draftSpot];
++  const allSpots = [railSpot, ledgeSpot, untaggedSpot];
+ 
+   it('returns all spots with default filters', () => {
+     const result = selectFilteredSpots(allSpots, DEFAULT_FILTERS);
+-    expect(result).toHaveLength(4);
++    expect(result).toHaveLength(3);
+   });
+ 
+   it('filters by type', () => {
+     const filters: SpotFilters = { ...DEFAULT_FILTERS, types: [FeatureType.Rail] };
+     const result = selectFilteredSpots(allSpots, filters);
+-    expect(result.every((s) => s.feature.type === FeatureType.Rail)).toBe(true);
++    expect(result.map((s) => s.id)).toEqual(['rail-spot']);
+   });
+ 
+-  it('hides draft spots when show_drafts is false', () => {
+-    const filters: SpotFilters = { ...DEFAULT_FILTERS, show_drafts: false };
+-    const result = selectFilteredSpots(allSpots, filters);
+-    expect(result.every((s) => s.status === SpotStatus.Complete)).toBe(true);
++  it('types is any-of against feature_types', () => {
++    const both = createTestSpot({ id: 'both', feature_types: [FeatureType.Ledge, FeatureType.Rail] });
++    const bank = createTestSpot({ id: 'bank', feature_types: [FeatureType.Bank] });
++    const result = selectFilteredSpots([both, bank], { ...DEFAULT_FILTERS, types: [FeatureType.Rail] });
++    expect(result.map((s) => s.id)).toEqual(['both']);
+   });
+ 
+-  it('filters by search query (case insensitive)', () => {
+-    const result = selectFilteredSpots(allSpots, DEFAULT_FILTERS, 'winch');
+-    expect(result).toHaveLength(1);
+-    expect(result[0].id).toBe('winch-spot');
+-  });
++  describe('natural speed range (0–4)', () => {
++    const none = createTestSpot({ id: 'none', natural_speed: 0 });
++    const some = createTestSpot({ id: 'some', natural_speed: 2 });
++    const fast = createTestSpot({ id: 'fast', natural_speed: 4 });
++    const unrated = createTestSpot({ id: 'unrated' });
++    const speedSpots = [none, some, fast, unrated];
++    const ids = (filters: SpotFilters) => selectFilteredSpots(speedSpots, filters).map((s) => s.id);
+ 
+-  // Spec filter example table
+-  it('gear filter: winch matches winch-only setup', () => {
+-    const filters: SpotFilters = { ...DEFAULT_FILTERS, gear: [GearItem.Winch] };
+-    const result = selectFilteredSpots([spotWithWinch], filters);
+-    expect(result).toHaveLength(1);
+-  });
++    it('keeps spots inside the range and unrated spots', () => {
++      expect(ids({ ...DEFAULT_FILTERS, natural_speed_min: 1, natural_speed_max: 3 })).toEqual(['some', 'unrated']);
++    });
+ 
+-  it('gear filter: platform matches platform setup (build shown as info)', () => {
+-    const filters: SpotFilters = { ...DEFAULT_FILTERS, gear: [GearItem.DropInPlatform] };
+-    const result = selectFilteredSpots([spotWithPlatform], filters);
+-    expect(result).toHaveLength(1);
+-  });
++    it('treats 0 as a real value at both ends', () => {
++      expect(ids({ ...DEFAULT_FILTERS, natural_speed_max: 0 })).toEqual(['none', 'unrated']);
++      expect(ids({ ...DEFAULT_FILTERS, natural_speed_min: 0 })).toEqual(['none', 'some', 'fast', 'unrated']);
++    });
+ 
+-  it('gear filter: platform + exclude speed_humps = no match', () => {
+-    const filters: SpotFilters = {
+-      ...DEFAULT_FILTERS,
+-      gear: [GearItem.DropInPlatform],
+-      exclude_build: [BuildItem.SpeedHumps],
+-    };
+-    const result = selectFilteredSpots([spotWithPlatform], filters);
+-    expect(result).toHaveLength(0);
++    it('min 4 keeps only the fastest and unrated', () => {
++      expect(ids({ ...DEFAULT_FILTERS, natural_speed_min: 4 })).toEqual(['fast', 'unrated']);
++    });
+   });
+ 
+-  it('gear filter: winch+platform + exclude speed_humps = match via winch option', () => {
+-    const filters: SpotFilters = {
+-      ...DEFAULT_FILTERS,
+-      gear: [GearItem.Winch, GearItem.DropInPlatform],
+-      exclude_build: [BuildItem.SpeedHumps],
+-    };
+-    const result = selectFilteredSpots([spotWithMultipleOptions], filters);
+-    expect(result).toHaveLength(1);
++  it('stopped: true keeps only stopped spots', () => {
++    const result = selectFilteredSpots(allSpots, { ...DEFAULT_FILTERS, stopped: true });
++    expect(result.map((s) => s.id)).toEqual(['rail-spot']);
+   });
+ 
+-  it('gear filter: bungee = no match when no setup uses bungee', () => {
+-    const filters: SpotFilters = { ...DEFAULT_FILTERS, gear: [GearItem.Bungee] };
+-    const result = selectFilteredSpots([spotWithWinch], filters);
+-    expect(result).toHaveLength(0);
++  it('stopped: false keeps only spots that are not stopped', () => {
++    const result = selectFilteredSpots(allSpots, { ...DEFAULT_FILTERS, stopped: false });
++    expect(result.map((s) => s.id)).toEqual(['ledge-spot', 'untagged-spot']);
+   });
+ 
+-  it('spots with empty setup_options match any gear filter', () => {
+-    const noRequirements = createTestSpot({
+-      in_run: { setup_options: [] },
+-      status: SpotStatus.Complete,
+-    });
+-    const filters: SpotFilters = { ...DEFAULT_FILTERS, gear: [GearItem.Winch] };
+-    const result = selectFilteredSpots([noRequirements], filters);
++  it('filters by search query (case insensitive)', () => {
++    const result = selectFilteredSpots(allSpots, DEFAULT_FILTERS, 'LEDGE');
+     expect(result).toHaveLength(1);
++    expect(result[0].id).toBe('ledge-spot');
+   });
+ });
+ 
+@@ -154,14 +95,12 @@ describe('selectSortedSpots', () => {
+   const spotA = createTestSpot({
+     name: 'Alpha',
+     created_at: '2025-01-01T00:00:00Z',
+-    metadata: { intensity: 3 },
+     location: CITIES.seattle,
+   });
+ 
+   const spotB = createTestSpot({
+     name: 'Beta',
+     created_at: '2025-02-01T00:00:00Z',
+-    metadata: { intensity: 5 },
+     location: CITIES.portland,
+   });
+ 
+@@ -180,11 +119,6 @@ describe('selectSortedSpots', () => {
+     expect(result[0].name).toBe('Alpha');
+   });
+ 
+-  it('sorts by intensity descending', () => {
+-    const result = selectSortedSpots([spotA, spotB], SortField.Intensity, SortDirection.Desc);
+-    expect(result[0].name).toBe('Beta');
+-  });
+-
+   it('sorts by distance from user location', () => {
+     const result = selectSortedSpots(
+       [spotB, spotA],
+@@ -229,38 +163,6 @@ describe('selectSortedSpots: missing data sorts last in both directions', () =>
+     }
+   });
+ 
+-  const low = createTestSpot({ name: 'low', metadata: { intensity: 1 }, created_at: '2025-01-01T00:00:00Z' });
+-  const high = createTestSpot({ name: 'high', metadata: { intensity: 5 }, created_at: '2025-01-02T00:00:00Z' });
+-  const unratedOld = createTestSpot({ name: 'unrated-old', metadata: {}, created_at: '2025-01-03T00:00:00Z' });
+-  const unratedNew = createTestSpot({ name: 'unrated-new', metadata: {}, created_at: '2025-01-04T00:00:00Z' });
+-
+-  it('Intensity descending: highest first, unrated last', () => {
+-    // An unrated spot is not intensity 0.
+-    const result = selectSortedSpots([unratedOld, low, high], SortField.Intensity, SortDirection.Desc);
+-
+-    expect(names(result)).toEqual(['high', 'low', 'unrated-old']);
+-  });
+-
+-  it('Intensity ascending: lowest first, unrated still last', () => {
+-    // Unrated is not counted as 0, which would float it to the top ascending.
+-    const result = selectSortedSpots([unratedOld, high, low], SortField.Intensity, SortDirection.Asc);
+-
+-    expect(names(result)).toEqual(['low', 'high', 'unrated-old']);
+-  });
+-
+-  it('Intensity: equal and unrated spots break ties by created_at newest first (both directions)', () => {
+-    // Deterministic order within the missing group, and between two spots rated 3 whichever way the sort runs.
+-    const older = createTestSpot({ name: 'older', metadata: { intensity: 3 }, created_at: '2025-01-01T00:00:00Z' });
+-    const newer = createTestSpot({ name: 'newer', metadata: { intensity: 3 }, created_at: '2025-01-02T00:00:00Z' });
+-
+-    for (const direction of [SortDirection.Asc, SortDirection.Desc]) {
+-      const result = selectSortedSpots([unratedOld, unratedNew, low], SortField.Intensity, direction);
+-
+-      expect(names(result)).toEqual(['low', 'unrated-new', 'unrated-old']);
+-      expect(names(selectSortedSpots([older, newer], SortField.Intensity, direction))).toEqual(['newer', 'older']);
+-    }
+-  });
+-
+   const zulu = createTestSpot({ name: 'Zulu', created_at: '2025-01-05T00:00:00Z' });
+   const alpha = createTestSpot({ name: 'Alpha', created_at: '2025-01-01T00:00:00Z' });
+   const unnamedOld = createTestSpot({ generated_name: 'Aberdeen', created_at: '2025-01-03T00:00:00Z' });
+@@ -301,13 +203,17 @@ describe('selectActiveFilterCount', () => {
+     ).toBe(1);
+   });
+ 
+-  it('counts multiple filters', () => {
++  it('counts stopped: false as set (only undefined means any)', () => {
++    expect(selectActiveFilterCount({ ...DEFAULT_FILTERS, stopped: false })).toBe(1);
++  });
++
++  it('counts types, stopped and the speed range: 3', () => {
+     expect(
+       selectActiveFilterCount({
+-        ...DEFAULT_FILTERS,
+         types: [FeatureType.Rail],
+-        gear: [GearItem.Winch],
+-        show_drafts: false,
++        stopped: true,
++        natural_speed_min: 1,
++        natural_speed_max: 3,
+       }),
+     ).toBe(3);
+   });
+@@ -318,7 +224,6 @@ describe('useSettingsStore', () => {
+     useSettingsStore.setState({
+       units: UnitSystem.Imperial,
+       batch_import_radius: 50,
+-      gear: [],
+     });
+   });
+ 
+@@ -326,23 +231,6 @@ describe('useSettingsStore', () => {
+     useSettingsStore.getState().setUnits(UnitSystem.Metric);
+     expect(useSettingsStore.getState().units).toBe(UnitSystem.Metric);
+   });
+-
+-  it('adds gear', () => {
+-    useSettingsStore.getState().addGear(GearItem.Winch);
+-    expect(useSettingsStore.getState().gear).toContain(GearItem.Winch);
+-  });
+-
+-  it('removes gear', () => {
+-    useSettingsStore.getState().setGear([GearItem.Winch, GearItem.Bungee]);
+-    useSettingsStore.getState().removeGear(GearItem.Winch);
+-    expect(useSettingsStore.getState().gear).toEqual([GearItem.Bungee]);
+-  });
+-
+-  it('does not add duplicate gear', () => {
+-    useSettingsStore.getState().addGear(GearItem.Winch);
+-    useSettingsStore.getState().addGear(GearItem.Winch);
+-    expect(useSettingsStore.getState().gear).toHaveLength(1);
+-  });
+ });
+ 
+ describe('useSpotsStore.updateSpot: primary_photo_id', () => {
+@@ -360,3 +248,30 @@ describe('useSpotsStore.updateSpot: primary_photo_id', () => {
+     expect(updated.name).toBe('Keep me');
+   });
+ });
++
++describe('useSpotsStore.updateSpot: notes and natural_speed', () => {
++  afterEach(() => useSpotsStore.setState({ spots: [] }));
++
++  it('null clears notes and natural_speed (undefined in memory) while other fields stay', () => {
++    const spot = createTestSpot({ id: 'n1', name: 'Keep me', notes: 'hello', natural_speed: 3 });
++    useSpotsStore.setState({ spots: [spot] });
++
++    useSpotsStore.getState().updateSpot('n1', { notes: null, natural_speed: null });
++
++    const updated = useSpotsStore.getState().spots[0];
++    expect(updated.notes).toBeUndefined();
++    expect(updated.natural_speed).toBeUndefined();
++    expect(updated).not.toHaveProperty('notes', null);
++    expect(updated).not.toHaveProperty('natural_speed', null);
++    expect(updated.name).toBe('Keep me');
++  });
++
++  it('natural_speed 0 is kept, not treated as a clear', () => {
++    const spot = createTestSpot({ id: 'n2', natural_speed: 3 });
++    useSpotsStore.setState({ spots: [spot] });
++
++    useSpotsStore.getState().updateSpot('n2', { natural_speed: 0 });
++
++    expect(useSpotsStore.getState().spots[0].natural_speed).toBe(0);
++  });
++});
+diff --git a/src/__tests__/use-spot-actions.test.ts b/src/__tests__/use-spot-actions.test.ts
+index db51698..242d23c 100644
+--- a/src/__tests__/use-spot-actions.test.ts
++++ b/src/__tests__/use-spot-actions.test.ts
+@@ -1,7 +1,6 @@
+ import { renderHook, act } from '@testing-library/react-native';
+ import { useSpotActions } from '@/src/hooks/use-spot-actions';
+ import { useSpotsStore } from '@/src/stores';
+-import { SpotStatus } from '@/src/types';
+ import { createTestSpot } from './factories';
+ 
+ const mockInsertSpot = jest.fn().mockResolvedValue(undefined);
+@@ -116,7 +115,7 @@ describe('useSpotActions', () => {
+     const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+ 
+     const { result } = renderHook(() => useSpotActions());
+-    const spot = createTestSpot({ id: 'spot-with-error', status: SpotStatus.Draft });
++    const spot = createTestSpot({ id: 'spot-with-error' });
+ 
+     await act(async () => {
+       await result.current.addSpot(spot);
+diff --git a/src/__tests__/utils.test.ts b/src/__tests__/utils.test.ts
+index 3d83e4f..98cd2fc 100644
+--- a/src/__tests__/utils.test.ts
++++ b/src/__tests__/utils.test.ts
+@@ -1,11 +1,5 @@
+ import { distanceMeters, haversineDistance, formatDistance } from '@/src/utils/geo';
+-import {
+-  displayLength,
+-  inputToMeters,
+-  metersToDisplay,
+-  dimensionFromInput,
+-  initialDimText,
+-} from '@/src/utils/units';
++import { displayLength } from '@/src/utils/units';
+ import { getSpotDisplayName } from '@/src/utils/spot-name';
+ import { UnitSystem } from '@/src/types';
+ import { createTestSpot } from './factories';
+@@ -63,52 +57,6 @@ describe('units', () => {
+   it('displays length in meters for metric', () => {
+     expect(displayLength(1, UnitSystem.Metric)).toBe('1.0 m');
+   });
+-
+-  it('converts feet input to meters', () => {
+-    expect(inputToMeters(3.28084, UnitSystem.Imperial)).toBeCloseTo(1, 3);
+-  });
+-
+-  it('passes through meters for metric input', () => {
+-    expect(inputToMeters(5, UnitSystem.Metric)).toBe(5);
+-  });
+-
+-  it('converts meters to display feet', () => {
+-    expect(metersToDisplay(1, UnitSystem.Imperial)).toBeCloseTo(3.28084, 3);
+-  });
+-
+-  it('dimensionFromInput keeps the stored value exactly when the text is unchanged', () => {
+-    // Guard: an untouched field must not round-trip through its one-decimal display text.
+-    const initial = initialDimText(1.234, UnitSystem.Metric);
+-    expect(dimensionFromInput(initial, initial, 1.234, UnitSystem.Metric)).toBe(1.234);
+-  });
+-
+-  it('dimensionFromInput returns undefined for empty text', () => {
+-    // Guard: clearing a field means "no dimension".
+-    expect(dimensionFromInput('', '1.2', 1.234, UnitSystem.Metric)).toBeUndefined();
+-  });
+-
+-  it('dimensionFromInput reads a comma decimal', () => {
+-    // Guard: decimal pads in many locales type "1,5".
+-    expect(dimensionFromInput('1,5', '', undefined, UnitSystem.Metric)).toBe(1.5);
+-  });
+-
+-  it('dimensionFromInput returns undefined for junk text when nothing is stored', () => {
+-    // Guard: invalid text on an empty field must not become NaN.
+-    expect(dimensionFromInput('abc', '', undefined, UnitSystem.Metric)).toBeUndefined();
+-  });
+-
+-  it.each(['0', '0.0', '0,0', '.0'])(
+-    'dimensionFromInput returns undefined when zero (%s) is typed over a stored value',
+-    (text) => {
+-      // The placeholder is "0", so typing 0 means "none"; it must clear the dimension, not silently keep the old one.
+-      expect(dimensionFromInput(text, '1.2', 1.234, UnitSystem.Metric)).toBeUndefined();
+-    },
+-  );
+-
+-  it.each(['-2', 'abc'])('dimensionFromInput keeps the stored value for invalid text %s', (text) => {
+-    // Guard: negatives and junk are not valid sizes and leave the stored value alone.
+-    expect(dimensionFromInput(text, '1.2', 1.234, UnitSystem.Metric)).toBe(1.234);
+-  });
+ });
+ 
+ describe('getSpotDisplayName', () => {
+diff --git a/src/components/FilterSheet.tsx b/src/components/FilterSheet.tsx
+index ba639c5..55e1fe6 100644
+--- a/src/components/FilterSheet.tsx
++++ b/src/components/FilterSheet.tsx
+@@ -5,14 +5,14 @@ import {
+   Text,
+   ScrollView,
+   Pressable,
+-  Switch,
+   StyleSheet,
+ } from 'react-native';
+ 
+ import { useSpotsStore } from '@/src/stores';
+ import { Chip, ChipGroup } from '@/src/components/Chip';
+ import { palette, spacing, radius } from '@/src/constants/theme';
+-import { FeatureType, GearItem, BuildItem, DEFAULT_FILTERS } from '@/src/types';
++import { FEATURE_TYPE_LABELS } from '@/src/constants/labels';
++import { FeatureType, DEFAULT_FILTERS } from '@/src/types';
+ import type { SpotFilters } from '@/src/types';
+ 
+ interface Props {
+@@ -20,38 +20,12 @@ interface Props {
+   onClose: () => void;
+ }
+ 
+-const TYPE_LABELS: Record<FeatureType, string> = {
+-  [FeatureType.Rail]: 'rail',
+-  [FeatureType.Ledge]: 'ledge',
+-  [FeatureType.Bank]: 'bank',
+-  [FeatureType.Hip]: 'hip',
+-  [FeatureType.StairSet]: 'stair set',
+-  [FeatureType.Gap]: 'gap',
+-  [FeatureType.WallRide]: 'wall ride',
+-  [FeatureType.QuarterPipe]: 'quarter pipe',
+-  [FeatureType.Other]: 'other',
+-};
+-
+-const GEAR_LABELS: Record<GearItem, string> = {
+-  [GearItem.Winch]: 'winch',
+-  [GearItem.Bungee]: 'bungee',
+-  [GearItem.DropInPlatform]: 'drop in platform',
+-  [GearItem.Scaffolding]: 'scaffolding',
+-  [GearItem.ShovelPull]: 'shovel pull',
+-};
+-
+-const BUILD_LABELS: Record<BuildItem, string> = {
+-  [BuildItem.SpeedHumps]: 'speed humps',
+-  [BuildItem.LipBuild]: 'lip build',
+-  [BuildItem.LandingBuild]: 'landing build',
+-};
+-
+ function SectionHeader({ title }: { title: string }) {
+   return <Text style={styles.sectionHeader}>{title}</Text>;
+ }
+ 
+ export function FilterSheet({ visible, onClose }: Props) {
+-  // The sheet is unmounted while hidden, so the draft below re-initialises from the store on
++  // The sheet is unmounted while hidden, so the pending filters below re-initialise from the store on
+   // every open without an effect.
+   if (!visible) return null;
+   return <FilterSheetContent onClose={onClose} />;
+@@ -61,11 +35,11 @@ function FilterSheetContent({ onClose }: Omit<Props, 'visible'>) {
+   const setFilters = useSpotsStore((s) => s.setFilters);
+   const resetFilters = useSpotsStore((s) => s.resetFilters);
+ 
+-  // Local draft state, seeded once per open and only committed on Apply
+-  const [draft, setDraft] = useState<SpotFilters>(() => useSpotsStore.getState().filters);
++  // Pending filters, seeded once per open and only committed on Apply
++  const [pending, setPending] = useState<SpotFilters>(() => useSpotsStore.getState().filters);
+ 
+   const toggleType = (t: FeatureType) => {
+-    setDraft((prev) => ({
++    setPending((prev) => ({
+       ...prev,
+       types: prev.types.includes(t)
+         ? prev.types.filter((x) => x !== t)
+@@ -73,32 +47,14 @@ function FilterSheetContent({ onClose }: Omit<Props, 'visible'>) {
+     }));
+   };
+ 
+-  const toggleGear = (g: GearItem) => {
+-    setDraft((prev) => ({
+-      ...prev,
+-      gear: prev.gear.includes(g)
+-        ? prev.gear.filter((x) => x !== g)
+-        : [...prev.gear, g],
+-    }));
+-  };
+-
+-  const toggleExcludeBuild = (b: BuildItem) => {
+-    setDraft((prev) => ({
+-      ...prev,
+-      exclude_build: prev.exclude_build.includes(b)
+-        ? prev.exclude_build.filter((x) => x !== b)
+-        : [...prev.exclude_build, b],
+-    }));
+-  };
+-
+   const handleApply = () => {
+-    setFilters(draft);
++    setFilters(pending);
+     onClose();
+   };
+ 
+   const handleReset = () => {
+     resetFilters();
+-    setDraft({ ...DEFAULT_FILTERS });
++    setPending({ ...DEFAULT_FILTERS });
+   };
+ 
+   return (
+@@ -120,56 +76,17 @@ function FilterSheetContent({ onClose }: Omit<Props, 'visible'>) {
+           style={styles.scroll}
+           contentContainerStyle={styles.scrollContent}
+           keyboardShouldPersistTaps="handled">
+-          {/* Feature Type */}
+-          <SectionHeader title="Feature Type" />
++          <SectionHeader title="What's here" />
+           <ChipGroup>
+             {Object.values(FeatureType).map((t) => (
+               <Chip
+                 key={t}
+-                label={TYPE_LABELS[t]}
+-                selected={draft.types.includes(t)}
++                label={FEATURE_TYPE_LABELS[t]}
++                selected={pending.types.includes(t)}
+                 onPress={() => toggleType(t)}
+               />
+             ))}
+           </ChipGroup>
+-
+-          {/* Gear Filter */}
+-          <SectionHeader title="Gear I Have" />
+-          <Text style={styles.hint}>Show spots rideable with my gear.</Text>
+-          <ChipGroup>
+-            {Object.values(GearItem).map((g) => (
+-              <Chip
+-                key={g}
+-                label={GEAR_LABELS[g]}
+-                selected={draft.gear.includes(g)}
+-                onPress={() => toggleGear(g)}
+-              />
+-            ))}
+-          </ChipGroup>
+-
+-          {/* Build Exclude */}
+-          <SectionHeader title="Exclude Build Requirements" />
+-          <Text style={styles.hint}>Hide spots that require these build items.</Text>
+-          <ChipGroup>
+-            {Object.values(BuildItem).map((b) => (
+-              <Chip
+-                key={b}
+-                label={BUILD_LABELS[b]}
+-                selected={draft.exclude_build.includes(b)}
+-                onPress={() => toggleExcludeBuild(b)}
+-              />
+-            ))}
+-          </ChipGroup>
+-
+-          {/* Show Drafts */}
+-          <View style={styles.switchRow}>
+-            <Text style={styles.switchLabel}>Show Drafts</Text>
+-            <Switch
+-              value={draft.show_drafts}
+-              onValueChange={(v) => setDraft((prev) => ({ ...prev, show_drafts: v }))}
+-              trackColor={{ true: palette.blue[500] }}
+-            />
+-          </View>
+         </ScrollView>
+ 
+         {/* Footer */}
+@@ -225,22 +142,6 @@ const styles = StyleSheet.create({
+     color: palette.gray[900],
+     marginTop: spacing.lg,
+   },
+-  hint: {
+-    fontSize: 13,
+-    color: palette.gray[500],
+-  },
+-  switchRow: {
+-    flexDirection: 'row',
+-    justifyContent: 'space-between',
+-    alignItems: 'center',
+-    marginTop: spacing.lg,
+-    paddingVertical: spacing.sm,
+-  },
+-  switchLabel: {
+-    fontSize: 16,
+-    color: palette.gray[900],
+-    fontWeight: '500',
+-  },
+   footer: {
+     padding: spacing.lg,
+     paddingBottom: spacing['3xl'],
+diff --git a/src/components/RatingBadge.tsx b/src/components/RatingBadge.tsx
+deleted file mode 100644
+index 48f611f..0000000
+--- a/src/components/RatingBadge.tsx
++++ /dev/null
+@@ -1,37 +0,0 @@
+-import React from 'react';
+-import { View, Text, StyleSheet } from 'react-native';
+-import { ratingColors, radius, spacing } from '@/src/constants/theme';
+-
+-interface RatingBadgeProps {
+-  rating: 1 | 2 | 3 | 4 | 5;
+-  label?: string;
+-}
+-
+-export function RatingBadge({ rating, label }: RatingBadgeProps) {
+-  const colors = ratingColors[rating];
+-
+-  return (
+-    <View
+-      style={[styles.container, { backgroundColor: colors.bg }]}
+-      accessibilityLabel={label ? `${label}: ${rating}` : `Rating: ${rating}`}
+-      accessibilityRole="text">
+-      <Text style={[styles.text, { color: colors.text }]}>
+-        {label ? `${label} ${rating}` : String(rating)}
+-      </Text>
+-    </View>
+-  );
+-}
+-
+-const styles = StyleSheet.create({
+-  container: {
+-    paddingHorizontal: spacing.sm,
+-    paddingVertical: spacing.xs,
+-    borderRadius: radius.sm,
+-    borderCurve: 'continuous',
+-    alignSelf: 'flex-start',
+-  },
+-  text: {
+-    fontSize: 13,
+-    fontWeight: '600',
+-  },
+-});
+diff --git a/src/components/SortChips.tsx b/src/components/SortChips.tsx
+index 7ba3eac..68d665a 100644
+--- a/src/components/SortChips.tsx
++++ b/src/components/SortChips.tsx
+@@ -13,7 +13,7 @@ interface SortChipsProps {
+ }
+ 
+ // D10: Distance first. Each option has its label, its natural first direction (nearest first, newest
+-// first, A to Z, most intense first) and how VoiceOver says each direction.
++// first, A to Z) and how VoiceOver says each direction.
+ const SORT_OPTIONS: {
+   field: SortField;
+   label: string;
+@@ -38,12 +38,6 @@ const SORT_OPTIONS: {
+     first: SortDirection.Asc,
+     spoken: { [SortDirection.Asc]: 'A to Z', [SortDirection.Desc]: 'Z to A' },
+   },
+-  {
+-    field: SortField.Intensity,
+-    label: 'Intensity',
+-    first: SortDirection.Desc,
+-    spoken: { [SortDirection.Asc]: 'lowest first', [SortDirection.Desc]: 'highest first' },
+-  },
+ ];
+ 
+ function flip(direction: SortDirection): SortDirection {
+diff --git a/src/components/SpotListItem.tsx b/src/components/SpotListItem.tsx
+index ec91a82..2ddc3c2 100644
+--- a/src/components/SpotListItem.tsx
++++ b/src/components/SpotListItem.tsx
+@@ -1,7 +1,6 @@
+ import React, { memo } from 'react';
+ import { Pressable, View, Text, StyleSheet } from 'react-native';
+ import { Image } from 'expo-image';
+-import { RatingBadge } from './RatingBadge';
+ import { palette, spacing, radius } from '@/src/constants/theme';
+ 
+ interface SpotListItemProps {
+@@ -9,9 +8,7 @@ interface SpotListItemProps {
+   displayName: string;
+   thumbnailUri?: string;
+   featureType?: string;
+-  difficulty?: 1 | 2 | 3 | 4 | 5;
+   distance?: string;
+-  isDraft: boolean;
+   onPress: (id: string) => void;
+ }
+ 
+@@ -20,9 +17,7 @@ export const SpotListItem = memo(function SpotListItem({
+   displayName,
+   thumbnailUri,
+   featureType,
+-  difficulty,
+   distance,
+-  isDraft,
+   onPress,
+ }: SpotListItemProps) {
+   return (
+@@ -57,12 +52,6 @@ export const SpotListItem = memo(function SpotListItem({
+               <Text style={styles.typeText}>{featureType}</Text>
+             </View>
+           ) : null}
+-          {difficulty ? <RatingBadge rating={difficulty} /> : null}
+-          {isDraft ? (
+-            <View style={styles.draftBadge}>
+-              <Text style={styles.draftText}>Draft</Text>
+-            </View>
+-          ) : null}
+         </View>
+ 
+         {distance ? <Text style={styles.distance}>{distance}</Text> : null}
+@@ -127,19 +116,6 @@ const styles = StyleSheet.create({
+     fontSize: 12,
+     fontWeight: '500',
+     color: palette.gray[600],
+-    textTransform: 'capitalize',
+-  },
+-  draftBadge: {
+-    backgroundColor: palette.yellow[100],
+-    paddingHorizontal: spacing.sm,
+-    paddingVertical: 2,
+-    borderRadius: radius.sm,
+-    borderCurve: 'continuous',
+-  },
+-  draftText: {
+-    fontSize: 12,
+-    fontWeight: '500',
+-    color: palette.yellow[700],
+   },
+   distance: {
+     fontSize: 13,
+diff --git a/src/components/SpotMap.tsx b/src/components/SpotMap.tsx
+index 726cf10..e7aacbf 100644
+--- a/src/components/SpotMap.tsx
++++ b/src/components/SpotMap.tsx
+@@ -6,15 +6,13 @@ import type NativeMapView from 'react-native-maps';
+ 
+ import { ClusteredMapView } from '@/src/components/ClusteredMapView';
+ import { colors, palette } from '@/src/constants/theme';
+-import { SpotStatus } from '@/src/types';
+ import type { GeoPoint, Spot } from '@/src/types';
+ import { clusterPressTarget } from '@/src/utils/cluster-press';
+ import type { ClusterLeaf } from '@/src/utils/cluster-press';
+ import { isKnownLocation } from '@/src/utils/geo';
+ import { initialRegion } from '@/src/utils/map-region';
+-import { featureLabel, getSpotDisplayName } from '@/src/utils/spot-name';
++import { featureTypesLabel, getSpotDisplayName } from '@/src/utils/spot-name';
+ 
+-export const DRAFT_PIN = palette.yellow[500];
+ export const SPOT_PIN = colors.light.primary;
+ 
+ const EDGE_PADDING = { top: 50, right: 50, bottom: 50, left: 50 };
+@@ -66,21 +64,18 @@ export function SpotMap({ spots, currentLocation, onOpenSpot }: Props) {
+   // which the library redoes whenever its children change.
+   const markers = useMemo(
+     () =>
+-      spots.filter((s) => isKnownLocation(s.location)).map((spot) => {
+-        const isDraft = spot.status === SpotStatus.Draft;
+-        return (
+-          <Marker
+-            key={spot.id}
+-            identifier={spot.id}
+-            testID={`spot-marker-${spot.id}`}
+-            coordinate={spot.location}
+-            title={getSpotDisplayName(spot)}
+-            description={isDraft ? 'Draft' : featureLabel(spot)}
+-            pinColor={isDraft ? DRAFT_PIN : SPOT_PIN}
+-            onCalloutPress={() => onOpenSpot(spot.id)}
+-          />
+-        );
+-      }),
++      spots.filter((s) => isKnownLocation(s.location)).map((spot) => (
++        <Marker
++          key={spot.id}
++          identifier={spot.id}
++          testID={`spot-marker-${spot.id}`}
++          coordinate={spot.location}
++          title={getSpotDisplayName(spot)}
++          description={featureTypesLabel(spot)}
++          pinColor={SPOT_PIN}
++          onCalloutPress={() => onOpenSpot(spot.id)}
++        />
++      )),
+     [spots, onOpenSpot],
+   );
+ 
+diff --git a/src/components/StarRating.tsx b/src/components/StarRating.tsx
+deleted file mode 100644
+index ca38011..0000000
+--- a/src/components/StarRating.tsx
++++ /dev/null
+@@ -1,51 +0,0 @@
+-import React from 'react';
+-import { View, Pressable, StyleSheet } from 'react-native';
+-import { IconSymbol } from '@/components/ui/icon-symbol';
+-import { palette, spacing } from '@/src/constants/theme';
+-
+-interface StarRatingProps {
+-  value: number;
+-  onChange?: (value: number) => void;
+-  size?: number;
+-  readonly?: boolean;
+-}
+-
+-export function StarRating({
+-  value,
+-  onChange,
+-  size = 24,
+-  readonly = false,
+-}: StarRatingProps) {
+-  return (
+-    <View
+-      style={styles.container}
+-      accessibilityLabel={`Rating: ${value} out of 5`}
+-      accessibilityRole="adjustable">
+-      {[1, 2, 3, 4, 5].map((star) => (
+-        <Pressable
+-          key={star}
+-          onPress={() => {
+-            if (!readonly && onChange) {
+-              onChange(star);
+-            }
+-          }}
+-          disabled={readonly}
+-          hitSlop={4}
+-          accessibilityLabel={`${star} star${star > 1 ? 's' : ''}`}>
+-          <IconSymbol
+-            name={star <= value ? 'star.fill' : 'star'}
+-            size={size}
+-            color={star <= value ? palette.yellow[500] : palette.gray[300]}
+-          />
+-        </Pressable>
+-      ))}
+-    </View>
+-  );
+-}
+-
+-const styles = StyleSheet.create({
+-  container: {
+-    flexDirection: 'row',
+-    gap: spacing.xs,
+-  },
+-});
+diff --git a/src/components/index.ts b/src/components/index.ts
+index 79178b8..7035cfa 100644
+--- a/src/components/index.ts
++++ b/src/components/index.ts
+@@ -1,7 +1,5 @@
+ export { Button } from './Button';
+ export { Card, CardImage, CardContent, CardBadge, CardTitle, CardSubtitle } from './Card';
+-export { RatingBadge } from './RatingBadge';
+-export { StarRating } from './StarRating';
+ export { SegmentedControl } from './SegmentedControl';
+ export { Chip, ChipGroup } from './Chip';
+ export { FormField, FormInput } from './FormField';
+diff --git a/src/constants/labels.ts b/src/constants/labels.ts
+index 2073a10..cfa7a8c 100644
+--- a/src/constants/labels.ts
++++ b/src/constants/labels.ts
+@@ -1,10 +1,13 @@
+-import { StopType } from '@/src/types';
++import { FeatureType } from '@/src/types';
+ 
+-/** Display labels for skate-stop types, used by the edit chips and the detail screen. */
+-export const STOP_TYPE_LABELS: Record<StopType, string> = {
+-  [StopType.Knobs]: 'Knobs',
+-  [StopType.Caps]: 'Caps',
+-  [StopType.Brackets]: 'Brackets',
+-  [StopType.Welds]: 'Welds',
+-  [StopType.Other]: 'Other',
++/** Display labels for feature types: the filter chips, the list row and the map callout. */
++export const FEATURE_TYPE_LABELS: Record<FeatureType, string> = {
++  [FeatureType.Rail]: 'Rail',
++  [FeatureType.Ledge]: 'Ledge',
++  [FeatureType.Bank]: 'Bank',
++  [FeatureType.Hip]: 'Hip',
++  [FeatureType.StairSet]: 'Stair set',
++  [FeatureType.Gap]: 'Gap',
++  [FeatureType.WallRide]: 'Wall ride',
++  [FeatureType.QuarterPipe]: 'Quarter pipe',
+ };
+diff --git a/src/constants/theme.ts b/src/constants/theme.ts
+index c13ed4d..a571ba5 100644
+--- a/src/constants/theme.ts
++++ b/src/constants/theme.ts
+@@ -63,16 +63,6 @@ export const colors = {
+   },
+ } as const;
+ 
+-// ── Difficulty/Rating Colors ────────────────────────────
+-
+-export const ratingColors = {
+-  1: { bg: palette.green[100], text: palette.green[700] },
+-  2: { bg: palette.green[100], text: palette.green[700] },
+-  3: { bg: palette.yellow[100], text: palette.yellow[700] },
+-  4: { bg: palette.red[100], text: palette.red[700] },
+-  5: { bg: palette.red[100], text: palette.red[700] },
+-} as const;
+-
+ // ── Spacing ─────────────────────────────────────────────
+ 
+ export const spacing = {
+diff --git a/src/db/index.ts b/src/db/index.ts
+index ac325c7..9fcb14e 100644
+--- a/src/db/index.ts
++++ b/src/db/index.ts
+@@ -1,4 +1,4 @@
+ export { DB_NAME, migrateDb } from './schema';
+-export { insertSpot, getSpot, getSpots, updateSpot, softDeleteSpot } from './spots';
++export { insertSpot, getSpot, getSpots, getSpotLegacy, updateSpot, softDeleteSpot } from './spots';
+ export { insertMedia, getMediaForSpot, getAllMedia, deleteMedia } from './media';
+ export { getSetting, setSetting, getUserSettings, saveUserSettings } from './settings';
+diff --git a/src/db/schema.ts b/src/db/schema.ts
+index d6face2..3579c78 100644
+--- a/src/db/schema.ts
++++ b/src/db/schema.ts
+@@ -82,8 +82,165 @@ async function migration2(db: SQLiteDatabase): Promise<void> {
+   `);
+ }
+ 
++/** The four JSON columns migration 3 reads from a version 2 spot row. */
++export interface SpotRowV2 {
++  feature_json: string;
++  in_run_json: string;
++  landing_json: string;
++  metadata_json: string;
++}
++
++/** The values migration 3 writes into a spot row's new columns. */
++export interface SpotColumnsV3 {
++  feature_types_json: string;
++  stopped: 0 | 1;
++  natural_speed: number | null;
++  notes: string | null;
++  legacy_json: string | null;
++}
++
++// The feature types that survive migration 3 ('other' is gone, D19). Literal on purpose: a migration must not
++// change meaning when the app's enums do.
++const KEPT_FEATURE_TYPES = ['rail', 'ledge', 'bank', 'hip', 'stair_set', 'gap', 'wall_ride', 'quarter_pipe'];
++
++type Json = Record<string, unknown>;
++
++const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);
++
++/** Empty never reaches the archive: missing, null, blank text, an empty array, a non-finite number, `false`. */
++function isEmptyValue(v: unknown): boolean {
++  if (v === undefined || v === null || v === false) return true;
++  if (typeof v === 'string') return v.trim() === '';
++  if (typeof v === 'number') return !Number.isFinite(v);
++  if (Array.isArray(v)) return v.length === 0;
++  return false;
++}
++
++/**
++ * Maps one version 2 spot row to the version 3 columns (spec §4). Never throws on row data: a column that is not
++ * a JSON object is kept verbatim as `legacy.raw_<name>` (raw_feature, raw_in_run, …), since a throw would leave the DB at version 2 under a
++ * version 3 mapper and no spot would load. `status` and `is_stopped` are never archived (every row had them, and
++ * is_stopped became `stopped`); neither is `removable: false`, which the edit screen wrote by default.
++ */
++export function migrateSpotRowV3(row: SpotRowV2): SpotColumnsV3 {
++  const legacy: Json = {};
++  const parse = (column: keyof SpotRowV2): Json => {
++    try {
++      const value: unknown = JSON.parse(row[column]);
++      if (isObject(value)) return value;
++    } catch {
++      // not JSON: archived verbatim below unless blank
++    }
++    const text: unknown = row[column];
++    if (!(typeof text === 'string' && text.trim() === '')) legacy[`raw_${column.replace(/_json$/, '')}`] = text;
++    return {};
++  };
++  const feature = parse('feature_json');
++  const inRun = parse('in_run_json');
++  const landing = parse('landing_json');
++  const metadata = parse('metadata_json');
++  const dimensions = isObject(feature.dimensions) ? feature.dimensions : {};
++  const stops = isObject(feature.skate_stops) ? feature.skate_stops : {};
++  // The old edit screen appended { requires: [] } on "Add Setup Option"; one left unpicked is not data.
++  const setupOptions = Array.isArray(inRun.setup_options)
++    ? inRun.setup_options.filter((o) => !(isObject(o) && Array.isArray(o.requires) && o.requires.length === 0))
++    : inRun.setup_options;
++
++  const archived: [string, unknown][] = [
++    ['custom_type', feature.custom_type],
++    ['shape', feature.shape],
++    ['length_m', dimensions.length],
++    ['height_m', dimensions.height],
++    ['width_m', dimensions.width],
++    ['material', feature.material],
++    ['stop_type', stops.stop_type],
++    ['stop_description', stops.stop_description],
++    ['removable', stops.removable],
++    ['difficulty', feature.difficulty],
++    ['setup_options', setupOptions],
++    ['landing_difficulty', landing.difficulty],
++    ['landing_surface', landing.surface],
++    ['intensity', metadata.intensity],
++    ['bustability', metadata.bustability],
++    ['bustability_notes', metadata.bustability_notes],
++  ];
++  for (const [key, value] of archived) {
++    if (!isEmptyValue(value)) legacy[key] = value;
++  }
++
++  const type = feature.type;
++  const speed = inRun.natural_speed;
++  const notes = metadata.notes;
++  return {
++    feature_types_json: JSON.stringify(
++      typeof type === 'string' && KEPT_FEATURE_TYPES.includes(type) ? [type] : [],
++    ),
++    stopped: stops.is_stopped === true ? 1 : 0,
++    natural_speed: typeof speed === 'number' && Number.isInteger(speed) && speed >= 1 && speed <= 5 ? speed - 1 : null,
++    notes: typeof notes === 'string' && notes.trim() !== '' ? notes : null,
++    legacy_json: Object.keys(legacy).length > 0 ? JSON.stringify(legacy) : null,
++  };
++}
++
++/**
++ * Version 3: the trimmed spot (spec §2.1, §4). New columns `feature_types_json`, `stopped`, `natural_speed` (0–4),
++ * `notes`; every other non-empty old field is archived in `legacy_json`; the table is rebuilt without `status` and
++ * the four JSON columns (foreign keys are off here, so dropping spots does not cascade to media).
++ */
++async function migration3(db: SQLiteDatabase): Promise<void> {
++  await db.execAsync(`
++    ALTER TABLE spots ADD COLUMN feature_types_json TEXT NOT NULL DEFAULT '[]';
++    ALTER TABLE spots ADD COLUMN stopped INTEGER NOT NULL DEFAULT 0;
++    ALTER TABLE spots ADD COLUMN natural_speed INTEGER;
++    ALTER TABLE spots ADD COLUMN notes TEXT;
++    ALTER TABLE spots ADD COLUMN legacy_json TEXT;
++  `);
++
++  const rows = await db.getAllAsync<SpotRowV2 & { id: string }>(
++    'SELECT id, feature_json, in_run_json, landing_json, metadata_json FROM spots',
++  );
++  for (const row of rows) {
++    const v3 = migrateSpotRowV3(row);
++    await db.runAsync(
++      'UPDATE spots SET feature_types_json = ?, stopped = ?, natural_speed = ?, notes = ?, legacy_json = ? WHERE id = ?',
++      v3.feature_types_json,
++      v3.stopped,
++      v3.natural_speed,
++      v3.notes,
++      v3.legacy_json,
++      row.id,
++    );
++  }
++
++  await db.execAsync(`
++    CREATE TABLE spots_new (
++      id TEXT PRIMARY KEY NOT NULL,
++      name TEXT,
++      generated_name TEXT,
++      latitude REAL NOT NULL,
++      longitude REAL NOT NULL,
++      created_at TEXT NOT NULL DEFAULT (datetime('now')),
++      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
++      deleted_at TEXT,
++      feature_types_json TEXT NOT NULL DEFAULT '[]',
++      stopped INTEGER NOT NULL DEFAULT 0,
++      natural_speed INTEGER,
++      notes TEXT,
++      legacy_json TEXT,
++      primary_photo_id TEXT
++    );
++    INSERT INTO spots_new (id, name, generated_name, latitude, longitude, created_at, updated_at, deleted_at,
++                           feature_types_json, stopped, natural_speed, notes, legacy_json, primary_photo_id)
++      SELECT id, name, generated_name, latitude, longitude, created_at, updated_at, deleted_at,
++             feature_types_json, stopped, natural_speed, notes, legacy_json, primary_photo_id FROM spots;
++    DROP TABLE spots;
++    ALTER TABLE spots_new RENAME TO spots;
++    CREATE INDEX IF NOT EXISTS idx_spots_deleted_at ON spots(deleted_at);
++  `);
++}
++
+ /** MIGRATIONS[i] takes the DB from version i to i + 1. */
+-export const MIGRATIONS: readonly Migration[] = [migration1, migration2];
++export const MIGRATIONS: readonly Migration[] = [migration1, migration2, migration3];
+ export const LATEST_SCHEMA_VERSION = MIGRATIONS.length;
+ 
+ export async function getSchemaVersion(db: SQLiteDatabase): Promise<number> {
+diff --git a/src/db/settings.ts b/src/db/settings.ts
+index 302d465..564e9ec 100644
+--- a/src/db/settings.ts
++++ b/src/db/settings.ts
+@@ -18,10 +18,12 @@ export async function setSetting(db: SQLiteDatabase, key: string, value: string)
+   );
+ }
+ 
++/** The saved settings over the defaults. Keys an older build saved (e.g. `gear`, D22) are dropped. */
+ export async function getUserSettings(db: SQLiteDatabase): Promise<UserSettings> {
+   const raw = await getSetting(db, 'user_settings');
+   try {
+-    return { ...DEFAULT_USER_SETTINGS, ...JSON.parse(raw ?? 'null') } as UserSettings;
++    const { units, batch_import_radius } = { ...DEFAULT_USER_SETTINGS, ...JSON.parse(raw ?? 'null') } as UserSettings;
++    return { units, batch_import_radius };
+   } catch {
+     return { ...DEFAULT_USER_SETTINGS }; // corrupt blob
+   }
+diff --git a/src/db/spots.ts b/src/db/spots.ts
+index 75be149..70a388f 100644
+--- a/src/db/spots.ts
++++ b/src/db/spots.ts
+@@ -1,7 +1,7 @@
+ import type { SQLiteDatabase } from 'expo-sqlite';
+-import type { Spot, SpotUpdate, FeatureDetails, InRun, Landing, SpotMetadata } from '@/src/types';
+-import { SpotStatus } from '@/src/types';
++import type { FeatureType, NaturalSpeed, Spot, SpotLegacy, SpotUpdate } from '@/src/types';
+ 
++/** A spots row as the app reads it: every column but `legacy_json`, which only getSpotLegacy reads. */
+ interface SpotRow {
+   id: string;
+   name: string | null;
+@@ -11,14 +11,16 @@ interface SpotRow {
+   created_at: string;
+   updated_at: string;
+   deleted_at: string | null;
+-  status: string;
+-  feature_json: string;
+-  in_run_json: string;
+-  landing_json: string;
+-  metadata_json: string;
++  feature_types_json: string;
++  stopped: number;
++  natural_speed: number | null;
++  notes: string | null;
+   primary_photo_id: string | null;
+ }
+ 
++const SPOT_COLUMNS =
++  'id, name, generated_name, latitude, longitude, created_at, updated_at, deleted_at, feature_types_json, stopped, natural_speed, notes, primary_photo_id';
++
+ function rowToSpot(row: SpotRow): Spot {
+   return {
+     id: row.id,
+@@ -28,19 +30,19 @@ function rowToSpot(row: SpotRow): Spot {
+     created_at: row.created_at,
+     updated_at: row.updated_at,
+     deleted_at: row.deleted_at ?? undefined,
+-    status: row.status as SpotStatus,
+-    feature: JSON.parse(row.feature_json) as FeatureDetails,
+-    in_run: JSON.parse(row.in_run_json) as InRun,
+-    landing: JSON.parse(row.landing_json) as Landing,
+-    metadata: JSON.parse(row.metadata_json) as SpotMetadata,
++    feature_types: JSON.parse(row.feature_types_json) as FeatureType[],
++    stopped: row.stopped === 1,
++    // 0 (None) is a rating; only NULL is unset
++    natural_speed: row.natural_speed === null ? undefined : (row.natural_speed as NaturalSpeed),
++    notes: row.notes ?? undefined,
+     primary_photo_id: row.primary_photo_id ?? undefined,
+   };
+ }
+ 
+ export async function insertSpot(db: SQLiteDatabase, spot: Spot): Promise<void> {
+   await db.runAsync(
+-    `INSERT INTO spots (id, name, generated_name, latitude, longitude, created_at, updated_at, deleted_at, status, feature_json, in_run_json, landing_json, metadata_json, primary_photo_id)
+-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
++    `INSERT INTO spots (id, name, generated_name, latitude, longitude, created_at, updated_at, deleted_at, feature_types_json, stopped, natural_speed, notes, primary_photo_id)
++     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     spot.id,
+     spot.name ?? null,
+     spot.generated_name ?? null,
+@@ -49,18 +51,17 @@ export async function insertSpot(db: SQLiteDatabase, spot: Spot): Promise<void>
+     spot.created_at,
+     spot.updated_at,
+     spot.deleted_at ?? null,
+-    spot.status,
+-    JSON.stringify(spot.feature),
+-    JSON.stringify(spot.in_run),
+-    JSON.stringify(spot.landing),
+-    JSON.stringify(spot.metadata),
++    JSON.stringify(spot.feature_types),
++    spot.stopped ? 1 : 0,
++    spot.natural_speed ?? null,
++    spot.notes ?? null,
+     spot.primary_photo_id ?? null,
+   );
+ }
+ 
+ export async function getSpot(db: SQLiteDatabase, id: string): Promise<Spot | null> {
+   const row = await db.getFirstAsync<SpotRow>(
+-    `SELECT * FROM spots WHERE id = ? AND deleted_at IS NULL`,
++    `SELECT ${SPOT_COLUMNS} FROM spots WHERE id = ? AND deleted_at IS NULL`,
+     id,
+   );
+   return row ? rowToSpot(row) : null;
+@@ -68,11 +69,20 @@ export async function getSpot(db: SQLiteDatabase, id: string): Promise<Spot | nu
+ 
+ export async function getSpots(db: SQLiteDatabase): Promise<Spot[]> {
+   const rows = await db.getAllAsync<SpotRow>(
+-    `SELECT * FROM spots WHERE deleted_at IS NULL ORDER BY created_at DESC`,
++    `SELECT ${SPOT_COLUMNS} FROM spots WHERE deleted_at IS NULL ORDER BY created_at DESC`,
+   );
+   return rows.map(rowToSpot);
+ }
+ 
++/** What migration 3 archived for this spot (the detail screen's "Older details"), or null when nothing was. */
++export async function getSpotLegacy(db: SQLiteDatabase, id: string): Promise<SpotLegacy | null> {
++  const row = await db.getFirstAsync<{ legacy_json: string | null }>(
++    'SELECT legacy_json FROM spots WHERE id = ?',
++    id,
++  );
++  return row?.legacy_json ? (JSON.parse(row.legacy_json) as SpotLegacy) : null;
++}
++
+ export async function updateSpot(
+   db: SQLiteDatabase,
+   id: string,
+@@ -93,25 +103,21 @@ export async function updateSpot(
+     setClauses.push('latitude = ?, longitude = ?');
+     values.push(updates.location.latitude, updates.location.longitude);
+   }
+-  if (updates.status) {
+-    setClauses.push('status = ?');
+-    values.push(updates.status);
+-  }
+-  if (updates.feature) {
+-    setClauses.push('feature_json = ?');
+-    values.push(JSON.stringify(updates.feature));
++  if (updates.feature_types) {
++    setClauses.push('feature_types_json = ?');
++    values.push(JSON.stringify(updates.feature_types));
+   }
+-  if (updates.in_run) {
+-    setClauses.push('in_run_json = ?');
+-    values.push(JSON.stringify(updates.in_run));
++  if (updates.stopped !== undefined) {
++    setClauses.push('stopped = ?');
++    values.push(updates.stopped ? 1 : 0);
+   }
+-  if (updates.landing) {
+-    setClauses.push('landing_json = ?');
+-    values.push(JSON.stringify(updates.landing));
++  if (updates.natural_speed !== undefined) {
++    setClauses.push('natural_speed = ?');
++    values.push(updates.natural_speed);
+   }
+-  if (updates.metadata) {
+-    setClauses.push('metadata_json = ?');
+-    values.push(JSON.stringify(updates.metadata));
++  if (updates.notes !== undefined) {
++    setClauses.push('notes = ?');
++    values.push(updates.notes);
+   }
+   if (updates.primary_photo_id !== undefined) {
+     setClauses.push('primary_photo_id = ?');
+diff --git a/src/hooks/use-db-init.ts b/src/hooks/use-db-init.ts
+index 9343db7..130c899 100644
+--- a/src/hooks/use-db-init.ts
++++ b/src/hooks/use-db-init.ts
+@@ -18,8 +18,9 @@ export function useDbInit(): { isReady: boolean } {
+ 
+   useEffect(() => {
+     (async () => {
+-      // A failed upgrade leaves the DB at its last good version, which this build can still read, so the
+-      // load goes ahead: skipping it would look like every spot had vanished.
++      // A failed upgrade leaves the DB at its last good version and the load still goes ahead: skipping it would
++      // look like every spot had vanished. Below version 3 this build's spot columns are missing, so getSpots
++      // throws and the list stays empty until a later launch's retry succeeds; nothing on disk is lost.
+       try {
+         await migrateDb(db);
+       } catch (err) {
+diff --git a/src/hooks/use-settings-actions.ts b/src/hooks/use-settings-actions.ts
+index fd59c1d..cb87ddf 100644
+--- a/src/hooks/use-settings-actions.ts
++++ b/src/hooks/use-settings-actions.ts
+@@ -3,16 +3,16 @@ import { useSQLiteContext } from 'expo-sqlite';
+ 
+ import { saveUserSettings } from '@/src/db';
+ import { useSettingsStore } from '@/src/stores/settings-store';
+-import type { GearItem, UnitSystem } from '@/src/types';
++import type { UnitSystem } from '@/src/types';
+ 
+ export function useSettingsActions() {
+   const db = useSQLiteContext();
+   const store = useSettingsStore();
+ 
+   const persistCurrent = useCallback(async () => {
+-    const { units, batch_import_radius, gear } = useSettingsStore.getState();
++    const { units, batch_import_radius } = useSettingsStore.getState();
+     try {
+-      await saveUserSettings(db, { units, batch_import_radius, gear });
++      await saveUserSettings(db, { units, batch_import_radius });
+     } catch (err) {
+       console.error('[useSettingsActions] saveUserSettings failed:', err);
+     }
+@@ -21,9 +21,9 @@ export function useSettingsActions() {
+   const setUnits = useCallback(
+     async (units: UnitSystem) => {
+       store.setUnits(units);
+-      const { batch_import_radius, gear } = useSettingsStore.getState();
++      const { batch_import_radius } = useSettingsStore.getState();
+       try {
+-        await saveUserSettings(db, { units, batch_import_radius, gear });
++        await saveUserSettings(db, { units, batch_import_radius });
+       } catch (err) {
+         console.error('[useSettingsActions] setUnits persist failed:', err);
+       }
+@@ -39,18 +39,5 @@ export function useSettingsActions() {
+     [store, persistCurrent],
+   );
+ 
+-  const toggleGear = useCallback(
+-    async (item: GearItem) => {
+-      const current = useSettingsStore.getState().gear;
+-      if (current.includes(item)) {
+-        store.removeGear(item);
+-      } else {
+-        store.addGear(item);
+-      }
+-      await persistCurrent();
+-    },
+-    [store, persistCurrent],
+-  );
+-
+-  return { setUnits, setBatchImportRadius, toggleGear };
++  return { setUnits, setBatchImportRadius };
+ }
+diff --git a/src/stores/settings-store.ts b/src/stores/settings-store.ts
+index 81d5daa..36705da 100644
+--- a/src/stores/settings-store.ts
++++ b/src/stores/settings-store.ts
+@@ -1,13 +1,10 @@
+ import { create } from 'zustand';
+-import type { UserSettings, GearItem } from '@/src/types';
++import type { UserSettings } from '@/src/types';
+ import { DEFAULT_USER_SETTINGS, UnitSystem } from '@/src/types';
+ 
+ interface SettingsState extends UserSettings {
+   setUnits: (units: UnitSystem) => void;
+   setBatchImportRadius: (radius: number) => void;
+-  setGear: (gear: GearItem[]) => void;
+-  addGear: (item: GearItem) => void;
+-  removeGear: (item: GearItem) => void;
+   loadSettings: (settings: UserSettings) => void;
+ }
+ 
+@@ -18,17 +15,5 @@ export const useSettingsStore = create<SettingsState>((set) => ({
+ 
+   setBatchImportRadius: (batch_import_radius) => set({ batch_import_radius }),
+ 
+-  setGear: (gear) => set({ gear }),
+-
+-  addGear: (item) =>
+-    set((state) => ({
+-      gear: state.gear.includes(item) ? state.gear : [...state.gear, item],
+-    })),
+-
+-  removeGear: (item) =>
+-    set((state) => ({
+-      gear: state.gear.filter((g) => g !== item),
+-    })),
+-
+   loadSettings: (settings) => set(settings),
+ }));
+diff --git a/src/stores/spots-store.ts b/src/stores/spots-store.ts
+index ccf2618..e3052bd 100644
+--- a/src/stores/spots-store.ts
++++ b/src/stores/spots-store.ts
+@@ -1,6 +1,6 @@
+ import { create } from 'zustand';
+ import type { Spot, SpotFilters, GeoPoint, SpotUpdate } from '@/src/types';
+-import { DEFAULT_FILTERS, SortField, SortDirection, SpotStatus } from '@/src/types';
++import { DEFAULT_FILTERS, SortField, SortDirection } from '@/src/types';
+ import { haversineDistance, isKnownLocation } from '@/src/utils/geo';
+ 
+ export type ViewMode = 'list' | 'map';
+@@ -29,12 +29,17 @@ interface SpotsState {
+ }
+ 
+ /**
+- * Merges a patch into a spot; `name: null` (cleared in Edit) becomes no name, so it shows as untitled, and
+- * `primary_photo_id: null` (last photo removed) becomes no primary.
++ * Merges a patch into a spot; `name: null` (cleared in Edit) becomes no name, so it shows as untitled,
++ * `notes: null` / `natural_speed: null` become unset, and `primary_photo_id: null` (last photo removed) becomes no primary.
+  */
+-function applySpotUpdate(spot: Spot, { name, primary_photo_id, ...rest }: SpotUpdate): Spot {
++function applySpotUpdate(
++  spot: Spot,
++  { name, notes, natural_speed, primary_photo_id, ...rest }: SpotUpdate,
++): Spot {
+   const next: Spot = { ...spot, ...rest };
+   if (name !== undefined) next.name = name ?? undefined;
++  if (notes !== undefined) next.notes = notes ?? undefined;
++  if (natural_speed !== undefined) next.natural_speed = natural_speed ?? undefined; // 0 is kept
+   if (primary_photo_id !== undefined) next.primary_photo_id = primary_photo_id ?? undefined;
+   return next;
+ }
+@@ -87,78 +92,21 @@ export function selectFilteredSpots(
+ ): Spot[] {
+   const query = searchQuery.trim().toLowerCase();
+   return spots.filter((spot) => {
+-    // Status filter
+-    if (!filters.show_drafts && spot.status === SpotStatus.Draft) return false;
+-
+     // Search: the user's name or the town. Not the generated "Untitled · <Town> · <date>" label,
+     // whose "untitled", month and AM/PM would match every unnamed spot.
+     if (query && !matchesSearch(spot, query)) return false;
+ 
+-    // Type filter (OR)
+-    if (filters.types.length > 0) {
+-      if (!spot.feature.type || !filters.types.includes(spot.feature.type)) return false;
+-    }
+-
+-    // Natural speed range
+-    if (filters.natural_speed_min != null && spot.in_run.natural_speed != null) {
+-      if (spot.in_run.natural_speed < filters.natural_speed_min) return false;
+-    }
+-    if (filters.natural_speed_max != null && spot.in_run.natural_speed != null) {
+-      if (spot.in_run.natural_speed > filters.natural_speed_max) return false;
+-    }
+-
+-    // Bustability range
+-    if (filters.bustability_min != null && spot.metadata.bustability != null) {
+-      if (spot.metadata.bustability < filters.bustability_min) return false;
+-    }
+-    if (filters.bustability_max != null && spot.metadata.bustability != null) {
+-      if (spot.metadata.bustability > filters.bustability_max) return false;
+-    }
++    // What's here: any-of against the spot's types
++    if (filters.types.length > 0 && !spot.feature_types.some((t) => filters.types.includes(t))) return false;
+ 
+-    // Intensity range
+-    if (filters.intensity_min != null && spot.metadata.intensity != null) {
+-      if (spot.metadata.intensity < filters.intensity_min) return false;
+-    }
+-    if (filters.intensity_max != null && spot.metadata.intensity != null) {
+-      if (spot.metadata.intensity > filters.intensity_max) return false;
++    // Natural speed range (0–4); an unrated spot is kept
++    if (spot.natural_speed !== undefined) {
++      if (filters.natural_speed_min !== undefined && spot.natural_speed < filters.natural_speed_min) return false;
++      if (filters.natural_speed_max !== undefined && spot.natural_speed > filters.natural_speed_max) return false;
+     }
+ 
+-    // Gear + Build two-stage filter
+-    if (filters.gear.length > 0 || filters.exclude_build.length > 0) {
+-      const setupOptions = spot.in_run.setup_options;
+-      if (setupOptions.length === 0) return true; // no requirements = matches all
+-
+-      const matchingOptions = setupOptions.filter((option) => {
+-        // Stage 1: gear superset check
+-        if (filters.gear.length > 0) {
+-          const gearRequired = option.requires
+-            .filter((r) => r.category === 'gear')
+-            .map((r) => r.item);
+-          // Empty gear requirements matches all users
+-          if (gearRequired.length > 0) {
+-            const hasAllGear = gearRequired.every((g) =>
+-              filters.gear.includes(g as typeof filters.gear[number]),
+-            );
+-            if (!hasAllGear) return false;
+-          }
+-        }
+-
+-        // Stage 2: build exclusion check
+-        if (filters.exclude_build.length > 0) {
+-          const buildRequired = option.requires
+-            .filter((r) => r.category === 'build')
+-            .map((r) => r.item);
+-          const hasExcluded = buildRequired.some((b) =>
+-            filters.exclude_build.includes(b as typeof filters.exclude_build[number]),
+-          );
+-          if (hasExcluded) return false;
+-        }
+-
+-        return true;
+-      });
+-
+-      if (matchingOptions.length === 0) return false;
+-    }
++    // Skate stopped: undefined = any
++    if (filters.stopped !== undefined && spot.stopped !== filters.stopped) return false;
+ 
+     return true;
+   });
+@@ -170,15 +118,13 @@ function matchesSearch(spot: Spot, query: string): boolean {
+ }
+ 
+ /**
+- * A spot's value for the sort field, or `null` when it has none (no location, no intensity, no name).
++ * A spot's value for the sort field, or `null` when it has none (no location, no name).
+  * Names come back lowercased, so they compare case-insensitively.
+  */
+ function sortKey(spot: Spot, field: SortField, userLocation?: GeoPoint): number | string | null {
+   switch (field) {
+     case SortField.Distance:
+       return userLocation && isKnownLocation(spot.location) ? haversineDistance(userLocation, spot.location) : null;
+-    case SortField.Intensity:
+-      return spot.metadata.intensity ?? null;
+     case SortField.Name:
+       return spot.name ? spot.name.toLowerCase() : null;
+     case SortField.DateAdded:
+@@ -199,7 +145,7 @@ function createdAt(spot: Spot): number {
+ }
+ 
+ /**
+- * Sorts by one field. Spots without a value for it (no location, no intensity, no name) go last in
++ * Sorts by one field. Spots without a value for it (no location, no name) go last in
+  * both directions; the direction applies only among spots that have one. Ties, and the whole
+  * missing group, keep the default order: newest first, whatever the direction.
+  */
+@@ -233,15 +179,11 @@ export function selectEffectiveSort(
+   return { sortField, sortDirection };
+ }
+ 
+-/** How many filters are set in the Filter sheet (the Filter button's badge). */
++/** How many of the Filter sheet's three filters (types, stopped, speed range) are set (the Filter button's badge). */
+ export function selectActiveFilterCount(filters: SpotFilters): number {
+   let count = 0;
+   if (filters.types.length > 0) count++;
++  if (filters.stopped !== undefined) count++;
+   if (filters.natural_speed_min != null || filters.natural_speed_max != null) count++;
+-  if (filters.gear.length > 0) count++;
+-  if (filters.exclude_build.length > 0) count++;
+-  if (filters.bustability_min != null || filters.bustability_max != null) count++;
+-  if (filters.intensity_min != null || filters.intensity_max != null) count++;
+-  if (!filters.show_drafts) count++;
+   return count;
+ }
+diff --git a/src/types/index.ts b/src/types/index.ts
+index 2fe754f..bf9f2f2 100644
+--- a/src/types/index.ts
++++ b/src/types/index.ts
+@@ -1,10 +1,5 @@
+ // ── Enums ──────────────────────────────────────────────
+ 
+-export enum SpotStatus {
+-  Draft = 'draft',
+-  Complete = 'complete',
+-}
+-
+ export enum FeatureType {
+   Rail = 'rail',
+   Ledge = 'ledge',
+@@ -14,50 +9,6 @@ export enum FeatureType {
+   Gap = 'gap',
+   WallRide = 'wall_ride',
+   QuarterPipe = 'quarter_pipe',
+-  Other = 'other',
+-}
+-
+-export enum Material {
+-  Aluminum = 'aluminum',
+-  Concrete = 'concrete',
+-  Steel = 'steel',
+-  PaintedSteel = 'painted_steel',
+-  Wood = 'wood',
+-  Plastic = 'plastic',
+-  Stone = 'stone',
+-  Other = 'other',
+-}
+-
+-export enum StopType {
+-  Knobs = 'knobs',
+-  Caps = 'caps',
+-  Brackets = 'brackets',
+-  Welds = 'welds',
+-  Other = 'other',
+-}
+-
+-export enum GearItem {
+-  Bungee = 'bungee',
+-  DropInPlatform = 'drop_in_platform',
+-  Scaffolding = 'scaffolding',
+-  ShovelPull = 'shovel_pull',
+-  Winch = 'winch',
+-}
+-
+-export enum BuildItem {
+-  SpeedHumps = 'speed_humps',
+-  LipBuild = 'lip_build',
+-  LandingBuild = 'landing_build',
+-}
+-
+-export enum LandingSurface {
+-  SnowNatural = 'snow_natural',
+-  SnowBuilt = 'snow_built',
+-  Concrete = 'concrete',
+-  Asphalt = 'asphalt',
+-  Grass = 'grass',
+-  Dirt = 'dirt',
+-  Other = 'other',
+ }
+ 
+ export enum UnitSystem {
+@@ -69,7 +20,6 @@ export enum SortField {
+   Name = 'name',
+   Distance = 'distance',
+   DateAdded = 'date_added',
+-  Intensity = 'intensity',
+ }
+ 
+ export enum SortDirection {
+@@ -77,7 +27,8 @@ export enum SortDirection {
+   Desc = 'desc',
+ }
+ 
+-export type RequirementCategory = 'gear' | 'build';
++/** Natural speed on the in-run: 0 = None (a real value), 4 = Fast; undefined = not rated. */
++export type NaturalSpeed = 0 | 1 | 2 | 3 | 4;
+ 
+ // ── Data Types ─────────────────────────────────────────
+ 
+@@ -86,56 +37,6 @@ export interface GeoPoint {
+   longitude: number;
+ }
+ 
+-export interface Requirement {
+-  item: GearItem | BuildItem;
+-  category: RequirementCategory;
+-  quantity?: number;
+-}
+-
+-export interface SetupOption {
+-  requires: Requirement[];
+-}
+-
+-export interface SkateStopInfo {
+-  is_stopped: boolean;
+-  stop_type?: StopType;
+-  stop_description?: string;
+-  removable?: boolean;
+-}
+-
+-export interface Dimensions {
+-  length?: number;
+-  height?: number;
+-  width?: number;
+-}
+-
+-export interface FeatureDetails {
+-  type?: FeatureType;
+-  custom_type?: string;
+-  shape?: string;
+-  dimensions?: Dimensions;
+-  material?: Material;
+-  skate_stops?: SkateStopInfo;
+-  difficulty?: number; // 1-5
+-}
+-
+-export interface InRun {
+-  natural_speed?: number; // 1-5
+-  setup_options: SetupOption[];
+-}
+-
+-export interface Landing {
+-  difficulty?: number; // 1-5
+-  surface?: LandingSurface;
+-}
+-
+-export interface SpotMetadata {
+-  intensity?: number; // 1-5
+-  bustability?: number; // 1-5
+-  bustability_notes?: string;
+-  notes?: string;
+-}
+-
+ export interface Spot {
+   id: string;
+   name?: string;
+@@ -144,20 +45,46 @@ export interface Spot {
+   created_at: string; // ISO 8601
+   updated_at: string; // ISO 8601
+   deleted_at?: string; // ISO 8601
+-  status: SpotStatus;
+-  feature: FeatureDetails;
+-  in_run: InRun;
+-  landing: Landing;
+-  metadata: SpotMetadata;
++  feature_types: FeatureType[]; // [] = untagged, ordered as tapped
++  stopped: boolean;
++  natural_speed?: NaturalSpeed;
++  notes?: string;
+   primary_photo_id?: string;
+ }
+ 
+-/** A patch for a spot; `null` for `name` or `primary_photo_id` clears the stored value (undefined keeps it). */
+-export type SpotUpdate = Omit<Partial<Spot>, 'name' | 'primary_photo_id'> & {
++/** A patch for a spot; `null` for `name`, `notes`, `natural_speed` or `primary_photo_id` clears the stored value (undefined keeps it). */
++export type SpotUpdate = Omit<Partial<Spot>, 'name' | 'notes' | 'natural_speed' | 'primary_photo_id'> & {
+   name?: string | null;
++  notes?: string | null;
++  natural_speed?: NaturalSpeed | null;
+   primary_photo_id?: string | null;
+ };
+ 
++/** What migration 3 archived from the removed fields (spec §4); read only through getSpotLegacy. Lengths in metres. */
++export interface SpotLegacy {
++  custom_type?: string;
++  shape?: string;
++  length_m?: number;
++  height_m?: number;
++  width_m?: number;
++  material?: string;
++  stop_type?: string;
++  stop_description?: string;
++  removable?: boolean;
++  difficulty?: number;
++  setup_options?: unknown[];
++  landing_difficulty?: number;
++  landing_surface?: string;
++  intensity?: number;
++  bustability?: number;
++  bustability_notes?: string;
++  // A column that was not valid JSON, kept verbatim.
++  raw_feature?: string;
++  raw_in_run?: string;
++  raw_landing?: string;
++  raw_metadata?: string;
++}
++
+ export interface Media {
+   id: string;
+   spot_id: string;
+@@ -171,7 +98,6 @@ export interface Media {
+ export interface UserSettings {
+   units: UnitSystem;
+   batch_import_radius: number; // meters
+-  gear: GearItem[];
+ }
+ 
+ export interface SyncQueueItem {
+@@ -188,26 +114,17 @@ export interface SyncQueueItem {
+ 
+ export interface SpotFilters {
+   types: FeatureType[];
+-  natural_speed_min?: number;
+-  natural_speed_max?: number;
+-  gear: GearItem[];
+-  exclude_build: BuildItem[];
+-  bustability_min?: number;
+-  bustability_max?: number;
+-  intensity_min?: number;
+-  intensity_max?: number;
+-  show_drafts: boolean;
++  /** undefined = any; true = only stopped spots; false = only spots that are not stopped. */
++  stopped?: boolean;
++  natural_speed_min?: NaturalSpeed;
++  natural_speed_max?: NaturalSpeed;
+ }
+ 
+ export const DEFAULT_FILTERS: SpotFilters = {
+   types: [],
+-  gear: [],
+-  exclude_build: [],
+-  show_drafts: true,
+ };
+ 
+ export const DEFAULT_USER_SETTINGS: UserSettings = {
+   units: UnitSystem.Imperial,
+   batch_import_radius: 50,
+-  gear: [],
+ };
+diff --git a/src/utils/spot-name.ts b/src/utils/spot-name.ts
+index 46e47e6..90bea81 100644
+--- a/src/utils/spot-name.ts
++++ b/src/utils/spot-name.ts
+@@ -1,3 +1,4 @@
++import { FEATURE_TYPE_LABELS } from '@/src/constants/labels';
+ import type { Spot } from '@/src/types';
+ 
+ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+@@ -29,10 +30,9 @@ export function getSpotDisplayName(spot: Spot): string {
+   return ['Untitled', spot.generated_name, formatSpotTime(spot.created_at)].filter(Boolean).join(' · ');
+ }
+ 
+-/** The feature type as shown to the user: the custom name for 'other', underscores as spaces. */
+-export function featureLabel(spot: Spot): string | undefined {
+-  const { type, custom_type } = spot.feature;
+-  if (!type) return undefined;
+-  if (type === 'other' && custom_type) return custom_type;
+-  return type.replace(/_/g, ' ');
++/** The first feature type's label, plus `+N` for the rest (`Rail +1`); undefined for an untagged spot. */
++export function featureTypesLabel(spot: Spot): string | undefined {
++  const [first, ...rest] = spot.feature_types;
++  if (!first) return undefined;
++  return rest.length > 0 ? `${FEATURE_TYPE_LABELS[first]} +${rest.length}` : FEATURE_TYPE_LABELS[first];
+ }
+diff --git a/src/utils/units.ts b/src/utils/units.ts
+index a212890..5f559c4 100644
+--- a/src/utils/units.ts
++++ b/src/utils/units.ts
+@@ -1,6 +1,6 @@
+ import { UnitSystem } from '@/src/types';
+ 
+-// All dimensions stored in meters internally
++// All lengths stored in meters internally
+ 
+ export function displayLength(meters: number, units: UnitSystem): string {
+   if (units === UnitSystem.Imperial) {
+@@ -9,49 +9,3 @@ export function displayLength(meters: number, units: UnitSystem): string {
+   }
+   return `${meters.toFixed(1)} m`;
+ }
+-
+-export function inputToMeters(value: number, units: UnitSystem): number {
+-  if (units === UnitSystem.Imperial) {
+-    return value / 3.28084;
+-  }
+-  return value;
+-}
+-
+-export function metersToDisplay(meters: number, units: UnitSystem): number {
+-  if (units === UnitSystem.Imperial) {
+-    return meters * 3.28084;
+-  }
+-  return meters;
+-}
+-
+-/** The one-decimal text a stored metre value is shown as in a dimension field ('' when unset). */
+-export function initialDimText(meters: number | undefined, units: UnitSystem): string {
+-  return meters != null ? metersToDisplay(meters, units).toFixed(1) : '';
+-}
+-
+-/** A plain positive decimal with at most one '.' or ',' separator (no signs, exponents or hex). */
+-const DECIMAL_INPUT = /^(\d+[.,]?\d*|[.,]\d+)$/;
+-
+-/**
+- * The metre value to save for a dimension field.
+- * - Text unchanged from its initial display text: the stored value, exactly (no rounding drift).
+- * - Empty text, or a number that is exactly 0 ("0", "0.0", "0,0", ".0"): undefined (the dimension
+- *   is cleared; the field's placeholder is "0", so typing 0 means "none").
+- * - A finite number > 0 in the user's units (dot or comma decimal): converted to metres.
+- * - Anything else (negative, non-numeric): the stored value (undefined if none). Never NaN.
+- */
+-export function dimensionFromInput(
+-  text: string,
+-  initialText: string,
+-  stored: number | undefined,
+-  units: UnitSystem,
+-): number | undefined {
+-  if (text === initialText) return stored;
+-  const trimmed = text.trim();
+-  if (trimmed === '') return undefined;
+-  if (!DECIMAL_INPUT.test(trimmed)) return stored;
+-  const parsed = Number(trimmed.replace(',', '.'));
+-  if (parsed === 0) return undefined;
+-  if (!Number.isFinite(parsed) || parsed < 0) return stored;
+-  return inputToMeters(parsed, units);
+-}

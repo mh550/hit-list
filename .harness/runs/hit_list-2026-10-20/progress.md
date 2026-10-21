@@ -12,6 +12,15 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 · M1-05 · passes
+
+- Opus review of `reviews/m1.diff` (4861 lines): 1 Important, 4 Minor, recorded with commits under "Review (M1-05)" in `docs/plans/2026-10-20-m1-model.md`. **Important fixed (RED 95f93b4 → GREEN b99c7cd):** `useDbInit` loaded spots, media and settings in one `try`, so a failed migration 3 left default settings (saving Units would overwrite the stored radius) and a usable-looking app whose writes fail. Each load now has its own `try`, and `DBInitializer` shows "Couldn't upgrade your spots · Nothing was lost · close and reopen to retry" (**D28 *default***, spec §1 + §9 Q8). Minor: store `applySpotUpdate` ignores undefined keys (e9a4ad7 → 719b747); new migration-3 late-failure rollback test; plan `raw_*` key names. Not changed: archiving an unkept old type (spec maps it to `[]`).
+- Refactor 4a695a1: detail `headerRow` wrapper gone, `NaturalSpeed` comment. No unused styles or duplicate label maps existed (scripted check). Docs 19ebc62: CLAUDE.md, README Status and RUNNING-ON-PHONE describe the v3 model; no drafts, gear, ratings, Intensity or yellow pins.
+- Verified: `check.sh` green, tests 360 → 366, `jest --ci` 0 `console.error`, `expo export --platform ios` exit 0. Check answers: bad JSON → `raw_feature` (test), rollback keeps v2 (test), `natural_speed` 0 round-trips (4 tests), `getSpots` uses `SPOT_COLUMNS` without `legacy_json`.
+- Next (M2): keep edit's `SectionHeader`/`FieldLabel`, since the new sections reuse them.
+- Question for Michael: D28. When an upgrade fails, should the app block with a "close and reopen" screen (default), or let you in anyway?
+- Proposed changes: step 3 assumes there are unused styles and a duplicate `TYPE_LABELS` in edit/index. M1-03/04 had already removed both, so the pass had less to do than the step expects.
+
 ### 2026-10-21 · M1-04 · passes
 
 - Nested model gone: `Spot` is spec §2.1 (no `feature/in_run/landing/metadata`); `Material`/`StopType`/`LandingSurface`/`SkateStopInfo`/`Dimensions`/`FeatureDetails`/`InRun`/`Landing`/`SpotMetadata`/`FeatureType.Other` deleted. `StarRating`/`RatingBadge` (+ `ratingColors`, star icon mappings) deleted. `labels.ts` = `FEATURE_TYPE_LABELS` only; `units.ts` = `displayLength` only (`dimensionFromInput`/`initialDimText`/`inputToMeters`/`metersToDisplay` had no caller left; M7 adds its own radius conversion). `featureTypesLabel` replaces `featureLabel` (list row, map callout). Store: types any-of on `feature_types`, speed range on `natural_speed` 0–4 keeps unrated. Edit = photos + Name + Delete, Save writes `{ name, updated_at }`; detail = photos + title + Notes. FilterSheet header "What's here", eight chips. Tests 397 → 360 (deleted edit-dimensions, edit-skate-stops, spot-detail-stops, RatingBadge/StarRating, dimension-helper cases; added featureTypesLabel ×3, any-of, speed range ×3, edit save keys, spot-detail.test.tsx ×3, eight-chip sheet).

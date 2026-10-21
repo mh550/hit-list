@@ -269,7 +269,7 @@
         "src/__tests__/gallery-gestures.test.ts passes with at least these cases: clampScale(0.5)=1, clampScale(6)=4, clampScale(2.2)=2.2; toggleZoom(1)=2.5, toggleZoom(2.5)=1, toggleZoom(1.04)=2.5; clampPan at scale 1 returns {0,0} for any input; clampPan({x: 500, y: -900}, 2, {390, 844}) = {195, -422}; pagingEnabled(1)=true, pagingEnabled(1.06)=false; shouldClose(121, 1)=true, shouldClose(119, 1)=false, shouldClose(300, 2)=false.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M4-03",

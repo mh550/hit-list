@@ -12,6 +12,15 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 13:10 · M4-02 · passes
+
+- New `src/utils/gallery-gestures.ts`: `clampScale`, `toggleZoom`, `clampPan`, `pagingEnabled`, `shouldClose` and `focalZoom`, plus the plan's constants (`MIN_SCALE` 1, `MAX_SCALE` 4, `DOUBLE_TAP_SCALE` 2.5, `ZOOMED_EPSILON` 1.05, `CLOSE_DISTANCE` 120). Every function is marked `'worklet'`, imports nothing, and returns `0` instead of `-0`.
+- `focalZoom(focal, scale, nextScale, viewport, translation = {0,0})`: the 4th argument is the viewport (for the centre), as the plan says. The 5th, the current translation, is new and optional, so a pinch that starts panned keeps its focal point. The plan's Pure functions section records both.
+- New `src/__tests__/gallery-gestures.test.ts` (14 tests) covers every case in the feature, plus the bounds, -0, and focalZoom at a corner, from a panned zoom, and when zooming back to 1×. It failed first because the module was missing. Tests went from 466 to 480.
+- Verified: `check.sh` green (480). `npx jest --ci`: 45 suites, 0 `console.error`.
+- Next (M4-03/04): call `focalZoom(e, scale.value, next, {width, height}, {x: tx.value, y: ty.value})`, then `clampPan`.
+- Questions for Michael: none new. The D29 and clampPan-bounds questions from M4-01 are still open.
+
 ### 2026-10-21 12:40 · M4-01 · passes
 
 - `app/_layout.tsx`: the outermost element is now `GestureHandlerRootView` (flex 1), around `ThemeProvider`. `jest.setup.ts` imports `react-native-gesture-handler/jestSetup` and adds a `react-native-worklets` mock. The reanimated mock is unchanged.

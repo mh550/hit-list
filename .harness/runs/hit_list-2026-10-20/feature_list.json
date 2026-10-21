@@ -97,7 +97,7 @@
         "The plan states how expo-image-picker is mocked in tests (jest.mock('expo-image-picker') with launchImageLibraryAsync and requestMediaLibraryPermissionsAsync named from node_modules/expo-image-picker/build/ImagePicker.d.ts) and that importPhotoFromAsset from src/utils/exif.ts gives each pick its captured_at and location.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes (nothing but the plan changed)."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M2-02",

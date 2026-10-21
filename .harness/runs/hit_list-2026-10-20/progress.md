@@ -12,6 +12,15 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 · M2-01 · passes
+
+- Wrote `docs/plans/2026-10-20-m2-edit.md` (plan only, no code): SpeedScale API with the §2.3 table verbatim (diffed against the spec) and range mode deferred to M5; PhotoGrid (`photos: Media[]`, `onPressPhoto(index)`, `renderBadge(media, index)`, `trailing`, hero 4:3 + three-across squares, `spacing.xs`); SpotTagFields (controlled `{ feature_types, stopped, natural_speed }`); edit layout in §2.2 order; staged adds as `NewPhoto` drafts; a RED test list per task (≈366 → ≈402 tests over M2).
+- Picker mocking: `jest.mock('expo-image-picker')` with `launchImageLibraryAsync` / `requestMediaLibraryPermissionsAsync` (ImagePicker.d.ts lines 96, 25); each pick goes through `importPhotoFromAsset` for `captured_at` and GPS. A probe confirmed tests that don't mock the picker still load it (jest-expo's mock resolves `undefined`).
+- Verified: `check.sh` green, 366 tests (unchanged; only the plan changed).
+- Next session (M2-02+) must know: `savePhotos` currently returns `void` and swallows `insertMedia` failures. The plan has M2-05 switch it to `allSettled` and return the saved `Media[]`, so edit can warn before `router.back()` (M2-07 asks for this). Drafts show in the grid through `file_path = asset uri` (`resolvePhotoUri` passes `file://` through as-is).
+- Builder's calls (no D number, reversible): dropped the "Photos" header and the visible "Name" label; renamed 'Delete Spot' to 'Delete spot'; '+' hidden at 20 photos.
+- Question for Michael: M2-05 asks for photo-library permission before the picker, but iOS's picker doesn't need it and Import doesn't ask. Keep the prompt, or drop it?
+
 ### 2026-10-21 · verify M1
 
 All 5 features re-run; nothing failed. 33 steps hold.

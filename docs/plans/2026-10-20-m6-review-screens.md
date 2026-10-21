@@ -110,6 +110,57 @@ one you have offers to join it.' (`profile.test.tsx` updated). Units in the labe
 Mocks: `@/src/db` mocked as in `review-persist.test.tsx` (real hooks + stores, assert on the db calls), or the two
 hooks mocked where call order matters; stores seeded with `setState`; `useRouter` overridden for `dismissAll` / `push` order (one shared `jest.fn` call log).
 
+## Review (M6-06)
+
+An Opus review of `git diff 8862e06..34e88ef -- . ':!.harness' ':!docs/plans/2026-10-20-m6-what-michael-will-see.md'`
+(`8862e06` is "HARNESS: M5 verified"), written to `.harness/runs/hit_list-2026-10-20/reviews/m6.diff` (1429 lines).
+**No Critical**, **2 Important** (both fixed). RED commits `b7af80d`, `6787c6f` before GREEN `075e635`, `86be528`.
+Lines below are in the files as they are after the fixes.
+
+| # | Severity | Where | Finding | Fix |
+|---|---|---|---|---|
+| 1 | Important | `app/add/review.tsx` Save and 'Add photos there' (were l.79-127) | `savePhotos` never rejects (it logs a failed row and resolves the rest) and `addSpot` swallowed insert errors, so the new `try/catch` and its Alert could never fire: a photo that failed was lost without a word (the app never writes to the camera roll). The test for it faked a rejection the real hook never makes. | `saveTo` (l.79) compares what was saved with what was on screen: unsaved photos stay, Alert "Some photos weren't saved". After Save created its spot, `createdId` (l.42, l.130) makes the retry add the rest there, so no second spot; the new spot is not offered as 'nearby' to itself. GREEN `075e635`; tests "a photo 'Add photos there' couldn't save stays on screen…", "a Save whose photos were not saved stays on screen, and a retry adds them to the same new spot". |
+| 2 | Important | `src/hooks/use-spot-actions.ts` `addSpot` → `app/import/review.tsx` `createSpot` | A failed `insertSpot` was logged and the spot stayed in the store; every photo then failed its foreign key, and the group stayed aimed at a spot that does not exist, so each retry failed again (and the spot showed until the next launch). | `addSpot` takes the spot back out of the store and rejects (l.47). Import: the group rejects and stays a new spot (name kept); Quick Add: Alert "Couldn't save the spot" (l.125), no photo saved, a retry creates the spot. GREEN `075e635`; tests "addSpot takes the spot back out of the store and rejects…", "a group whose new spot wasn't written stays on screen as a new spot…", "a Save whose spot wasn't written alerts…". |
+| 3 | Minor | `app/import/review.tsx` l.173 | A rejected new-spot group would create a duplicate on retry if it rejected after `addSpot`. | Resolved by 2: the only rejection left is `addSpot`'s, before any photo; `savePhotos` never rejects. |
+| 4 | Minor | `app/import/review.tsx` chips, name, Remove | Editable while importing; `setGroups(failed)` is built from the groups at press time, so a mid-import edit was lost or a removed group came back. | `disabled={saving}` on the chips (l.240, l.249) and Remove (l.272), `editable={!saving}` on the name (l.263). GREEN `075e635`; test "locks the choices, names and Remove while importing". |
+| 5 | Minor | both review screens' guards | State-only guard: two presses before a re-render both read `saving === false` (the old double-tap test passed only because RNTL re-renders between presses). Import ran every group twice (4 calls for 2). | `savingRef` checked and set synchronously (`add/review.tsx` l.63, `import/review.tsx` l.144). GREEN `075e635`; tests "runs once when two presses land before a re-render" (Quick Add) and "imports once when two presses land before a re-render". |
+| 6 | Minor, not fixed | `primary_photo_id` set before the photos are saved | If photo 0 fails, the spot names a primary with no row. | Left: `primaryPhoto` falls back to the first saved photo, and import's retry sets the primary when the spot has no row. Recorded in D31 as a known limit. |
+| 7 | Minor | accessibility | 'Add photos there' was labelled 'Add photos to <name>' (Voice Control "tap Add photos there" would not match); Remove had no role; the Import spinner had no label. Import's choice chips are ~35 pt tall. | Label 'Add photos there, <name>' (l.242); Remove `accessibilityRole="button"` (l.275); spinner label 'Importing' (l.293). GREEN `075e635`. Chip height left as is: `Chip` is shared with the Filter sheet and edit screen (a later polish pass). |
+| 8 | Minor | `app/add/review.tsx` nearby card | Shown with 'No photos captured'; 'Add photos there' then opened the spot with nothing added. | No card without photos (l.54). GREEN `075e635`; test "offers no spot when there are no photos to add". |
+| 9 | Minor | `app/import/review.tsx` 'Near' line | Always named the nearest spot, even after choosing another. | Names the chosen nearby spot, else the nearest (l.81). RED `6787c6f`, GREEN `86be528`; test "names the chosen spot and its distance in the line above the choice". |
+| 10 | Minor, not fixed | `app/import/review.tsx` `offers` | Recomputed on every name keystroke. | Left: ≤ 3 offers per group over the store's spots, cheap at this scale. |
+
+Mutation checks (each fails exactly one test): ref → state guard on either screen; no `setCreatedId`; unsaved photos
+not kept on screen; offer card shown without photos; chips not disabled while saving; `addSpot` without the store
+rollback.
+
+### Answers to the M6-06 questions
+
+1. **'Add photos there' cannot run twice under a double tap: yes, now in every case.** Save and 'Add photos there'
+   share `start()` (`add/review.tsx` l.62-67), which checks and sets `savingRef` synchronously before `setSaving`, so a
+   second press in the same frame returns; `disabled={saving}` greys both buttons afterwards. Tests "runs once under a
+   double tap" (presses with re-renders between) and "runs once when two presses land before a re-render" (three
+   presses in one `act`: `savePhotos` ×1, `addSpot` ×0). Import uses the same ref (l.144).
+2. **Distance uses the current units and re-renders on a change: yes, on both screens.** Each subscribes with
+   `useSettingsStore((s) => s.units === UnitSystem.Imperial)` and passes it to `nearbyLabel` → `formatDistance`. Tests
+   "uses metric distances when units are metric, and follows a units change" in `quick-add-nearby.test.tsx` and
+   `import-nearby.test.tsx` (render metric, `setState` imperial in `act`, label changes), plus `nearby-spots.test.ts`.
+3. **Import with a group going to an existing spot: every group runs, and no failure is silent.** `Promise.allSettled`
+   over all groups (new and existing in parallel; who sets a primary is decided up front). A group's unsaved photos (or
+   a group whose new spot the DB refused) stay on screen aimed at the right spot with the Alert "Some photos weren't
+   imported"; the groups that saved are not redone. Tests: "a failed group alerts, keeps only the failed groups on
+   screen…", "a photo the existing spot didn't get stays on screen…", "a new spot's unsaved photos stay aimed at that
+   spot…", "a group whose new spot wasn't written stays on screen as a new spot…". Recorded as D31 / §9 Q11 (extended
+   for Quick Add and the refused spot).
+
+### Simplification pass (`refactor:` commit `8fb2d16`)
+
+- Import review drops its eight `useCallback` wrappers (the React Compiler memoizes); Quick Add lost its own in the
+  GREEN rewrite, which is what removed the stale `saving` dependency.
+- `imperial` is selected as a boolean on both screens (`075e635`); the retry comment covers a refused spot.
+- Not done: one shared "save these photos to a spot, report the unsaved ones" helper for both screens (the two differ
+  in where each photo's location and capture time come from; a hook change would touch edit too).
+
 ## Unresolved questions
 
 - D30 *default*: choosing 'Add photos there' / an existing spot drops the name and tags typed on the review. OK, or

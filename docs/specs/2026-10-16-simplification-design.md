@@ -70,7 +70,7 @@ re-hydrated per user ("add the features and fields you want"); none of that is b
 | D28 | **A failed upgrade blocks the app** *default* | If `migrateDb` throws at launch (e.g. migration 3), the app shows "Couldn't upgrade your spots — Nothing was lost… Close HitList and open it again to retry" instead of the tabs; the next launch retries. Media and settings still load, each on its own. | Builder (M1-05 review): this build's writes fail on an older schema, so a usable-looking empty app would let a Quick Add copy photos and then lose the spot, and saving Units would write default settings over the stored ones (§9 Q8) |
 | D29 | **The viewer keeps its photo order while open** *default* | 'Set as primary' in the viewer does not move the photo to page 1 under the user: the viewer snapshots `spotPhotos()` order when it opens and only drops removed photos. The detail grid shows the new primary first as usual. Plan: `docs/plans/2026-10-20-m4-viewer.md`. | Builder (M4-01 plan): a page that jumps away right after a long-press action is disorienting (§9 Q9) |
 | D30 | **Joining an existing spot drops the review's name and tags** *default* | 'Add photos there' (Quick Add) and 'Add photos to <name>' (import group) only add photos: the existing spot's name, tags and location are untouched, and the name / tags typed on the review screen are discarded (the import group's name field hides while an existing spot is chosen). If the spot had no photos, the first added one becomes primary. Plan: `docs/plans/2026-10-20-m6-review-screens.md`. | Builder (M6-01 plan): never overwrite a spot the user already described (§9 Q10) |
-| D31 | **A partly failed import stays on screen** *default* | After Import, photos `savePhotos` did not save (it logs and leaves them out) stay on the review in their group, aimed at the spot they were going to (the new spot already exists, or the chosen existing one); an Alert "Some photos weren't imported" says so; the screen closes only when everything was saved. Nothing is rolled back. | Builder (M6-04, from an Opus review: the hooks swallow errors, so a rejected group alone never caught a failure) (§9 Q11) |
+| D31 | **A partly failed import stays on screen** *default* | After Import, photos `savePhotos` did not save (it logs and leaves them out) stay on the review in their group, aimed at the spot they were going to (the new spot already exists, or the chosen existing one); an Alert "Some photos weren't imported" says so; the screen closes only when everything was saved. Nothing is rolled back. M6-06: Quick Add does the same ("Some photos weren't saved"; after Save created its spot a retry adds the rest there), and a spot the DB refused is taken back out of the store (`addSpot` rejects), so its group stays a new spot. Known limit: a spot whose first photo failed keeps a `primary_photo_id` with no row; the photo grid and list fall back to its first saved photo. | Builder (M6-04, from an Opus review: the hooks swallow errors, so a rejected group alone never caught a failure) (§9 Q11) |
 
 ---
 
@@ -479,7 +479,9 @@ Stretch, in order, only if all above is green: (a) FilterSheet range mode polish
 11. **A partly failed import (D31, added by M6-04).** **Default: the import review closes only when every photo was
     saved**; otherwise it alerts "Some photos weren't imported" and keeps just the unsaved photos on screen, each group
     aimed at the spot it was going to (a new spot already exists by then), so 'Add photos' retries without creating a
-    second spot or saving a photo twice. Nothing is rolled back. Say "close anyway" to drop the leftovers instead.
+    second spot or saving a photo twice. Nothing is rolled back. Since M6-06 Quick Add behaves the same ("Some photos
+    weren't saved"), and a new spot the database refused is taken back out and stays 'New spot' for the retry. Say
+    "close anyway" to drop the leftovers instead.
 
 ---
 

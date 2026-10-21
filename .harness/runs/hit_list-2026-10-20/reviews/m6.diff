@@ -1,0 +1,1429 @@
+diff --git a/app/(tabs)/profile.tsx b/app/(tabs)/profile.tsx
+index 6949dc8..8dc60f5 100644
+--- a/app/(tabs)/profile.tsx
++++ b/app/(tabs)/profile.tsx
+@@ -59,7 +59,7 @@ export default function ProfileScreen() {
+       <View style={styles.field}>
+         <Text style={styles.fieldLabel}>Import Radius</Text>
+         <Text style={styles.fieldHint}>
+-          Photos within this distance (meters) will be grouped as one spot when you import photos from the Spots tab.
++          Photos this close together import as one spot, and a new spot this close to one you have offers to join it.
+         </Text>
+         <TextInput
+           style={styles.input}
+diff --git a/app/add/review.tsx b/app/add/review.tsx
+index ba42889..e044dbd 100644
+--- a/app/add/review.tsx
++++ b/app/add/review.tsx
+@@ -1,14 +1,23 @@
+ import { useCallback, useState, useMemo } from 'react';
+-import { StyleSheet, View, Text, ScrollView, TextInput, Pressable } from 'react-native';
++import { StyleSheet, View, Text, ScrollView, TextInput, Pressable, Alert } from 'react-native';
+ import { useLocalSearchParams, useRouter } from 'expo-router';
+ import { Image } from 'expo-image';
+ 
+ import { useSpotActions } from '@/src/hooks/use-spot-actions';
+ import { useMediaActions } from '@/src/hooks/use-media-actions';
++import { SpotTagFields, type SpotTags } from '@/src/components';
++import { useMediaStore, useSettingsStore, useSpotsStore } from '@/src/stores';
+ import { newId } from '@/src/utils/id';
+ import { isKnownLocation, NO_LOCATION } from '@/src/utils/geo';
++import { nearbyLabel, nearbySpots } from '@/src/utils/nearby-spots';
++import { resolvePhotoUri } from '@/src/utils/photo-storage';
++import { getSpotDisplayName } from '@/src/utils/spot-name';
++import { primaryPhoto } from '@/src/utils/spot-photos';
+ import { palette, spacing, radius } from '@/src/constants/theme';
+-import type { Spot } from '@/src/types';
++import { UnitSystem, type Spot } from '@/src/types';
++
++/** At most this many existing spots are offered (nearest first). */
++const MAX_NEARBY = 3;
+ 
+ export default function ReviewScreen() {
+   const router = useRouter();
+@@ -18,10 +27,18 @@ export default function ReviewScreen() {
+     longitude: string;
+   }>();
+ 
+-  const { addSpot } = useSpotActions();
++  const { addSpot, updateSpot } = useSpotActions();
+   const { savePhotos } = useMediaActions();
+   const [name, setName] = useState('');
++  // Tags stay behind 'Add details' so the fast path is photo → Save (spec §2.7).
++  const [showDetails, setShowDetails] = useState(false);
++  const [tags, setTags] = useState<SpotTags>({ feature_types: [], stopped: false });
++  // Shared by Save and 'Add photos there': whichever is pressed first runs, once.
+   const [saving, setSaving] = useState(false);
++  const spots = useSpotsStore((s) => s.spots);
++  const mediaBySpot = useMediaStore((s) => s.mediaBySpot);
++  const importRadius = useSettingsStore((s) => s.batch_import_radius);
++  const imperial = useSettingsStore((s) => s.units) === UnitSystem.Imperial;
+ 
+   const photoUris = useMemo(
+     () => (params.photoUris ? params.photoUris.split(',') : []),
+@@ -30,6 +47,16 @@ export default function ReviewScreen() {
+   const latitude = params.latitude ? parseFloat(params.latitude) : NO_LOCATION.latitude;
+   const longitude = params.longitude ? parseFloat(params.longitude) : NO_LOCATION.longitude;
+   const hasLocation = isKnownLocation({ latitude, longitude });
++  // D25: a spot already this close might be the same one, so offer to add the photos to it instead.
++  const nearby = useMemo(
++    () => nearbySpots({ latitude, longitude }, spots, importRadius).slice(0, MAX_NEARBY),
++    [latitude, longitude, spots, importRadius],
++  );
++
++  const failed = useCallback(() => {
++    setSaving(false);
++    Alert.alert("Couldn't save the photos", 'Please try again.');
++  }, []);
+ 
+   const handleSave = useCallback(async () => {
+     if (saving) return;
+@@ -45,25 +72,62 @@ export default function ReviewScreen() {
+       location: { latitude, longitude },
+       created_at: now,
+       updated_at: now,
+-      feature_types: [],
+-      stopped: false,
++      ...tags,
+       primary_photo_id: firstPhotoId,
+     };
+ 
+-    await addSpot(spot);
++    try {
++      await addSpot(spot);
+ 
+-    await savePhotos(
+-      photoUris.map((uri, i) => ({
+-        sourceUri: uri,
+-        id: i === 0 ? firstPhotoId! : newId(),
+-        spot_id: spotId,
+-        location: hasLocation ? { latitude, longitude } : undefined,
+-        created_at: now,
+-      })),
+-    );
++      await savePhotos(
++        photoUris.map((uri, i) => ({
++          sourceUri: uri,
++          id: i === 0 ? firstPhotoId! : newId(),
++          spot_id: spotId,
++          location: hasLocation ? { latitude, longitude } : undefined,
++          created_at: now,
++        })),
++      );
++    } catch {
++      failed();
++      return;
++    }
+ 
+     router.dismissAll();
+-  }, [saving, name, latitude, longitude, photoUris, addSpot, savePhotos, router, hasLocation]);
++  }, [saving, name, tags, latitude, longitude, photoUris, addSpot, savePhotos, router, hasLocation, failed]);
++
++  /** Adds the photos to an existing spot and opens it; the name and tags typed here are dropped (D30). */
++  const handleAddTo = useCallback(
++    async (target: Spot) => {
++      if (saving) return;
++      setSaving(true);
++
++      const now = new Date().toISOString();
++      const hadPhoto = primaryPhoto(target, mediaBySpot[target.id]) !== undefined;
++      try {
++        const saved = await savePhotos(
++          photoUris.map((uri) => ({
++            sourceUri: uri,
++            id: newId(),
++            spot_id: target.id,
++            location: hasLocation ? { latitude, longitude } : undefined,
++            created_at: now,
++          })),
++        );
++        if (!hadPhoto && saved.length > 0) {
++          // A failed write was logged and rolled back by updateSpot; the spot still shows its first photo.
++          await updateSpot(target.id, { primary_photo_id: saved[0].id }).catch(() => {});
++        }
++      } catch {
++        failed();
++        return;
++      }
++
++      router.dismissAll();
++      router.push(`/spot/${target.id}` as `/spot/${string}`);
++    },
++    [saving, mediaBySpot, photoUris, hasLocation, latitude, longitude, savePhotos, updateSpot, router, failed],
++  );
+ 
+   return (
+     <ScrollView
+@@ -105,6 +169,17 @@ export default function ReviewScreen() {
+         </Text>
+       </View>
+ 
++      {showDetails ? (
++        <SpotTagFields value={tags} onChange={setTags} />
++      ) : (
++        <Pressable
++          style={styles.detailsLink}
++          onPress={() => setShowDetails(true)}
++          accessibilityRole="button">
++          <Text style={styles.detailsLinkText}>Add details</Text>
++        </Pressable>
++      )}
++
+       {/* Location info */}
+       {hasLocation ? (
+         <View style={styles.locationInfo}>
+@@ -119,6 +194,40 @@ export default function ReviewScreen() {
+         </View>
+       )}
+ 
++      {nearby.length > 0 ? (
++        <View style={styles.nearbyCard}>
++          <Text style={styles.nearbyTitle}>Already have this spot?</Text>
++          {nearby.map((spot) => {
++            const photo = primaryPhoto(spot, mediaBySpot[spot.id]);
++            return (
++              <View key={spot.id} style={styles.nearbyRow}>
++                {photo ? (
++                  <Image
++                    testID={`nearby-thumb-${spot.id}`}
++                    source={{ uri: resolvePhotoUri(photo.file_path) }}
++                    style={styles.nearbyThumb}
++                    contentFit="cover"
++                  />
++                ) : (
++                  <View testID={`nearby-thumb-placeholder-${spot.id}`} style={styles.nearbyThumb} />
++                )}
++                <Text style={styles.nearbyText} numberOfLines={2}>
++                  {nearbyLabel({ latitude, longitude }, spot, imperial)}
++                </Text>
++                <Pressable
++                  style={styles.nearbyButton}
++                  onPress={() => handleAddTo(spot)}
++                  disabled={saving}
++                  accessibilityRole="button"
++                  accessibilityLabel={`Add photos to ${getSpotDisplayName(spot)}`}>
++                  <Text style={styles.nearbyButtonText}>Add photos there</Text>
++                </Pressable>
++              </View>
++            );
++          })}
++        </View>
++      ) : null}
++
+       {/* Save button */}
+       <Pressable
+         style={({ pressed }) => [
+@@ -189,6 +298,16 @@ const styles = StyleSheet.create({
+     fontSize: 13,
+     color: palette.gray[400],
+   },
++  detailsLink: {
++    alignSelf: 'flex-start',
++    minHeight: 44,
++    justifyContent: 'center',
++  },
++  detailsLinkText: {
++    fontSize: 16,
++    fontWeight: '500',
++    color: palette.blue[500],
++  },
+   locationInfo: {
+     backgroundColor: palette.gray[50],
+     padding: spacing.md,
+@@ -206,6 +325,45 @@ const styles = StyleSheet.create({
+     color: palette.gray[500],
+     fontFamily: 'monospace',
+   },
++  nearbyCard: {
++    backgroundColor: palette.gray[50],
++    padding: spacing.md,
++    borderRadius: radius.md,
++    borderCurve: 'continuous',
++    gap: spacing.md,
++  },
++  nearbyTitle: {
++    fontSize: 14,
++    fontWeight: '600',
++    color: palette.gray[700],
++  },
++  nearbyRow: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    gap: spacing.sm,
++  },
++  nearbyThumb: {
++    width: 48,
++    height: 48,
++    borderRadius: radius.sm,
++    borderCurve: 'continuous',
++    backgroundColor: palette.gray[200],
++  },
++  nearbyText: {
++    flex: 1,
++    fontSize: 15,
++    color: palette.gray[900],
++  },
++  nearbyButton: {
++    minHeight: 44,
++    justifyContent: 'center',
++    paddingHorizontal: spacing.sm,
++  },
++  nearbyButtonText: {
++    fontSize: 15,
++    fontWeight: '500',
++    color: palette.blue[500],
++  },
+   saveButton: {
+     backgroundColor: palette.blue[500],
+     paddingVertical: spacing.md,
+diff --git a/app/import/review.tsx b/app/import/review.tsx
+index 3359f4a..3223140 100644
+--- a/app/import/review.tsx
++++ b/app/import/review.tsx
+@@ -1,4 +1,4 @@
+-import { useCallback, useState } from 'react';
++import { useCallback, useMemo, useState } from 'react';
+ import {
+   StyleSheet,
+   View,
+@@ -7,30 +7,46 @@ import {
+   TextInput,
+   Pressable,
+   ActivityIndicator,
++  Alert,
+ } from 'react-native';
+ import { useLocalSearchParams, useRouter } from 'expo-router';
+ import { Image } from 'expo-image';
+ 
+ import { useSpotActions } from '@/src/hooks/use-spot-actions';
+ import { useMediaActions } from '@/src/hooks/use-media-actions';
++import { Chip, ChipGroup } from '@/src/components';
++import { useMediaStore, useSettingsStore, useSpotsStore } from '@/src/stores';
+ import { newId } from '@/src/utils/id';
+-import { formatSpotDate } from '@/src/utils/spot-name';
++import { formatSpotDate, getSpotDisplayName } from '@/src/utils/spot-name';
+ import { NO_LOCATION } from '@/src/utils/geo';
++import { nearbyLabel, nearbySpots } from '@/src/utils/nearby-spots';
++import { primaryPhoto } from '@/src/utils/spot-photos';
+ import { palette, spacing, radius } from '@/src/constants/theme';
+-import type { Spot } from '@/src/types';
++import { UnitSystem, type Spot } from '@/src/types';
+ import type { ImportPhoto } from '@/src/utils/import-clustering';
+ 
+ interface SpotGroup {
+   photos: ImportPhoto[];
+   name: string;
++  /** An existing spot's id to add the photos to (D25); undefined = 'New spot', the default. */
++  target?: string;
+ }
+ 
++const MAX_OFFERS = 3;
++
++/** Where a group's new spot would go: its first photo's location. */
++const groupLocation = (group: SpotGroup) => group.photos[0]?.location ?? NO_LOCATION;
++
+ export default function ImportReviewScreen() {
+   const { groupsJson } = useLocalSearchParams<{ groupsJson: string }>();
+   const router = useRouter();
+-  const { addSpot } = useSpotActions();
++  const { addSpot, updateSpot } = useSpotActions();
+   const { savePhotos } = useMediaActions();
+   const [saving, setSaving] = useState(false);
++  const spots = useSpotsStore((s) => s.spots);
++  const mediaBySpot = useMediaStore((s) => s.mediaBySpot);
++  const importRadius = useSettingsStore((s) => s.batch_import_radius);
++  const imperial = useSettingsStore((s) => s.units) === UnitSystem.Imperial;
+ 
+   const parsedGroups: ImportPhoto[][] = groupsJson ? JSON.parse(groupsJson) : [];
+   const [groups, setGroups] = useState<SpotGroup[]>(() =>
+@@ -44,54 +60,129 @@ export default function ImportReviewScreen() {
+     setGroups((prev) => prev.map((g, i) => (i === index ? { ...g, name } : g)));
+   }, []);
+ 
++  const setTarget = useCallback((index: number, target: string | undefined) => {
++    setGroups((prev) => prev.map((g, i) => (i === index ? { ...g, target } : g)));
++  }, []);
++
+   const removeGroup = useCallback((index: number) => {
+     setGroups((prev) => prev.filter((_, i) => i !== index));
+   }, []);
+ 
++  // Only spots already in the store count, so two groups of this import never offer each other. A chosen spot stays
++  // in the row even when it is not nearby (a retry's new spot without a location), so 'New spot' stays reachable.
++  const offers = useMemo(
++    () =>
++      groups.map((group) => {
++        const near = nearbySpots(groupLocation(group), spots, importRadius).slice(0, MAX_OFFERS);
++        const chosen = near.some((s) => s.id === group.target) ? undefined : spots.find((s) => s.id === group.target);
++        return { near, choices: chosen ? [...near, chosen] : near };
++      }),
++    [groups, spots, importRadius],
++  );
++  const newSpotCount = groups.filter((g) => g.target === undefined).length;
++  const allToExisting = groups.length > 0 && newSpotCount === 0;
++
++  /**
++   * Saves a group's photos to `spotId` and resolves with the ones that were not saved (savePhotos logs a failed row
++   * and leaves it out rather than throwing).
++   */
++  const savePhotosTo = useCallback(
++    async (photos: ImportPhoto[], spotId: string, firstId: string = newId()) => {
++      const now = new Date().toISOString();
++      const ids = photos.map((_, i) => (i === 0 ? firstId : newId()));
++      const saved = await savePhotos(
++        photos.map((photo, i) => ({
++          sourceUri: photo.uri,
++          id: ids[i],
++          spot_id: spotId,
++          location: photo.location ?? undefined,
++          captured_at: photo.capturedAt,
++          created_at: now,
++        })),
++      );
++      const savedIds = new Set(saved.map((m) => m.id));
++      return { saved, unsaved: photos.filter((_, i) => !savedIds.has(ids[i])) };
++    },
++    [savePhotos],
++  );
++
++  /** Adds a group's photos to an existing spot; creates nothing (D30: the group's name is not used). */
++  const addToExisting = useCallback(
++    async (group: SpotGroup, target: string, setsPrimary: boolean) => {
++      const { saved, unsaved } = await savePhotosTo(group.photos, target);
++      if (setsPrimary && saved.length > 0) {
++        // A failed write was logged and rolled back by updateSpot; the spot still shows its first photo.
++        await updateSpot(target, { primary_photo_id: saved[0].id }).catch(() => {});
++      }
++      return { target, unsaved };
++    },
++    [savePhotosTo, updateSpot],
++  );
++
++  /** Creates the group's spot and saves its photos there; unsaved photos are returned aimed at the new spot. */
++  const createSpot = useCallback(
++    async (group: SpotGroup) => {
++      const now = new Date().toISOString();
++      const spotId = newId();
++      const firstMediaId = newId();
++
++      const spot: Spot = {
++        id: spotId,
++        name: group.name.trim() || undefined,
++        location: groupLocation(group),
++        created_at: now, // the import, not the photo's capture date (D13); media keeps captured_at
++        updated_at: now,
++        feature_types: [],
++        stopped: false,
++        primary_photo_id: group.photos.length > 0 ? firstMediaId : undefined,
++      };
++
++      await addSpot(spot);
++
++      const { unsaved } = await savePhotosTo(group.photos, spotId, firstMediaId);
++      return { target: spotId, unsaved };
++    },
++    [addSpot, savePhotosTo],
++  );
++
+   const handleImportAll = useCallback(async () => {
+     if (saving || groups.length === 0) return;
+     setSaving(true);
+ 
+-    try {
+-      await Promise.all(
+-        groups.map(async (group) => {
+-          const firstPhoto = group.photos[0];
+-          const location = firstPhoto?.location ?? NO_LOCATION;
+-          const now = new Date().toISOString();
+-          const spotId = newId();
+-          const firstMediaId = newId();
+-
+-          const spot: Spot = {
+-            id: spotId,
+-            name: group.name.trim() || undefined,
+-            location,
+-            created_at: now, // the import, not the photo's capture date (D13); media keeps captured_at
+-            updated_at: now,
+-            feature_types: [],
+-            stopped: false,
+-            primary_photo_id: group.photos.length > 0 ? firstMediaId : undefined,
+-          };
+-
+-          await addSpot(spot);
++    // Decided up front so the parallel writes never race on primary_photo_id: of the groups going to a spot with no
++    // photo, the first one in order sets it.
++    const primarySetBy = new Map<string, SpotGroup>();
++    for (const group of groups) {
++      const target = group.target === undefined ? undefined : spots.find((s) => s.id === group.target);
++      if (target && !primarySetBy.has(target.id) && primaryPhoto(target, mediaBySpot[target.id]) === undefined) {
++        primarySetBy.set(target.id, group);
++      }
++    }
+ 
+-          await savePhotos(
+-            group.photos.map((photo, i) => ({
+-              sourceUri: photo.uri,
+-              id: i === 0 ? firstMediaId : newId(),
+-              spot_id: spotId,
+-              location: photo.location ?? undefined,
+-              captured_at: photo.capturedAt,
+-              created_at: now,
+-            })),
+-          );
+-        }),
+-      );
++    const results = await Promise.allSettled(
++      groups.map((group) =>
++        group.target === undefined
++          ? createSpot(group)
++          : addToExisting(group, group.target, primarySetBy.get(group.target) === group),
++      ),
++    );
++    setSaving(false);
+ 
+-      router.dismissAll();
+-    } finally {
+-      setSaving(false);
++    // Only what was not saved stays on screen, aimed at the spot it was going to (a new spot already exists by now), so
++    // a retry neither imports a photo twice nor creates a second spot.
++    const failed = groups.flatMap((group, i): SpotGroup[] => {
++      const result = results[i];
++      if (result.status === 'rejected') return [group];
++      const { target, unsaved } = result.value;
++      return unsaved.length > 0 ? [{ ...group, photos: unsaved, target }] : [];
++    });
++    if (failed.length > 0) {
++      setGroups(failed);
++      Alert.alert("Some photos weren't imported", 'The groups still shown were not saved. Please try again.');
++      return;
+     }
+-  }, [saving, groups, addSpot, savePhotos, router]);
++    router.dismissAll();
++  }, [saving, groups, spots, mediaBySpot, createSpot, addToExisting, router]);
+ 
+   if (parsedGroups.length === 0) {
+     return (
+@@ -107,12 +198,14 @@ export default function ImportReviewScreen() {
+         contentContainerStyle={styles.content}
+         keyboardShouldPersistTaps="handled">
+         <Text style={styles.subtitle}>
+-          {groups.length} spot{groups.length !== 1 ? 's' : ''} from your photos. Name each spot
+-          or leave blank for auto-naming.
++          {allToExisting
++            ? 'Photos go to spots you already have.'
++            : `${newSpotCount} spot${newSpotCount !== 1 ? 's' : ''} from your photos. Name each spot or leave blank for auto-naming.`}
+         </Text>
+ 
+         {groups.map((group, groupIdx) => (
+-          <View key={groupIdx} style={styles.groupCard}>
++          // The first photo's URI is unique to its group and survives removing the groups above it.
++          <View key={group.photos[0]?.uri ?? groupIdx} style={styles.groupCard}>
+             {/* Photos strip */}
+             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.photoStrip}>
+               {group.photos.map((p, i) => (
+@@ -133,15 +226,45 @@ export default function ImportReviewScreen() {
+                 : ''}
+             </Text>
+ 
+-            {/* Name input */}
+-            <TextInput
+-              style={styles.nameInput}
+-              value={group.name}
+-              onChangeText={(t) => updateName(groupIdx, t)}
+-              placeholder="Spot name (optional)"
+-              placeholderTextColor={palette.gray[400]}
+-              returnKeyType="done"
+-            />
++            {/* D25: an existing spot this close might be the same one */}
++            {offers[groupIdx].choices.length > 0 && (
++              <>
++                {offers[groupIdx].near.length > 0 && (
++                  <Text style={styles.nearbyText} numberOfLines={2}>
++                    {nearbyLabel(groupLocation(group), offers[groupIdx].near[0], imperial)}
++                  </Text>
++                )}
++                <ChipGroup>
++                  <Chip
++                    label="New spot"
++                    role="button"
++                    selected={group.target === undefined}
++                    onPress={() => setTarget(groupIdx, undefined)}
++                  />
++                  {offers[groupIdx].choices.map((spot) => (
++                    <Chip
++                      key={spot.id}
++                      label={`Add photos to ${getSpotDisplayName(spot)}`}
++                      role="button"
++                      selected={group.target === spot.id}
++                      onPress={() => setTarget(groupIdx, spot.id)}
++                    />
++                  ))}
++                </ChipGroup>
++              </>
++            )}
++
++            {/* Name input: only a new spot gets a name (D30) */}
++            {group.target === undefined && (
++              <TextInput
++                style={styles.nameInput}
++                value={group.name}
++                onChangeText={(t) => updateName(groupIdx, t)}
++                placeholder="Spot name (optional)"
++                placeholderTextColor={palette.gray[400]}
++                returnKeyType="done"
++              />
++            )}
+ 
+             <Pressable onPress={() => removeGroup(groupIdx)} hitSlop={8} style={styles.removeRow}>
+               <Text style={styles.removeText}>Remove</Text>
+@@ -164,7 +287,9 @@ export default function ImportReviewScreen() {
+             <ActivityIndicator color={palette.white} />
+           ) : (
+             <Text style={styles.importButtonText}>
+-              Import {groups.length} Spot{groups.length !== 1 ? 's' : ''}
++              {allToExisting
++                ? 'Add photos'
++                : `Import ${newSpotCount} Spot${newSpotCount !== 1 ? 's' : ''}`}
+             </Text>
+           )}
+         </Pressable>
+@@ -207,6 +332,10 @@ const styles = StyleSheet.create({
+     fontSize: 13,
+     color: palette.gray[500],
+   },
++  nearbyText: {
++    fontSize: 14,
++    color: palette.gray[700],
++  },
+   nameInput: {
+     borderWidth: 1,
+     borderColor: palette.gray[300],
+diff --git a/docs/plans/2026-10-20-m6-review-screens.md b/docs/plans/2026-10-20-m6-review-screens.md
+new file mode 100644
+index 0000000..3ecf0b0
+--- /dev/null
++++ b/docs/plans/2026-10-20-m6-review-screens.md
+@@ -0,0 +1,116 @@
++# M6 plan: Quick Add 'Add details' tags and the nearby-spot offer on both review screens
++
++Spec: `docs/specs/2026-10-16-simplification-design.md` §2.7 (review screens), §5 (nearby-spot offer, D25), §9 Q3 + Q5
++(defaults: build the offer; tags collapsed), new D30 (below). Features: M6-01 this plan + `nearbySpots` · M6-02 Quick
++Add tags · M6-03 Quick Add nearby cards · M6-04 import offer · M6-05 walkthrough · M6-06 review. Each task: RED test
++first, then code; `check.sh` green per commit.
++
++Starting point (after M5): `app/add/review.tsx` = photo strip · name (`autoFocus`) · location box · **Save**
++(`addSpot` with `feature_types: []`, `stopped: false`, then `savePhotos`, then `router.dismissAll()`; `saving` guard,
++no `try/finally`). `app/import/review.tsx` = subtitle 'N spots from your photos…' · per group: photo strip, count ·
++date, name, Remove · footer 'Import N Spots' (`Promise.all` over groups: `addSpot` + `savePhotos` each).
++
++## M6-01 `nearbySpots` (done in this feature)
++
++`src/utils/nearby-spots.ts`: `nearbySpots(location: GeoPoint, spots: Spot[], radiusMeters: number): Spot[]`. Unknown
++`location` → `[]`; drops `deleted_at` and `!isKnownLocation` spots; keeps `distanceMeters ≤ radius` (inclusive);
++nearest first; input not mutated. Returns spots only: callers recompute `distanceMeters` for the label (cheap, ≤ 3).
++
++| Test (`src/__tests__/nearby-spots.test.ts`) | Mutation it kills |
++|---|---|
++| 10 m, 40 m, 60 m, radius 50 → [10 m, 40 m] (input order 40, 60, 10) | sort removed |
++| spot at `NO_LOCATION`, radius 20 000 km → [] | — (excluded by `isKnownLocation`, not distance) |
++| `deleted_at` set, 5 m → [] | deleted filter removed |
++| query `NO_LOCATION`, spot 11 m from (0, 0) → [] | early return removed |
++| spot at exactly the radius → included | `<=` → `<` |
++| input array unchanged; helper `north(m)` checked against `distanceMeters` | — |
++
++## Quick Add review layout (M6-02, M6-03)
++
++Top to bottom in the existing ScrollView:
++
++1. **Photos**: horizontal strip (unchanged); 'No photos captured' box when empty.
++2. **Name**: field unchanged (`autoFocus`, placeholder, hint).
++3. **'Add details'**: `Pressable`, `accessibilityRole="button"`, blue text link. Pressing it sets `showDetails` and the
++   link disappears; in its place `<SpotTagFields value={tags} onChange={setTags} />` (eight chips · 'Skate stopped'
++   switch · five-segment `SpeedScale`). `tags` state starts `{ feature_types: [], stopped: false }` (no
++   `natural_speed` key). Not reversible (no 'Hide details'): one-way keeps it simple.
++4. **Location box**: unchanged.
++5. **Nearby card** (only when `nearby.length > 0`): one card, title row 'Already have this spot?', then up to three
++   rows, nearest first (see below).
++6. **Save**: text 'Save', label 'Save spot'. Always creates a new spot, cards or not; writes `tags` (all three fields
++   from state, so untouched = `[]` / `false` / no speed).
++
++Data: `spots = useSpotsStore(s => s.spots)`, `radius = useSettingsStore(s => s.batch_import_radius)`,
++`units = useSettingsStore(s => s.units)` (subscribed, so a units change re-renders the labels),
++`mediaBySpot = useMediaStore(s => s.mediaBySpot)`. `nearby = useMemo(() => nearbySpots(here, spots, radius).slice(0, 3),
++[spots, latitude, longitude, radius])`.
++
++### Nearby row contents
++
++- Thumbnail 48 pt: `primaryPhoto(spot, mediaBySpot[spot.id])` → `resolvePhotoUri(file_path)`; grey placeholder box
++  when the spot has no photo.
++- Text 'Near <getSpotDisplayName(spot)> · <formatDistance(distanceMeters(here, spot.location) / 1000, imperial)>'
++  (e.g. 'Near Downtown Rail · 16 ft'; '5 m' metric), `numberOfLines={2}`.
++- Button 'Add photos there', `accessibilityRole="button"`, `accessibilityLabel="Add photos to <display name>"`.
++
++### What 'Add photos there' does
++
++`handleAddTo(spot)`, sharing the `saving` guard with Save (a double tap, or Save then 'Add photos there', runs once):
++
++1. `savePhotos(photoUris.map(uri => ({ sourceUri: uri, id: newId(), spot_id: spot.id, location: hasLocation ? here :
++   undefined, created_at: now })))`, **once**; `addSpot` is **not** called. The spot's location, name and tags are
++   not touched (D30: what was typed or tagged on the review screen is dropped; it describes a new spot).
++2. If the spot has no photo (`primaryPhoto(spot, mediaBySpot[spot.id]) === undefined`; M6-03: a spot with photos but no
++   `primary_photo_id` already shows its first one, so it is left alone) and `saved.length > 0`:
++   `updateSpot(spot.id, { primary_photo_id: saved[0].id })` (uses the resolved `Media[]`, so a skipped copy never becomes
++   primary; a failed `updateSpot` is logged and rolled back by the hook and does not stop the navigation).
++3. `router.dismissAll()` then `router.push(`/spot/${spot.id}`)`.
++4. On a throw: `setSaving(false)`, `Alert.alert("Couldn't save the photos", …)`, stay on the screen. Save gets the same
++   `try/catch` so both paths behave alike.
++
++## Import review per-group offer (M6-04)
++
++- Per group: `here = group.photos[0]?.location ?? NO_LOCATION` (the location the new spot would get);
++  `offers = nearbySpots(here, existingSpots, radius).slice(0, 3)`. `existingSpots` = the store's spots only, so other
++  groups of the same import never count.
++- Group state gains `target: string | undefined` (`undefined` = 'New spot', the default; else an existing spot id).
++- Card with offers: line 'Near <nearest display name> · <distance>', then a single-select chip row (`Chip`, as in the
++  Filter sheet): 'New spot' (selected by default) · 'Add photos to <name>' per offer. Tap a chip → `target`. No offers →
++  card unchanged, no chip row.
++- `target` set: the name field is hidden (D30); Remove still works.
++- Subtitle and button count only groups with `target === undefined`: '2 spots from your photos…', 'Import 2 Spots'.
++  All groups targeting existing spots → subtitle 'Photos go to spots you already have.', button 'Add photos' (*my call*).
++- `handleImportAll`: `Promise.all` as now; a `target` group calls `savePhotos` with `spot_id = target` (each photo keeps
++  `captured_at` and its own `location`) and no `addSpot`; then the primary rule of Quick Add step 2. Two groups may
++  target the same spot: compute up front which group (first in order) may set its primary, so the parallel writes
++  never race on `primary_photo_id`.
++- Failure (as built in M6-04, D31): `Promise.allSettled` over the groups. `savePhotos` logs a failed row and leaves it
++  out (and `addSpot` logs a failed insert), so each group resolves with its unsaved photos rather than rejecting. Every
++  group that has unsaved photos (or rejected) stays on screen with only those photos, aimed at the spot they were going
++  to (`target` = the new spot's id when it was a new spot), and an Alert "Some photos weren't imported" shows; the
++  screen closes only when all were saved. A chosen spot stays in the chip row even when it is not nearby (a new spot
++  from a group with no location), so 'New spot' stays reachable. No rollback (§9 Q11).
++
++## Profile hint (M6-03)
++
++`app/(tabs)/profile.tsx` radius hint → 'Photos this close together import as one spot, and a new spot this close to
++one you have offers to join it.' (`profile.test.tsx` updated). Units in the label stay for M7 (D23).
++
++## Tests
++
++| Feature | File | Cases |
++|---|---|---|
++| M6-01 | `nearby-spots.test.ts` | table above (7) |
++| M6-02 | `quick-add-tags.test.tsx` (new) | first render: no chip/switch/segment, 'Add details' role button; press → 8 chips, 'Skate stopped', 5 segments, link gone; Rail + switch + Some → `addSpot` with `['rail']`, `true`, `2`; untouched → `[]`, `false`, no speed; name keeps `autoFocus`, Save text 'Save' |
++| M6-03 | `quick-add-nearby.test.tsx` (new) | 5/20/45/80 m, radius 50 → three cards nearest first, display name + '16 ft' / '5 m', thumbnail when primary; none outside radius; none at `NO_LOCATION`; 'Add photos there' on 20 m → `savePhotos` ×1 with that `spot_id`, `addSpot` ×0, `dismissAll` then `push('/spot/<id>')`; spot without photos → `updateSpot(id, { primary_photo_id })`; Save with cards → `addSpot`; double tap → `savePhotos` ×1; units change re-renders label |
++| M6-03 | `profile.test.tsx` | new hint text |
++| M6-04 | `import-nearby.test.tsx` (new) | existing spot 15 m from group A, nothing near B → A shows offer, 'New spot' selected, B none; two groups 5 m apart, no store spot → no offer; choose existing for A → name hidden, subtitle/button count 1; Import → `addSpot` ×1 (B), `savePhotos` ×2 (A to existing id with `captured_at`, B to new); two groups → same spot without primary sets primary once; one group's `savePhotos` rejects → others still saved, Alert shown |
++
++Mocks: `@/src/db` mocked as in `review-persist.test.tsx` (real hooks + stores, assert on the db calls), or the two
++hooks mocked where call order matters; stores seeded with `setState`; `useRouter` overridden for `dismissAll` / `push` order (one shared `jest.fn` call log).
++
++## Unresolved questions
++
++- D30 *default*: choosing 'Add photos there' / an existing spot drops the name and tags typed on the review. OK, or
++  should a typed name fill an untitled existing spot? (§9 Q10)
+diff --git a/docs/specs/2026-10-16-simplification-design.md b/docs/specs/2026-10-16-simplification-design.md
+index 89d05b7..f6ffdc4 100644
+--- a/docs/specs/2026-10-16-simplification-design.md
++++ b/docs/specs/2026-10-16-simplification-design.md
+@@ -69,6 +69,8 @@ re-hydrated per user ("add the features and fields you want"); none of that is b
+ | D27 | **Groups / sharing deferred** | §7 is direction, not scope. Nothing in §7 is built this run. | Michael: "consider deferring #5 until after the simplification has been done and tested" |
+ | D28 | **A failed upgrade blocks the app** *default* | If `migrateDb` throws at launch (e.g. migration 3), the app shows "Couldn't upgrade your spots — Nothing was lost… Close HitList and open it again to retry" instead of the tabs; the next launch retries. Media and settings still load, each on its own. | Builder (M1-05 review): this build's writes fail on an older schema, so a usable-looking empty app would let a Quick Add copy photos and then lose the spot, and saving Units would write default settings over the stored ones (§9 Q8) |
+ | D29 | **The viewer keeps its photo order while open** *default* | 'Set as primary' in the viewer does not move the photo to page 1 under the user: the viewer snapshots `spotPhotos()` order when it opens and only drops removed photos. The detail grid shows the new primary first as usual. Plan: `docs/plans/2026-10-20-m4-viewer.md`. | Builder (M4-01 plan): a page that jumps away right after a long-press action is disorienting (§9 Q9) |
++| D30 | **Joining an existing spot drops the review's name and tags** *default* | 'Add photos there' (Quick Add) and 'Add photos to <name>' (import group) only add photos: the existing spot's name, tags and location are untouched, and the name / tags typed on the review screen are discarded (the import group's name field hides while an existing spot is chosen). If the spot had no photos, the first added one becomes primary. Plan: `docs/plans/2026-10-20-m6-review-screens.md`. | Builder (M6-01 plan): never overwrite a spot the user already described (§9 Q10) |
++| D31 | **A partly failed import stays on screen** *default* | After Import, photos `savePhotos` did not save (it logs and leaves them out) stay on the review in their group, aimed at the spot they were going to (the new spot already exists, or the chosen existing one); an Alert "Some photos weren't imported" says so; the screen closes only when everything was saved. Nothing is rolled back. | Builder (M6-04, from an Opus review: the hooks swallow errors, so a rejected group alone never caught a failure) (§9 Q11) |
+ 
+ ---
+ 
+@@ -470,6 +472,15 @@ Stretch, in order, only if all above is green: (a) FilterSheet range mode polish
+    its order while open** (the photo stays on the page you are looking at). Say "jump to first" to move it to
+    page 1 at once.
+ 
++10. **Joining an existing spot from a review screen (D30, added by the M6-01 plan).** **Default: only the photos
++    go to the existing spot**; a name or tags typed on the review are dropped. Say "fill blanks" to have a typed name
++    (and tags) fill an existing spot that has none.
++
++11. **A partly failed import (D31, added by M6-04).** **Default: the import review closes only when every photo was
++    saved**; otherwise it alerts "Some photos weren't imported" and keeps just the unsaved photos on screen, each group
++    aimed at the spot it was going to (a new spot already exists by then), so 'Add photos' retries without creating a
++    second spot or saving a photo twice. Nothing is rolled back. Say "close anyway" to drop the leftovers instead.
++
+ ---
+ 
+ ## 10. What a builder may decide alone
+diff --git a/src/__tests__/import-nearby.test.tsx b/src/__tests__/import-nearby.test.tsx
+new file mode 100644
+index 0000000..febfc05
+--- /dev/null
++++ b/src/__tests__/import-nearby.test.tsx
+@@ -0,0 +1,265 @@
++import { render, screen, fireEvent, waitFor, act } from '@testing-library/react-native';
++import { Alert } from 'react-native';
++import { useLocalSearchParams, useRouter } from 'expo-router';
++import { useMediaStore, useSettingsStore, useSpotsStore } from '@/src/stores';
++import { UnitSystem, type GeoPoint, type Media, type Spot } from '@/src/types';
++import type { NewPhoto } from '@/src/hooks/use-media-actions';
++import type { ImportPhoto } from '@/src/utils/import-clustering';
++import { getSpotDisplayName } from '@/src/utils/spot-name';
++import { CITIES, createTestMedia, createTestSpot } from './factories';
++
++const mockAddSpot = jest.fn(async (_spot: Spot) => {});
++const mockUpdateSpot = jest.fn(async (_id: string, _updates: object) => {});
++const mockSavePhotos = jest.fn(async (photos: NewPhoto[]): Promise<Media[]> =>
++  photos.map(({ sourceUri, ...fields }) => ({ ...fields, file_path: sourceUri })),
++);
++const mockDismissAll = jest.fn();
++
++jest.mock('@/src/hooks/use-spot-actions', () => ({
++  useSpotActions: () => ({ addSpot: mockAddSpot, updateSpot: mockUpdateSpot }),
++}));
++jest.mock('@/src/hooks/use-media-actions', () => ({
++  useMediaActions: () => ({ savePhotos: mockSavePhotos }),
++}));
++
++import ImportReview from '@/app/import/review';
++
++const here = CITIES.seattle;
++/** Metres per degree of latitude on the haversine sphere (R = 6371 km). */
++const M_PER_DEG_LAT = (6371000 * Math.PI) / 180;
++const north = (meters: number): GeoPoint => ({
++  latitude: here.latitude + meters / M_PER_DEG_LAT,
++  longitude: here.longitude,
++});
++
++const photo = (name: string, location: GeoPoint | null, capturedAt: string): ImportPhoto => ({
++  uri: `file:///c/${name}.jpg`,
++  location,
++  capturedAt,
++});
++
++// Group A starts at `here`; the existing spot is 15 m north of it. Group B is 5 km away.
++const groupA = [photo('a1', here, '2026-10-01T10:00:00'), photo('a2', north(3), '2026-10-01T10:01:00')];
++const groupB = [photo('b1', north(5000), '2026-10-02T11:00:00')];
++const existing = createTestSpot({ name: 'Library Rail', location: north(15) }); // no photos yet
++
++function setGroups(groups: ImportPhoto[][]) {
++  jest.mocked(useLocalSearchParams).mockReturnValue({ groupsJson: JSON.stringify(groups) } as never);
++}
++
++const choice = (name: string) => screen.getByRole('button', { name });
++const isSelected = (name: string) => choice(name).props.accessibilityState?.selected === true;
++
++describe("Import review: a group near an existing spot offers 'Add photos to <name>' (M6-04, D25)", () => {
++  beforeEach(() => {
++    jest.clearAllMocks();
++    mockAddSpot.mockImplementation(async () => {});
++    useSpotsStore.setState({ spots: [existing] });
++    useMediaStore.setState({ mediaBySpot: {} });
++    useSettingsStore.setState({ units: UnitSystem.Imperial, batch_import_radius: 50 });
++    setGroups([groupA, groupB]);
++    jest.mocked(useRouter).mockReturnValue({ dismissAll: mockDismissAll, push: jest.fn(), back: jest.fn() } as never);
++  });
++
++  it("offers the nearby spot on group A only, with 'New spot' selected by default", () => {
++    render(<ImportReview />);
++
++    expect(screen.getAllByText(/^Near /).map((t) => t.props.children)).toEqual(['Near Library Rail · 49 ft']);
++    expect(isSelected('New spot')).toBe(true);
++    expect(isSelected('Add photos to Library Rail')).toBe(false);
++    expect(screen.getAllByRole('button', { name: 'New spot' })).toHaveLength(1); // B has no choice row
++    expect(screen.getAllByPlaceholderText('Spot name (optional)')).toHaveLength(2);
++    expect(screen.getByText(/^2 spots from your photos/)).toBeTruthy();
++    expect(screen.getByText('Import 2 Spots')).toBeTruthy();
++  });
++
++  it('uses metric distances when units are metric, and follows a units change', () => {
++    useSettingsStore.setState({ units: UnitSystem.Metric });
++    render(<ImportReview />);
++    expect(screen.getByText('Near Library Rail · 15 m')).toBeTruthy();
++
++    act(() => useSettingsStore.setState({ units: UnitSystem.Imperial }));
++    expect(screen.getByText('Near Library Rail · 49 ft')).toBeTruthy();
++  });
++
++  it('never counts another group of the same import as nearby', () => {
++    useSpotsStore.setState({ spots: [] });
++    setGroups([[photo('x', here, '2026-10-01T10:00:00')], [photo('y', north(5), '2026-10-01T10:05:00')]]);
++    render(<ImportReview />);
++
++    expect(screen.queryByText(/^Near /)).toBeNull();
++    expect(screen.queryByRole('button', { name: 'New spot' })).toBeNull();
++  });
++
++  it('ignores a group without a location and deleted spots', () => {
++    useSpotsStore.setState({
++      spots: [existing, createTestSpot({ name: 'Gone', location: north(5000), deleted_at: '2026-10-03T00:00:00Z' })],
++    });
++    setGroups([[photo('n', null, '2026-10-01T10:00:00')], groupB]);
++    render(<ImportReview />);
++
++    expect(screen.queryByText(/^Near /)).toBeNull();
++  });
++
++  it('choosing the existing spot hides the name field and counts only new spots', () => {
++    render(<ImportReview />);
++    fireEvent.press(choice('Add photos to Library Rail'));
++
++    expect(isSelected('Add photos to Library Rail')).toBe(true);
++    expect(isSelected('New spot')).toBe(false);
++    expect(screen.getAllByPlaceholderText('Spot name (optional)')).toHaveLength(1);
++    expect(screen.getByText(/^1 spot from your photos/)).toBeTruthy();
++    expect(screen.getByText('Import 1 Spot')).toBeTruthy();
++
++    fireEvent.press(choice('New spot'));
++    expect(screen.getAllByPlaceholderText('Spot name (optional)')).toHaveLength(2);
++    expect(screen.getByText('Import 2 Spots')).toBeTruthy();
++  });
++
++  it("says 'Add photos' when every group goes to a spot you already have", () => {
++    setGroups([groupA]);
++    render(<ImportReview />);
++    fireEvent.press(choice('Add photos to Library Rail'));
++
++    expect(screen.getByText('Photos go to spots you already have.')).toBeTruthy();
++    expect(screen.getByText('Add photos')).toBeTruthy();
++  });
++
++  it("keeps 'Import 0 Spots' (not 'Add photos') once every group is removed", () => {
++    render(<ImportReview />);
++    for (const remove of screen.getAllByText('Remove')) fireEvent.press(remove);
++
++    expect(screen.getByText('Import 0 Spots')).toBeTruthy();
++    expect(screen.queryByText('Photos go to spots you already have.')).toBeNull();
++  });
++
++  it("Import sends group A's photos to the existing spot and creates only group B", async () => {
++    render(<ImportReview />);
++    fireEvent.press(choice('Add photos to Library Rail'));
++    fireEvent.press(screen.getByText('Import 1 Spot'));
++    await waitFor(() => expect(mockDismissAll).toHaveBeenCalled());
++
++    expect(mockAddSpot).toHaveBeenCalledTimes(1);
++    const newSpot = mockAddSpot.mock.calls[0][0];
++    expect(newSpot.location).toEqual(groupB[0].location);
++
++    expect(mockSavePhotos).toHaveBeenCalledTimes(2);
++    const batches = mockSavePhotos.mock.calls.map(([photos]) => photos);
++    const toExisting = batches.find((b) => b[0].spot_id === existing.id)!;
++    const toNew = batches.find((b) => b[0].spot_id === newSpot.id)!;
++    expect(toExisting.map((p) => [p.sourceUri, p.spot_id, p.captured_at, p.location])).toEqual([
++      [groupA[0].uri, existing.id, groupA[0].capturedAt, groupA[0].location],
++      [groupA[1].uri, existing.id, groupA[1].capturedAt, groupA[1].location],
++    ]);
++    expect(toNew.map((p) => p.sourceUri)).toEqual([groupB[0].uri]);
++
++    // The existing spot had no photos, so group A's first saved photo becomes its primary.
++    expect(mockUpdateSpot).toHaveBeenCalledTimes(1);
++    expect(mockUpdateSpot).toHaveBeenCalledWith(existing.id, { primary_photo_id: toExisting[0].id });
++  });
++
++  it('leaves the primary alone on an existing spot that already has photos', async () => {
++    useMediaStore.setState({ mediaBySpot: { [existing.id]: [createTestMedia({ spot_id: existing.id })] } });
++    setGroups([groupA]);
++    render(<ImportReview />);
++    fireEvent.press(choice('Add photos to Library Rail'));
++    fireEvent.press(screen.getByText('Add photos'));
++    await waitFor(() => expect(mockDismissAll).toHaveBeenCalled());
++
++    expect(mockAddSpot).not.toHaveBeenCalled();
++    expect(mockSavePhotos).toHaveBeenCalledTimes(1);
++    expect(mockUpdateSpot).not.toHaveBeenCalled();
++  });
++
++  it('sets the primary once when two groups go to the same photo-less spot', async () => {
++    const groupA2 = [photo('a3', north(25), '2026-10-01T12:00:00')];
++    setGroups([groupA, groupA2]);
++    render(<ImportReview />);
++    for (const button of screen.getAllByRole('button', { name: 'Add photos to Library Rail' })) {
++      fireEvent.press(button);
++    }
++    fireEvent.press(screen.getByText('Add photos'));
++    await waitFor(() => expect(mockDismissAll).toHaveBeenCalled());
++
++    expect(mockSavePhotos).toHaveBeenCalledTimes(2);
++    expect(mockUpdateSpot).toHaveBeenCalledTimes(1);
++    const firstBatch = mockSavePhotos.mock.calls.map(([p]) => p).find((b) => b[0].sourceUri === groupA[0].uri)!;
++    expect(mockUpdateSpot).toHaveBeenCalledWith(existing.id, { primary_photo_id: firstBatch[0].id });
++  });
++
++  it('a failed group alerts, keeps only the failed groups on screen, and a retry imports just those', async () => {
++    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
++    mockSavePhotos.mockImplementationOnce(async (photos) => {
++      if (photos[0].spot_id === existing.id) throw new Error('disk full');
++      return photos.map(({ sourceUri, ...fields }) => ({ ...fields, file_path: sourceUri }));
++    });
++    render(<ImportReview />);
++    fireEvent.press(choice('Add photos to Library Rail'));
++    fireEvent.press(screen.getByText('Import 1 Spot'));
++    await waitFor(() => expect(alert).toHaveBeenCalledWith("Some photos weren't imported", expect.any(String)));
++
++    // Group B was still saved; group A stays, still pointed at the existing spot, so a retry does not repeat B.
++    expect(mockAddSpot).toHaveBeenCalledTimes(1);
++    expect(mockDismissAll).not.toHaveBeenCalled();
++    expect(screen.getByText('Photos go to spots you already have.')).toBeTruthy();
++
++    fireEvent.press(screen.getByText('Add photos'));
++    await waitFor(() => expect(mockDismissAll).toHaveBeenCalled());
++    expect(mockAddSpot).toHaveBeenCalledTimes(1);
++    expect(mockSavePhotos).toHaveBeenCalledTimes(3);
++    expect(mockSavePhotos.mock.calls[2][0][0].spot_id).toBe(existing.id);
++    alert.mockRestore();
++  });
++
++  it("a photo the existing spot didn't get stays on screen, still aimed there, and a retry saves only it", async () => {
++    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
++    // savePhotos logs a failed row and resolves with the rest: here group A's second photo is dropped.
++    mockSavePhotos.mockImplementationOnce(async (photos) =>
++      photos
++        .filter((p) => p.sourceUri !== groupA[1].uri)
++        .map(({ sourceUri, ...fields }) => ({ ...fields, file_path: sourceUri })),
++    );
++    setGroups([groupA]);
++    render(<ImportReview />);
++    fireEvent.press(choice('Add photos to Library Rail'));
++    fireEvent.press(screen.getByText('Add photos'));
++    await waitFor(() => expect(alert).toHaveBeenCalledWith("Some photos weren't imported", expect.any(String)));
++
++    expect(mockDismissAll).not.toHaveBeenCalled();
++    expect(screen.getByText(/^1 photo ·/)).toBeTruthy();
++    expect(isSelected('Add photos to Library Rail')).toBe(true);
++
++    fireEvent.press(screen.getByText('Add photos'));
++    await waitFor(() => expect(mockDismissAll).toHaveBeenCalled());
++    expect(mockSavePhotos.mock.calls[1][0].map((p) => [p.sourceUri, p.spot_id])).toEqual([[groupA[1].uri, existing.id]]);
++    expect(mockAddSpot).not.toHaveBeenCalled();
++    alert.mockRestore();
++  });
++
++  it("a new spot's unsaved photos stay aimed at that spot, so a retry does not create a second one", async () => {
++    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
++    mockAddSpot.mockImplementation(async (spot) => useSpotsStore.getState().addSpot(spot)); // as the real hook does
++    mockSavePhotos.mockImplementationOnce(async () => []); // every row failed (logged by the hook)
++    const noLocation = [photo('n', null, '2026-10-02T11:00:00')]; // its new spot is never 'nearby' itself
++    setGroups([noLocation]);
++    render(<ImportReview />);
++    fireEvent.press(screen.getByText('Import 1 Spot'));
++    await waitFor(() => expect(alert).toHaveBeenCalledWith("Some photos weren't imported", expect.any(String)));
++
++    const newSpot = mockAddSpot.mock.calls[0][0];
++    expect(screen.getByText('Add photos')).toBeTruthy();
++    expect(screen.queryByPlaceholderText('Spot name (optional)')).toBeNull();
++    // The chip row still shows the chosen spot, and 'New spot' stays reachable.
++    expect(isSelected(`Add photos to ${getSpotDisplayName(newSpot)}`)).toBe(true);
++    expect(isSelected('New spot')).toBe(false);
++    expect(screen.queryByText(/^Near /)).toBeNull(); // no distance from an unknown location
++
++    fireEvent.press(screen.getByText('Add photos'));
++    await waitFor(() => expect(mockDismissAll).toHaveBeenCalled());
++    expect(mockAddSpot).toHaveBeenCalledTimes(1);
++    expect(mockSavePhotos.mock.calls[1][0].map((p) => [p.sourceUri, p.spot_id])).toEqual([[noLocation[0].uri, newSpot.id]]);
++    // The spot was created with a primary that never got a row, so the retry's photo becomes its primary.
++    expect(mockUpdateSpot).toHaveBeenCalledWith(newSpot.id, { primary_photo_id: mockSavePhotos.mock.calls[1][0][0].id });
++    alert.mockRestore();
++  });
++});
+diff --git a/src/__tests__/nearby-spots.test.ts b/src/__tests__/nearby-spots.test.ts
+new file mode 100644
+index 0000000..a939db6
+--- /dev/null
++++ b/src/__tests__/nearby-spots.test.ts
+@@ -0,0 +1,65 @@
++import { nearbyLabel, nearbySpots } from '@/src/utils/nearby-spots';
++import { distanceMeters, NO_LOCATION } from '@/src/utils/geo';
++import type { GeoPoint } from '@/src/types';
++import { CITIES, createTestSpot } from './factories';
++
++const here = CITIES.seattle;
++/** Metres per degree of latitude on the haversine sphere (R = 6371 km). */
++const M_PER_DEG_LAT = (6371000 * Math.PI) / 180;
++
++/** A point `meters` due north of `here`. */
++function north(meters: number): GeoPoint {
++  return { latitude: here.latitude + meters / M_PER_DEG_LAT, longitude: here.longitude };
++}
++
++describe('nearbySpots', () => {
++  it('the north() helper places points at the stated distance', () => {
++    expect(distanceMeters(here, north(40))).toBeCloseTo(40, 6);
++  });
++
++  it('returns the spots within the radius, nearest first', () => {
++    const at40 = createTestSpot({ name: '40 m', location: north(40) });
++    const at60 = createTestSpot({ name: '60 m', location: north(60) });
++    const at10 = createTestSpot({ name: '10 m', location: north(10) });
++
++    expect(nearbySpots(here, [at40, at60, at10], 50).map((s) => s.name)).toEqual(['10 m', '40 m']);
++  });
++
++  it('never returns a spot without a location', () => {
++    const unknown = createTestSpot({ location: NO_LOCATION });
++    // A radius big enough to reach (0, 0) from Seattle: excluded by isKnownLocation, not by distance.
++    expect(nearbySpots(here, [unknown], 20_000_000)).toEqual([]);
++  });
++
++  it('never returns a soft-deleted spot', () => {
++    const deleted = createTestSpot({ location: north(5), deleted_at: new Date().toISOString() });
++    expect(nearbySpots(here, [deleted], 50)).toEqual([]);
++  });
++
++  it('returns [] when the query location is unknown', () => {
++    const atOrigin = createTestSpot({ location: { latitude: 0, longitude: 0.0001 } });
++    expect(nearbySpots(NO_LOCATION, [atOrigin], 50)).toEqual([]);
++  });
++
++  it('includes a spot at exactly the radius', () => {
++    const edge = createTestSpot({ location: north(30) });
++    const radius = distanceMeters(here, edge.location);
++    expect(nearbySpots(here, [edge], radius)).toEqual([edge]);
++  });
++
++  it('does not mutate the input array', () => {
++    const far = createTestSpot({ location: north(40) });
++    const near = createTestSpot({ location: north(10) });
++    const spots = [far, near];
++    nearbySpots(here, spots, 50);
++    expect(spots).toEqual([far, near]);
++  });
++});
++
++describe('nearbyLabel', () => {
++  it("names the spot and gives the distance in the user's units", () => {
++    const spot = createTestSpot({ name: 'Downtown Rail', location: north(5) });
++    expect(nearbyLabel(here, spot, true)).toBe('Near Downtown Rail · 16 ft');
++    expect(nearbyLabel(here, spot, false)).toBe('Near Downtown Rail · 5 m');
++  });
++});
+diff --git a/src/__tests__/profile.test.tsx b/src/__tests__/profile.test.tsx
+index 696c4c8..7b1631d 100644
+--- a/src/__tests__/profile.test.tsx
++++ b/src/__tests__/profile.test.tsx
+@@ -58,6 +58,15 @@ describe('ProfileScreen', () => {
+     render(<ProfileScreen />);
+     expect(screen.getByText('Import Radius')).toBeTruthy();
+   });
++
++  it('explains that the radius also drives the nearby-spot offer (D25)', () => {
++    render(<ProfileScreen />);
++    expect(
++      screen.getByText(
++        'Photos this close together import as one spot, and a new spot this close to one you have offers to join it.',
++      ),
++    ).toBeTruthy();
++  });
+ });
+ 
+ describe('Import Photos entry point', () => {
+@@ -65,8 +74,8 @@ describe('Import Photos entry point', () => {
+     // D12 (Michael, 2026-10-15): Import Photos moved to the Spots tab; Profile must not offer it.
+     render(<ProfileScreen />);
+ 
+-    // Case-insensitive so a relabelled "Import photos" button would also be caught. Anchored because the
+-    // Import Radius help text legitimately contains the phrase "import photos from the Spots tab".
++    // Case-insensitive so a relabelled "Import photos" button would also be caught; anchored so help text that
++    // mentions importing photos does not count.
+     expect(screen.queryByText(/^\s*import photos\s*$/i)).toBeNull();
+     expect(screen.queryByLabelText(/import photos/i)).toBeNull();
+   });
+diff --git a/src/__tests__/quick-add-nearby.test.tsx b/src/__tests__/quick-add-nearby.test.tsx
+new file mode 100644
+index 0000000..4312025
+--- /dev/null
++++ b/src/__tests__/quick-add-nearby.test.tsx
+@@ -0,0 +1,182 @@
++import { render, screen, fireEvent, waitFor, act } from '@testing-library/react-native';
++import { Alert } from 'react-native';
++import { useLocalSearchParams, useRouter } from 'expo-router';
++import { useMediaStore, useSettingsStore, useSpotsStore } from '@/src/stores';
++import { NO_LOCATION } from '@/src/utils/geo';
++import { UnitSystem, type GeoPoint, type Media, type Spot } from '@/src/types';
++import type { NewPhoto } from '@/src/hooks/use-media-actions';
++import { CITIES, createTestMedia, createTestSpot } from './factories';
++
++/** One log for the hooks and the router, so the order of calls can be asserted. */
++const calls: string[] = [];
++const mockAddSpot = jest.fn(async (_spot: Spot) => {
++  calls.push('addSpot');
++});
++const mockUpdateSpot = jest.fn(async (_id: string, _updates: object) => {
++  calls.push('updateSpot');
++});
++const mockSavePhotos = jest.fn(async (photos: NewPhoto[]): Promise<Media[]> => {
++  calls.push('savePhotos');
++  return photos.map(({ sourceUri, ...fields }) => ({ ...fields, file_path: sourceUri }));
++});
++const mockDismissAll = jest.fn(() => calls.push('dismissAll'));
++const mockPush = jest.fn((href: string) => calls.push(`push ${href}`));
++
++jest.mock('@/src/hooks/use-spot-actions', () => ({
++  useSpotActions: () => ({ addSpot: mockAddSpot, updateSpot: mockUpdateSpot }),
++}));
++jest.mock('@/src/hooks/use-media-actions', () => ({
++  useMediaActions: () => ({ savePhotos: mockSavePhotos }),
++}));
++
++import QuickAddReview from '@/app/add/review';
++
++const here = CITIES.seattle;
++/** Metres per degree of latitude on the haversine sphere (R = 6371 km). */
++const M_PER_DEG_LAT = (6371000 * Math.PI) / 180;
++const north = (meters: number): GeoPoint => ({
++  latitude: here.latitude + meters / M_PER_DEG_LAT,
++  longitude: here.longitude,
++});
++
++const at5 = createTestSpot({ name: 'Five Rail', location: north(5), primary_photo_id: 'p5' });
++const at20 = createTestSpot({ name: 'Twenty Ledge', location: north(20) }); // no photos
++const at45 = createTestSpot({ name: 'Forty Five Bank', location: north(45) });
++const at80 = createTestSpot({ name: 'Eighty Gap', location: north(80) });
++const photo5 = createTestMedia({ id: 'p5', spot_id: at5.id, file_path: 'file:///photos/p5.jpg' });
++const photo45 = createTestMedia({ spot_id: at45.id, file_path: 'file:///photos/p45.jpg' });
++
++const URIS = ['file:///c/a.jpg', 'file:///c/b.jpg'];
++
++function setParams(location: GeoPoint) {
++  jest.mocked(useLocalSearchParams).mockReturnValue({
++    photoUris: URIS.join(','),
++    latitude: String(location.latitude),
++    longitude: String(location.longitude),
++  } as never);
++}
++
++const nearbyLines = () => screen.queryAllByText(/^Near /).map((t) => t.props.children as string);
++
++describe("Quick Add review: nearby spots offer 'Add photos there' (M6-03, D25)", () => {
++  beforeEach(() => {
++    jest.clearAllMocks();
++    calls.length = 0;
++    useSpotsStore.setState({ spots: [at80, at45, at20, at5] }); // store order is not distance order
++    useMediaStore.setState({ mediaBySpot: { [at5.id]: [photo5], [at45.id]: [photo45] } });
++    useSettingsStore.setState({ units: UnitSystem.Imperial, batch_import_radius: 50 });
++    setParams(here);
++    jest.mocked(useRouter).mockReturnValue({ dismissAll: mockDismissAll, push: mockPush, back: jest.fn() } as never);
++  });
++
++  it('shows the spots within the radius, nearest first, with display name and imperial distance', () => {
++    render(<QuickAddReview />);
++
++    expect(nearbyLines()).toEqual(['Near Five Rail · 16 ft', 'Near Twenty Ledge · 66 ft', 'Near Forty Five Bank · 148 ft']);
++    expect(screen.getAllByRole('button', { name: /^Add photos to / })).toHaveLength(3);
++    expect(screen.getAllByText('Add photos there')).toHaveLength(3);
++    expect(screen.queryByText(/Eighty Gap/)).toBeNull();
++  });
++
++  it('uses metric distances when units are metric, and follows a units change', () => {
++    useSettingsStore.setState({ units: UnitSystem.Metric });
++    render(<QuickAddReview />);
++    expect(nearbyLines()[0]).toBe('Near Five Rail · 5 m');
++
++    act(() => useSettingsStore.setState({ units: UnitSystem.Imperial }));
++    expect(nearbyLines()[0]).toBe('Near Five Rail · 16 ft');
++  });
++
++  it("shows the spot's primary thumbnail when it has one, a placeholder when not", () => {
++    render(<QuickAddReview />);
++
++    expect(screen.getByTestId(`nearby-thumb-${at5.id}`).props.source).toEqual({ uri: 'file:///photos/p5.jpg' });
++    expect(screen.getByTestId(`nearby-thumb-${at45.id}`).props.source).toEqual({ uri: 'file:///photos/p45.jpg' });
++    expect(screen.queryByTestId(`nearby-thumb-${at20.id}`)).toBeNull();
++    expect(screen.getByTestId(`nearby-thumb-placeholder-${at20.id}`)).toBeTruthy();
++  });
++
++  it('shows no card when nothing is within the radius', () => {
++    useSpotsStore.setState({ spots: [at80] });
++    render(<QuickAddReview />);
++
++    expect(nearbyLines()).toEqual([]);
++    expect(screen.queryByText('Add photos there')).toBeNull();
++  });
++
++  it('shows no card when the review has no location', () => {
++    setParams(NO_LOCATION);
++    useSpotsStore.setState({ spots: [createTestSpot({ name: 'Null Island', location: north(0) }), at5] });
++    render(<QuickAddReview />);
++
++    expect(nearbyLines()).toEqual([]);
++    expect(screen.queryByText('Add photos there')).toBeNull();
++  });
++
++  it("'Add photos there' saves every photo to that spot, creates nothing, then opens it", async () => {
++    render(<QuickAddReview />);
++    fireEvent.press(screen.getByRole('button', { name: 'Add photos to Twenty Ledge' }));
++    await waitFor(() => expect(mockPush).toHaveBeenCalled());
++
++    expect(mockAddSpot).not.toHaveBeenCalled();
++    expect(mockSavePhotos).toHaveBeenCalledTimes(1);
++    const photos = mockSavePhotos.mock.calls[0][0];
++    expect(photos.map((p) => p.sourceUri)).toEqual(URIS);
++    for (const p of photos) {
++      expect(p).toMatchObject({ spot_id: at20.id, location: { latitude: here.latitude, longitude: here.longitude } });
++      expect(new Date(p.created_at).getTime()).toBeGreaterThan(Date.now() - 60_000);
++    }
++    expect(new Set(photos.map((p) => p.id)).size).toBe(2);
++    // The spot had no photos, so the first saved one becomes its primary.
++    expect(mockUpdateSpot).toHaveBeenCalledWith(at20.id, { primary_photo_id: photos[0].id });
++    expect(calls).toEqual(['savePhotos', 'updateSpot', 'dismissAll', `push /spot/${at20.id}`]);
++  });
++
++  it('leaves the primary photo alone on a spot that already has photos', async () => {
++    render(<QuickAddReview />);
++    fireEvent.press(screen.getByRole('button', { name: 'Add photos to Forty Five Bank' }));
++    await waitFor(() => expect(mockPush).toHaveBeenCalledWith(`/spot/${at45.id}`));
++
++    expect(mockUpdateSpot).not.toHaveBeenCalled();
++    expect(calls).toEqual(['savePhotos', 'dismissAll', `push /spot/${at45.id}`]);
++  });
++
++  it('runs once under a double tap', async () => {
++    render(<QuickAddReview />);
++    const button = screen.getByRole('button', { name: 'Add photos to Five Rail' });
++    fireEvent.press(button);
++    fireEvent.press(button);
++    fireEvent.press(screen.getByRole('button', { name: 'Save spot' }));
++    await waitFor(() => expect(mockPush).toHaveBeenCalled());
++
++    expect(mockSavePhotos).toHaveBeenCalledTimes(1);
++    expect(mockAddSpot).not.toHaveBeenCalled();
++  });
++
++  it('Save still creates a new spot when cards are shown', async () => {
++    render(<QuickAddReview />);
++    expect(nearbyLines()).toHaveLength(3);
++    fireEvent.press(screen.getByRole('button', { name: 'Save spot' }));
++    await waitFor(() => expect(mockDismissAll).toHaveBeenCalled());
++
++    expect(mockAddSpot).toHaveBeenCalledTimes(1);
++    const spot = mockAddSpot.mock.calls[0][0];
++    expect([at5.id, at20.id, at45.id]).not.toContain(spot.id);
++    expect(mockSavePhotos.mock.calls[0][0].every((p) => p.spot_id === spot.id)).toBe(true);
++    expect(mockPush).not.toHaveBeenCalled();
++  });
++
++  it('stays on the screen with an Alert when saving the photos throws, and can be retried', async () => {
++    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
++    mockSavePhotos.mockRejectedValueOnce(new Error('disk full'));
++    render(<QuickAddReview />);
++    fireEvent.press(screen.getByRole('button', { name: 'Add photos to Twenty Ledge' }));
++    await waitFor(() => expect(alert).toHaveBeenCalledWith("Couldn't save the photos", expect.any(String)));
++
++    expect(mockDismissAll).not.toHaveBeenCalled();
++    expect(mockPush).not.toHaveBeenCalled();
++    fireEvent.press(screen.getByRole('button', { name: 'Add photos to Twenty Ledge' }));
++    await waitFor(() => expect(mockPush).toHaveBeenCalledWith(`/spot/${at20.id}`));
++    alert.mockRestore();
++  });
++});
+diff --git a/src/__tests__/quick-add-tags.test.tsx b/src/__tests__/quick-add-tags.test.tsx
+new file mode 100644
+index 0000000..80a431f
+--- /dev/null
++++ b/src/__tests__/quick-add-tags.test.tsx
+@@ -0,0 +1,83 @@
++import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
++import { useLocalSearchParams, useRouter } from 'expo-router';
++import type { Spot } from '@/src/types';
++
++const mockAddSpot = jest.fn().mockResolvedValue(undefined);
++const mockSavePhotos = jest.fn().mockResolvedValue([]);
++const mockDismissAll = jest.fn();
++
++jest.mock('@/src/hooks/use-spot-actions', () => ({
++  useSpotActions: () => ({ addSpot: mockAddSpot }),
++}));
++jest.mock('@/src/hooks/use-media-actions', () => ({
++  useMediaActions: () => ({ savePhotos: mockSavePhotos }),
++}));
++
++import QuickAddReview from '@/app/add/review';
++
++const savedSpot = () => mockAddSpot.mock.calls[0][0] as Spot;
++const pressSave = async () => {
++  fireEvent.press(screen.getByRole('button', { name: 'Save spot' }));
++  await waitFor(() => expect(mockDismissAll).toHaveBeenCalled());
++};
++
++describe("Quick Add review: tags behind 'Add details' (M6-02, spec §2.7)", () => {
++  beforeEach(() => {
++    jest.clearAllMocks();
++    jest.mocked(useLocalSearchParams).mockReturnValue({
++      photoUris: 'file:///c/a.jpg',
++      latitude: '47.6',
++      longitude: '-122.3',
++    } as never);
++    jest.mocked(useRouter).mockReturnValue({ dismissAll: mockDismissAll, push: jest.fn(), back: jest.fn() } as never);
++  });
++
++  it('first shows only the link, no chip, switch or speed segment', () => {
++    render(<QuickAddReview />);
++
++    expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
++    expect(screen.queryByRole('switch')).toBeNull();
++    expect(screen.queryAllByRole('radio')).toHaveLength(0);
++    const link = screen.getByRole('button', { name: 'Add details' });
++    expect(link).toHaveTextContent('Add details');
++  });
++
++  it('reveals the eight chips, the switch and five segments, and the link goes away', () => {
++    render(<QuickAddReview />);
++    fireEvent.press(screen.getByRole('button', { name: 'Add details' }));
++
++    expect(screen.getAllByRole('checkbox')).toHaveLength(8);
++    expect(screen.getByRole('switch', { name: 'Skate stopped' })).toBeTruthy();
++    expect(screen.getAllByRole('radio')).toHaveLength(5);
++    expect(screen.queryByText('Add details')).toBeNull();
++  });
++
++  it('saves the tags set under Add details', async () => {
++    render(<QuickAddReview />);
++    fireEvent.press(screen.getByRole('button', { name: 'Add details' }));
++    fireEvent.press(screen.getByRole('checkbox', { name: 'Rail' }));
++    fireEvent(screen.getByRole('switch', { name: 'Skate stopped' }), 'valueChange', true);
++    fireEvent.press(screen.getByRole('radio', { name: /^Some:/ }));
++    await pressSave();
++
++    expect(mockAddSpot).toHaveBeenCalledTimes(1);
++    expect(savedSpot()).toMatchObject({ feature_types: ['rail'], stopped: true, natural_speed: 2 });
++  });
++
++  it('saves an untagged, not-stopped, unrated spot when Add details was never opened', async () => {
++    render(<QuickAddReview />);
++    await pressSave();
++
++    expect(mockAddSpot).toHaveBeenCalledTimes(1);
++    const spot = savedSpot();
++    expect(spot).toMatchObject({ feature_types: [], stopped: false });
++    expect(spot.natural_speed).toBeUndefined();
++  });
++
++  it('keeps autoFocus on the name field and the Save text', () => {
++    render(<QuickAddReview />);
++
++    expect(screen.getByPlaceholderText(/Downtown Rail/).props.autoFocus).toBe(true);
++    expect(screen.getByRole('button', { name: 'Save spot' })).toHaveTextContent('Save');
++  });
++});
+diff --git a/src/utils/nearby-spots.ts b/src/utils/nearby-spots.ts
+new file mode 100644
+index 0000000..fe52d15
+--- /dev/null
++++ b/src/utils/nearby-spots.ts
+@@ -0,0 +1,22 @@
++import type { GeoPoint, Spot } from '@/src/types';
++import { distanceMeters, formatDistance, isKnownLocation } from './geo';
++import { getSpotDisplayName } from './spot-name';
++
++/**
++ * The existing spots a new one at `location` might really be (D25): known-location, not soft-deleted spots within
++ * `radiusMeters` (inclusive), nearest first. An unknown `location` (NO_LOCATION) has no neighbours.
++ */
++export function nearbySpots(location: GeoPoint, spots: Spot[], radiusMeters: number): Spot[] {
++  if (!isKnownLocation(location)) return [];
++  return spots
++    .filter((spot) => !spot.deleted_at && isKnownLocation(spot.location))
++    .map((spot) => ({ spot, meters: distanceMeters(location, spot.location) }))
++    .filter(({ meters }) => meters <= radiusMeters)
++    .sort((a, b) => a.meters - b.meters)
++    .map(({ spot }) => spot);
++}
++
++/** The offer's line for one nearby spot: 'Near Downtown Rail · 16 ft' (distance in the user's units). */
++export function nearbyLabel(location: GeoPoint, spot: Spot, imperial: boolean): string {
++  return `Near ${getSpotDisplayName(spot)} · ${formatDistance(distanceMeters(location, spot.location) / 1000, imperial)}`;
++}

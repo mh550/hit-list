@@ -25,9 +25,9 @@ Name block as above, then (the link is gone, no 'Hide'):
 ### 3. Three nearby spots (5 m, 20 m, 45 m)
 Name block and 'Add details' link, location, then the card:
 1. 'Already have this spot?'
-2. 'Near Five Rail · 16 ft' · button 'Add photos there' (label 'Add photos to Five Rail')
-3. 'Near Twenty Ledge · 66 ft' · 'Add photos there' (label 'Add photos to Twenty Ledge')
-4. 'Near Forty Five Bank · 148 ft' · 'Add photos there' (label 'Add photos to Forty Five Bank')
+2. 'Near Five Rail · 16 ft' · button 'Add photos there' (label 'Add photos there, Five Rail'; M6-06)
+3. 'Near Twenty Ledge · 66 ft' · 'Add photos there' (label 'Add photos there, Twenty Ledge'; M6-06)
+4. 'Near Forty Five Bank · 148 ft' · 'Add photos there' (label 'Add photos there, Forty Five Bank'; M6-06)
 5. 'Save'
 
 Nearest first. A spot 80 m away is not offered. Pressing 'Add photos there' saves to that spot

@@ -495,7 +495,7 @@
         "A 'refactor:' commit applies the simplification pass; CLAUDE.md Layout mentions nearby-spots and the 'Add details' disclosure; README.md Status describes the nearby-spot offer; APP_SPECIFICATIONS.md Quick Add and Batch Import flows get a dated note about the offer.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M7-01",

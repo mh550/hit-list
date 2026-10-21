@@ -12,6 +12,16 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 23:45 · M6-06 · passes
+
+- Opus review of `reviews/m6.diff` (1429 lines): 0 Critical, 2 Important (both fixed), 8 Minor (6 fixed, 2 left). Table, answers and simplification pass under 'Review (M6-06)' in `docs/plans/2026-10-20-m6-review-screens.md`.
+- Important: Quick Add's Alert could never fire because `savePhotos` never rejects, so failed photos were lost without a word. Now unsaved photos stay on screen ("Some photos weren't saved") and a retry after Save adds them to the spot it created. `addSpot` used to keep a spot the DB refused, so the import retried forever against a missing spot. It now takes the spot out of the store and rejects.
+- Minor fixes: a ref guard on Save, 'Add photos there' and Import (two presses in one frame ran the import twice: 4 calls for 2 groups); the import locks chips, name and Remove while saving; no offer without photos; label 'Add photos there, <name>'; Remove gets a role; the spinner is labelled 'Importing'; the 'Near' line names the chosen spot.
+- Commits: RED `b7af80d`/`6787c6f` → GREEN `075e635`/`86be528`, `refactor:` `8fb2d16` (import review drops `useCallback`), docs `2010f8b` (CLAUDE.md Layout, README Status, APP_SPECIFICATIONS dated notes). Removing any one guard or rollback (6 mutations) fails exactly one test.
+- Tests 626 → 634; `check.sh` green (634); `jest --ci` 0 console.error; `expo export --platform ios` exit 0.
+- D31 / §9 Q11 now cover Quick Add and a spot the DB refused. Known limit: a spot whose first photo failed keeps a dangling `primary_photo_id`; the screens fall back to its first saved photo.
+- Proposed change: import choice chips are about 35 pt tall (shared `Chip`); a 44-pt pass belongs in a polish feature. Questions for Michael: none new (§9 Q10 / Q11 still open).
+
 ### 2026-10-21 23:10 · M6-05 · passes
 
 - New `docs/plans/2026-10-20-m6-what-michael-will-see.md`: render-order walkthroughs (texts, placeholders, button/switch/radio labels) of the Quick Add review (2 photos no nearby; 'Add details' open; 3 nearby cards 16/66/148 ft with labels) and the import review (2 groups, one offer; before and after choosing 'Add photos to Library Rail').

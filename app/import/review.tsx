@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import {
   StyleSheet,
   View,
@@ -58,17 +58,17 @@ export default function ImportReviewScreen() {
     })),
   );
 
-  const updateName = useCallback((index: number, name: string) => {
+  const updateName = (index: number, name: string) => {
     setGroups((prev) => prev.map((g, i) => (i === index ? { ...g, name } : g)));
-  }, []);
+  };
 
-  const setTarget = useCallback((index: number, target: string | undefined) => {
+  const setTarget = (index: number, target: string | undefined) => {
     setGroups((prev) => prev.map((g, i) => (i === index ? { ...g, target } : g)));
-  }, []);
+  };
 
-  const removeGroup = useCallback((index: number) => {
+  const removeGroup = (index: number) => {
     setGroups((prev) => prev.filter((_, i) => i !== index));
-  }, []);
+  };
 
   // Only spots already in the store count, so two groups of this import never offer each other. A chosen spot stays
   // in the row even when it is not nearby (a retry's new spot without a location), so 'New spot' stays reachable.
@@ -88,66 +88,57 @@ export default function ImportReviewScreen() {
    * Saves a group's photos to `spotId` and resolves with the ones that were not saved (savePhotos logs a failed row
    * and leaves it out rather than throwing).
    */
-  const savePhotosTo = useCallback(
-    async (photos: ImportPhoto[], spotId: string, firstId: string = newId()) => {
-      const now = new Date().toISOString();
-      const ids = photos.map((_, i) => (i === 0 ? firstId : newId()));
-      const saved = await savePhotos(
-        photos.map((photo, i) => ({
-          sourceUri: photo.uri,
-          id: ids[i],
-          spot_id: spotId,
-          location: photo.location ?? undefined,
-          captured_at: photo.capturedAt,
-          created_at: now,
-        })),
-      );
-      const savedIds = new Set(saved.map((m) => m.id));
-      return { saved, unsaved: photos.filter((_, i) => !savedIds.has(ids[i])) };
-    },
-    [savePhotos],
-  );
+  const savePhotosTo = async (photos: ImportPhoto[], spotId: string, firstId: string = newId()) => {
+    const now = new Date().toISOString();
+    const ids = photos.map((_, i) => (i === 0 ? firstId : newId()));
+    const saved = await savePhotos(
+      photos.map((photo, i) => ({
+        sourceUri: photo.uri,
+        id: ids[i],
+        spot_id: spotId,
+        location: photo.location ?? undefined,
+        captured_at: photo.capturedAt,
+        created_at: now,
+      })),
+    );
+    const savedIds = new Set(saved.map((m) => m.id));
+    return { saved, unsaved: photos.filter((_, i) => !savedIds.has(ids[i])) };
+  };
 
   /** Adds a group's photos to an existing spot; creates nothing (D30: the group's name is not used). */
-  const addToExisting = useCallback(
-    async (group: SpotGroup, target: string, setsPrimary: boolean) => {
-      const { saved, unsaved } = await savePhotosTo(group.photos, target);
-      if (setsPrimary && saved.length > 0) {
-        // A failed write was logged and rolled back by updateSpot; the spot still shows its first photo.
-        await updateSpot(target, { primary_photo_id: saved[0].id }).catch(() => {});
-      }
-      return { target, unsaved };
-    },
-    [savePhotosTo, updateSpot],
-  );
+  const addToExisting = async (group: SpotGroup, target: string, setsPrimary: boolean) => {
+    const { saved, unsaved } = await savePhotosTo(group.photos, target);
+    if (setsPrimary && saved.length > 0) {
+      // A failed write was logged and rolled back by updateSpot; the spot still shows its first photo.
+      await updateSpot(target, { primary_photo_id: saved[0].id }).catch(() => {});
+    }
+    return { target, unsaved };
+  };
 
   /** Creates the group's spot and saves its photos there; unsaved photos are returned aimed at the new spot. */
-  const createSpot = useCallback(
-    async (group: SpotGroup) => {
-      const now = new Date().toISOString();
-      const spotId = newId();
-      const firstMediaId = newId();
+  const createSpot = async (group: SpotGroup) => {
+    const now = new Date().toISOString();
+    const spotId = newId();
+    const firstMediaId = newId();
 
-      const spot: Spot = {
-        id: spotId,
-        name: group.name.trim() || undefined,
-        location: groupLocation(group),
-        created_at: now, // the import, not the photo's capture date (D13); media keeps captured_at
-        updated_at: now,
-        feature_types: [],
-        stopped: false,
-        primary_photo_id: group.photos.length > 0 ? firstMediaId : undefined,
-      };
+    const spot: Spot = {
+      id: spotId,
+      name: group.name.trim() || undefined,
+      location: groupLocation(group),
+      created_at: now, // the import, not the photo's capture date (D13); media keeps captured_at
+      updated_at: now,
+      feature_types: [],
+      stopped: false,
+      primary_photo_id: group.photos.length > 0 ? firstMediaId : undefined,
+    };
 
-      await addSpot(spot);
+    await addSpot(spot);
 
-      const { unsaved } = await savePhotosTo(group.photos, spotId, firstMediaId);
-      return { target: spotId, unsaved };
-    },
-    [addSpot, savePhotosTo],
-  );
+    const { unsaved } = await savePhotosTo(group.photos, spotId, firstMediaId);
+    return { target: spotId, unsaved };
+  };
 
-  const handleImportAll = useCallback(async () => {
+  const handleImportAll = async () => {
     if (savingRef.current || groups.length === 0) return;
     savingRef.current = true;
     setSaving(true);
@@ -172,8 +163,9 @@ export default function ImportReviewScreen() {
     savingRef.current = false;
     setSaving(false);
 
-    // Only what was not saved stays on screen, aimed at the spot it was going to (a new spot already exists by now), so
-    // a retry neither imports a photo twice nor creates a second spot.
+    // Only what was not saved stays on screen, aimed at the spot it was going to (a new spot exists once addSpot
+    // resolved; one the DB refused rejects and stays a new spot), so a retry neither imports a photo twice nor creates
+    // a second spot.
     const failed = groups.flatMap((group, i): SpotGroup[] => {
       const result = results[i];
       if (result.status === 'rejected') return [group];
@@ -186,7 +178,7 @@ export default function ImportReviewScreen() {
       return;
     }
     router.dismissAll();
-  }, [groups, spots, mediaBySpot, createSpot, addToExisting, router]);
+  };
 
   if (parsedGroups.length === 0) {
     return (

@@ -213,7 +213,7 @@
         "The rendered tree has no text 'Feature', 'In-Run', 'Landing', 'Details' (as section headers), 'Draft' or 'Type'; the Edit header button still calls router.push to the edit route (existing test kept).",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M3-03",

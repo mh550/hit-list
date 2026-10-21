@@ -12,6 +12,14 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 · M3-02 · passes
+
+- `app/spot/[id]/index.tsx` rewritten in §2.4 order: `PhotoGrid` (no photos → dashed 'Add photos' tile → `router.push('/spot/<id>/edit')`), title, `ChipGroup` of new read-only `Tag`s (stored type order, then 'Skate stopped' red-outlined, `testID="tag-stopped"`), `SpeedScale readonly`, notes, `OlderDetails` (getSpotLegacy once per mount, deps `[db, spotId]`; reject → one `console.warn`, no disclosure; collapsed button with `expanded` state; units from settings store). `Tag` added to `src/components/Chip.tsx` + index; `chevron.down` icon mapped. Header 'Edit' now has role button.
+- Tests 441 → 458: `spot-detail.test.tsx` rewritten (20 tests: tags/stopped/speed 0 and undefined/no roles, 5-photo grid order, Add photos, disclosure open/close, null/{} absent, once per mount across store update + rerender, rejected → warn once, Imperial→Metric live, banned texts, title-only spot, header Edit). `spot-photos.test.tsx` mocks `getSpotLegacy` and awaits the effect.
+- Verified: RED `5bc1078` (11 failing) before GREEN `1e22cc2`; `check.sh` green (458); `npx jest --ci` 43 suites, 0 `console.error`; `expo export --platform ios` exit 0.
+- Next (M3-03): scratch renders must `await act(async () => {})` after render and mock `getSpotLegacy` via `jest.mock('@/src/db', …)`; the M1 full-fat fixture includes `raw_feature` → a row labelled 'Feature' inside Older details (expected; the banned-text test uses a legacy without raw columns).
+- Builder's call (spec §10, spacing): detail content now has `spacing.lg` padding, so the hero photo is inset with rounded corners (was full-bleed 240 pt). Michael: keep inset, or go edge-to-edge?
+
 ### 2026-10-21 · M3-01 · passes
 
 - New `src/utils/legacy-details.ts` (`formatLegacyDetails(legacy, units)` → `{ label, value }[]`: fixed key order, lengths via `displayLength`, 1–5 scores 'n/5', `removable` Yes/No, setup options '2 options: winch; drop in platform + 2 speed humps', unknown keys humanised, `raw_*` last, empties skipped, never throws) + `src/__tests__/legacy-details.test.ts` (9 tests, incl. the M1 full-fat fixture). `SpotLegacy` in `schema.ts` is now a `type` alias (was `interface`) so `getSpotLegacy`'s result passes as `Record<string, unknown>` without a cast. Plan: `docs/plans/2026-10-20-m3-detail.md` (layout table in §2.4 order, 'Add photos' tile → edit, Older details disclosure, key→label table, M3-02 test list).

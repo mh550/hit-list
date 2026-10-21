@@ -12,6 +12,16 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 · M2-05 · passes
+
+- `app/spot/[id]/edit.tsx`: the grid's last tile is an 'Add photos' '+' tile, hidden at 20 photos. Tapping it asks for library access ('Photo access needed' alert when denied), then opens the picker (`allowsMultipleSelection`, `exif`, `selectionLimit` = 20 minus the photos already there). Each picked asset becomes a `StagedPhoto` via `importPhotoFromAsset` (EXIF time and GPS), deduped by `assetId`, and shows with a 'new' pill plus ✕ (unstage). On Save: remove, then `savePhotos`, then the primary (first added photo when the spot had none; when the primary was removed, the next existing photo, else the first added), then `updateSpot` (never `location`). Partial failures share one alert, and the sheet closes from its OK. Icon map gains 'plus'.
+- `src/hooks/use-media-actions.ts`: `savePhotos` now uses `allSettled` and resolves the `Media[]` it actually saved; Quick Add and import ignore the result.
+- Tests 404 → 425: new `edit-add-photos.test.tsx` (19 cases, RED 14/14 before the code, then 4/5 RED for the review fixes) and +2 in `use-media-actions.test.ts` (RED first).
+- Verified: `check.sh` green (425), `npx jest --ci` 0 console.error, `expo export --platform ios` exit 0. Opus review fixes: no photo shown twice (drafts already in the store are hidden, saved ones cleared), no second write on a retry after a failed `updateSpot`, '+' blocked while saving, no 21st photo when a removal fails.
+- Next session must know: when `persistPhoto`'s copy fails it still falls back to the picker's cache URI (existing design, D3 path), so `savePhotos` counts that photo as saved.
+- Proposed changes (M2-07, Minor, not done): treat a failed copy in `savePhotos` as a failure (a cache URI breaks after iOS purges the cache); disable the ✕ badges while saving; dedupe against photos already saved on the spot; fold 'new' into the tile's VoiceOver label (e.g. 'Remove new photo N') and hide the separate 'new' stop (needs the M2-05 step's `getAllByText('new')` to use `includeHiddenElements`).
+- Question for Michael (still open from M2-01): keep the photo-library permission prompt before the picker, or drop it? iOS's picker doesn't need it.
+
 ### 2026-10-21 · M2-04 · passes
 
 - New `src/components/SpotTagFields.tsx` (exported with `SpotTags` from `src/components/index.ts`): controlled; "What's here" + eight `Chip`s in `FEATURE_TYPE_LABELS` order (tap order kept, D19), 'Skate stopped' `Switch`, "Natural speed" + `SpeedScale`; every `onChange` passes the full next value.

@@ -77,3 +77,58 @@ describe('useMediaActions.removePhotos', () => {
     expect(fs.__fileExists(a.file_path)).toBe(true);
   });
 });
+
+describe('useMediaActions.savePhotos', () => {
+  const { insertMedia: mockInsertMedia } = jest.requireMock('@/src/db') as { insertMedia: jest.Mock };
+  const draft = (id: string) => ({
+    id,
+    spot_id: 's1',
+    sourceUri: `file:///picked/${id}.jpg`,
+    captured_at: '2026-10-12T14:22:05',
+    created_at: '2026-10-21T10:00:00.000Z',
+  });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockInsertMedia.mockResolvedValue(undefined);
+    fs.__resetFs();
+    fs.__putFile('file:///picked/n1.jpg');
+    fs.__putFile('file:///picked/n2.jpg');
+    useMediaStore.setState({ mediaBySpot: {} });
+  });
+
+  it('resolves the saved photos with their app-storage paths, in the order given', async () => {
+    // Edit picks the new primary from this result, so it must be what was actually written.
+    const { result } = renderHook(() => useMediaActions());
+
+    let saved: unknown;
+    await act(async () => {
+      saved = await result.current.savePhotos([draft('n1'), draft('n2')]);
+    });
+
+    expect(saved).toEqual([
+      expect.objectContaining({ id: 'n1', spot_id: 's1', file_path: 'photos/s1/n1.jpg', captured_at: '2026-10-12T14:22:05' }),
+      expect.objectContaining({ id: 'n2', file_path: 'photos/s1/n2.jpg' }),
+    ]);
+    expect(useMediaStore.getState().mediaBySpot.s1.map((m) => m.id)).toEqual(['n1', 'n2']);
+  });
+
+  it('leaves a photo whose insert failed out of the result and the store, and keeps the others', async () => {
+    // One bad row must not throw away the rest; the caller compares counts to warn the user.
+    mockInsertMedia.mockImplementation(async (_db: unknown, m: { id: string }) => {
+      if (m.id === 'n1') throw new Error('disk I/O error');
+    });
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const { result } = renderHook(() => useMediaActions());
+
+    let saved: { id: string }[] = [];
+    await act(async () => {
+      saved = await result.current.savePhotos([draft('n1'), draft('n2')]);
+    });
+
+    expect(saved.map((m) => m.id)).toEqual(['n2']);
+    expect(useMediaStore.getState().mediaBySpot.s1.map((m) => m.id)).toEqual(['n2']);
+    expect(consoleSpy).toHaveBeenCalledTimes(1);
+    consoleSpy.mockRestore();
+  });
+});

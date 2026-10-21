@@ -154,7 +154,7 @@
         "A permission denial (requestMediaLibraryPermissionsAsync granted false) shows Alert.alert titled 'Photo access needed' and adds nothing (jest.spyOn(Alert, 'alert')).",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M2-06",

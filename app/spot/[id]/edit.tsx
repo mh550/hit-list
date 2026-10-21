@@ -1,5 +1,5 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import {
   StyleSheet,
   ScrollView,
@@ -60,6 +60,14 @@ export default function EditSpotScreen() {
   // Save awaits the deletes before router.back(), so a second tap must not start another run.
   const savingRef = useRef(false);
   const [saving, setSaving] = useState(false);
+  // The sheet can still close while Save runs (Android back); back() after that would pop the detail screen too.
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const photos = spot ? spotPhotos(spot, media) : [];
   const visiblePhotos = photos.filter((p) => !removedIds.includes(p.id));
@@ -204,8 +212,10 @@ export default function EditSpotScreen() {
       const warning = photoWarning(someNotRemoved, someNotAdded);
       if (warning) {
         // Close the sheet from the alert, so dismissing the sheet can't swallow the alert on iOS.
-        Alert.alert(warning.title, warning.message, [{ text: 'OK', onPress: () => router.back() }]);
-      } else {
+        Alert.alert(warning.title, warning.message, [
+          { text: 'OK', onPress: () => mountedRef.current && router.back() },
+        ]);
+      } else if (mountedRef.current) {
         router.back();
       }
     } catch (err) {
@@ -250,6 +260,8 @@ export default function EditSpotScreen() {
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
       automaticallyAdjustKeyboardInsets>
+      {/* No swipe-down dismissal mid-save: the save would finish behind the user and its back() pop detail. */}
+      <Stack.Screen options={{ gestureEnabled: !saving }} />
       <PhotoGrid
         photos={gridPhotos}
         renderBadge={renderBadge}

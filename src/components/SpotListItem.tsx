@@ -1,7 +1,6 @@
 import React, { memo } from 'react';
 import { Pressable, View, Text, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
-import { RatingBadge } from './RatingBadge';
 import { palette, spacing, radius } from '@/src/constants/theme';
 
 interface SpotListItemProps {
@@ -9,9 +8,7 @@ interface SpotListItemProps {
   displayName: string;
   thumbnailUri?: string;
   featureType?: string;
-  difficulty?: 1 | 2 | 3 | 4 | 5;
   distance?: string;
-  isDraft: boolean;
   onPress: (id: string) => void;
 }
 
@@ -20,9 +17,7 @@ export const SpotListItem = memo(function SpotListItem({
   displayName,
   thumbnailUri,
   featureType,
-  difficulty,
   distance,
-  isDraft,
   onPress,
 }: SpotListItemProps) {
   return (
@@ -55,12 +50,6 @@ export const SpotListItem = memo(function SpotListItem({
           {featureType ? (
             <View style={styles.typeBadge}>
               <Text style={styles.typeText}>{featureType}</Text>
-            </View>
-          ) : null}
-          {difficulty ? <RatingBadge rating={difficulty} /> : null}
-          {isDraft ? (
-            <View style={styles.draftBadge}>
-              <Text style={styles.draftText}>Draft</Text>
             </View>
           ) : null}
         </View>
@@ -127,19 +116,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
     color: palette.gray[600],
-    textTransform: 'capitalize',
-  },
-  draftBadge: {
-    backgroundColor: palette.yellow[100],
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderRadius: radius.sm,
-    borderCurve: 'continuous',
-  },
-  draftText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: palette.yellow[700],
   },
   distance: {
     fontSize: 13,

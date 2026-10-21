@@ -6,15 +6,13 @@ import type NativeMapView from 'react-native-maps';
 
 import { ClusteredMapView } from '@/src/components/ClusteredMapView';
 import { colors, palette } from '@/src/constants/theme';
-import { SpotStatus } from '@/src/types';
 import type { GeoPoint, Spot } from '@/src/types';
 import { clusterPressTarget } from '@/src/utils/cluster-press';
 import type { ClusterLeaf } from '@/src/utils/cluster-press';
 import { isKnownLocation } from '@/src/utils/geo';
 import { initialRegion } from '@/src/utils/map-region';
-import { featureLabel, getSpotDisplayName } from '@/src/utils/spot-name';
+import { featureTypesLabel, getSpotDisplayName } from '@/src/utils/spot-name';
 
-export const DRAFT_PIN = palette.yellow[500];
 export const SPOT_PIN = colors.light.primary;
 
 const EDGE_PADDING = { top: 50, right: 50, bottom: 50, left: 50 };
@@ -66,21 +64,18 @@ export function SpotMap({ spots, currentLocation, onOpenSpot }: Props) {
   // which the library redoes whenever its children change.
   const markers = useMemo(
     () =>
-      spots.filter((s) => isKnownLocation(s.location)).map((spot) => {
-        const isDraft = spot.status === SpotStatus.Draft;
-        return (
-          <Marker
-            key={spot.id}
-            identifier={spot.id}
-            testID={`spot-marker-${spot.id}`}
-            coordinate={spot.location}
-            title={getSpotDisplayName(spot)}
-            description={isDraft ? 'Draft' : featureLabel(spot)}
-            pinColor={isDraft ? DRAFT_PIN : SPOT_PIN}
-            onCalloutPress={() => onOpenSpot(spot.id)}
-          />
-        );
-      }),
+      spots.filter((s) => isKnownLocation(s.location)).map((spot) => (
+        <Marker
+          key={spot.id}
+          identifier={spot.id}
+          testID={`spot-marker-${spot.id}`}
+          coordinate={spot.location}
+          title={getSpotDisplayName(spot)}
+          description={featureTypesLabel(spot)}
+          pinColor={SPOT_PIN}
+          onCalloutPress={() => onOpenSpot(spot.id)}
+        />
+      )),
     [spots, onOpenSpot],
   );
 

@@ -1,3 +1,4 @@
+import { FEATURE_TYPE_LABELS } from '@/src/constants/labels';
 import type { Spot } from '@/src/types';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -29,10 +30,9 @@ export function getSpotDisplayName(spot: Spot): string {
   return ['Untitled', spot.generated_name, formatSpotTime(spot.created_at)].filter(Boolean).join(' · ');
 }
 
-/** The feature type as shown to the user: the custom name for 'other', underscores as spaces. */
-export function featureLabel(spot: Spot): string | undefined {
-  const { type, custom_type } = spot.feature;
-  if (!type) return undefined;
-  if (type === 'other' && custom_type) return custom_type;
-  return type.replace(/_/g, ' ');
+/** The first feature type's label, plus `+N` for the rest (`Rail +1`); undefined for an untagged spot. */
+export function featureTypesLabel(spot: Spot): string | undefined {
+  const [first, ...rest] = spot.feature_types;
+  if (!first) return undefined;
+  return rest.length > 0 ? `${FEATURE_TYPE_LABELS[first]} +${rest.length}` : FEATURE_TYPE_LABELS[first];
 }

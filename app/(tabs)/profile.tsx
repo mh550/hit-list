@@ -3,27 +3,17 @@ import { StyleSheet, ScrollView, View, Text, TextInput, Pressable } from 'react-
 
 import { useSettingsStore } from '@/src/stores/settings-store';
 import { useSettingsActions } from '@/src/hooks/use-settings-actions';
-import { Chip, ChipGroup } from '@/src/components/Chip';
 import { palette, spacing, radius } from '@/src/constants/theme';
-import { GearItem, UnitSystem } from '@/src/types';
+import { UnitSystem } from '@/src/types';
 
 function SectionHeader({ title }: { title: string }) {
   return <Text style={styles.sectionHeader}>{title}</Text>;
 }
 
-const GEAR_LABELS: Record<GearItem, string> = {
-  [GearItem.Winch]: 'winch',
-  [GearItem.Bungee]: 'bungee',
-  [GearItem.DropInPlatform]: 'drop in platform',
-  [GearItem.Scaffolding]: 'scaffolding',
-  [GearItem.ShovelPull]: 'shovel pull',
-};
-
 export default function ProfileScreen() {
   const units = useSettingsStore((s) => s.units);
   const batchRadius = useSettingsStore((s) => s.batch_import_radius);
-  const gear = useSettingsStore((s) => s.gear);
-  const { setUnits, setBatchImportRadius, toggleGear } = useSettingsActions();
+  const { setUnits, setBatchImportRadius } = useSettingsActions();
 
   const [radiusText, setRadiusText] = useState(String(batchRadius));
 
@@ -65,19 +55,6 @@ export default function ProfileScreen() {
         </Pressable>
       </View>
 
-      <SectionHeader title="My Gear" />
-      <Text style={styles.hint}>Select the gear you own for smart spot filtering.</Text>
-      <ChipGroup>
-        {Object.values(GearItem).map((item) => (
-          <Chip
-            key={item}
-            label={GEAR_LABELS[item]}
-            selected={gear.includes(item)}
-            onPress={() => toggleGear(item)}
-          />
-        ))}
-      </ChipGroup>
-
       <SectionHeader title="Import Settings" />
       <View style={styles.field}>
         <Text style={styles.fieldLabel}>Import Radius</Text>
@@ -113,10 +90,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: palette.gray[900],
     marginTop: spacing.lg,
-  },
-  hint: {
-    fontSize: 13,
-    color: palette.gray[500],
   },
   unitsRow: {
     flexDirection: 'row',

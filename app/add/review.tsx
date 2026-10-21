@@ -8,7 +8,6 @@ import { useMediaActions } from '@/src/hooks/use-media-actions';
 import { newId } from '@/src/utils/id';
 import { isKnownLocation, NO_LOCATION } from '@/src/utils/geo';
 import { palette, spacing, radius } from '@/src/constants/theme';
-import { SpotStatus } from '@/src/types';
 import type { Spot } from '@/src/types';
 
 export default function ReviewScreen() {
@@ -46,11 +45,8 @@ export default function ReviewScreen() {
       location: { latitude, longitude },
       created_at: now,
       updated_at: now,
-      status: SpotStatus.Draft,
-      feature: {},
-      in_run: { setup_options: [] },
-      landing: {},
-      metadata: {},
+      feature_types: [],
+      stopped: false,
       primary_photo_id: firstPhotoId,
     };
 
@@ -133,7 +129,7 @@ export default function ReviewScreen() {
         disabled={saving}
         accessibilityLabel="Save spot"
         accessibilityRole="button">
-        <Text style={styles.saveText}>{saving ? 'Saving…' : 'Save as Draft'}</Text>
+        <Text style={styles.saveText}>{saving ? 'Saving…' : 'Save'}</Text>
       </Pressable>
     </ScrollView>
   );

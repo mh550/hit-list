@@ -1,20 +1,26 @@
 # HitList
 
 A mobile-first app for street snowboarders and skateboarders to keep track of spots: one rideable
-feature at one place (a rail, a ledge, a bank…), with photos, a map, gear/build filters and ratings.
+feature at one place (a rail, a ledge, a bank…), with photos, a map and three quick tags: what's
+here, whether it's skate-stopped, and how much natural speed the in-run gives.
 Built with Expo (React Native) and runs on an iPhone through Expo Go.
 
-## Status (2026-10-15)
+## Status (2026-10-21)
 
-Works end to end in tests and bundles for iOS; first run on the phone is the next step.
+Works end to end in tests and bundles for iOS. The simplification (rev 2,
+`docs/specs/2026-10-16-simplification-design.md`) is being built: the model step (M1) is done, the
+edit/detail/filter screens for the new tags come next.
 
-- Quick Add (camera → optional name → draft) and batch import from the photo library (grouped by
+- Spot model (database v3): feature types (several per spot), skate stopped, natural speed (None to Too
+  much, 0–4), notes. Migration 3 archives every older field (dimensions, material, stops, setup options,
+  old scores…) in `legacy_json`, read only by `getSpotLegacy`.
+- Quick Add (camera → optional name → Save) and batch import from the photo library (grouped by
   place from GPS; the EXIF capture time sets each spot's date).
 - Photos are kept in the app's own storage and shown as list thumbnails and a detail gallery.
-- Spots list with filters (feature type, gear/build, drafts) and distance from where you are.
-- Apple Maps view (List | Map), drafts in a different pin colour, tap through to the spot. Nearby spots
+- Spots list with filters (what's here, skate stopped, natural speed) and distance from where you are.
+- Apple Maps view (List | Map), one pin colour, tap through to the spot. Nearby spots
   cluster into a numbered circle; spots at the same place open a list to pick from.
-- Search by name (both views) and sort by Date, Name, Distance or Intensity (list).
+- Search by name (both views) and sort by Date, Name or Distance (list).
 - Unnamed spots read `Untitled · Seattle · Oct 13, 2:22 PM` (town from Apple's geocoder, which needs internet).
 - Offline-first SQLite storage with versioned migrations.
 

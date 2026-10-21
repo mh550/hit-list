@@ -1,7 +1,8 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
-import type { Spot, SpotUpdate, FeatureDetails, InRun, Landing, SpotMetadata } from '@/src/types';
-import { SpotStatus } from '@/src/types';
+import type { FeatureType, NaturalSpeed, Spot, SpotUpdate } from '@/src/types';
+import type { SpotLegacy } from './schema';
 
+/** A spots row as the app reads it: every column but `legacy_json`, which only getSpotLegacy reads. */
 interface SpotRow {
   id: string;
   name: string | null;
@@ -11,13 +12,15 @@ interface SpotRow {
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
-  status: string;
-  feature_json: string;
-  in_run_json: string;
-  landing_json: string;
-  metadata_json: string;
+  feature_types_json: string;
+  stopped: number;
+  natural_speed: number | null;
+  notes: string | null;
   primary_photo_id: string | null;
 }
+
+const SPOT_COLUMNS =
+  'id, name, generated_name, latitude, longitude, created_at, updated_at, deleted_at, feature_types_json, stopped, natural_speed, notes, primary_photo_id';
 
 function rowToSpot(row: SpotRow): Spot {
   return {
@@ -28,19 +31,19 @@ function rowToSpot(row: SpotRow): Spot {
     created_at: row.created_at,
     updated_at: row.updated_at,
     deleted_at: row.deleted_at ?? undefined,
-    status: row.status as SpotStatus,
-    feature: JSON.parse(row.feature_json) as FeatureDetails,
-    in_run: JSON.parse(row.in_run_json) as InRun,
-    landing: JSON.parse(row.landing_json) as Landing,
-    metadata: JSON.parse(row.metadata_json) as SpotMetadata,
+    feature_types: JSON.parse(row.feature_types_json) as FeatureType[],
+    stopped: row.stopped === 1,
+    // 0 (None) is a rating; only NULL is unset
+    natural_speed: row.natural_speed === null ? undefined : (row.natural_speed as NaturalSpeed),
+    notes: row.notes ?? undefined,
     primary_photo_id: row.primary_photo_id ?? undefined,
   };
 }
 
 export async function insertSpot(db: SQLiteDatabase, spot: Spot): Promise<void> {
   await db.runAsync(
-    `INSERT INTO spots (id, name, generated_name, latitude, longitude, created_at, updated_at, deleted_at, status, feature_json, in_run_json, landing_json, metadata_json, primary_photo_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO spots (id, name, generated_name, latitude, longitude, created_at, updated_at, deleted_at, feature_types_json, stopped, natural_speed, notes, primary_photo_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     spot.id,
     spot.name ?? null,
     spot.generated_name ?? null,
@@ -49,18 +52,17 @@ export async function insertSpot(db: SQLiteDatabase, spot: Spot): Promise<void> 
     spot.created_at,
     spot.updated_at,
     spot.deleted_at ?? null,
-    spot.status,
-    JSON.stringify(spot.feature),
-    JSON.stringify(spot.in_run),
-    JSON.stringify(spot.landing),
-    JSON.stringify(spot.metadata),
+    JSON.stringify(spot.feature_types),
+    spot.stopped ? 1 : 0,
+    spot.natural_speed ?? null,
+    spot.notes ?? null,
     spot.primary_photo_id ?? null,
   );
 }
 
 export async function getSpot(db: SQLiteDatabase, id: string): Promise<Spot | null> {
   const row = await db.getFirstAsync<SpotRow>(
-    `SELECT * FROM spots WHERE id = ? AND deleted_at IS NULL`,
+    `SELECT ${SPOT_COLUMNS} FROM spots WHERE id = ? AND deleted_at IS NULL`,
     id,
   );
   return row ? rowToSpot(row) : null;
@@ -68,9 +70,18 @@ export async function getSpot(db: SQLiteDatabase, id: string): Promise<Spot | nu
 
 export async function getSpots(db: SQLiteDatabase): Promise<Spot[]> {
   const rows = await db.getAllAsync<SpotRow>(
-    `SELECT * FROM spots WHERE deleted_at IS NULL ORDER BY created_at DESC`,
+    `SELECT ${SPOT_COLUMNS} FROM spots WHERE deleted_at IS NULL ORDER BY created_at DESC`,
   );
   return rows.map(rowToSpot);
+}
+
+/** What migration 3 archived for this spot (the detail screen's "Older details"), or null when nothing was. */
+export async function getSpotLegacy(db: SQLiteDatabase, id: string): Promise<SpotLegacy | null> {
+  const row = await db.getFirstAsync<{ legacy_json: string | null }>(
+    'SELECT legacy_json FROM spots WHERE id = ?',
+    id,
+  );
+  return row?.legacy_json ? (JSON.parse(row.legacy_json) as SpotLegacy) : null;
 }
 
 export async function updateSpot(
@@ -93,25 +104,21 @@ export async function updateSpot(
     setClauses.push('latitude = ?, longitude = ?');
     values.push(updates.location.latitude, updates.location.longitude);
   }
-  if (updates.status) {
-    setClauses.push('status = ?');
-    values.push(updates.status);
+  if (updates.feature_types) {
+    setClauses.push('feature_types_json = ?');
+    values.push(JSON.stringify(updates.feature_types));
   }
-  if (updates.feature) {
-    setClauses.push('feature_json = ?');
-    values.push(JSON.stringify(updates.feature));
+  if (updates.stopped !== undefined) {
+    setClauses.push('stopped = ?');
+    values.push(updates.stopped ? 1 : 0);
   }
-  if (updates.in_run) {
-    setClauses.push('in_run_json = ?');
-    values.push(JSON.stringify(updates.in_run));
+  if (updates.natural_speed !== undefined) {
+    setClauses.push('natural_speed = ?');
+    values.push(updates.natural_speed);
   }
-  if (updates.landing) {
-    setClauses.push('landing_json = ?');
-    values.push(JSON.stringify(updates.landing));
-  }
-  if (updates.metadata) {
-    setClauses.push('metadata_json = ?');
-    values.push(JSON.stringify(updates.metadata));
+  if (updates.notes !== undefined) {
+    setClauses.push('notes = ?');
+    values.push(updates.notes);
   }
   if (updates.primary_photo_id !== undefined) {
     setClauses.push('primary_photo_id = ?');

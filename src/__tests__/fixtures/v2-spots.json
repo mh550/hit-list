@@ -1,0 +1,68 @@
+{
+  "full": {
+    "status": "draft",
+    "feature": {
+      "type": "other",
+      "custom_type": "curved rail",
+      "shape": "kinked",
+      "dimensions": { "length": 12.5, "height": 1.2, "width": 0.05 },
+      "material": "steel",
+      "skate_stops": { "is_stopped": true, "stop_type": "knobs", "stop_description": "every 50 cm", "removable": true },
+      "difficulty": 3
+    },
+    "inRun": {
+      "natural_speed": 4,
+      "setup_options": [
+        { "requires": [{ "item": "winch", "category": "gear" }] },
+        {
+          "requires": [
+            { "item": "drop_in_platform", "category": "gear" },
+            { "item": "speed_humps", "category": "build", "quantity": 2 }
+          ]
+        }
+      ]
+    },
+    "landing": { "difficulty": 2, "surface": "snow_built" },
+    "metadata": { "intensity": 5, "bustability": 3, "bustability_notes": "security at 9pm", "notes": "hello" }
+  },
+  "fullLegacy": {
+    "custom_type": "curved rail",
+    "shape": "kinked",
+    "length_m": 12.5,
+    "height_m": 1.2,
+    "width_m": 0.05,
+    "material": "steel",
+    "stop_type": "knobs",
+    "stop_description": "every 50 cm",
+    "removable": true,
+    "difficulty": 3,
+    "setup_options": [
+      { "requires": [{ "item": "winch", "category": "gear" }] },
+      {
+        "requires": [
+          { "item": "drop_in_platform", "category": "gear" },
+          { "item": "speed_humps", "category": "build", "quantity": 2 }
+        ]
+      }
+    ],
+    "landing_difficulty": 2,
+    "landing_surface": "snow_built",
+    "intensity": 5,
+    "bustability": 3,
+    "bustability_notes": "security at 9pm"
+  },
+  "empty": {
+    "status": "complete",
+    "feature": {
+      "custom_type": "",
+      "shape": "",
+      "dimensions": {},
+      "skate_stops": { "is_stopped": false, "removable": false }
+    },
+    "inRun": { "setup_options": [] },
+    "landing": {},
+    "metadata": { "notes": "", "bustability_notes": "" }
+  },
+  "blankTextMetadata": { "notes": "  ", "bustability_notes": " \n" },
+  "notStoppedCapsFeature": { "skate_stops": { "is_stopped": false, "removable": false, "stop_type": "caps" } }
+}

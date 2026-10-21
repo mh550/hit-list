@@ -4,7 +4,7 @@ import { useRouter } from 'expo-router';
 import { act, render, screen, fireEvent } from '@testing-library/react-native';
 import { selectFilteredSpots, useMediaStore, useSpotsStore } from '@/src/stores';
 import { useLocationStore } from '@/src/stores/location-store';
-import { DEFAULT_FILTERS, FeatureType, SortDirection, SortField, SpotStatus } from '@/src/types';
+import { DEFAULT_FILTERS, FeatureType, SortDirection, SortField } from '@/src/types';
 import { getSpotDisplayName } from '@/src/utils/spot-name';
 import { CITIES, createTestSpot } from './factories';
 
@@ -14,36 +14,27 @@ import { SortChips } from '@/src/components/SortChips';
 // Four spots whose orders differ per sort, with the user standing in Seattle:
 //   date added (newest first): unnamed, Library, Bank, Pier
 //   name A to Z:               Bank, Library, Pier, Untitled
-//   intensity (highest first): Library, unnamed, Pier, Bank
 //   distance (nearest first):  Pier (0 km), unnamed (Tacoma ~40 km), Library (Portland ~230 km), Bank (Spokane ~370 km)
 const TACOMA = { latitude: 47.2529, longitude: -122.4443 };
 const pier = createTestSpot({
   name: 'Pier 57 rail',
-  status: SpotStatus.Complete,
   location: CITIES.seattle,
   created_at: '2026-10-10T12:00:00.000Z',
-  metadata: { intensity: 3 },
 });
 const library = createTestSpot({
   name: 'Library ledge',
-  status: SpotStatus.Complete,
   location: CITIES.portland,
   created_at: '2026-10-12T12:00:00.000Z',
-  metadata: { intensity: 5 },
 });
 const bank = createTestSpot({
   name: 'Bank to wall',
-  status: SpotStatus.Complete,
   location: CITIES.spokane,
   created_at: '2026-10-11T12:00:00.000Z',
-  metadata: { intensity: 1 },
 });
 const unnamed = createTestSpot({
-  status: SpotStatus.Complete,
   location: TACOMA,
   generated_name: 'Tacoma',
   created_at: '2026-10-13T15:00:00.000Z',
-  metadata: { intensity: 4 },
 });
 const spots = [pier, library, bank, unnamed];
 
@@ -60,7 +51,7 @@ function searchField() {
   return screen.getByLabelText('Search spots');
 }
 
-function chip(name: 'Date' | 'Name' | 'Distance' | 'Intensity') {
+function chip(name: 'Date' | 'Name' | 'Distance') {
   return screen.getByLabelText(new RegExp(`^Sort by ${name}`));
 }
 
@@ -191,7 +182,7 @@ describe('Spots tab search', () => {
 
     it('shows the badge for a real filter (control: proves the header is observable)', () => {
       // Without this control, a passing "no badge while searching" test could just be reading nothing.
-      useSpotsStore.setState({ filters: { ...DEFAULT_FILTERS, show_drafts: false } });
+      useSpotsStore.setState({ filters: { ...DEFAULT_FILTERS, stopped: true } });
 
       render(<SpotsScreen />);
 
@@ -213,18 +204,16 @@ describe('Spots tab search', () => {
     // Fixed midday UTC so the generated label reads "Oct 13 ... PM" in practically every zone.
     const FIXED_DATE = '2026-10-13T12:00:00.000Z';
     const tacoma = createTestSpot({
-      status: SpotStatus.Complete,
       generated_name: 'Tacoma',
       created_at: FIXED_DATE,
     });
     const seattlePier = createTestSpot({
       name: 'Pier 57 rail',
       generated_name: 'Seattle',
-      status: SpotStatus.Complete,
       created_at: FIXED_DATE,
     });
     // Neither name nor town: nothing to match against.
-    const nothing = createTestSpot({ status: SpotStatus.Complete, created_at: FIXED_DATE });
+    const nothing = createTestSpot({ created_at: FIXED_DATE });
     const all = [tacoma, seattlePier, nothing];
     const search = (q: string) => selectFilteredSpots(all, DEFAULT_FILTERS, q);
 
@@ -264,15 +253,15 @@ describe('Spots tab search', () => {
 });
 
 describe('Spots tab sort chips', () => {
-  it('orders the chips Distance, Date, Name, Intensity', () => {
-    // D10: all four are reachable from the list, "distance first, since the map already shows distance".
+  it('orders the chips Distance, Date, Name', () => {
+    // D10: "distance first, since the map already shows distance". Three chips since D17.
     render(<SpotsScreen />);
 
     const labels = screen
       .getAllByLabelText(/^Sort by /)
       .map((node) => (node.props.accessibilityLabel as string).replace(/^Sort by (\w+).*$/, '$1'));
 
-    expect(labels).toEqual(['Distance', 'Date', 'Name', 'Intensity']);
+    expect(labels).toEqual(['Distance', 'Date', 'Name']);
   });
 
   it('map mode shows no sort chips', () => {
@@ -281,7 +270,7 @@ describe('Spots tab sort chips', () => {
 
     render(<SpotsScreen />);
 
-    for (const name of ['Date', 'Name', 'Distance', 'Intensity']) {
+    for (const name of ['Date', 'Name', 'Distance']) {
       expect(screen.queryByLabelText(new RegExp(`^Sort by ${name}`))).toBeNull();
     }
   });
@@ -293,7 +282,7 @@ describe('Spots tab sort chips', () => {
     expect(rowNames()).toEqual([UNTITLED, 'Library ledge', 'Bank to wall', 'Pier 57 rail']);
     expect(selectedOf(chip('Date'))).toBe(true);
     expect(chip('Date')).toHaveTextContent(/Date ↓/);
-    for (const name of ['Name', 'Distance', 'Intensity'] as const) {
+    for (const name of ['Name', 'Distance'] as const) {
       expect(selectedOf(chip(name))).toBeFalsy();
       expect(chip(name)).not.toHaveTextContent(/[↑↓]/);
     }
@@ -384,17 +373,6 @@ describe('Spots tab sort chips', () => {
     expect(chip('Distance')).toHaveTextContent(/Distance ↑/);
   });
 
-  it('tapping Intensity sorts highest first with a down arrow', () => {
-    // Natural first direction for Intensity is descending (the most intense spot on top).
-    render(<SpotsScreen />);
-
-    fireEvent.press(chip('Intensity'));
-
-    expect(rowNames()).toEqual(['Library ledge', UNTITLED, 'Pier 57 rail', 'Bank to wall']);
-    expect(selectedOf(chip('Intensity'))).toBe(true);
-    expect(chip('Intensity')).toHaveTextContent(/Intensity ↓/);
-  });
-
   it('keeps the chosen sort when the search narrows the list', () => {
     // Search and sort compose: "r" matches only Library ledge and Pier 57 rail, which keep their Name order.
     render(<SpotsScreen />);
@@ -442,7 +420,7 @@ describe('Spots tab sort chips', () => {
       // The label must not repeat the direction for chips that are not sorting.
       render(<SpotsScreen />);
 
-      for (const name of ['Distance', 'Name', 'Intensity'] as const) {
+      for (const name of ['Distance', 'Name'] as const) {
         expect(chip(name).props.accessibilityLabel).toBe(`Sort by ${name}`);
       }
     });
@@ -454,8 +432,6 @@ describe('Spots tab sort chips', () => {
       [SortField.Name, SortDirection.Desc, 'Sort by Name, Z to A'],
       [SortField.Distance, SortDirection.Asc, 'Sort by Distance, nearest first'],
       [SortField.Distance, SortDirection.Desc, 'Sort by Distance, farthest first'],
-      [SortField.Intensity, SortDirection.Desc, 'Sort by Intensity, highest first'],
-      [SortField.Intensity, SortDirection.Asc, 'Sort by Intensity, lowest first'],
     ])('active chip for %s %s is labelled "%s"', (field, direction, label) => {
       // VoiceOver hides the visible "Date ↓" behind the label, so the label must say the direction in words.
       useLocationStore.setState({ currentLocation: CITIES.seattle });
@@ -512,10 +488,10 @@ describe('Spots tab no-match state', () => {
   });
 
   describe('offers a way out', () => {
-    const draft = createTestSpot({ name: 'Draft rail', status: SpotStatus.Draft });
+    const notStopped = createTestSpot({ name: 'Open rail' });
 
     beforeEach(() => {
-      useSpotsStore.setState({ spots: [draft], filters: { ...DEFAULT_FILTERS, show_drafts: false } });
+      useSpotsStore.setState({ spots: [notStopped], filters: { ...DEFAULT_FILTERS, stopped: true } });
     });
 
     it('filters excluding everything show a "Reset filters" action', () => {
@@ -528,14 +504,14 @@ describe('Spots tab no-match state', () => {
     });
 
     it('pressing "Reset filters" restores the default filters and shows the spot', () => {
-      // Reset means DEFAULT_FILTERS: drafts are shown again.
+      // Reset means DEFAULT_FILTERS: spots that are not stopped are shown again.
       render(<SpotsScreen />);
 
       fireEvent.press(screen.getByText('Reset filters'));
 
       expect(useSpotsStore.getState().filters).toEqual(DEFAULT_FILTERS);
       expect(screen.queryByText('No matching spots')).toBeNull();
-      expect(screen.getByText('Draft rail')).toBeTruthy();
+      expect(screen.getByText('Open rail')).toBeTruthy();
     });
 
     it('with a search active the action is "Clear search"', () => {

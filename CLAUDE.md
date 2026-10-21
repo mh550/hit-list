@@ -9,8 +9,9 @@ Guidance for Claude Code working in this repository.
 ## What this is
 
 **HitList**: a mobile-first app for street snowboarders/skateboarders to track "spots" (one rideable
-feature at one place: rail, ledge, bank…), with photos, a map, gear/build filters and ratings. Product
-spec: `APP_SPECIFICATIONS.md`. Native-only (web is a stub). Runs on Michael's iPhone in Expo Go; see
+feature at one place: rail, ledge, bank…), with photos, a map, and three tags (what's here, skate
+stopped, natural speed). Product spec: `APP_SPECIFICATIONS.md`; the simplified model (rev 2) is
+`docs/specs/2026-10-16-simplification-design.md`. Native-only (web is a stub). Runs on Michael's iPhone in Expo Go; see
 `docs/RUNNING-ON-PHONE.md`.
 
 ## Stack (as of 2026-10-15)
@@ -44,6 +45,8 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   next to the WAL line in `migrateDb`, not in a migration. Foreign keys are OFF while migrations run and ON for the app
   afterwards, so a table rebuild is safe; only the `SQLiteProvider` connection has them on (a second connection, e.g.
   `withExclusiveTransactionAsync`, would start with them off).
+  `spots.ts`: `getSpots`/`getSpot` select the explicit `SPOT_COLUMNS` (never `legacy_json`); `getSpotLegacy(db, id)` is
+  the only reader of the archive.
 - `src/stores/` zustand: spots (+ Filter-sheet filters, a separate `searchQuery`, sort, `viewMode`; filtering and sorting live in its selectors), media (`mediaBySpot`), settings, location.
 - `src/hooks/` `useDbInit` (migrate, then load spots/media/settings even if the migration threw, background town backfill),
   `useSpotActions`, `useMediaActions` (photo save and remove; removal deletes the row only, D3), `useCurrentLocation`.
@@ -59,6 +62,13 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
 - **Photos**: copied into `Paths.document/photos/<spotId>/<mediaId>.jpg`; `media.file_path` stores
   the **relative** path; resolve with `resolvePhotoUri` at display time. Never write to the camera
   roll; files are not deleted on soft delete.
+- **Spot model (v3, migration 3)**: a spot is `feature_types` (ordered `FeatureType[]`, `[]` = untagged,
+  column `feature_types_json`), `stopped` (boolean, skate stoppers on it), `natural_speed` (0–4, **0 = None is a
+  real value**, undefined = not rated; never test it with `!`), `notes`. In a `SpotUpdate`, `null` clears `name`,
+  `notes`, `natural_speed`, `primary_photo_id`. Everything the old nested model held (dimensions, material, stops,
+  setup options, old scores…) was archived into
+  `legacy_json` (`SpotLegacy` in `src/db/schema.ts`, read via `getSpotLegacy`; v2 test rows in `src/__tests__/fixtures/v2-spots.json`). Feature-type labels come from `FEATURE_TYPE_LABELS`
+  (`src/constants/labels.ts`) and `featureTypesLabel` (`src/utils/spot-name.ts`, "Rail +1").
 - **No location** is stored as `(0, 0)` (`NO_LOCATION`); always test with `isKnownLocation` (map,
   distance, geocoding).
 - **Ids** come from `newId()` in `src/utils/id.ts` (expo-crypto's native `randomUUID`). Never the `uuid`

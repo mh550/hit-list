@@ -17,7 +17,6 @@ import { newId } from '@/src/utils/id';
 import { formatSpotDate } from '@/src/utils/spot-name';
 import { NO_LOCATION } from '@/src/utils/geo';
 import { palette, spacing, radius } from '@/src/constants/theme';
-import { SpotStatus } from '@/src/types';
 import type { Spot } from '@/src/types';
 import type { ImportPhoto } from '@/src/utils/import-clustering';
 
@@ -68,11 +67,8 @@ export default function ImportReviewScreen() {
             location,
             created_at: now, // the import, not the photo's capture date (D13); media keeps captured_at
             updated_at: now,
-            status: SpotStatus.Draft,
-            feature: {},
-            in_run: { setup_options: [] },
-            landing: {},
-            metadata: {},
+            feature_types: [],
+            stopped: false,
             primary_photo_id: group.photos.length > 0 ? firstMediaId : undefined,
           };
 

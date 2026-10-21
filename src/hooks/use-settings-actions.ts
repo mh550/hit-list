@@ -3,16 +3,16 @@ import { useSQLiteContext } from 'expo-sqlite';
 
 import { saveUserSettings } from '@/src/db';
 import { useSettingsStore } from '@/src/stores/settings-store';
-import type { GearItem, UnitSystem } from '@/src/types';
+import type { UnitSystem } from '@/src/types';
 
 export function useSettingsActions() {
   const db = useSQLiteContext();
   const store = useSettingsStore();
 
   const persistCurrent = useCallback(async () => {
-    const { units, batch_import_radius, gear } = useSettingsStore.getState();
+    const { units, batch_import_radius } = useSettingsStore.getState();
     try {
-      await saveUserSettings(db, { units, batch_import_radius, gear });
+      await saveUserSettings(db, { units, batch_import_radius });
     } catch (err) {
       console.error('[useSettingsActions] saveUserSettings failed:', err);
     }
@@ -21,9 +21,9 @@ export function useSettingsActions() {
   const setUnits = useCallback(
     async (units: UnitSystem) => {
       store.setUnits(units);
-      const { batch_import_radius, gear } = useSettingsStore.getState();
+      const { batch_import_radius } = useSettingsStore.getState();
       try {
-        await saveUserSettings(db, { units, batch_import_radius, gear });
+        await saveUserSettings(db, { units, batch_import_radius });
       } catch (err) {
         console.error('[useSettingsActions] setUnits persist failed:', err);
       }
@@ -39,18 +39,5 @@ export function useSettingsActions() {
     [store, persistCurrent],
   );
 
-  const toggleGear = useCallback(
-    async (item: GearItem) => {
-      const current = useSettingsStore.getState().gear;
-      if (current.includes(item)) {
-        store.removeGear(item);
-      } else {
-        store.addGear(item);
-      }
-      await persistCurrent();
-    },
-    [store, persistCurrent],
-  );
-
-  return { setUnits, setBatchImportRadius, toggleGear };
+  return { setUnits, setBatchImportRadius };
 }

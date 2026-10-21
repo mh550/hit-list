@@ -4,14 +4,14 @@ import { FlashList } from '@shopify/flash-list';
 import type { StyleProp, ViewStyle } from 'react-native';
 import { StyleSheet } from 'react-native';
 import { useMediaStore, useSpotsStore } from '@/src/stores';
-import { DEFAULT_FILTERS, SpotStatus } from '@/src/types';
+import { DEFAULT_FILTERS } from '@/src/types';
 import { createTestSpot } from './factories';
 
 import SpotsScreen from '@/app/(tabs)/index';
 
 const spots = [
-  createTestSpot({ name: 'Pier 57 rail', status: SpotStatus.Complete }),
-  createTestSpot({ name: 'Library ledge', status: SpotStatus.Draft }),
+  createTestSpot({ name: 'Pier 57 rail' }),
+  createTestSpot({ name: 'Library ledge' }),
 ];
 
 describe('Spots tab Import photos action', () => {

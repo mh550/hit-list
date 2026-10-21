@@ -1,7 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { createMigratedTestDb } from './helpers/node-sqlite-db';
-import { insertSpot, getSpot, getSpots, updateSpot, softDeleteSpot } from '@/src/db';
-import { FeatureType, SpotStatus, StopType } from '@/src/types';
+import { insertSpot, getSpot, getSpots, getSpotLegacy, updateSpot, softDeleteSpot } from '@/src/db';
+import { FeatureType } from '@/src/types';
 import { createTestSpot } from './factories';
 
 describe('spots against real SQLite', () => {
@@ -37,48 +37,88 @@ describe('spots against real SQLite', () => {
     expect(await getSpot(db, s.id)).toBeNull();
   });
 
-  it('partial updateSpot leaves the other JSON columns intact', async () => {
+  it('round-trips feature_types, stopped, natural_speed and notes', async () => {
     const s = createTestSpot({
-      feature: { type: FeatureType.Rail },
-      in_run: { natural_speed: 3, setup_options: [] },
-      landing: { difficulty: 2 },
-      metadata: { notes: 'kinked' },
+      feature_types: [FeatureType.Rail, FeatureType.Ledge],
+      stopped: true,
+      natural_speed: 0, // None is a real rating: it must not come back as unset
+      notes: 'kinked, wax it',
+    });
+
+    await insertSpot(db, s);
+
+    const read = await getSpot(db, s.id);
+    expect(read).toEqual(s);
+    expect(read?.natural_speed).toBe(0);
+  });
+
+  it('a spot saved without tags reads back untagged: [] / false / unset', async () => {
+    const s = createTestSpot();
+    await insertSpot(db, s);
+
+    const read = await getSpot(db, s.id);
+    expect(read).toMatchObject({ feature_types: [], stopped: false });
+    expect(read?.natural_speed).toBeUndefined();
+    expect(read?.notes).toBeUndefined();
+  });
+
+  it('partial updateSpot leaves the other columns intact', async () => {
+    const s = createTestSpot({
+      feature_types: [FeatureType.Rail],
+      stopped: true,
+      natural_speed: 2,
+      notes: 'kinked',
     });
     await insertSpot(db, s);
 
-    await updateSpot(db, s.id, { name: 'Kinked rail', status: SpotStatus.Complete });
+    await updateSpot(db, s.id, { name: 'Kinked rail' });
 
     expect(await getSpot(db, s.id)).toMatchObject({
       name: 'Kinked rail',
-      status: SpotStatus.Complete,
-      feature: s.feature,
-      in_run: s.in_run,
-      landing: s.landing,
-      metadata: s.metadata,
+      feature_types: [FeatureType.Rail],
+      stopped: true,
+      natural_speed: 2,
+      notes: 'kinked',
     });
   });
 
-  it('updateSpot with skate_stops: undefined removes the stops and leaves the other feature fields', async () => {
-    // Guard: turning skate stops off in Edit must really drop them from the stored feature JSON.
-    const feature = {
-      type: FeatureType.Rail,
-      shape: 'DFD',
-      difficulty: 3,
-      skate_stops: { is_stopped: true, stop_type: StopType.Knobs, stop_description: 'x', removable: true },
-    };
-    const s = createTestSpot({ feature });
+  it('updateSpot writes feature_types, stopped, natural_speed 0 and notes', async () => {
+    const s = createTestSpot({ feature_types: [FeatureType.Rail], stopped: true, natural_speed: 4 });
     await insertSpot(db, s);
 
-    await updateSpot(db, s.id, { feature: { ...feature, skate_stops: undefined } });
+    await updateSpot(db, s.id, {
+      feature_types: [FeatureType.Bank, FeatureType.Hip],
+      stopped: false,
+      natural_speed: 0,
+      notes: 'icy',
+    });
 
-    const stored = await getSpot(db, s.id);
-    expect(stored?.feature.skate_stops).toBeUndefined();
-    expect(stored?.feature).toMatchObject({ type: FeatureType.Rail, shape: 'DFD', difficulty: 3 });
+    expect(await getSpot(db, s.id)).toMatchObject({
+      feature_types: [FeatureType.Bank, FeatureType.Hip],
+      stopped: false,
+      natural_speed: 0,
+      notes: 'icy',
+    });
+  });
+
+  it('updateSpot with natural_speed: null and notes: null clears them', async () => {
+    const s = createTestSpot({ natural_speed: 3, notes: 'hello', feature_types: [FeatureType.Gap] });
+    await insertSpot(db, s);
+
+    await updateSpot(db, s.id, { natural_speed: null, notes: null });
+
+    const read = await getSpot(db, s.id);
+    expect(read?.natural_speed).toBeUndefined();
+    expect(read?.notes).toBeUndefined();
+    expect(read?.feature_types).toEqual([FeatureType.Gap]);
+    expect(
+      await db.getFirstAsync('SELECT natural_speed, notes FROM spots WHERE id = ?', s.id),
+    ).toEqual({ natural_speed: null, notes: null });
   });
 
   it('round-trips quotes, dashes and emoji in text fields', async () => {
     const name = `O'Brien's "kink" rail — Pier 57 🛹`;
-    const s = createTestSpot({ name, metadata: { notes: `it's "fine"; DROP TABLE spots; --` } });
+    const s = createTestSpot({ name, notes: `it's "fine"; DROP TABLE spots; --` });
 
     await insertSpot(db, s);
 
@@ -90,9 +130,8 @@ describe('spots against real SQLite', () => {
     const s = createTestSpot({
       name: 'Pier 57 rail',
       generated_name: 'Seattle',
-      status: SpotStatus.Complete,
-      feature: { type: FeatureType.Rail },
-      metadata: { notes: 'kinked' },
+      feature_types: [FeatureType.Rail],
+      notes: 'kinked',
     });
     await insertSpot(db, s);
 
@@ -103,6 +142,33 @@ describe('spots against real SQLite', () => {
     const read = await getSpot(db, s.id);
     expect(read?.name ?? null).toBeNull();
     expect(read).toMatchObject(rest);
+  });
+
+  describe('getSpotLegacy', () => {
+    it('returns null for a spot saved since migration 3', async () => {
+      const s = createTestSpot({ feature_types: [FeatureType.Rail] });
+      await insertSpot(db, s);
+
+      expect(await getSpotLegacy(db, s.id)).toBeNull();
+    });
+
+    it('returns null for an unknown id', async () => {
+      expect(await getSpotLegacy(db, 'no-such-spot')).toBeNull();
+    });
+
+    it('returns the archived object for a migrated spot, which getSpot never carries', async () => {
+      // Migration 3 writes legacy_json (db-migrate.test.ts runs it on v2 rows); here the column is set directly.
+      const s = createTestSpot({ feature_types: [FeatureType.Rail] });
+      await insertSpot(db, s);
+      await db.runAsync(
+        'UPDATE spots SET legacy_json = ? WHERE id = ?',
+        '{"material":"steel","landing_surface":"snow_built"}',
+        s.id,
+      );
+
+      expect(await getSpotLegacy(db, s.id)).toEqual({ material: 'steel', landing_surface: 'snow_built' });
+      expect(await getSpot(db, s.id)).toEqual(s);
+    });
   });
 
   describe('timestamps are ISO 8601 UTC', () => {

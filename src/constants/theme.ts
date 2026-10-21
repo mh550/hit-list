@@ -63,16 +63,6 @@ export const colors = {
   },
 } as const;
 
-// ── Difficulty/Rating Colors ────────────────────────────
-
-export const ratingColors = {
-  1: { bg: palette.green[100], text: palette.green[700] },
-  2: { bg: palette.green[100], text: palette.green[700] },
-  3: { bg: palette.yellow[100], text: palette.yellow[700] },
-  4: { bg: palette.red[100], text: palette.red[700] },
-  5: { bg: palette.red[100], text: palette.red[700] },
-} as const;
-
 // ── Spacing ─────────────────────────────────────────────
 
 export const spacing = {

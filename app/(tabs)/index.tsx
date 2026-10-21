@@ -22,11 +22,11 @@ import { SegmentedControl } from '@/src/components/SegmentedControl';
 import { SpotMap } from '@/src/components/SpotMap';
 import { SortChips } from '@/src/components/SortChips';
 import { useCurrentLocation } from '@/src/hooks/use-current-location';
-import { featureLabel, getSpotDisplayName } from '@/src/utils/spot-name';
+import { featureTypesLabel, getSpotDisplayName } from '@/src/utils/spot-name';
 import { resolvePhotoUri } from '@/src/utils/photo-storage';
 import { primaryPhoto } from '@/src/utils/spot-photos';
 import { haversineDistance, formatDistance, isKnownLocation } from '@/src/utils/geo';
-import { SortField, SpotStatus, UnitSystem } from '@/src/types';
+import { SortField, UnitSystem } from '@/src/types';
 import type { Spot } from '@/src/types';
 import type { ViewMode } from '@/src/stores/spots-store';
 import { palette, radius, spacing } from '@/src/constants/theme';
@@ -103,10 +103,8 @@ export default function SpotsScreen() {
           id={item.id}
           displayName={getSpotDisplayName(item)}
           thumbnailUri={thumbnail ? resolvePhotoUri(thumbnail.file_path) : undefined}
-          featureType={featureLabel(item)}
-          difficulty={item.feature.difficulty as 1 | 2 | 3 | 4 | 5 | undefined}
+          featureType={featureTypesLabel(item)}
           distance={getDistance(item)}
-          isDraft={item.status === SpotStatus.Draft}
           onPress={handleSpotPress}
         />
       );

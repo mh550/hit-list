@@ -30,20 +30,19 @@ takes a little while; later loads are quick.
 
 ## What to expect
 
-- **Spots tab, List** (default): every spot with a thumbnail (its main photo, or "No Photo"), a Draft
-  badge for drafts, and a distance once you allow location. Unnamed spots read
+- **Spots tab, List** (default): every spot with a thumbnail (its main photo, or "No Photo"), what's
+  there (e.g. "Rail +1") once tagged, and a distance once you allow location. Unnamed spots read
   `Untitled · Seattle · Oct 13, 2:22 PM` (the town arrives a moment after saving, from Apple's
   geocoder: it needs internet, and the spot's coordinates are sent to Apple to look it up) or `Untitled · Oct 13, 2:22 PM` without a town.
 - **Search and sort** (Spots tab): the search field under List | Map finds spots by name or town, in
-  both views. In List, the chips sort by Distance, Date, Name or Intensity. Tap the active chip again
-  to reverse it. Distance works once you allow location. Spots without a location, intensity or name
+  both views. In List, the chips sort by Distance, Date or Name. Tap the active chip again
+  to reverse it. Distance works once you allow location. Spots without a location or name
   stay at the bottom, whichever way the sort runs.
-- **Spots tab, Map**: the List | Map switch under the header. Apple Maps, one pin per spot: blue for
-  complete spots, yellow for drafts. Tap a pin, then its bubble, to open the spot. Spots saved
-  without GPS appear in the list but not on the map. Nearby spots show as one numbered blue circle.
-  The circle is always blue, even if the spots are drafts. Tap it to zoom in. If the spots are at
-  the same place, tapping it lists them by name instead. Pick one to open it.
-- **+ button**: camera → take photos → name it or leave it blank → Save as Draft. The photos are
+- **Spots tab, Map**: the List | Map switch under the header. Apple Maps, one blue pin per spot. Tap a pin, then its
+  bubble, to open the spot. Spots saved without GPS appear in the list but not on the map. Nearby
+  spots show as one numbered blue circle. Tap it to zoom in. If the spots are at the same place,
+  tapping it lists them by name instead. Pick one to open it.
+- **+ button**: camera → take photos → name it or leave it blank → Save. The photos are
   copied into the app's own storage, so they stay after iOS clears its caches.
 - **Import Photos** (Spots tab, the small photo button above +): it opens an "Import Photos" screen;
   tap **Select Photos** to open the library picker. Photos are grouped by GPS only: photos within the
@@ -63,7 +62,7 @@ takes a little while; later loads are quick.
 1. **Tap Map.** You should see Apple Maps with pins. A red screen saying "view config not found"
    would mean Expo Go lacks react-native-maps (not expected for SDK 57).
 2. **Tap a pin, then tap its bubble.** It should open that spot. If nothing happens, note it.
-3. **Make two quick spots at the same place** (+ button, Save as Draft twice without moving), then
+3. **Make two quick spots at the same place** (+ button, Save twice without moving), then
    open Map and zoom out. You should see one blue circle marked 2. Tap it: a list of the two spot
    names should appear. Pick one: that spot should open. If the map zooms in instead, note it.
 4. **Take a photo with the + button**, save, then force-quit Expo Go and reopen the project. The

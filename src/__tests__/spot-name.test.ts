@@ -1,4 +1,5 @@
-import { getSpotDisplayName, formatSpotTime } from '@/src/utils/spot-name';
+import { getSpotDisplayName, formatSpotTime, featureTypesLabel } from '@/src/utils/spot-name';
+import { FeatureType } from '@/src/types';
 import type { Spot } from '@/src/types';
 import { createTestSpot } from './factories';
 
@@ -41,5 +42,22 @@ describe('formatSpotTime', () => {
 
   it('returns an empty string for an invalid date', () => {
     expect(formatSpotTime('nope')).toBe('');
+  });
+});
+
+describe('featureTypesLabel', () => {
+  const label = (feature_types: FeatureType[]) => featureTypesLabel(createTestSpot({ feature_types }));
+
+  it('shows a single type by its label', () => {
+    expect(label([FeatureType.Rail])).toBe('Rail');
+  });
+
+  it('shows the first type and +N for the rest', () => {
+    expect(label([FeatureType.Rail, FeatureType.Ledge])).toBe('Rail +1');
+    expect(label([FeatureType.StairSet, FeatureType.Rail, FeatureType.Gap])).toBe('Stair set +2');
+  });
+
+  it('is undefined for an untagged spot', () => {
+    expect(label([])).toBeUndefined();
   });
 });

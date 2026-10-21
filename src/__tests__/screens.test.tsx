@@ -40,7 +40,7 @@ describe('Screen smoke tests', () => {
   it('renders Profile screen', () => {
     render(<ProfileScreen />);
     expect(screen.getByText('Units')).toBeTruthy();
-    expect(screen.getByText('My Gear')).toBeTruthy();
+    expect(screen.queryByText('My Gear')).toBeNull();
   });
 
   it('renders Camera screen (permission request state)', () => {
@@ -50,7 +50,8 @@ describe('Screen smoke tests', () => {
 
   it('renders Review screen', () => {
     render(<ReviewScreen />);
-    expect(screen.getByText('Save as Draft')).toBeTruthy();
+    expect(screen.getByText('Save')).toBeTruthy();
+    expect(screen.queryByText(/draft/i)).toBeNull();
   });
 
   it('renders Import screen', () => {

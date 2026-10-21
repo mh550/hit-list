@@ -1,0 +1,578 @@
+{
+  "run": "hit_list-2026-10-20",
+  "branch": "harness/hit_list-2026-10-20",
+  "features": [
+    {
+      "id": "M1-01",
+      "milestone": "M1",
+      "kind": "plan",
+      "model": "opus",
+      "description": "docs/plans/2026-10-20-m1-model.md states the final Spot type, migration 3 step by step, the legacy_json key list, and what happens to each of the 20 test files that reference removed fields.",
+      "steps": [
+        "docs/plans/2026-10-20-m1-model.md exists and has sections: Final types (the Spot, SpotFilters, UserSettings, NaturalSpeed shapes from spec §2.1 and §2.5), Migration 3 (SQL for the five ALTER TABLE ADD COLUMN, the JS backfill per row, the rebuild without status/feature_json/in_run_json/landing_json/metadata_json, index idx_spots_status dropped, idx_spots_deleted_at recreated), Legacy keys (the 16 keys of spec §4 item 2, with 'empty string / empty array / is_stopped false / status never archived' stated), Two-step type change (M1-02 adds the new fields and keeps the old nested ones; M1-03 removes gear, status and Intensity; M1-04 removes the nested model), Test file plan (a table with one row per file: db-settings, db-spots, stores, db-foreign-keys, db-init, edit-skate-stops, use-spot-actions, spot-detail-stops, factories, camera-permission, use-current-location, filter-sheet, spot-list, components, profile, spot-map, edit-dimensions, spots-view-mode, spots-import-action, spots-sort-search; each marked rewrite or delete and assigned to M1-02, M1-03 or M1-04).",
+        "The plan names the v2 fixture for db-migrate.test.ts: one full-fat spot (type 'other' + custom_type 'curved rail', shape, length/height/width in metres, material, skate_stops {is_stopped true, stop_type knobs, stop_description, removable true}, difficulty 3, in_run natural_speed 4 with two setup_options, landing difficulty 2 + surface, intensity 5, bustability 3, bustability_notes, notes 'hello', status draft) and one empty spot, each with two media rows, and the exact expected post-migration values (feature_types [], stopped true, natural_speed 3, notes 'hello', and the legacy_json object).",
+        "The plan says where FEATURE_TYPE_LABELS lives (src/constants/labels.ts, replacing STOP_TYPE_LABELS) and that FilterSheet's and edit's private TYPE_LABELS copies are replaced by it.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes (nothing but the plan changed)."
+      ],
+      "passes": true
+    },
+    {
+      "id": "M1-02",
+      "milestone": "M1",
+      "kind": "build",
+      "model": "opus",
+      "description": "Migration 3 archives every removed field into legacy_json and rebuilds spots with feature_types_json, stopped, natural_speed, notes columns; the mapper reads and writes them and getSpotLegacy reads the archive on demand.",
+      "steps": [
+        "src/types/index.ts has NaturalSpeed = 0|1|2|3|4 and Spot gains feature_types: FeatureType[], stopped: boolean, natural_speed?: NaturalSpeed, notes?: string (the old status/feature/in_run/landing/metadata fields stay on the type until M1-03/M1-04); SpotUpdate accepts null for name, notes, natural_speed and primary_photo_id; src/__tests__/factories.ts createTestSpot sets feature_types: [] and stopped: false.",
+        "src/db/schema.ts exports MIGRATIONS of length 3 and LATEST_SCHEMA_VERSION === 3; migration1 and migration2 are byte-for-byte unchanged (git diff src/db/schema.ts shows additions only above the MIGRATIONS line).",
+        "src/__tests__/db-migrate.test.ts (real node:sqlite harness) has passing cases: the full-fat v2 spot from the plan migrates to v3 with feature_types [] , stopped 1, natural_speed 3, notes 'hello' and legacy_json equal to the expected object (custom_type, shape, length_m, height_m, width_m, material, stop_type, stop_description, removable, difficulty, setup_options, landing_difficulty, landing_surface, intensity, bustability, bustability_notes; no status key); a v2 spot with feature type 'rail' and nothing else gets feature_types ['rail'] and legacy_json NULL; a v2 spot with everything empty gets legacy_json NULL; a v1 DB migrates 1→2→3; migrating a v3 DB again changes nothing; the two media rows per spot survive and PRAGMA foreign_key_check returns no rows after migrateDb; PRAGMA table_info(spots) has no status, feature_json, in_run_json, landing_json or metadata_json column and sqlite_master has idx_spots_deleted_at but not idx_spots_status.",
+        "src/db/spots.ts: rowToSpot/insertSpot/updateSpot read and write feature_types_json, stopped, natural_speed, notes (the old nested fields are returned as empty defaults until M1-04 removes them); getSpots and getSpot select explicit columns and never legacy_json; a new getSpotLegacy(db, id) returns the parsed legacy_json object or null; src/__tests__/db-spots.test.ts covers insert→get round trip of feature_types ['rail','ledge'], stopped true, natural_speed 0 (zero survives, not treated as unset), notes; updateSpot with natural_speed: null and notes: null clears them; getSpotLegacy returns null for a fresh spot and the object for a migrated one.",
+        "src/stores/spots-store.ts applySpotUpdate maps notes: null and natural_speed: null to undefined (test in src/__tests__/stores.test.ts).",
+        "db-init, db-foreign-keys, use-spot-actions and db-settings tests pass against schema v3 (rewritten where they inserted old columns); grep -rn \"feature_json\\|in_run_json\\|landing_json\\|metadata_json\" src app --include=*.ts --include=*.tsx | grep -v 'src/db/schema.ts' prints nothing.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "M1-03",
+      "milestone": "M1",
+      "kind": "build",
+      "model": "opus",
+      "description": "Gear, draft status and the Intensity sort are gone from the model and every screen: no SpotStatus, no GearItem/BuildItem, no UserSettings.gear, no Show Drafts, no Draft badge or pin, Save buttons say Save, sort chips are Distance · Date · Name.",
+      "steps": [
+        "grep -rn \"SpotStatus\\|GearItem\\|BuildItem\\|show_drafts\\|exclude_build\\|toggleGear\\|addGear\\|removeGear\\|setGear\\|DRAFT_PIN\\|isDraft\\|SortField.Intensity\\|intensity_min\\|intensity_max\\|bustability_min\\|bustability_max\\|GEAR_LABELS\\|BUILD_LABELS\" app src --include=*.ts --include=*.tsx prints nothing; grep -rn \"Draft\" app src --include=*.ts --include=*.tsx prints nothing.",
+        "src/types/index.ts: SortField has Name, Distance, DateAdded only; UserSettings is { units, batch_import_radius }; DEFAULT_USER_SETTINGS has no gear; SpotFilters is { types, stopped?, natural_speed_min?, natural_speed_max? } with DEFAULT_FILTERS { types: [] }; Requirement, SetupOption, RequirementCategory removed from the type file.",
+        "src/__tests__/db-settings.test.ts: getUserSettings on a stored blob {\"units\":\"metric\",\"batch_import_radius\":30,\"gear\":[\"winch\"]} returns exactly { units: 'metric', batch_import_radius: 30 } (no gear key) and saveUserSettings then getUserSettings round-trips the two-key shape.",
+        "src/__tests__/stores.test.ts: selectActiveFilterCount counts only types, stopped and the speed range (a test sets all three and expects 3; empty filters expect 0); the gear/build two-stage filter tests are deleted; selectFilteredSpots with stopped: true keeps only spots with stopped === true and with stopped: false only those with stopped === false.",
+        "src/__tests__/spots-sort-search.test.tsx has no Intensity case and the SortChips render test expects exactly three chips labelled Distance, Date, Name in that order.",
+        "src/__tests__/profile.test.tsx renders the Profile tab without a 'My Gear' header or any gear chip; src/__tests__/filter-sheet.test.tsx renders the sheet without 'Gear I have', 'Exclude Build' or 'Show Drafts'.",
+        "src/__tests__/review-persist.test.tsx and the add/import review screens: the save button text is 'Save' (Quick Add) and the import button no longer writes status; both create spots with feature_types: [] and stopped: false.",
+        "src/__tests__/spot-list.test.tsx and src/__tests__/spot-map.test.tsx: no Draft badge text appears for any spot; every Marker gets pinColor SPOT_PIN (one colour) and a Marker's description is undefined when the spot has no feature types.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "M1-04",
+      "milestone": "M1",
+      "kind": "build",
+      "model": "opus",
+      "description": "The nested Feature/In-Run/Landing/Details model is gone: Spot is the spec §2.1 shape, screens compile with the surviving fields only (edit: photos, name, delete; detail: photos, title, notes), and StarRating/RatingBadge/labels for removed enums are deleted.",
+      "steps": [
+        "src/types/index.ts matches spec §2.1 exactly: Spot has id, name?, generated_name?, location, created_at, updated_at, deleted_at?, feature_types, stopped, natural_speed?, notes?, primary_photo_id? and nothing else; FeatureType has eight members (no Other); grep -rn \"Material\\|StopType\\|LandingSurface\\|SetupOption\\|SkateStopInfo\\|Dimensions\\|FeatureDetails\\|InRun\\b\\|Landing\\b\\|SpotMetadata\\|in_run\\|skate_stops\\|custom_type\\|bustability\" src app --include=*.ts --include=*.tsx | grep -v 'src/db/schema.ts' prints nothing (schema.ts keeps those words inside migration 3).",
+        "src/components/StarRating.tsx, src/components/RatingBadge.tsx are deleted and src/components/index.ts no longer exports them; src/constants/labels.ts exports FEATURE_TYPE_LABELS (Rail, Ledge, Bank, Hip, Stair set, Gap, Wall ride, Quarter pipe) and no STOP_TYPE_LABELS; src/utils/units.ts keeps only what M3 legacy display and M7 radius need (displayLength stays; dimensionFromInput, initialDimText, inputToMeters, metersToDisplay are deleted unless a remaining caller exists, which the session names in its commit message).",
+        "src/utils/spot-name.ts exports featureTypesLabel(spot) returning 'Rail' for ['rail'], 'Rail +1' for ['rail','ledge'], 'Stair set +2' for three types starting with stair_set, and undefined for []; featureLabel is gone; src/__tests__/spot-name.test.ts covers those four cases.",
+        "src/stores/spots-store.ts selectFilteredSpots: types filter is any-of against spot.feature_types (test: filter ['rail'] keeps a spot with ['ledge','rail'] and drops one with ['bank']); the natural speed range compares spot.natural_speed on 0–4 and keeps spots whose natural_speed is undefined (tests in stores.test.ts).",
+        "app/spot/[id]/edit.tsx keeps the photo strip with staged removal, the Name field and Delete; Save writes { name, updated_at } and nothing from the removed model; src/__tests__/edit-dimensions.test.tsx, edit-skate-stops.test.tsx and spot-detail-stops.test.tsx are deleted; edit-spot-name.test.tsx and edit-remove-photo.test.tsx pass.",
+        "app/spot/[id]/index.tsx shows photos, the title and the notes paragraph when notes is set, with no Section/InfoRow for removed fields; a test in src/__tests__/screens.test.tsx (or a new spot-detail.test.tsx) renders a spot with notes 'under the bridge' and finds that text, and renders a spot with no notes and finds no 'Notes' label.",
+        "src/components/FilterSheet.tsx offers only the eight What's here chips (stopped and speed controls come in M5); src/components/SpotListItem.tsx has no difficulty or isDraft prop; app/(tabs)/index.tsx passes featureType={featureTypesLabel(item)}; src/__tests__/components.test.tsx has no RatingBadge/StarRating cases.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines, and npx expo export --platform ios --output-dir /tmp/hl-export exits 0."
+      ],
+      "passes": true
+    },
+    {
+      "id": "M1-05",
+      "milestone": "M1",
+      "kind": "review",
+      "model": "opus",
+      "description": "An Opus review of the M1 diff finds no unfixed Critical or Important issue in migration 3, the mappers or the stripped screens, simplifications are applied, and CLAUDE.md/README describe the v3 model.",
+      "steps": [
+        "git diff 782ff8d..HEAD -- src app > .harness/runs/hit_list-2026-10-20/reviews/m1.diff is written and the reviewer reads the diff from that file; the review's findings are recorded in docs/plans/2026-10-20-m1-model.md under a 'Review' heading with severity (Critical/Important/Minor), file:line and the fix commit for every Critical and Important item.",
+        "Each Critical/Important fix has a RED test committed before the GREEN fix (git log shows the test file change in the same or an earlier commit than the fix); specific checks the reviewer must answer in writing: migration 3 runs inside the per-migration transaction and a thrown error leaves user_version at 2 (a test injects a row with feature_json 'not json' and asserts the version stays 2 and the spots table is intact, or the migration is shown to skip unparseable JSON into legacy_json as { raw_feature_json: ... } with a test); natural_speed 0 round-trips through rowToSpot, applySpotUpdate and updateSpot without becoming undefined; getSpots never selects legacy_json.",
+        "A simplification pass is applied (unused styles removed from edit.tsx and index.tsx after the strip, dead imports, duplicate TYPE_LABELS replaced by FEATURE_TYPE_LABELS); the diff of the pass is its own commit prefixed 'refactor:'.",
+        "CLAUDE.md Layout/Conventions and README.md Status no longer mention drafts, gear/build filters, ratings or Intensity, and describe feature_types/stopped/natural_speed/notes/legacy_json and getSpotLegacy; docs/RUNNING-ON-PHONE.md lines 33–42 no longer mention the Draft badge or yellow pins.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "M2-01",
+      "milestone": "M2",
+      "kind": "plan",
+      "model": "opus",
+      "description": "docs/plans/2026-10-20-m2-edit.md lays out SpeedScale, PhotoGrid, SpotTagFields and the edit screen rewrite with staged photo adds, each with its RED tests.",
+      "after": ["M1"],
+      "steps": [
+        "docs/plans/2026-10-20-m2-edit.md exists with sections: SpeedScale API (props value?: NaturalSpeed, onChange?, readonly?, and the labels/descriptions table from spec §2.3 verbatim; range mode deferred to M5 and noted), PhotoGrid API (photos: Media[], onPressPhoto(index), renderBadge?(media) for the ✕ and 'new' marks, trailing?: ReactNode for the '+' tile; hero full width 4:3 then rows of three square tiles with spacing.xs gaps), SpotTagFields API (value { feature_types, stopped, natural_speed }, onChange; chips multi-select from FEATURE_TYPE_LABELS, Switch 'Skate stopped', SpeedScale), Edit screen layout in the §2.2 order, Staged adds (picked assets held in state as NewPhoto drafts, written on Save via savePhotos, dropped on dismiss, first add becomes primary_photo_id when the spot had none), and a test list per task.",
+        "The plan states how expo-image-picker is mocked in tests (jest.mock('expo-image-picker') with launchImageLibraryAsync and requestMediaLibraryPermissionsAsync named from node_modules/expo-image-picker/build/ImagePicker.d.ts) and that importPhotoFromAsset from src/utils/exif.ts gives each pick its captured_at and location.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes (nothing but the plan changed)."
+      ],
+      "passes": false
+    },
+    {
+      "id": "M2-02",
+      "milestone": "M2",
+      "kind": "build",
+      "model": "opus",
+      "description": "SpeedScale renders five labelled segments (None · Little · Some · Enough · Too much) with a description line, clears on re-tap, and has a read-only bar form showing cells 0..value filled with the word beside it.",
+      "steps": [
+        "src/components/SpeedScale.tsx exists and is exported from src/components/index.ts; src/__tests__/speed-scale.test.tsx passes with these cases: five segments rendered with accessibilityRole 'radio' inside a 'radiogroup', each accessibilityLabel equal to '<label>: <description>' using the five descriptions from spec §2.3 (e.g. 'Enough: Rolls in with speed for most tricks.'); with value undefined the text 'Not rated' is shown; pressing 'Enough' calls onChange(3); pressing the selected segment again calls onChange(undefined); with value 4 the description 'Steep. You have to scrub speed.' is shown.",
+        "Read-only form: <SpeedScale value={3} readonly /> renders five cells with testIDs speed-cell-0..4, cells 0–3 have accessibilityState or a testID suffix marking them filled and cell 4 not, the word 'Enough' is rendered, and no element has accessibilityRole 'radio'; the read-only root has accessibilityLabel 'Natural speed: Enough'.",
+        "Filled segments use palette.blue[500] (the test reads the style of a filled cell and asserts backgroundColor equals palette.blue[500]); segment labels use numberOfLines={1} except 'Too much' may wrap (the test does not pin this).",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": false
+    },
+    {
+      "id": "M2-03",
+      "milestone": "M2",
+      "kind": "build",
+      "model": "opus",
+      "description": "PhotoGrid shows the primary photo full width and every other photo in rows of three square tiles, with per-tile badges and an optional trailing tile, and reports taps by index.",
+      "steps": [
+        "src/components/PhotoGrid.tsx exists and is exported from src/components/index.ts; src/__tests__/photo-grid.test.tsx passes: with 7 photos it renders testIDs photo-tile-0..6 where photo-tile-0 has style width '100%' and aspectRatio 4/3 and tiles 1–6 have aspectRatio 1; pressing photo-tile-4 calls onPressPhoto(4); each tile has accessibilityRole 'imagebutton' and accessibilityLabel 'Photo N of M'.",
+        "renderBadge(media, index) output is rendered inside the tile (test passes a Text 'X' badge and finds 7 of them); trailing={<Text>+</Text>} renders after the last tile (the test finds '+' and that it comes after photo-tile-6 in the tree); with 0 photos and no trailing the component renders null, and with 0 photos plus trailing it renders only the trailing tile.",
+        "Image sources resolve through resolvePhotoUri (the test checks the first Image's source.uri ends with the media file_path).",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": false
+    },
+    {
+      "id": "M2-04",
+      "milestone": "M2",
+      "kind": "build",
+      "model": "opus",
+      "description": "The edit screen is one short screen: PhotoGrid with ✕ badges, Name, What's here chips, Skate stopped switch, SpeedScale, Notes, Delete; Save writes feature_types, stopped, natural_speed and notes.",
+      "steps": [
+        "src/components/SpotTagFields.tsx exists (chips from FEATURE_TYPE_LABELS, Switch labelled 'Skate stopped', SpeedScale) and src/__tests__/spot-tag-fields.test.tsx passes: pressing the 'Ledge' chip then 'Rail' calls onChange with feature_types ['ledge','rail'] in tap order; pressing 'Ledge' again removes it; toggling the switch sets stopped true; the component contains no text 'Feature', 'In-Run', 'Landing', 'Details' or 'Status'.",
+        "src/__tests__/edit-spot-tags.test.tsx passes: rendering edit for a spot with feature_types ['rail'], stopped true, natural_speed 2, notes 'n' pre-fills the chip (accessibilityState checked), the switch (value true), the 'Some' segment and the notes field; after pressing 'Ledge', the switch, the 'Enough' segment and typing 'new notes', Save calls updateSpot(id, patch) where patch has feature_types ['rail','ledge'], stopped false, natural_speed 3, notes 'new notes'; clearing the notes field saves notes: null; clearing the speed saves natural_speed: null; the Save button is enabled with every control empty.",
+        "The rendered edit tree has no text 'Basic Info', 'Feature', 'In-Run', 'Landing', 'Details', 'Status', 'Save as Draft', 'Material', 'Shape', 'Length', 'Bustability' or 'Intensity'; the name placeholder is 'Name (optional)' and the notes placeholder is 'Anything else'; the photo grid is PhotoGrid with an accessibilityLabel 'Remove photo N' button on each tile (edit-remove-photo.test.tsx updated and passing, staged removal with Undo unchanged).",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": false
+    },
+    {
+      "id": "M2-05",
+      "milestone": "M2",
+      "kind": "build",
+      "model": "opus",
+      "description": "From the edit screen a '+' tile opens the photo library, picked photos appear in the grid with a 'new' mark and are written only on Save, keeping their EXIF time and GPS; the first added photo becomes primary when the spot had none.",
+      "steps": [
+        "src/__tests__/edit-add-photos.test.tsx passes with expo-image-picker mocked (member names from node_modules/expo-image-picker/build/ImagePicker.d.ts): pressing the tile with accessibilityLabel 'Add photos' calls launchImageLibraryAsync with allowsMultipleSelection true and exif true; two returned assets appear as tiles with a 'new' badge text; Save calls savePhotos once with two NewPhoto entries whose spot_id is the spot's id, whose captured_at comes from the asset's EXIF DateTimeOriginal and whose location comes from EXIF GPS (fixture values given in the test), and the spot's location in the updateSpot patch is absent (unchanged).",
+        "Dismissing without Save (unmount) calls savePhotos zero times; for a spot with no photos, Save after adding one calls updateSpot with primary_photo_id equal to the new photo's id; for a spot that already has photos, primary_photo_id is not in the patch.",
+        "Adds and removes in one session: staging a removal of an existing photo and adding a new one, then Save, calls removePhotos with the removed id and savePhotos with the new one; the pending hint reads '1 photo will be removed when you save.' alongside the new tile.",
+        "A permission denial (requestMediaLibraryPermissionsAsync granted false) shows Alert.alert titled 'Photo access needed' and adds nothing (jest.spyOn(Alert, 'alert')).",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": false
+    },
+    {
+      "id": "M2-06",
+      "milestone": "M2",
+      "kind": "check",
+      "model": "sonnet",
+      "description": "docs/plans/2026-10-20-m2-what-michael-will-see.md walks the edit screen top to bottom as rendered in tests, so Michael knows what to expect on the phone before he opens it.",
+      "after": ["M2-05"],
+      "steps": [
+        "docs/plans/2026-10-20-m2-what-michael-will-see.md exists and lists, in rendered order from a scratch render of app/spot/[id]/edit.tsx for a spot with 5 photos, name 'Bridge rail', feature_types ['rail','ledge'], stopped true, natural_speed 3, notes 'low': every visible text and every accessibility label (buttons, chips, switch, radios), as captured with screen.toJSON() in a temporary test file that is deleted before the commit (git status clean of src/__tests__/walkthrough*).",
+        "The same file lists the edit screen for a spot with no photos and nothing set (expected: the '+' tile, 'Name (optional)', eight chips, 'Skate stopped', five segments, 'Not rated', 'Anything else', 'Delete spot'), and counts the number of Text nodes so the two-phone-heights claim of spec §2.2 is argued from the control count (no pixel measurement is possible in Jest; say so).",
+        "The file records the commands run and their results: npx jest --silent (count of tests, zero console.error) and npx expo export --platform ios --output-dir /tmp/hl-export (exit 0 and the bundle size).",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes."
+      ],
+      "passes": false
+    },
+    {
+      "id": "M2-07",
+      "milestone": "M2",
+      "kind": "review",
+      "model": "opus",
+      "description": "An Opus review of the M2 diff leaves no unfixed Critical or Important finding in SpeedScale, PhotoGrid, SpotTagFields or the edit screen, simplifications are applied, and the docs describe the new edit screen.",
+      "steps": [
+        "git diff <M1-05 merge-base or last M1 commit>..HEAD -- src app > .harness/runs/hit_list-2026-10-20/reviews/m2.diff is written and read by the reviewer; findings recorded under 'Review' in docs/plans/2026-10-20-m2-edit.md with severity, file:line and fix commit for each Critical/Important item; every fix has a RED test before its GREEN commit.",
+        "The reviewer answers in writing: a fast double tap on '+' cannot stage the same asset twice (assetId or uri dedupe, tested); Save runs once under a double tap (savingRef pattern kept); a failed savePhotos (insertMedia rejects) alerts before router.back(); the SpeedScale radios are reachable with VoiceOver (radiogroup + radio roles); the chip row wraps (ChipGroup flexWrap) so eight chips fit a 320 pt width.",
+        "A 'refactor:' commit applies the simplification pass (shared styles, dead code after the rewrite, any duplicated label map).",
+        "CLAUDE.md Layout mentions SpeedScale, PhotoGrid and SpotTagFields in src/components and 'adding photos from edit' in use-media-actions; README.md Status mentions tagging (feature types, skate stopped, natural speed) in the edit screen.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": false
+    },
+    {
+      "id": "M3-01",
+      "milestone": "M3",
+      "kind": "plan",
+      "model": "opus",
+      "description": "docs/plans/2026-10-20-m3-detail.md plans the detail screen (grid, tag line, speed bar, notes, Older details) and formatLegacyDetails converts a legacy_json object to labelled rows in the user's units with unit tests.",
+      "after": ["M2"],
+      "steps": [
+        "docs/plans/2026-10-20-m3-detail.md exists with the detail layout in spec §2.4 order, the empty-photos 'Add photos' tile behaviour (tap → router.push to edit), the Older details disclosure (collapsed by default, getSpotLegacy called once on mount, hidden when null), and the key→label table for formatLegacyDetails.",
+        "src/utils/legacy-details.ts exports formatLegacyDetails(legacy: Record<string, unknown>, units: UnitSystem): { label: string; value: string }[]; src/__tests__/legacy-details.test.ts passes: { material: 'steel', length_m: 3.6576, bustability: 3, removable: true, setup_options: [{ requires: [{ item: 'bungee', category: 'gear' }] }], custom_type: 'curved rail' } with Imperial gives rows in order Custom type 'curved rail', Length '12.0 ft', Material 'steel', Removable 'Yes', Bustability '3/5', Setup options '1 option: bungee'; with Metric the length row is '3.7 m'; an unknown key is rendered with its key humanised ('stop_description' → 'Stop description'); an empty object gives [].",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": false
+    },
+    {
+      "id": "M3-02",
+      "milestone": "M3",
+      "kind": "build",
+      "model": "opus",
+      "description": "The detail screen is the photo grid, the title, a tag line of feature-type chips plus a red-outlined 'Skate stopped' chip, the read-only speed bar, notes, and a collapsed 'Older details' disclosure only when legacy data exists.",
+      "steps": [
+        "src/__tests__/spot-detail.test.tsx passes (getSpotLegacy mocked via jest.mock('@/src/db')): a spot with feature_types ['rail','ledge'], stopped true, natural_speed 3, notes 'low' renders chips 'Rail' and 'Ledge', a chip 'Skate stopped' (style borderColor equals palette.red[500] or the theme's red), the read-only SpeedScale with accessibilityLabel 'Natural speed: Enough', and the text 'low'; a spot with stopped false renders no 'Skate stopped' text; a spot with natural_speed undefined renders no element with accessibilityLabel starting 'Natural speed'.",
+        "Photos: with 5 media rows PhotoGrid renders photo-tile-0..4 (primary first per spotPhotos); with none, a tile with accessibilityLabel 'Add photos' is rendered and pressing it calls router.push('/spot/<id>/edit').",
+        "Older details: when getSpotLegacy resolves to { material: 'steel' } a Pressable 'Older details' appears collapsed (no 'Material' text until pressed), pressing it shows the row 'Material' 'steel'; when getSpotLegacy resolves null no 'Older details' text is rendered; getSpotLegacy is called exactly once per mount with (db, id).",
+        "The rendered tree has no text 'Feature', 'In-Run', 'Landing', 'Details' (as section headers), 'Draft' or 'Type'; the Edit header button still calls router.push to the edit route (existing test kept).",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": false
+    },
+    {
+      "id": "M3-03",
+      "milestone": "M3",
+      "kind": "check",
+      "model": "sonnet",
+      "description": "docs/plans/2026-10-20-m3-what-michael-will-see.md walks the detail screen for a tagged spot, an untagged photo-only spot, and a migrated spot with Older details.",
+      "after": ["M3-02"],
+      "steps": [
+        "docs/plans/2026-10-20-m3-what-michael-will-see.md exists and lists, from scratch renders (temporary test deleted before commit), the visible texts and accessibility labels in order for: (a) a spot with 7 photos, two types, stopped, speed Enough, notes; (b) a spot with 2 photos and nothing else (expected: grid and title only); (c) a spot whose getSpotLegacy returns the full-fat legacy object from M1-01, with the disclosure closed and then open.",
+        "The file records npx jest --silent totals (tests, suites, zero console.error) and npx expo export --platform ios --output-dir /tmp/hl-export exit 0.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes."
+      ],
+      "passes": false
+    },
+    {
+      "id": "M3-04",
+      "milestone": "M3",
+      "kind": "review",
+      "model": "opus",
+      "description": "An Opus review of the M3 diff leaves no unfixed Critical or Important finding in the detail screen or legacy formatter, simplifications are applied, and CLAUDE.md/README mention Older details.",
+      "steps": [
+        "The M3 diff is written to .harness/runs/hit_list-2026-10-20/reviews/m3.diff and read from there; findings are recorded under 'Review' in docs/plans/2026-10-20-m3-detail.md with severity, file:line and fix commit; every Critical/Important fix has a RED test first.",
+        "The reviewer answers in writing: getSpotLegacy is not re-called on every store update (effect keyed on id and db only, tested with a rerender); a legacy_json that fails JSON.parse logs once and renders no disclosure rather than crashing (tested); the 'Skate stopped' chip is readable by VoiceOver as text, not as a checkbox.",
+        "A 'refactor:' commit applies the simplification pass; CLAUDE.md Layout mentions legacy-details and getSpotLegacy's on-mount use; README.md Status mentions 'Older details' for data from before the simplification.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": false
+    },
+    {
+      "id": "M4-01",
+      "milestone": "M4",
+      "kind": "plan",
+      "model": "opus",
+      "description": "docs/plans/2026-10-20-m4-viewer.md plans the full-screen photo viewer, and the app is wired for gestures: GestureHandlerRootView in the root layout and gesture-handler's jest setup in jest.setup.ts, with the iOS export still bundling.",
+      "after": ["M3"],
+      "steps": [
+        "docs/plans/2026-10-20-m4-viewer.md exists with: the route (app/spot/[id]/photos.tsx, Stack.Screen presentation 'fullScreenModal', headerShown false, params id and index), the pager choice (FlatList horizontal pagingEnabled with getItemLayout) and why, the gesture composition (Pinch + Pan + double Tap per page via react-native-gesture-handler Gesture.Simultaneous/Exclusive, shared values in react-native-reanimated), the pure functions of src/utils/gallery-gestures.ts with signatures, the long-press sheet (Alert.alert with buttons Set as primary / Remove photo / Cancel on iOS; no ActionSheetIOS dependency added), the ~150-line fallback rule to react-native-zoom-toolkit from spec §3.1, and the test list.",
+        "app/_layout.tsx wraps the tree in GestureHandlerRootView style flex 1; jest.setup.ts imports 'react-native-gesture-handler/jestSetup' (file exists at node_modules/react-native-gesture-handler/jestSetup.js) and keeps the existing reanimated mock; a test in src/__tests__/screens.test.tsx or a new root-layout.test.tsx renders RootLayout's tree shape without throwing.",
+        "npx expo export --platform ios --output-dir /tmp/hl-export exits 0 after the wiring; the plan records the bundle size before and after.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": false
+    },
+    {
+      "id": "M4-02",
+      "milestone": "M4",
+      "kind": "build",
+      "model": "opus",
+      "description": "Pure gesture maths for the viewer lives in src/utils/gallery-gestures.ts with unit tests: scale clamping, double-tap toggling, pan clamping while zoomed, the paging-enabled rule and the swipe-down close threshold.",
+      "steps": [
+        "src/utils/gallery-gestures.ts exports clampScale(scale) → min 1 max 4; toggleZoom(scale) → 2.5 when scale < 1.05 else 1; clampPan({x,y}, scale, viewport {width,height}) → translation limited so the scaled image never leaves a gap (for scale 2 on a 390×844 viewport, x is clamped to ±195 and y to ±422; for scale 1 both are 0); pagingEnabled(scale) → true only when scale <= 1.05; shouldClose(dy, scale) → true when scale <= 1.05 and dy > 120; focalZoom(focal, scale, nextScale) returning the translation that keeps the focal point fixed (tested: focal at the centre gives 0,0).",
+        "src/__tests__/gallery-gestures.test.ts passes with at least these cases: clampScale(0.5)=1, clampScale(6)=4, clampScale(2.2)=2.2; toggleZoom(1)=2.5, toggleZoom(2.5)=1, toggleZoom(1.04)=2.5; clampPan at scale 1 returns {0,0} for any input; clampPan({x: 500, y: -900}, 2, {390, 844}) = {195, -422}; pagingEnabled(1)=true, pagingEnabled(1.06)=false; shouldClose(121, 1)=true, shouldClose(119, 1)=false, shouldClose(300, 2)=false.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": false
+    },
+    {
+      "id": "M4-03",
+      "milestone": "M4",
+      "kind": "build",
+      "model": "opus",
+      "description": "app/spot/[id]/photos.tsx is a black full-screen modal pager that opens at ?index=N, shows a '3 / 7' counter and a ✕ that closes it, and tapping any tile on the detail screen opens it at that photo.",
+      "steps": [
+        "app/_layout.tsx registers Stack.Screen name 'spot/[id]/photos' with presentation 'fullScreenModal' and headerShown false; app/spot/[id]/photos.tsx renders a horizontal pagingEnabled FlatList of the spot's photos in spotPhotos order with initialScrollIndex from the index param and getItemLayout using the window width; each page has accessibilityLabel 'Photo N of M'; the root View has backgroundColor '#000' and StatusBar hidden.",
+        "src/__tests__/photo-viewer.test.tsx passes: with useLocalSearchParams returning { id, index: '2' } for a spot with 7 photos the counter text '3 / 7' is rendered; the ✕ has accessibilityRole 'button' and accessibilityLabel 'Close' and pressing it calls router.back(); a FlatList onViewableItemsChanged/onMomentumScrollEnd simulated to page 5 updates the counter to '6 / 7'; an index out of range (index '99') opens at the last photo; a missing spot renders 'Spot not found'.",
+        "src/__tests__/spot-detail.test.tsx gains: pressing photo-tile-3 on the detail screen calls router.push with pathname '/spot/<id>/photos' and params { index: '3' } (or the string '/spot/<id>/photos?index=3').",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines, and npx expo export --platform ios --output-dir /tmp/hl-export exits 0."
+      ],
+      "passes": false
+    },
+    {
+      "id": "M4-04",
+      "milestone": "M4",
+      "kind": "build",
+      "model": "opus",
+      "description": "Each viewer page pinches to zoom 1×–4×, pans while zoomed, double-taps between 1× and 2.5×, disables paging while zoomed past 1.05×, and swipes down more than 120 px at 1× to close.",
+      "steps": [
+        "src/components/ZoomablePhoto.tsx (or the page component inside photos.tsx, named in the plan) composes Gesture.Pinch, Gesture.Pan and Gesture.Tap(numberOfTaps 2) from react-native-gesture-handler with reanimated shared values, calling only the pure functions of src/utils/gallery-gestures.ts for every number; the component is under 150 lines excluding styles, or the session installed react-native-zoom-toolkit with npx expo install in its own 'chore:' commit and says so in docs/plans/2026-10-20-m4-viewer.md.",
+        "The pager's scrollEnabled follows pagingEnabled(scale) (a shared value mirrored into React state via runOnJS or useAnimatedReaction; the test asserts the FlatList prop scrollEnabled is true at 1× and false after the test drives the exposed onScaleChange handler with 2).",
+        "Swipe-down close: the page calls onRequestClose when the pan ends with shouldClose(dy, scale) true; src/__tests__/photo-viewer.test.tsx drives the handler through fireGestureHandler from react-native-gesture-handler/jest-utils (names from node_modules/react-native-gesture-handler/lib/typescript/jestUtils/jestUtils.d.ts) or through an exported testing hook named in the plan, and asserts router.back() was called for dy 150 at scale 1 and not for dy 150 at scale 2.",
+        "Android/iOS back gesture: the screen handles the hardware back/edge swipe by letting the Stack pop (no custom interception), stated in the plan.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines, and npx expo export --platform ios --output-dir /tmp/hl-export exits 0."
+      ],
+      "passes": false
+    },
+    {
+      "id": "M4-05",
+      "milestone": "M4",
+      "kind": "build",
+      "model": "opus",
+      "description": "Long-pressing a viewer page offers Set as primary and Remove photo (with confirm); both use the existing spot and media actions and the viewer stays consistent afterwards.",
+      "steps": [
+        "src/__tests__/photo-viewer.test.tsx gains (Alert.alert spied): long-pressing page 2 calls Alert.alert with buttons whose texts are 'Set as primary', 'Remove photo' and 'Cancel' (the Remove button has style 'destructive'); pressing 'Set as primary' calls updateSpot(spotId, { primary_photo_id: <page 2 media id> }) and the counter still reads the same page; pressing 'Remove photo' opens a second Alert.alert titled 'Remove this photo?' and confirming calls removePhotos([<media id>]) once, after which the counter reads 'N / 6'.",
+        "Removing the last photo closes the viewer (router.back called) and, when the removed photo was primary, updateSpot is called with primary_photo_id set to the next photo's id or null when none remain (both cases tested).",
+        "The long-press target has accessibilityHint 'Double-tap and hold for options'.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": false
+    },
+    {
+      "id": "M4-06",
+      "milestone": "M4",
+      "kind": "check",
+      "model": "sonnet",
+      "description": "docs/plans/2026-10-20-m4-what-michael-will-see.md describes the viewer as rendered in tests and lists the gestures Michael must try on the phone, since Jest cannot drive real pinches.",
+      "after": ["M4-05"],
+      "steps": [
+        "docs/plans/2026-10-20-m4-what-michael-will-see.md exists and lists from scratch renders (temporary test deleted before commit): the viewer tree for a 7-photo spot opened at index 2 (counter, ✕ label, page labels) and after a simulated page change; and the detail grid tile that opens it.",
+        "The file has a 'Try on the phone' checklist with expected results: swipe between photos, pinch to 4× stops growing, double-tap toggles 2.5×, paging locked while zoomed, swipe down closes at 1× only, ✕ closes, long-press shows the two actions, and 'Remove photo' then confirm drops the count by one; plus the note that none of these gestures ran on a device in this run.",
+        "The file records npx jest --silent totals and npx expo export --platform ios --output-dir /tmp/hl-export exit 0 with the bundle size.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes."
+      ],
+      "passes": false
+    },
+    {
+      "id": "M4-07",
+      "milestone": "M4",
+      "kind": "review",
+      "model": "opus",
+      "description": "An Opus review of the M4 diff leaves no unfixed Critical or Important finding in the viewer, gestures or root-layout wiring, simplifications are applied, and the docs describe the viewer.",
+      "steps": [
+        "The M4 diff is written to .harness/runs/hit_list-2026-10-20/reviews/m4.diff and read from there; findings recorded under 'Review' in docs/plans/2026-10-20-m4-viewer.md with severity, file:line and fix commit; every Critical/Important fix has a RED test first.",
+        "The reviewer answers in writing: worklet functions do not close over React state (every number comes from shared values or the pure utils); the FlatList uses windowSize/initialNumToRender small enough that a 20-photo spot does not decode 20 full-size images at once (removeClippedSubviews or windowSize 3 stated); images use expo-image contentFit 'contain' with recyclingKey; the status bar is restored when the modal closes (StatusBar hidden only while mounted); the ✕ hit area is at least 44×44.",
+        "A 'refactor:' commit applies the simplification pass; CLAUDE.md Layout lists app/spot/[id]/photos.tsx and src/utils/gallery-gestures.ts and Testing mentions the gesture-handler jest setup; README.md Status mentions the full-screen photo viewer and docs/RUNNING-ON-PHONE.md describes opening it from the detail screen.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": false
+    },
+    {
+      "id": "M5-01",
+      "milestone": "M5",
+      "kind": "plan",
+      "model": "opus",
+      "description": "docs/plans/2026-10-20-m5-filters-list.md plans the three-filter sheet, SpeedScale range mode, and the list/map additions; the store's stopped filter and the three-count badge are finalised with tests.",
+      "after": ["M2"],
+      "steps": [
+        "docs/plans/2026-10-20-m5-filters-list.md exists with: the FilterSheet layout (What's here chips · Skate stopped segmented Any/Not stopped/Stopped · Natural speed range), the SpeedScale range-mode API (rangeValue?: [NaturalSpeed, NaturalSpeed] | undefined, onRangeChange; tap sets low then high, tapping the same single segment twice selects just that value, a third tap clears), the SpotListItem props after the change (featureType label, stopped boolean, naturalSpeed), the map callout rule (feature types joined with ' · '), and the test list.",
+        "src/__tests__/stores.test.ts passes with the final filter semantics: stopped undefined keeps all, true keeps stopped only, false keeps not-stopped only; types any-of; natural_speed_min 1 and max 3 keeps speeds 1,2,3 and undefined and drops 0 and 4; selectActiveFilterCount returns 1 for { types: ['rail'] }, 1 for { stopped: false }, 1 for { natural_speed_min: 0, natural_speed_max: 2 }, 3 for all three, 0 for DEFAULT_FILTERS.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": false
+    },
+    {
+      "id": "M5-02",
+      "milestone": "M5",
+      "kind": "build",
+      "model": "opus",
+      "description": "The Filter sheet has exactly three controls: What's here chips, a Skate stopped segmented control (Any / Not stopped / Stopped), and a Natural speed range on SpeedScale in range mode; Apply writes them to the store and Reset clears them.",
+      "steps": [
+        "src/__tests__/speed-scale.test.tsx gains range-mode cases: with rangeValue undefined no segment is selected and the description reads 'Any'; pressing 'Little' then 'Enough' calls onRangeChange([1, 3]) and the description reads 'Little to Enough'; pressing 'Some' twice calls onRangeChange([2, 2]) and the description reads 'Some'; pressing 'Enough' then 'Little' (high before low) calls onRangeChange([1, 3]); pressing with [2,2] selected on 'Some' again calls onRangeChange(undefined).",
+        "src/__tests__/filter-sheet.test.tsx passes: the sheet renders section labels 'What's here', 'Skate stopped', 'Natural speed' and no other section labels; the segmented control has tabs 'Any', 'Not stopped', 'Stopped'; selecting 'Stopped', chips 'Rail' and the speed range Little–Enough then pressing Apply leaves useSpotsStore.getState().filters equal to { types: ['rail'], stopped: true, natural_speed_min: 1, natural_speed_max: 3 }; Reset then leaves filters equal to DEFAULT_FILTERS; opening the sheet with stored filters pre-selects them.",
+        "The Filter button badge on the Spots tab shows '3' with all three set (existing badge test in spots-sort-search or spots-view-mode updated).",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": false
+    },
+    {
+      "id": "M5-03",
+      "milestone": "M5",
+      "kind": "build",
+      "model": "opus",
+      "description": "List rows show the first feature type with '+N', a small Stopped chip, and the read-only speed bar when rated; map callouts describe a spot by its feature types joined with ' · '.",
+      "steps": [
+        "src/__tests__/spot-list.test.tsx passes: a spot with feature_types ['rail','ledge','bank'] renders the badge text 'Rail +2'; a spot with stopped true renders the text 'Stopped' and one with stopped false does not; a spot with natural_speed 4 renders an element with accessibilityLabel 'Natural speed: Too much' and one with natural_speed undefined renders no element whose accessibilityLabel starts with 'Natural speed'; the name still allows two lines (numberOfLines 2) and the distance text is unchanged.",
+        "src/__tests__/spot-map.test.tsx passes: a Marker for a spot with feature_types ['rail','ledge'] has description 'Rail · Ledge'; with [] the description prop is undefined; every Marker has pinColor SPOT_PIN; the callout title is getSpotDisplayName(spot).",
+        "src/components/SpotListItem.tsx props are { id, displayName, thumbnailUri?, featureType?, stopped, naturalSpeed?, distance?, onPress } and the component is still wrapped in memo.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": false
+    },
+    {
+      "id": "M5-04",
+      "milestone": "M5",
+      "kind": "check",
+      "model": "sonnet",
+      "description": "docs/plans/2026-10-20-m5-what-michael-will-see.md walks the Spots tab list rows, the sort row, the Filter sheet and a map callout as rendered in tests.",
+      "after": ["M5-03"],
+      "steps": [
+        "docs/plans/2026-10-20-m5-what-michael-will-see.md exists and lists from scratch renders (temporary test deleted before commit): three list rows (one with three types + stopped + speed Too much, one untagged, one with a single type and no photo), the sort row chips in order, the Filter sheet with nothing set and with all three set, and the Marker props for two spots.",
+        "The file records npx jest --silent totals and npx expo export --platform ios --output-dir /tmp/hl-export exit 0.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes."
+      ],
+      "passes": false
+    },
+    {
+      "id": "M5-05",
+      "milestone": "M5",
+      "kind": "review",
+      "model": "opus",
+      "description": "An Opus review of the M5 diff leaves no unfixed Critical or Important finding in the filter sheet, range mode, list row or map callout, simplifications are applied, and docs describe the three filters.",
+      "steps": [
+        "The M5 diff is written to .harness/runs/hit_list-2026-10-20/reviews/m5.diff and read from there; findings recorded under 'Review' in docs/plans/2026-10-20-m5-filters-list.md with severity, file:line and fix commit; every Critical/Important fix has a RED test first.",
+        "The reviewer answers in writing: the range mode's accessibility (each segment announces 'selected' when inside the range); the list row with every element present still fits one row of badges or wraps without pushing the distance off (flexWrap stated); the no-match empty state's 'Reset filters' still works with the new three filters (test exists).",
+        "A 'refactor:' commit applies the simplification pass; CLAUDE.md Layout's stores line describes the three filters; README.md Status describes filters as feature type, skate stopped and natural speed, and sort as Distance, Date, Name; docs/RUNNING-ON-PHONE.md Spots tab text matches.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": false
+    },
+    {
+      "id": "M6-01",
+      "milestone": "M6",
+      "kind": "plan",
+      "model": "opus",
+      "description": "docs/plans/2026-10-20-m6-review-screens.md plans the Quick Add 'Add details' tags and the nearby-spot offer on both review screens, and nearbySpots(location, spots, radiusMeters) is built pure with tests.",
+      "after": ["M2"],
+      "steps": [
+        "docs/plans/2026-10-20-m6-review-screens.md exists with: the Quick Add layout (photos, name, 'Add details' link that reveals SpotTagFields, nearby card above Save, Save), the nearby card contents ('Near <display name> · <distance>' with thumbnail and an 'Add photos there' button, up to three nearest), what 'Add photos there' does (savePhotos to that spot_id, no addSpot, router.dismissAll then push to /spot/<id>), the import review per-group offer (existing spots only, default stays 'New spot', a segmented or chip choice per group), and the test list.",
+        "src/utils/nearby-spots.ts exports nearbySpots(location: GeoPoint, spots: Spot[], radiusMeters: number): Spot[]; src/__tests__/nearby-spots.test.ts passes: spots at 10 m, 40 m and 60 m from the location with radius 50 returns the 10 m and 40 m spots in that order; a spot at NO_LOCATION is never returned; a spot with deleted_at set is never returned; an unknown query location (NO_LOCATION) returns []; a spot at exactly the radius is included.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": false
+    },
+    {
+      "id": "M6-02",
+      "milestone": "M6",
+      "kind": "build",
+      "model": "opus",
+      "description": "Quick Add's review screen keeps the fast path (photo → Save) and hides the three tag controls under an 'Add details' link; when revealed and set, Save creates the spot with those tags.",
+      "steps": [
+        "src/__tests__/review-persist.test.tsx (or a new quick-add-tags.test.tsx) passes: on first render no chip, switch or speed segment is rendered and a Pressable with text 'Add details' is; pressing it renders SpotTagFields (eight chips, 'Skate stopped', five segments) and the link is gone; selecting 'Rail', the switch and 'Some' then Save calls addSpot with a spot whose feature_types is ['rail'], stopped true, natural_speed 2; without opening 'Add details' Save calls addSpot with feature_types [], stopped false and no natural_speed key or natural_speed undefined.",
+        "The name field keeps autoFocus and the Save button text is 'Save'; the 'Add details' link has accessibilityRole 'button'.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": false
+    },
+    {
+      "id": "M6-03",
+      "milestone": "M6",
+      "kind": "build",
+      "model": "opus",
+      "description": "When a Quick Add location is within the import radius of existing spots, the review screen shows up to three 'Near <name> · <distance>' cards with an 'Add photos there' button that saves the photos to that spot instead of creating one.",
+      "steps": [
+        "src/__tests__/quick-add-nearby.test.tsx passes with the spots store seeded: four known spots at 5 m, 20 m, 45 m and 80 m from the review location with batch_import_radius 50 → cards for the three within 50 m, nearest first, each showing the spot's display name and formatDistance in the user's units ('16 ft' for 5 m when imperial, '5 m' when metric, matching formatDistance's output format) and the spot's primary thumbnail when it has one; no card when nothing is within the radius; no card when the review location is NO_LOCATION.",
+        "Pressing 'Add photos there' on the 20 m card calls savePhotos once with every photoUri as a NewPhoto whose spot_id is that spot's id (location = the review location, created_at = now), calls addSpot zero times, and then calls router.dismissAll() followed by router.push('/spot/<that id>'); for a spot with no photos the first saved photo's id is also written with updateSpot(id, { primary_photo_id }).",
+        "Pressing Save with cards visible still calls addSpot (a new spot is created regardless).",
+        "The Profile radius hint now reads 'Photos this close together import as one spot, and a new spot this close to one you have offers to join it.' (profile.test.tsx updated).",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": false
+    },
+    {
+      "id": "M6-04",
+      "milestone": "M6",
+      "kind": "build",
+      "model": "opus",
+      "description": "On the import review, each group within the import radius of an existing spot offers 'Add photos to <name>' as an alternative to 'New spot'; on Import, groups that chose an existing spot send their photos there and create nothing.",
+      "steps": [
+        "src/__tests__/import-nearby.test.tsx passes with the store seeded with one existing spot 15 m from group A's first photo and nothing near group B: group A's card shows 'Near <name> · <distance>' with a choice between 'New spot' (selected by default) and 'Add photos to <name>'; group B's card shows no offer; other groups in the same import never count as nearby (a test with two groups 5 m apart and no existing spot shows no offer).",
+        "Choosing 'Add photos to <name>' for group A then pressing Import calls addSpot exactly once (for group B) and savePhotos twice: once with group A's photos and spot_id = the existing spot's id (captured_at from each photo kept), once for group B's new spot; group A's name field is hidden or disabled while the existing spot is chosen.",
+        "The subtitle count ('N spots from your photos') reflects only groups that will become new spots after the choice.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": false
+    },
+    {
+      "id": "M6-05",
+      "milestone": "M6",
+      "kind": "check",
+      "model": "sonnet",
+      "description": "docs/plans/2026-10-20-m6-what-michael-will-see.md walks the Quick Add review (fast path, Add details open, nearby cards) and the import review with and without an offer.",
+      "after": ["M6-04"],
+      "steps": [
+        "docs/plans/2026-10-20-m6-what-michael-will-see.md exists and lists from scratch renders (temporary test deleted before commit): the Quick Add review with two photos and no nearby spot; the same with 'Add details' open; the same with three nearby spots (card texts and button labels in order); the import review with two groups where one has an offer, before and after choosing the existing spot.",
+        "The file records npx jest --silent totals and npx expo export --platform ios --output-dir /tmp/hl-export exit 0.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes."
+      ],
+      "passes": false
+    },
+    {
+      "id": "M6-06",
+      "milestone": "M6",
+      "kind": "review",
+      "model": "opus",
+      "description": "An Opus review of the M6 diff leaves no unfixed Critical or Important finding in the review screens or nearbySpots, simplifications are applied, and docs describe the nearby offer and the collapsed tags.",
+      "steps": [
+        "The M6 diff is written to .harness/runs/hit_list-2026-10-20/reviews/m6.diff and read from there; findings recorded under 'Review' in docs/plans/2026-10-20-m6-review-screens.md with severity, file:line and fix commit; every Critical/Important fix has a RED test first.",
+        "The reviewer answers in writing: 'Add photos there' cannot run twice under a double tap (saving guard, tested); the offer card's distance uses the current units setting and re-renders when it changes; the import review's Promise.all still runs when one group targets an existing spot and a failed savePhotos for one group does not silently drop the others (behaviour stated and tested or recorded as a known limit in §9 of the spec).",
+        "A 'refactor:' commit applies the simplification pass; CLAUDE.md Layout mentions nearby-spots and the 'Add details' disclosure; README.md Status describes the nearby-spot offer; APP_SPECIFICATIONS.md Quick Add and Batch Import flows get a dated note about the offer.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": false
+    },
+    {
+      "id": "M7-01",
+      "milestone": "M7",
+      "kind": "build",
+      "model": "opus",
+      "description": "The import radius is stored in metres but shown and typed in feet when units are imperial (default 50 m shows as 164 ft) on the Profile tab and in the import screen's 'within N ft' text.",
+      "after": ["M1"],
+      "steps": [
+        "src/utils/units.ts exports radiusToDisplay(meters, units) → whole number in the user's unit (50 → 164 for Imperial, 50 → 50 for Metric; 30 → 98) and radiusFromInput(text, units) → metres or null (Imperial '164' → 50 after rounding to the nearest metre, '100' → 30; Metric '30' → 30; '' , '0', '-5' and 'abc' → null) and radiusUnitLabel(units) → 'ft' or 'm'; src/__tests__/utils.test.ts (or units.test.ts) covers each of those values.",
+        "src/__tests__/profile.test.tsx passes: with Imperial and batch_import_radius 50 the field shows '164' and the label reads 'Import radius · ft' with accessibilityLabel 'Import radius in feet'; switching to Metric re-renders the field as '50' and the label as 'Import radius · m' with accessibilityLabel 'Import radius in metres'; typing '328' then blur with Imperial calls setBatchImportRadius(100); typing 'abc' then blur restores the previous display value and does not call setBatchImportRadius.",
+        "app/import/index.tsx renders '(within 164 ft)' for Imperial and '(within 50 m)' for Metric with the 50 m default (test added to src/__tests__/import.test.ts or a new import-screen.test.tsx); grouping still receives metres (groupPhotosByProximity called with 50).",
+        "grep -rn \"Import radius in meters\\|(meters)\\|{batchRadius}m\" app src --include=*.tsx prints nothing.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": false
+    },
+    {
+      "id": "M7-02",
+      "milestone": "M7",
+      "kind": "review",
+      "model": "opus",
+      "description": "An Opus review of the M7 diff leaves no unfixed Critical or Important finding in the radius conversion, the Profile walkthrough is recorded, and the docs describe the unit-aware radius.",
+      "steps": [
+        "The M7 diff is written to .harness/runs/hit_list-2026-10-20/reviews/m7.diff and read from there; findings recorded in docs/plans/2026-10-20-m7-radius.md (created here with the design and the review) with severity, file:line and fix commit; every Critical/Important fix has a RED test first; the reviewer answers in writing: a stored radius that is not a whole number of feet round-trips without drift when the user blurs the field unchanged (test: 50 m shows 164, blur without typing leaves 50 m stored, not 49.99).",
+        "docs/plans/2026-10-20-m7-radius.md has a 'What Michael will see' section listing the Profile tab's texts in order for Imperial and Metric from a scratch render (temporary test deleted before commit).",
+        "CLAUDE.md Conventions gain one line: the radius is stored in metres and converted at the edges with units.ts; README.md Status mentions the radius in the user's units; APP_SPECIFICATIONS.md User section notes it.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": false
+    },
+    {
+      "id": "M8-01",
+      "milestone": "M8",
+      "kind": "build",
+      "model": "opus",
+      "description": "Every symbol the spec removes greps to zero across code, tests and docs, units.ts holds only what is still called, and the iOS export and expo-doctor are clean.",
+      "after": ["M1", "M2", "M3", "M4", "M5", "M6", "M7"],
+      "steps": [
+        "For each of these patterns, grep -rn --include=*.ts --include=*.tsx -E '<pattern>' app src jest.setup.ts prints nothing: SpotStatus, '\\bstatus\\b' (outside src/db/schema.ts and location/permission code, which the session lists), Draft, StarRating, RatingBadge, GearItem, BuildItem, '\\bgear\\b', '\\bMaterial\\b', LandingSurface, StopType, STOP_TYPE_LABELS, SetupOption, Requirement, SortField.Intensity, Intensity, featureLabel\\(, dimensionFromInput, initialDimText, inputToMeters, metersToDisplay, show_drafts, exclude_build, bustability, in_run, skate_stops, custom_type, 'Save as Draft', FeatureType.Other; the output of the whole loop is pasted into docs/plans/2026-10-20-m8-sweep.md.",
+        "grep -rn -E 'Draft|draft|gear|Intensity|bustab|Save as Draft|My Gear' README.md CLAUDE.md docs/RUNNING-ON-PHONE.md prints nothing except lines that explicitly describe history (the session lists any kept line and why in docs/plans/2026-10-20-m8-sweep.md).",
+        "src/utils/units.ts exports only functions with a caller outside tests (the session lists each export and its caller in the sweep doc); src/components/index.ts exports only components that exist.",
+        "npx expo export --platform ios --output-dir /tmp/hl-export exits 0; npx expo-doctor exits 0 (or, if the sandbox has no network, the doctor output is pasted and the failing checks are only network ones, stated in the sweep doc).",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines; the sweep doc records the final test and suite counts."
+      ],
+      "passes": false
+    },
+    {
+      "id": "M8-02",
+      "milestone": "M8",
+      "kind": "docs",
+      "model": "sonnet",
+      "description": "APP_SPECIFICATIONS.md opens with a dated 'Simplified model (2026-10-20)' section stating the new Spot and marks the superseded sections; README, CLAUDE.md and RUNNING-ON-PHONE describe the app as it now is.",
+      "after": ["M8-01"],
+      "steps": [
+        "APP_SPECIFICATIONS.md has, directly after the title, a section '## Simplified model (2026-10-20)' with the Spot interface from spec §2.1, the four filters/sort facts of §2.5–2.6, the photo viewer, the nearby offer and the unit-aware radius, and a pointer to docs/specs/2026-10-16-simplification-design.md; the headings for the old Feature, In-Run, Landing and Metadata subsections under Data Model and the two-stage gear/build filter under Filters start with '[SUPERSEDED]' and their text is kept.",
+        "README.md Status is dated 2026-10-20 and lists: Quick Add → Save, tags (feature types, skate stopped, natural speed, notes), photo grid and full-screen viewer, three filters, three sorts, nearby-spot offer, radius in the user's units, Older details; the intro no longer says 'gear/build filters and ratings'.",
+        "CLAUDE.md 'What this is' no longer mentions gear/build filters and ratings; Layout lists every new module (SpeedScale, PhotoGrid, SpotTagFields, ZoomablePhoto or the viewer page, legacy-details, nearby-spots, gallery-gestures, photos route) and Conventions describe natural_speed 0–4 with undefined = unrated, feature_types order = tap order, legacy_json read only by getSpotLegacy.",
+        "docs/RUNNING-ON-PHONE.md 'what you will see' paragraphs match the M2–M7 walkthrough files (no Draft, pins one colour, viewer, filters).",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes."
+      ],
+      "passes": false
+    },
+    {
+      "id": "M8-03",
+      "milestone": "M8",
+      "kind": "review",
+      "model": "opus",
+      "description": "A whole-run Opus review finds no unfixed Critical or Important issue across the simplification, and the run's hand-off for Michael (what to try on the phone, how to undo, open questions) is in progress.md.",
+      "after": ["M8-02"],
+      "steps": [
+        "git diff 782ff8d..HEAD --stat and the full diff of src app are written to .harness/runs/hit_list-2026-10-20/reviews/run.diff; the reviewer reads it from the file and records findings in docs/plans/2026-10-20-m8-sweep.md under 'Final review' with severity, file:line and fix commit; every Critical/Important fix has a RED test first.",
+        "The reviewer answers in writing: a phone DB at schema v2 with real spots migrates on first launch with no data loss (migration tests cover full-fat, empty, v1 and v3 cases and the media count); a fresh install (no DB) reaches v3 with an empty spots table; useDbInit still loads spots and settings when migration 3 throws (existing db-init test asserting the load-after-failure path still passes).",
+        "progress.md's newest entry has a 'For Michael' section with: the exact phone steps in order (npm ci, npm run start:tailscale, open in Expo Go, what the first launch does to his data, then the per-milestone 'Try on the phone' lists from the walkthrough files), how to roll back (git checkout main before the merge; the DB cannot be rolled back after migration 3, said plainly), and the list of §9 questions with the defaults taken.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines, npx expo export --platform ios --output-dir /tmp/hl-export exits 0."
+      ],
+      "passes": false
+    }
+  ]
+}

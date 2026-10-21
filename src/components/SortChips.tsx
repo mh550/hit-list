@@ -13,7 +13,7 @@ interface SortChipsProps {
 }
 
 // D10: Distance first. Each option has its label, its natural first direction (nearest first, newest
-// first, A to Z, most intense first) and how VoiceOver says each direction.
+// first, A to Z) and how VoiceOver says each direction.
 const SORT_OPTIONS: {
   field: SortField;
   label: string;
@@ -37,12 +37,6 @@ const SORT_OPTIONS: {
     label: 'Name',
     first: SortDirection.Asc,
     spoken: { [SortDirection.Asc]: 'A to Z', [SortDirection.Desc]: 'Z to A' },
-  },
-  {
-    field: SortField.Intensity,
-    label: 'Intensity',
-    first: SortDirection.Desc,
-    spoken: { [SortDirection.Asc]: 'lowest first', [SortDirection.Desc]: 'highest first' },
   },
 ];
 

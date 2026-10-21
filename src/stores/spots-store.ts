@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Spot, SpotFilters, GeoPoint, SpotUpdate } from '@/src/types';
-import { DEFAULT_FILTERS, SortField, SortDirection, SpotStatus } from '@/src/types';
+import { DEFAULT_FILTERS, SortField, SortDirection } from '@/src/types';
 import { haversineDistance, isKnownLocation } from '@/src/utils/geo';
 
 export type ViewMode = 'list' | 'map';
@@ -29,12 +29,19 @@ interface SpotsState {
 }
 
 /**
- * Merges a patch into a spot; `name: null` (cleared in Edit) becomes no name, so it shows as untitled, and
- * `primary_photo_id: null` (last photo removed) becomes no primary.
+ * Merges a patch into a spot; `name: null` (cleared in Edit) becomes no name, so it shows as untitled,
+ * `notes: null` / `natural_speed: null` become unset, and `primary_photo_id: null` (last photo removed) becomes no primary.
  */
-function applySpotUpdate(spot: Spot, { name, primary_photo_id, ...rest }: SpotUpdate): Spot {
-  const next: Spot = { ...spot, ...rest };
+function applySpotUpdate(
+  spot: Spot,
+  { name, notes, natural_speed, primary_photo_id, ...rest }: SpotUpdate,
+): Spot {
+  // An undefined key keeps the stored value, as updateSpot in src/db does; only null clears.
+  const defined = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined));
+  const next: Spot = { ...spot, ...defined };
   if (name !== undefined) next.name = name ?? undefined;
+  if (notes !== undefined) next.notes = notes ?? undefined;
+  if (natural_speed !== undefined) next.natural_speed = natural_speed ?? undefined; // 0 is kept
   if (primary_photo_id !== undefined) next.primary_photo_id = primary_photo_id ?? undefined;
   return next;
 }
@@ -87,78 +94,21 @@ export function selectFilteredSpots(
 ): Spot[] {
   const query = searchQuery.trim().toLowerCase();
   return spots.filter((spot) => {
-    // Status filter
-    if (!filters.show_drafts && spot.status === SpotStatus.Draft) return false;
-
     // Search: the user's name or the town. Not the generated "Untitled · <Town> · <date>" label,
     // whose "untitled", month and AM/PM would match every unnamed spot.
     if (query && !matchesSearch(spot, query)) return false;
 
-    // Type filter (OR)
-    if (filters.types.length > 0) {
-      if (!spot.feature.type || !filters.types.includes(spot.feature.type)) return false;
+    // What's here: any-of against the spot's types
+    if (filters.types.length > 0 && !spot.feature_types.some((t) => filters.types.includes(t))) return false;
+
+    // Natural speed range (0–4); an unrated spot is kept
+    if (spot.natural_speed !== undefined) {
+      if (filters.natural_speed_min !== undefined && spot.natural_speed < filters.natural_speed_min) return false;
+      if (filters.natural_speed_max !== undefined && spot.natural_speed > filters.natural_speed_max) return false;
     }
 
-    // Natural speed range
-    if (filters.natural_speed_min != null && spot.in_run.natural_speed != null) {
-      if (spot.in_run.natural_speed < filters.natural_speed_min) return false;
-    }
-    if (filters.natural_speed_max != null && spot.in_run.natural_speed != null) {
-      if (spot.in_run.natural_speed > filters.natural_speed_max) return false;
-    }
-
-    // Bustability range
-    if (filters.bustability_min != null && spot.metadata.bustability != null) {
-      if (spot.metadata.bustability < filters.bustability_min) return false;
-    }
-    if (filters.bustability_max != null && spot.metadata.bustability != null) {
-      if (spot.metadata.bustability > filters.bustability_max) return false;
-    }
-
-    // Intensity range
-    if (filters.intensity_min != null && spot.metadata.intensity != null) {
-      if (spot.metadata.intensity < filters.intensity_min) return false;
-    }
-    if (filters.intensity_max != null && spot.metadata.intensity != null) {
-      if (spot.metadata.intensity > filters.intensity_max) return false;
-    }
-
-    // Gear + Build two-stage filter
-    if (filters.gear.length > 0 || filters.exclude_build.length > 0) {
-      const setupOptions = spot.in_run.setup_options;
-      if (setupOptions.length === 0) return true; // no requirements = matches all
-
-      const matchingOptions = setupOptions.filter((option) => {
-        // Stage 1: gear superset check
-        if (filters.gear.length > 0) {
-          const gearRequired = option.requires
-            .filter((r) => r.category === 'gear')
-            .map((r) => r.item);
-          // Empty gear requirements matches all users
-          if (gearRequired.length > 0) {
-            const hasAllGear = gearRequired.every((g) =>
-              filters.gear.includes(g as typeof filters.gear[number]),
-            );
-            if (!hasAllGear) return false;
-          }
-        }
-
-        // Stage 2: build exclusion check
-        if (filters.exclude_build.length > 0) {
-          const buildRequired = option.requires
-            .filter((r) => r.category === 'build')
-            .map((r) => r.item);
-          const hasExcluded = buildRequired.some((b) =>
-            filters.exclude_build.includes(b as typeof filters.exclude_build[number]),
-          );
-          if (hasExcluded) return false;
-        }
-
-        return true;
-      });
-
-      if (matchingOptions.length === 0) return false;
-    }
+    // Skate stopped: undefined = any
+    if (filters.stopped !== undefined && spot.stopped !== filters.stopped) return false;
 
     return true;
   });
@@ -170,15 +120,13 @@ function matchesSearch(spot: Spot, query: string): boolean {
 }
 
 /**
- * A spot's value for the sort field, or `null` when it has none (no location, no intensity, no name).
+ * A spot's value for the sort field, or `null` when it has none (no location, no name).
  * Names come back lowercased, so they compare case-insensitively.
  */
 function sortKey(spot: Spot, field: SortField, userLocation?: GeoPoint): number | string | null {
   switch (field) {
     case SortField.Distance:
       return userLocation && isKnownLocation(spot.location) ? haversineDistance(userLocation, spot.location) : null;
-    case SortField.Intensity:
-      return spot.metadata.intensity ?? null;
     case SortField.Name:
       return spot.name ? spot.name.toLowerCase() : null;
     case SortField.DateAdded:
@@ -199,7 +147,7 @@ function createdAt(spot: Spot): number {
 }
 
 /**
- * Sorts by one field. Spots without a value for it (no location, no intensity, no name) go last in
+ * Sorts by one field. Spots without a value for it (no location, no name) go last in
  * both directions; the direction applies only among spots that have one. Ties, and the whole
  * missing group, keep the default order: newest first, whatever the direction.
  */
@@ -233,15 +181,11 @@ export function selectEffectiveSort(
   return { sortField, sortDirection };
 }
 
-/** How many filters are set in the Filter sheet (the Filter button's badge). */
+/** How many of the Filter sheet's three filters (types, stopped, speed range) are set (the Filter button's badge). */
 export function selectActiveFilterCount(filters: SpotFilters): number {
   let count = 0;
   if (filters.types.length > 0) count++;
+  if (filters.stopped !== undefined) count++;
   if (filters.natural_speed_min != null || filters.natural_speed_max != null) count++;
-  if (filters.gear.length > 0) count++;
-  if (filters.exclude_build.length > 0) count++;
-  if (filters.bustability_min != null || filters.bustability_max != null) count++;
-  if (filters.intensity_min != null || filters.intensity_max != null) count++;
-  if (!filters.show_drafts) count++;
   return count;
 }

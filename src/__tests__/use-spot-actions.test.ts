@@ -1,7 +1,6 @@
 import { renderHook, act } from '@testing-library/react-native';
 import { useSpotActions } from '@/src/hooks/use-spot-actions';
 import { useSpotsStore } from '@/src/stores';
-import { SpotStatus } from '@/src/types';
 import { createTestSpot } from './factories';
 
 const mockInsertSpot = jest.fn().mockResolvedValue(undefined);
@@ -116,7 +115,7 @@ describe('useSpotActions', () => {
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
     const { result } = renderHook(() => useSpotActions());
-    const spot = createTestSpot({ id: 'spot-with-error', status: SpotStatus.Draft });
+    const spot = createTestSpot({ id: 'spot-with-error' });
 
     await act(async () => {
       await result.current.addSpot(spot);

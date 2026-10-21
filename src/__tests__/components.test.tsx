@@ -2,8 +2,6 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react-native';
 
 import { Button } from '@/src/components/Button';
-import { RatingBadge } from '@/src/components/RatingBadge';
-import { StarRating } from '@/src/components/StarRating';
 import { SegmentedControl } from '@/src/components/SegmentedControl';
 import { Chip } from '@/src/components/Chip';
 import { EmptyState } from '@/src/components/EmptyState';
@@ -28,44 +26,6 @@ describe('Button', () => {
     render(<Button title="Save" onPress={onPress} disabled />);
     fireEvent.press(screen.getByText('Save'));
     expect(onPress).not.toHaveBeenCalled();
-  });
-});
-
-describe('RatingBadge', () => {
-  it('renders rating value', () => {
-    render(<RatingBadge rating={3} />);
-    expect(screen.getByText('3')).toBeTruthy();
-  });
-
-  it('renders with label', () => {
-    render(<RatingBadge rating={4} label="Difficulty" />);
-    expect(screen.getByText('Difficulty 4')).toBeTruthy();
-  });
-
-  it('has correct accessibility label', () => {
-    render(<RatingBadge rating={2} label="Speed" />);
-    expect(screen.getByLabelText('Speed: 2')).toBeTruthy();
-  });
-
-  it.each([1, 2, 3, 4, 5] as const)('renders rating %i', (rating) => {
-    render(<RatingBadge rating={rating} />);
-    expect(screen.getByText(String(rating))).toBeTruthy();
-  });
-});
-
-describe('StarRating', () => {
-  it('calls onChange with tapped star value', () => {
-    const onChange = jest.fn();
-    render(<StarRating value={0} onChange={onChange} />);
-    fireEvent.press(screen.getByLabelText('3 stars'));
-    expect(onChange).toHaveBeenCalledWith(3);
-  });
-
-  it('does not call onChange when readonly', () => {
-    const onChange = jest.fn();
-    render(<StarRating value={3} onChange={onChange} readonly />);
-    fireEvent.press(screen.getByLabelText('1 star'));
-    expect(onChange).not.toHaveBeenCalled();
   });
 });
 

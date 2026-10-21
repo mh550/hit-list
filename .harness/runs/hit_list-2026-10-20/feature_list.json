@@ -438,7 +438,7 @@
         "The name field keeps autoFocus and the Save button text is 'Save'; the 'Add details' link has accessibilityRole 'button'.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M6-03",

@@ -5,6 +5,7 @@ import { Image } from 'expo-image';
 
 import { useSpotActions } from '@/src/hooks/use-spot-actions';
 import { useMediaActions } from '@/src/hooks/use-media-actions';
+import { SpotTagFields, type SpotTags } from '@/src/components';
 import { newId } from '@/src/utils/id';
 import { isKnownLocation, NO_LOCATION } from '@/src/utils/geo';
 import { palette, spacing, radius } from '@/src/constants/theme';
@@ -21,6 +22,9 @@ export default function ReviewScreen() {
   const { addSpot } = useSpotActions();
   const { savePhotos } = useMediaActions();
   const [name, setName] = useState('');
+  // Tags stay behind 'Add details' so the fast path is photo → Save (spec §2.7).
+  const [showDetails, setShowDetails] = useState(false);
+  const [tags, setTags] = useState<SpotTags>({ feature_types: [], stopped: false });
   const [saving, setSaving] = useState(false);
 
   const photoUris = useMemo(
@@ -45,8 +49,7 @@ export default function ReviewScreen() {
       location: { latitude, longitude },
       created_at: now,
       updated_at: now,
-      feature_types: [],
-      stopped: false,
+      ...tags,
       primary_photo_id: firstPhotoId,
     };
 
@@ -63,7 +66,7 @@ export default function ReviewScreen() {
     );
 
     router.dismissAll();
-  }, [saving, name, latitude, longitude, photoUris, addSpot, savePhotos, router, hasLocation]);
+  }, [saving, name, tags, latitude, longitude, photoUris, addSpot, savePhotos, router, hasLocation]);
 
   return (
     <ScrollView
@@ -104,6 +107,17 @@ export default function ReviewScreen() {
           Leave blank to auto-name from location
         </Text>
       </View>
+
+      {showDetails ? (
+        <SpotTagFields value={tags} onChange={setTags} />
+      ) : (
+        <Pressable
+          style={styles.detailsLink}
+          onPress={() => setShowDetails(true)}
+          accessibilityRole="button">
+          <Text style={styles.detailsLinkText}>Add details</Text>
+        </Pressable>
+      )}
 
       {/* Location info */}
       {hasLocation ? (
@@ -188,6 +202,16 @@ const styles = StyleSheet.create({
   hint: {
     fontSize: 13,
     color: palette.gray[400],
+  },
+  detailsLink: {
+    alignSelf: 'flex-start',
+    minHeight: 44,
+    justifyContent: 'center',
+  },
+  detailsLinkText: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: palette.blue[500],
   },
   locationInfo: {
     backgroundColor: palette.gray[50],

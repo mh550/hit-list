@@ -12,6 +12,13 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 21:50 · M6-02 · passes
+
+- `app/add/review.tsx`: an 'Add details' link (`Pressable`, role button, 44-pt tall, blue text) under the name field; pressing it swaps in `SpotTagFields` (one-way, no 'Hide'). `tags` state starts `{ feature_types: [], stopped: false }` and Save spreads it into the new spot. Name keeps `autoFocus`, Save text 'Save'.
+- New `src/__tests__/quick-add-tags.test.tsx` (5 tests, hooks mocked, asserts on `addSpot`): no checkbox/switch/radio at first; press → 8 chips, 'Skate stopped', 5 segments, link gone; Rail + switch + Some → `['rail']`, `true`, `2`; untouched → `[]`, `false`, no speed; autoFocus + Save text. RED 3/5 before the change; mutation (spread → fixed `[]`/`false`) fails the tags test.
+- Tests 596 → 601; `check.sh` green (601); `jest --ci` 0 console.error.
+- Next (M6-03): Save still has no try/catch; the plan adds it with 'Add photos there' (shared `saving` guard). Questions for Michael: none new (§9 Q10 / D30 still open).
+
 ### 2026-10-21 21:30 · M6-01 · passes
 
 - New `docs/plans/2026-10-20-m6-review-screens.md`: Quick Add layout (photos · name · 'Add details' link → `SpotTagFields` · location · nearby card · Save), nearby rows ('Near <display name> · 16 ft', 48-pt thumbnail, 'Add photos there', ≤ 3 nearest), what 'Add photos there' does (one `savePhotos` to that `spot_id`, no `addSpot`, primary set if none, `dismissAll` then `push('/spot/<id>')`, shared `saving` guard), import per-group chip offer (store spots only, 'New spot' default, counts only new spots), failure behaviour, test list per feature.

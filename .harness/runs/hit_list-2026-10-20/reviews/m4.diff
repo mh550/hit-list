@@ -1,0 +1,1752 @@
+diff --git a/app/_layout.tsx b/app/_layout.tsx
+index f262ff1..9696674 100644
+--- a/app/_layout.tsx
++++ b/app/_layout.tsx
+@@ -1,8 +1,9 @@
+ import { Suspense } from 'react';
+-import { View, ActivityIndicator } from 'react-native';
++import { View, ActivityIndicator, StyleSheet } from 'react-native';
+ import { DefaultTheme, Stack, ThemeProvider } from 'expo-router';
+ import { StatusBar } from 'expo-status-bar';
+ import { SQLiteProvider } from 'expo-sqlite';
++import { GestureHandlerRootView } from 'react-native-gesture-handler';
+ import 'react-native-reanimated';
+ 
+ import { DB_NAME } from '@/src/db';
+@@ -19,31 +20,42 @@ function LoadingScreen() {
+ 
+ // Light only (app.json userInterfaceStyle "light"): the screens use light-theme colours and set no
+ // backgrounds, so DarkTheme's near-black would hide their text.
++// GestureHandlerRootView wraps everything so any screen (the photo viewer) can use gesture-handler.
+ export default function RootLayout() {
+   return (
+-    <ThemeProvider value={DefaultTheme}>
+-      <Suspense fallback={<LoadingScreen />}>
+-        <SQLiteProvider databaseName={DB_NAME} useSuspense>
+-          <DBInitializer>
+-            <Stack>
+-              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+-              <Stack.Screen name="spot/[id]/index" options={{ title: 'Spot Details' }} />
+-              <Stack.Screen
+-                name="spot/[id]/edit"
+-                options={{ presentation: 'formSheet', title: 'Edit Spot' }}
+-              />
+-              <Stack.Screen
+-                name="add/camera"
+-                options={{ headerShown: false, animation: 'slide_from_bottom' }}
+-              />
+-              <Stack.Screen name="add/review" options={{ title: 'Review Spot' }} />
+-              <Stack.Screen name="import/index" options={{ title: 'Import Photos' }} />
+-              <Stack.Screen name="import/review" options={{ title: 'Review Import' }} />
+-            </Stack>
+-          </DBInitializer>
+-        </SQLiteProvider>
+-      </Suspense>
+-      <StatusBar style="dark" />
+-    </ThemeProvider>
++    <GestureHandlerRootView style={styles.root}>
++      <ThemeProvider value={DefaultTheme}>
++        <Suspense fallback={<LoadingScreen />}>
++          <SQLiteProvider databaseName={DB_NAME} useSuspense>
++            <DBInitializer>
++              <Stack>
++                <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
++                <Stack.Screen name="spot/[id]/index" options={{ title: 'Spot Details' }} />
++                <Stack.Screen
++                  name="spot/[id]/edit"
++                  options={{ presentation: 'formSheet', title: 'Edit Spot' }}
++                />
++                <Stack.Screen
++                  name="spot/[id]/photos"
++                  options={{ presentation: 'fullScreenModal', headerShown: false }}
++                />
++                <Stack.Screen
++                  name="add/camera"
++                  options={{ headerShown: false, animation: 'slide_from_bottom' }}
++                />
++                <Stack.Screen name="add/review" options={{ title: 'Review Spot' }} />
++                <Stack.Screen name="import/index" options={{ title: 'Import Photos' }} />
++                <Stack.Screen name="import/review" options={{ title: 'Review Import' }} />
++              </Stack>
++            </DBInitializer>
++          </SQLiteProvider>
++        </Suspense>
++        <StatusBar style="dark" />
++      </ThemeProvider>
++    </GestureHandlerRootView>
+   );
+ }
++
++const styles = StyleSheet.create({
++  root: { flex: 1 },
++});
+diff --git a/app/spot/[id]/index.tsx b/app/spot/[id]/index.tsx
+index 478da5b..86469ea 100644
+--- a/app/spot/[id]/index.tsx
++++ b/app/spot/[id]/index.tsx
+@@ -73,6 +73,11 @@ export default function SpotDetailScreen() {
+     router.push(`/spot/${id}/edit` as `/spot/${string}/edit`);
+   }, [router, id]);
+ 
++  const handlePressPhoto = useCallback(
++    (index: number) => router.push(`/spot/${id}/photos?index=${index}` as `/spot/${string}/photos`),
++    [router, id],
++  );
++
+   if (!spot) {
+     return (
+       <View style={styles.centered}>
+@@ -103,9 +108,8 @@ export default function SpotDetailScreen() {
+         contentInsetAdjustmentBehavior="automatic">
+         <PhotoGrid
+           photos={photos}
+-          trailing={
+-photos.length === 0 ? <AddPhotosTile onPress={handleEdit} /> : undefined
+-          }
++          onPressPhoto={handlePressPhoto}
++          trailing={photos.length === 0 ? <AddPhotosTile onPress={handleEdit} /> : undefined}
+         />
+ 
+         <Text style={styles.title}>{displayName}</Text>
+diff --git a/app/spot/[id]/photos.tsx b/app/spot/[id]/photos.tsx
+new file mode 100644
+index 0000000..5f617e3
+--- /dev/null
++++ b/app/spot/[id]/photos.tsx
+@@ -0,0 +1,254 @@
++import { useCallback, useLayoutEffect, useRef, useState } from 'react';
++import { useLocalSearchParams, useRouter } from 'expo-router';
++import { StatusBar } from 'expo-status-bar';
++import {
++  Alert,
++  FlatList,
++  Pressable,
++  StyleSheet,
++  Text,
++  View,
++  useWindowDimensions,
++  type NativeScrollEvent,
++  type NativeSyntheticEvent,
++} from 'react-native';
++import { useSafeAreaInsets } from 'react-native-safe-area-context';
++
++import { useMediaStore, useSpotsStore } from '@/src/stores';
++import { useSpotActions } from '@/src/hooks/use-spot-actions';
++import { useMediaActions } from '@/src/hooks/use-media-actions';
++import { ZoomablePhoto } from '@/src/components';
++import { IconSymbol } from '@/components/ui/icon-symbol';
++import { resolvePhotoUri } from '@/src/utils/photo-storage';
++import { primaryPhoto, spotPhotos } from '@/src/utils/spot-photos';
++import { MIN_SCALE, pagingEnabled } from '@/src/utils/gallery-gestures';
++import { spacing } from '@/src/constants/theme';
++import type { Media } from '@/src/types';
++
++const clampIndex = (i: number, count: number) => Math.max(0, Math.min(i, count - 1));
++const OPTIONS_ACTIONS = [{ name: 'longpress', label: 'Photo options' }];
++
++/** D29: the order snapshotted on open, without removed photos, then photos added since. */
++function inViewerOrder(order: string[], current: Media[]): Media[] {
++  const byId = new Map(current.map((m) => [m.id, m]));
++  return [...order.flatMap((mid) => byId.get(mid) ?? []), ...current.filter((m) => !order.includes(m.id))];
++}
++
++/**
++ * Full-screen photo pager (fullScreenModal, no header): one window-wide page per photo, opened at `?index=N`
++ * (clamped; missing or not a number → 0), a 'N / M' counter and a ✕ that goes back. Each page is a ZoomablePhoto;
++ * paging is locked while the shown photo is zoomed past 1.05×, and a swipe down at 1× goes back too. The Stack's own
++ * back handling (Android back, edge swipe) also closes it; nothing is intercepted. A long press offers Set as primary
++ * and Remove photo (confirmed); removing the last photo closes the viewer.
++ */
++export default function PhotoViewerScreen() {
++  const { id, index } = useLocalSearchParams<{ id: string; index?: string }>();
++  const router = useRouter();
++  const { updateSpot } = useSpotActions();
++  const { removePhotos } = useMediaActions();
++  const insets = useSafeAreaInsets();
++  const { width, height } = useWindowDimensions();
++  const spot = useSpotsStore((s) => s.spots.find((sp) => sp.id === id));
++  const media = useMediaStore((s) => (id ? s.mediaBySpot[id] : undefined));
++  const current = spot ? spotPhotos(spot, media) : [];
++
++  // D29: the order is fixed while the viewer is open (a new primary does not jump to page 1). Removed photos
++  // drop out; photos added meanwhile go at the end.
++  const [order] = useState(() => current.map((m) => m.id));
++  const photos = inViewerOrder(order, current);
++  const count = photos.length;
++
++  // The shown photo is pinned by id, so it stays shown when the list changes around it. When it is the one removed,
++  // its old index (clamped) shows the photo that took its place: the next one, or the previous one at the end.
++  const [pos, setPos] = useState(() => {
++    const i = clampIndex(Number.parseInt(index ?? '', 10) || 0, current.length);
++    return { id: current[i]?.id, index: i };
++  });
++  const found = photos.findIndex((m) => m.id === pos.id);
++  const shown = found >= 0 ? found : clampIndex(pos.index, count);
++  // The settled scale of the shown page (only that page gets gestures); paging follows it.
++  const [zoom, setZoom] = useState(MIN_SCALE);
++
++  // A removal changes the pages under the native scroll offset, so move the offset to the shown photo (before paint).
++  const listRef = useRef<FlatList<Media>>(null);
++  const syncedCount = useRef(count);
++  useLayoutEffect(() => {
++    if (count === syncedCount.current) return;
++    syncedCount.current = count;
++    if (count > 0) listRef.current?.scrollToIndex({ index: shown, animated: false });
++  }, [count, shown]);
++
++  const close = useCallback(() => router.back(), [router]);
++  const onMomentumScrollEnd = useCallback(
++    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
++      const i = Math.round(e.nativeEvent.contentOffset.x / width);
++      setPos({ id: photos[i]?.id, index: i });
++      setZoom(MIN_SCALE);
++    },
++    [width, photos, setPos],
++  );
++
++  // The options act on the stores as they are when a button is pressed, not as they were when the page rendered.
++  const setPrimary = useCallback(
++    (photoId: string) => {
++      if (!id) return;
++      updateSpot(id, { primary_photo_id: photoId }).catch(() => {
++        // updateSpot logged it and put the old primary back.
++        Alert.alert("This photo couldn't be set as primary", 'Try again later.');
++      });
++    },
++    [id, updateSpot],
++  );
++  const remove = useCallback(
++    async (photoId: string) => {
++      const now = useSpotsStore.getState().spots.find((sp) => sp.id === id);
++      if (!now) return;
++      const nowMedia = useMediaStore.getState().mediaBySpot[now.id];
++      const pages = inViewerOrder(order, spotPhotos(now, nowMedia));
++      const wasPrimary = primaryPhoto(now, nowMedia)?.id === photoId;
++      const i = pages.findIndex((m) => m.id === photoId);
++      const remaining = pages.filter((m) => m.id !== photoId);
++      const removed = await removePhotos([photoId]);
++      if (!removed.includes(photoId)) {
++        Alert.alert("This photo couldn't be removed", "It's still on this spot. Try again later.");
++        return;
++      }
++      // The photo now in its place (the next one, else the previous one) is shown, at 1×.
++      const next = remaining[i] ?? remaining[i - 1];
++      setPos({ id: next?.id, index: clampIndex(i, remaining.length) });
++      setZoom(MIN_SCALE);
++      if (remaining.length === 0) router.back();
++      // It also becomes the primary; null clears it when none remain. updateSpot logs a failure, and the primary
++      // then falls back to the first photo (primaryPhoto).
++      if (wasPrimary) updateSpot(now.id, { primary_photo_id: next?.id ?? null }).catch(() => {});
++    },
++    [id, order, removePhotos, updateSpot, router, setPos],
++  );
++  const showOptions = useCallback(
++    (photoId: string) =>
++      Alert.alert('Photo', undefined, [
++        { text: 'Set as primary', onPress: () => setPrimary(photoId) },
++        {
++          text: 'Remove photo',
++          style: 'destructive',
++          onPress: () =>
++            Alert.alert('Remove this photo?', 'It is taken off this spot.', [
++              { text: 'Cancel', style: 'cancel' },
++              { text: 'Remove', style: 'destructive', onPress: () => void remove(photoId) },
++            ]),
++        },
++        { text: 'Cancel', style: 'cancel' },
++      ]),
++    [setPrimary, remove],
++  );
++  const getItemLayout = useCallback(
++    (_: ArrayLike<Media> | null | undefined, i: number) => ({ length: width, offset: width * i, index: i }),
++    [width],
++  );
++  const renderItem = useCallback(
++    ({ item, index: i }: { item: Media; index: number }) => (
++      <View
++        style={{ width, height }}
++        accessible
++        accessibilityRole="image"
++        accessibilityLabel={`Photo ${i + 1} of ${count}`}
++        accessibilityHint="Double-tap and hold for options"
++        accessibilityActions={OPTIONS_ACTIONS}
++        onAccessibilityAction={(e) => {
++          if (e.nativeEvent.actionName === 'longpress') showOptions(item.id);
++        }}>
++        <ZoomablePhoto
++          uri={resolvePhotoUri(item.file_path)}
++          recyclingKey={item.id}
++          width={width}
++          height={height}
++          onScaleChange={setZoom}
++          onRequestClose={close}
++          onLongPress={() => showOptions(item.id)}
++          testIdPrefix={`viewer-${i}`}
++        />
++      </View>
++    ),
++    [width, height, count, close, showOptions],
++  );
++
++  return (
++    <View style={styles.root} testID="photo-viewer">
++      <StatusBar hidden />
++      {spot ? (
++        <FlatList
++          ref={listRef}
++          data={photos}
++          keyExtractor={(m) => m.id}
++          renderItem={renderItem}
++          horizontal
++          pagingEnabled
++          scrollEnabled={pagingEnabled(zoom)}
++          showsHorizontalScrollIndicator={false}
++          initialScrollIndex={count > 0 ? shown : undefined}
++          getItemLayout={getItemLayout}
++          onMomentumScrollEnd={onMomentumScrollEnd}
++          initialNumToRender={1}
++          maxToRenderPerBatch={1}
++          windowSize={3}
++        />
++      ) : (
++        <View style={styles.centered}>
++          <Text style={styles.notFound}>Spot not found</Text>
++        </View>
++      )}
++      <View style={[styles.chrome, { top: insets.top }]} pointerEvents="box-none">
++        {count > 0 ? (
++          <Text style={styles.counter} accessibilityRole="text" accessibilityLiveRegion="polite">
++            {`${shown + 1} / ${count}`}
++          </Text>
++        ) : null}
++        <Pressable
++          onPress={close}
++          style={styles.close}
++          accessibilityRole="button"
++          accessibilityLabel="Close">
++          <IconSymbol name="xmark" size={22} color="#fff" />
++        </Pressable>
++      </View>
++    </View>
++  );
++}
++
++const styles = StyleSheet.create({
++  root: {
++    flex: 1,
++    backgroundColor: '#000',
++  },
++  centered: {
++    flex: 1,
++    alignItems: 'center',
++    justifyContent: 'center',
++  },
++  notFound: {
++    fontSize: 16,
++    color: '#fff',
++  },
++  chrome: {
++    position: 'absolute',
++    left: 0,
++    right: 0,
++    height: 44,
++    alignItems: 'center',
++    justifyContent: 'center',
++  },
++  counter: {
++    fontSize: 17,
++    fontWeight: '600',
++    color: '#fff',
++    fontVariant: ['tabular-nums'],
++  },
++  close: {
++    position: 'absolute',
++    right: spacing.sm,
++    width: 44,
++    height: 44,
++    alignItems: 'center',
++    justifyContent: 'center',
++  },
++});
+diff --git a/docs/plans/2026-10-20-m4-viewer.md b/docs/plans/2026-10-20-m4-viewer.md
+new file mode 100644
+index 0000000..a248c74
+--- /dev/null
++++ b/docs/plans/2026-10-20-m4-viewer.md
+@@ -0,0 +1,238 @@
++# M4 plan: full-screen photo viewer (pager, pinch/pan/double-tap, swipe-down close, long-press)
++
++Spec: `docs/specs/2026-10-16-simplification-design.md` §3.1 (build with installed libs), §3.3 (viewer), §3.4 (tests),
++D24 (gallery), D29 *default* (viewer order while open). Features: M4-01 this plan + gesture wiring · M4-02
++`gallery-gestures.ts` · M4-03 route + pager + counter + ✕ + detail tiles open it · M4-04 zoom/pan/close gestures ·
++M4-05 long-press sheet · M4-06 walkthrough · M4-07 review. Each task: RED test first, then code; `check.sh` green
++per commit.
++
++Starting point (after M3): detail renders `PhotoGrid photos={spotPhotos(spot, media)}` with **no** `onPressPhoto`
++(tiles role `image`). gesture-handler 2.32 and reanimated 4.5.1 (+ worklets 0.10.1) installed; before M4-01 only
++`app/_layout.tsx` imported reanimated (side-effect import), nothing imported gesture-handler.
++
++## M4-01 wiring (done in this feature)
++
++- `app/_layout.tsx`: outermost element `<GestureHandlerRootView style={styles.root}>` (`root: { flex: 1 }`) around
++  `ThemeProvider` (so the Stack, every modal and the root `StatusBar` sit inside it).
++- `jest.setup.ts`: `import 'react-native-gesture-handler/jestSetup'` (package's own mocks of its native module,
++  buttons, Pressable) + **new** `jest.mock('react-native-worklets', () => jest.requireActual('react-native-worklets/src/mock'))`.
++  Existing reanimated mock kept as is. Found while wiring: the reanimated mock alone **cannot load** under
++  reanimated 4 (`react-native-reanimated/mock` imports worklets, whose native module throws `loadUnpackers` of
++  undefined in Jest); it never ran before because no tested file imported reanimated. The worklets mock fixes it.
++- `src/__tests__/root-layout.test.tsx` (2 tests): RootLayout (providers reduced to children) renders exactly one
++  `GestureHandlerRootView` with style `{ flex: 1 }` containing the Stack and its screens; a `Gesture.Tap().withTestId`
++  inside a `GestureDetector` is fired via `fireGestureHandler(getByGestureTestId('tap'))` and its `onEnd` runs once.
++  Both fail without the jestSetup import (`RNGestureHandlerModule.default.install is not a function`).
++- iOS export (`npx expo export --platform ios`): exit 0 before and after. Hermes bundle **4,060,375 B before →
++  4,215,187 B after** (+154,812 B ≈ +151 KB: gesture-handler's JS; reanimated was already bundled).
++
++## Route (M4-03)
++
++- File `app/spot/[id]/photos.tsx`; params `id`, `index` (string; `parseInt`, NaN → 0, clamp to `[0, n-1]`, so
++  `'99'` on 7 photos opens at 6).
++- `app/_layout.tsx`: `<Stack.Screen name="spot/[id]/photos" options={{ presentation: 'fullScreenModal', headerShown: false }} />`.
++- Opened from detail: `PhotoGrid onPressPhoto={(i) => router.push({ pathname: '/spot/[id]/photos', params: { id, index: String(i) } })}`
++  (test accepts that or `'/spot/<id>/photos?index=3'`; M4-03 picks the string form if the object form makes the
++  assertion awkward). Tiles become role `imagebutton` (PhotoGrid already does this when `onPressPhoto` is set).
++- Missing spot (`id` not in store) → centred 'Spot not found' (same as detail).
++- Root `View` `flex: 1, backgroundColor: '#000'`; `<StatusBar hidden />` from `expo-status-bar` rendered inside the
++  screen: expo-status-bar stacks props per mounted component, so unmounting restores the root's `style="dark"`
++  bar (no manual restore).
++- Chrome (absolute, over the pager, `useSafeAreaInsets` top): counter `"{page + 1} / {n}"` top-centre (white,
++  `accessibilityRole="text"`, `accessibilityLiveRegion="polite"`); ✕ top-right: `Pressable accessibilityRole="button"
++  accessibilityLabel="Close"`, `hitSlop` so the target is ≥ 44×44, `onPress → router.back()`.
++- Back gesture / Android hardware back: no interception; the Stack pops the modal (spec §3.3 "Back gesture also
++  closes"). `fullScreenModal` on iOS has no edge-swipe, so swipe-down + ✕ are the iOS exits.
++
++## Pager choice: `FlatList` horizontal `pagingEnabled` + `getItemLayout`
++
++Why: spec §10 lets the builder pick FlatList or `Animated.ScrollView`. FlatList gives virtualization (a spot may have
++20 photos; `windowSize={3}`, `initialNumToRender={1}`, `maxToRenderPerBatch={1}` → at most ~3 decoded full-size
++images; M4-03 dropped `removeClippedSubviews`: with horizontal paging + `initialScrollIndex` on iOS it is a known
++source of blank pages, and `windowSize` already bounds decoding), `initialScrollIndex` (needs `getItemLayout`: `(_, i) => ({ length: width, offset:
++width * i, index: i })` with `useWindowDimensions().width`; every page is exactly one window wide, so this is exact),
++and `scrollEnabled` as a plain prop for the zoom lock. `Animated.ScrollView` would render all 20 pages and need manual
++initial offset. RN's `FlatList` (not gesture-handler's): page gestures fail on horizontal movement at 1× (below), so
++the native scroll view wins horizontal swipes without cross-wiring.
++
++- `data`: the viewer's order (D29): ids snapshotted from `spotPhotos(spot, mediaBySpot[id])` on mount (`useState`
++  initialiser), then each render maps them to current `Media` rows and drops removed ones. So 'Set as primary' does
++  not jump the photo to page 1 under the user; the detail grid reorders (primary first) as usual.
++- `keyExtractor` = media id; `showsHorizontalScrollIndicator={false}`.
++- Page index state: `onMomentumScrollEnd` → `Math.round(contentOffset.x / width)`, clamped. Test fires
++  `fireEvent(list, 'momentumScrollEnd', { nativeEvent: { contentOffset: { x: 5 * width, y: 0 } } })` → '6 / 7'.
++- Built in M4-03: the counter shows `min(page, n-1)`. **M4-05 must** keep the page pinned to a photo after a removal
++  (the M4-03 review: removing a photo before the current one, or the last one, leaves the native offset on the old
++  page): track the shown photo's id, and `scrollToIndex({ index, animated: false })` when `n` changes.
++- `scrollEnabled={pagingEnabled(scale)}` where `scale` is React state fed by the current page's `onScaleChange`
++  (M4-04); reset to 1 on page change.
++- Each page: `View` width × height, `accessibilityLabel="Photo N of M"`, `accessibilityHint="Double-tap and hold for
++  options"` (M4-05), containing `ZoomablePhoto`.
++- Image: `expo-image` `<Image source={{ uri: resolvePhotoUri(m.file_path) }} contentFit="contain" recyclingKey={m.id}
++  style={StyleSheet.absoluteFill} />` (recyclingKey: recycled cells never flash the previous photo).
++
++## Gesture composition (M4-04): `src/components/ZoomablePhoto.tsx`
++
++Props: `{ uri: string; recyclingKey: string; width: number; height: number; onScaleChange?: (scale: number) => void;
++onRequestClose?: () => void; onLongPress?: () => void; testIdPrefix?: string }`. Exported from
++`src/components/index.ts`. Target < 150 lines excluding styles.
++
++Shared values (reanimated): `scale`, `savedScale`, `tx`, `ty`, `savedTx`, `savedTy`, `dragY` (swipe-down offset at 1×).
++Every number comes from `gallery-gestures.ts`; worklets read only shared values and props captured as plain numbers
++(`width`, `height`), never React state. Pure functions are marked `'worklet'` so they run on the UI thread.
++
++```ts
++const pinch = Gesture.Pinch()
++  .onUpdate((e) => { scale.value = clampScale(savedScale.value * e.scale); /* focalZoom → tx/ty */ })
++  .onEnd(() => { savedScale.value = scale.value; clamp tx/ty via clampPan; scheduleOnRN(onScaleChange, scale.value) });
++const pan = Gesture.Pan()            // rebuilt (useMemo on `zoomed` boolean state) so its config can change
++  // at 1×: vertical only → the FlatList keeps horizontal swipes
++  .activeOffsetY(zoomed ? undefined : [-10, 10]).failOffsetX(zoomed ? undefined : [-10, 10])
++  .onUpdate((e) => zoomed ? (tx/ty = clampPan({ x: savedTx + e.translationX, y: … }, scale, viewport))
++                          : (dragY.value = Math.max(0, e.translationY)))
++  .onEnd((e) => { if (shouldClose(e.translationY, scale.value)) scheduleOnRN(onRequestClose); else dragY → withTiming(0);
++                  savedTx/savedTy = tx/ty });
++const doubleTap = Gesture.Tap().numberOfTaps(2)
++  .onEnd((e) => { next = toggleZoom(scale.value); scale → withTiming(next); tx/ty → next === 1 ? 0 : clampPan(focalZoom(e, scale, next)); scheduleOnRN(onScaleChange, next) });
++const longPress = Gesture.LongPress().minDuration(450).onStart(() => scheduleOnRN(onLongPress));
++const composed = Gesture.Simultaneous(pinch, pan, Gesture.Exclusive(doubleTap, longPress));
++```
++
++- `scheduleOnRN` from `react-native-worklets` (reanimated 4's replacement for `runOnJS`; both exist in 4.5).
++- `zoomed` (React state, `scale > 1.05` via `pagingEnabled`) is set through `onScaleChange` too; it only rebuilds
++  the pan's activation offsets.
++- Animated style: `transform: [{ translateX: tx }, { translateY: ty + dragY }, { scale }]`; backdrop opacity follows
++  `dragY` (`1 - dragY / 400`, floor 0.4) as visual feedback for the swipe-down.
++- Each gesture `.withTestId(\`${testIdPrefix}-pinch|pan|double-tap|long-press\`)` → tests use
++  `fireGestureHandler(getByGestureTestId('viewer-pan-0'), [{ state: State.BEGAN }, { state: State.ACTIVE, translationY: 150 }, { state: State.END, translationY: 150 }])`
++  (names from `node_modules/react-native-gesture-handler/lib/typescript/jestUtils/jestUtils.d.ts`:
++  `fireGestureHandler`, `getByGestureTestId`). Proven in Jest by `root-layout.test.tsx`.
++- Zoom lock test (M4-04 step 2): `screen.UNSAFE_getByType(ZoomablePhoto)` → `act(() => props.onScaleChange(2))` →
++  FlatList `scrollEnabled` false; at 1× true.
++
++### Built in M4-04 (differs from the sketch above)
++
++- `ZoomablePhoto.tsx` is 143 lines with no styles block, so no fallback to react-native-zoom-toolkit (nothing installed).
++  The long-press gesture and `onLongPress` prop are left to M4-05.
++- Shared values use `.get()` / `.set()`, not `.value`: the React Compiler lint (`react-hooks/immutability`) rejects
++  `.value =` inside `useMemo`.
++- Test ids are `${testIdPrefix}-pinch|pan|double-tap`, and the viewer passes `testIdPrefix="viewer-<page index>"`, e.g.
++  `viewer-2-pan`.
++- The gestures are wrapped by an untransformed page `View`, so focal and tap coordinates are in page space. Only the
++  inner `Animated.View` is transformed.
++- Pinch: `onStart` records `startScale/startTx/startTy` and sets `pinching`. `onEnd` snaps to 1 when
++  `pagingEnabled(scale)`, otherwise keeps the scale, then animates to `clampPan` and reports the scale.
++- Pan has `maxPointers(1)`. `onStart` records `panZoomed = !pagingEnabled(scale)`. A pan that started at 1× only drives
++  `dragY = dragDown(translationY)` (new pure function). A zoomed pan applies the per-frame `changeX/changeY` in
++  `.onChange`, and skips frames while `pinching`, so a pinch starting or ending mid-pan causes no jump (the Opus review's
++  Important finding). The viewer closes only when `success && !panZoomed && shouldClose(dy, scale)`, so a cancelled drag
++  never closes it.
++- The swipe-down backdrop fade is not built: the root is already black, so there is nothing to fade. The photo follows
++  the finger down and springs back.
++- Viewer: `zoom` is React state fed by `onScaleChange`, `scrollEnabled={pagingEnabled(zoom)}`, and it is reset to 1 on
++  `momentumScrollEnd`.
++- Back gesture / Android hardware back: unchanged, no interception. The Stack pops the modal (see Route).
++- `jest.setup.ts`: reanimated's mock `useSharedValue` made a new value every render. It is now wrapped in `useState`,
++  so it is stable like the real one; without that, a gesture spanning a re-render saw 1× again.
++- Jest limits (left for the phone check in M4-06):
++  - `fireGestureHandler` skips activation criteria, so `activeOffsetY/failOffsetX` (the pager keeps horizontal swipes
++    at 1×) is not tested.
++  - Every call starts a new gesture, so a pinch in the middle of a pan cannot be simulated.
++  - The `useAnimatedStyle` mock is evaluated once per render, so transforms are not asserted.
++  - Review Minor 4: while the first pinch from 1× is still running, `scrollEnabled` is still true. If a sideways-drifting
++    pinch pages the list on the phone, the fix is gesture-handler's `FlatList` with `Gesture.Native()` interop.
++
++## Pure functions: `src/utils/gallery-gestures.ts` (M4-02)
++
++All `'worklet'`, no imports from React or reanimated. Constants exported: `MIN_SCALE = 1`, `MAX_SCALE = 4`,
++`DOUBLE_TAP_SCALE = 2.5`, `ZOOMED_EPSILON = 1.05`, `CLOSE_DISTANCE = 120`.
++
++```ts
++type Point = { x: number; y: number };
++type Size = { width: number; height: number };
++clampScale(scale: number): number                              // [1, 4]
++toggleZoom(scale: number): number                              // scale < 1.05 ? 2.5 : 1
++clampPan(t: Point, scale: number, viewport: Size): Point       // |x| ≤ width*(scale-1)/2, |y| ≤ height*(scale-1)/2; scale ≤ 1 → {0,0}
++pagingEnabled(scale: number): boolean                          // scale <= 1.05
++shouldClose(dy: number, scale: number): boolean                // scale <= 1.05 && dy > 120
++focalZoom(focal: Point, scale: number, nextScale: number, viewport: Size, translation: Point = {x:0,y:0}): Point
++                                                               // translation keeping `focal` (view coords) fixed;
++                                                               // focal at the centre → {0,0}
++```
++
++`clampPan` bounds use the viewport, not the image's contained size (spec values: scale 2 on 390×844 → ±195, ±422).
++That lets a letterboxed photo pan its black bars into view when zoomed; accepted for now (simple, testable),
++revisit on the phone. `focalZoom` takes `viewport` (for the centre) in addition to the feature text's
++`(focal, scale, nextScale)`, plus an optional current `translation` (default `{0,0}`) so a pinch that starts
++panned keeps its focal point: `t' = d − (next/scale)·(d − t)`, `d = focal − centre` (M4-02 built it this way;
++the tests always pass `viewport`). `-0` results
++are normalised to `0` so `toEqual({ x: 0, y: 0 })` holds.
++
++## Long-press sheet (M4-05)
++
++- `Alert.alert(title = 'Photo', undefined, [{ text: 'Set as primary', onPress }, { text: 'Remove photo', style:
++  'destructive', onPress }, { text: 'Cancel', style: 'cancel' }])`. On iOS three buttons render as a vertical
++  alert list, close enough to an action sheet. **No `ActionSheetIOS`, no new dependency.**
++- Set as primary → `updateSpot(spotId, { primary_photo_id: media.id })` (`useSpotActions`); counter unchanged (D29
++  keeps the order).
++- Remove photo → `Alert.alert('Remove this photo?', 'It is taken off this spot.', [{ text: 'Cancel', style:
++  'cancel' }, { text: 'Remove', style: 'destructive', onPress }])` (no camera-roll promise: Quick Add photos are
++  never in the camera roll) →
++  `removePhotos([media.id])` (`useMediaActions`; resolves the ids removed). If that photo was the spot's primary
++  (`spot.primary_photo_id === id`, or no explicit primary and it was `primaryPhoto`), `updateSpot(spotId, {
++  primary_photo_id: <the photo now shown in its place, i.e. next in viewer order, else previous> ?? null })`.
++  Remaining 0 → `router.back()`. Page index clamps to the new last page; counter 'N / 6'.
++- The page's `onLongPress` comes from the long-press gesture; the hint text tells VoiceOver users to double-tap and
++  hold, which iOS passes through as a long press.
++
++### Built in M4-05
++
++- `ZoomablePhoto` gains `onLongPress` and a `Gesture.LongPress()` (`<prefix>-long-press`, `minDuration(LONG_PRESS_MS)`),
++  composed as `Simultaneous(pinch, pan, Exclusive(doubleTap, longPress))`. It ignores a long press while `pinching`.
++  `LONG_PRESS_MS = 500` lives in `gallery-gestures.ts`: inside `Exclusive` the long press waits for the double tap to
++  fail, and that happens only after the Tap's 500 ms `maxDuration`, so a shorter value would do nothing. The component
++  is 149 lines (startTx/startTy merged into one `startT` point to stay under 150).
++- Viewer: each page has `accessibilityHint="Double-tap and hold for options"` plus `accessibilityActions` `longpress`
++  ('Photo options') and `onAccessibilityAction`, so TalkBack (which sends a long click, not touches) and the VoiceOver
++  Actions rotor reach the same Alert.
++- The actions take a photo id and read the stores when a button is pressed (`getState()`), not the render's closure.
++  Found by a RED test: after 'Set as primary' on another photo, removing it from a page whose callback had been
++  captured earlier did not see it as primary.
++- The shown photo is pinned by id (`pos = { id, index }`). A removal sets `pos` to the photo now in its place (next,
++  else previous), resets the zoom to 1×, and a `useLayoutEffect` on `count` calls `scrollToIndex({ animated: false })`
++  before paint. That fixes the M4-03 review finding (also for a photo removed before the shown one).
++- Remove order: `removePhotos` → (failed: Alert "This photo couldn't be removed", nothing else) → none left:
++  `router.back()` → if it was the primary (`primaryPhoto`, so an implicit first photo counts too, as in edit):
++  `updateSpot(primary_photo_id: next ?? null)`, not awaited, failure only logged. 'Set as primary' failure: Alert.
++- Not guarded: pressing an option twice quickly runs it twice (Alerts are modal; review Minor 9, left as is).
++- **For M4-06's phone checklist** (Jest's `fireGestureHandler` skips Simultaneous/Exclusive relations): hold two
++  fingers still for ~0.5 s and then pinch: no options Alert; a double tap still zooms and never opens the options;
++  a long press opens them after about half a second; VoiceOver: double-tap and hold opens them, and the Actions rotor
++  lists 'Photo options'.
++
++## Fallback rule (spec §3.1)
++
++If `ZoomablePhoto` cannot stay **under ~150 lines excluding styles** with the composition above, M4-04 may instead
++`npx expo install react-native-zoom-toolkit` (pure JS over gesture-handler + reanimated) in its own `chore:` commit,
++use its `ResumableZoom`/`Gallery`, and must record that here and in the progress log. No other gallery dependency.
++
++## Tests
++
++| Feature | File | Cases |
++|---|---|---|
++| M4-01 | `root-layout.test.tsx` | GestureHandlerRootView flex 1 wraps Stack; jest-utils fires a Tap (done) |
++| M4-02 | `gallery-gestures.test.ts` | clampScale 0.5→1, 6→4, 2.2→2.2; toggleZoom 1→2.5, 2.5→1, 1.04→2.5; clampPan scale 1 → {0,0}; clampPan({500,-900}, 2, 390×844) → {195,-422}; pagingEnabled 1 true, 1.06 false; shouldClose 121/1 true, 119/1 false, 300/2 false; focalZoom centre → {0,0} |
++| M4-03 | `photo-viewer.test.tsx` | index '2' on 7 → '3 / 7'; ✕ role button 'Close' → `router.back`; momentumScrollEnd to page 5 → '6 / 7'; index '99' → '7 / 7'; unknown id → 'Spot not found'; pages labelled 'Photo N of 7'; root bg '#000' |
++| M4-03 | `spot-detail.test.tsx` | press `photo-tile-3` → `router.push` to `/spot/<id>/photos` with index '3' |
++| M4-04 | `photo-viewer.test.tsx` | scrollEnabled true at 1×, false after `onScaleChange(2)`; pinch 2× locks / 0.5 unlocks; pinch ending at 1.04 snaps (reports 1); double tap toggles; pan END dy 150 at 1× → `router.back`, 119 → not, at 2× → not; ZoomablePhoto: clamps to 4, cancelled swipe never closes |
++| M4-04 | `gallery-gestures.test.ts` | dragDown 150→150, −40→0 |
++| M4-05 | `photo-viewer.test.tsx` | long-press page 2 → Alert buttons Set as primary / Remove photo (destructive) / Cancel; Set → `updateSpot(id, { primary_photo_id })`, counter same; Remove → 2nd alert 'Remove this photo?' → `removePhotos([id])` once, 'N / 6'; remove last → `router.back`; remove primary → `primary_photo_id` next id / null; hint text |
++
++Viewer tests mock `useSpotActions`/`useMediaActions` (as edit tests do) and seed the zustand stores; `Alert.alert`
++via `jest.spyOn(Alert, 'alert')`, buttons pressed by calling `mock.calls[0][2][i].onPress()` inside `act`.
++
++## Unresolved questions
++
++1. D29: keep the viewer's order while open after 'Set as primary' (default), or jump the photo to page 1?
++2. `clampPan` uses viewport bounds (letterbox bars can pan into view when zoomed). Fine, or bound by the contained
++   image size (more maths, needs the photo's aspect ratio)?
+diff --git a/docs/plans/2026-10-20-m4-what-michael-will-see.md b/docs/plans/2026-10-20-m4-what-michael-will-see.md
+new file mode 100644
+index 0000000..5263e36
+--- /dev/null
++++ b/docs/plans/2026-10-20-m4-what-michael-will-see.md
+@@ -0,0 +1,48 @@
++# M4: what Michael will see (photo viewer)
++
++Rendered from scratch in Jest (temporary tests, deleted before commit; trees trimmed to the props a user or VoiceOver meets).
++
++## Detail grid tile that opens the viewer
++
++7-photo spot, tile index 2:
++
++```
++testID photo-tile-2 · role imagebutton · label "Photo 3 of 7"
++press → router.push("/spot/<id>/photos?index=2")
++```
++Tiles are labelled "Photo 1 of 7" … "Photo 7 of 7" (primary first).
++
++## Viewer, 7 photos opened at index 2
++
++```
++View testID="photo-viewer"                      (black root)
++  ScrollView horizontal pagingEnabled scrollEnabled=true initialScrollIndex=2
++    page: View label="Photo 3 of 7" role=image hint="Double-tap and hold for options"
++          actions=[longpress "Photo options"]  → Image file:///…/photos/<spot>/<n>.jpg
++  Text "3 / 7"
++  Button label="Close" (✕ icon)
++```
++
++After a simulated swipe settling on page 6 (`momentumScrollEnd`, offset 5 × width): the counter reads **"6 / 7"**, and the Close button is unchanged.
++Note: in Jest only the pages around the initial index are mounted, so the page label after the swipe still shows the page-3 view; a real list mounts the shown page.
++
++## Try on the phone
++
++None of these gestures ran on a device in this run; Jest cannot drive real pinches (gestures were fired through gesture-handler's test utils only).
++
++- [ ] Swipe left/right between photos → pages snap, counter "N / 7" follows.
++- [ ] Pinch out → grows smoothly and stops at 4×; pinch in → returns to 1× (no shrink below).
++- [ ] Double-tap → zooms to 2.5×; double-tap again → back to 1×.
++- [ ] While zoomed (>1.05×), horizontal swipe pans the photo and does NOT change page; at 1× paging works again.
++- [ ] At 1×, drag down more than ~120 px → photo follows the finger and the viewer closes; a shorter drag springs back. While zoomed, dragging down does NOT close.
++- [ ] ✕ → closes to the spot detail. Edge swipe / Android back also closes.
++- [ ] Long-press (~0.5 s) a photo → alert "Set as primary / Remove photo (red) / Cancel". A double-tap never opens it; a pinch after a still two-finger hold shouldn't either.
++- [ ] Set as primary → the same photo stays shown; the detail grid's first tile changes afterwards.
++- [ ] Remove photo → "Remove this photo?" → confirm → counter drops by one (7 → "N / 6") and the neighbour shows; removing the last photo closes the viewer.
++- [ ] VoiceOver: double-tap and hold (or the Actions rotor "Photo options") opens the options.
++
++## Verification numbers
++
++- `npx jest --silent`: 46 suites, **520 tests** passed.
++- `npx expo export --platform ios --output-dir /tmp/harness/hit_list/hit_list-2026-10-20/export`: exit **0**, Hermes bundle **4,240,251 B**.
++- `npx expo lint && npx tsc --noEmit && npx jest --silent`: green via `check.sh`.
+diff --git a/docs/specs/2026-10-16-simplification-design.md b/docs/specs/2026-10-16-simplification-design.md
+index 24acab5..89d05b7 100644
+--- a/docs/specs/2026-10-16-simplification-design.md
++++ b/docs/specs/2026-10-16-simplification-design.md
+@@ -68,6 +68,7 @@ re-hydrated per user ("add the features and fields you want"); none of that is b
+ | D26 | **Old data is archived, not deleted** | Migration 3 copies each spot's removed fields into one `legacy_json` column on the row (and maps `feature.type` → `feature_types`, `skate_stops.is_stopped` → `stopped`, `metadata.notes` → `notes`). Nothing reads `legacy_json` except a one-line "Older details" disclosure on the detail screen when it is non-empty. Details §4. | *my call* (§9 Q4) |
+ | D27 | **Groups / sharing deferred** | §7 is direction, not scope. Nothing in §7 is built this run. | Michael: "consider deferring #5 until after the simplification has been done and tested" |
+ | D28 | **A failed upgrade blocks the app** *default* | If `migrateDb` throws at launch (e.g. migration 3), the app shows "Couldn't upgrade your spots — Nothing was lost… Close HitList and open it again to retry" instead of the tabs; the next launch retries. Media and settings still load, each on its own. | Builder (M1-05 review): this build's writes fail on an older schema, so a usable-looking empty app would let a Quick Add copy photos and then lose the spot, and saving Units would write default settings over the stored ones (§9 Q8) |
++| D29 | **The viewer keeps its photo order while open** *default* | 'Set as primary' in the viewer does not move the photo to page 1 under the user: the viewer snapshots `spotPhotos()` order when it opens and only drops removed photos. The detail grid shows the new primary first as usual. Plan: `docs/plans/2026-10-20-m4-viewer.md`. | Builder (M4-01 plan): a page that jumps away right after a long-press action is disorienting (§9 Q9) |
+ 
+ ---
+ 
+@@ -465,6 +466,10 @@ Stretch, in order, only if all above is green: (a) FilterSheet range mode polish
+    at launch. Say "let me in anyway" for the old behaviour (the list loads what it can and writes
+    may fail).
+ 
++9. **Viewer order after 'Set as primary' (D29, added by the M4-01 plan).** **Default: the viewer keeps
++   its order while open** (the photo stays on the page you are looking at). Say "jump to first" to move it to
++   page 1 at once.
++
+ ---
+ 
+ ## 10. What a builder may decide alone
+diff --git a/jest.setup.ts b/jest.setup.ts
+index 945c1ac..8824a35 100644
+--- a/jest.setup.ts
++++ b/jest.setup.ts
+@@ -28,9 +28,21 @@ jest.mock('expo-router', () => ({
+   },
+ }));
+ 
+-// Mock react-native-reanimated
++// react-native-gesture-handler: the package's own setup swaps its native module for mocks, so
++// GestureDetector renders and react-native-gesture-handler/jest-utils can fire gestures.
++import 'react-native-gesture-handler/jestSetup';
++
++// react-native-worklets (reanimated 4's runtime) loads its native module at import, which Jest
++// does not have; its own mock stands in. Reanimated's mock below imports it.
++jest.mock('react-native-worklets', () => jest.requireActual('react-native-worklets/src/mock'));
++
++// Mock react-native-reanimated. Its mock's useSharedValue makes a new value on every render; the real one
++// keeps the same value for the component's lifetime, so gestures that span re-renders see what they wrote.
+ jest.mock('react-native-reanimated', () => {
+   const Reanimated = jest.requireActual('react-native-reanimated/mock');
++  const { useState } = jest.requireActual('react');
++  const makeSharedValue = Reanimated.useSharedValue;
++  Reanimated.useSharedValue = (init: unknown) => useState(() => makeSharedValue(init))[0];
+   Reanimated.default.call = () => {};
+   return Reanimated;
+ });
+diff --git a/src/__tests__/gallery-gestures.test.ts b/src/__tests__/gallery-gestures.test.ts
+new file mode 100644
+index 0000000..387c7c4
+--- /dev/null
++++ b/src/__tests__/gallery-gestures.test.ts
+@@ -0,0 +1,120 @@
++import {
++  CLOSE_DISTANCE,
++  DOUBLE_TAP_SCALE,
++  MAX_SCALE,
++  MIN_SCALE,
++  ZOOMED_EPSILON,
++  clampPan,
++  clampScale,
++  dragDown,
++  focalZoom,
++  pagingEnabled,
++  shouldClose,
++  toggleZoom,
++} from '@/src/utils/gallery-gestures';
++
++const phone = { width: 390, height: 844 };
++const centre = { x: 195, y: 422 };
++
++describe('constants', () => {
++  it('match the viewer plan', () => {
++    expect([MIN_SCALE, MAX_SCALE, DOUBLE_TAP_SCALE, ZOOMED_EPSILON, CLOSE_DISTANCE]).toEqual([1, 4, 2.5, 1.05, 120]);
++  });
++});
++
++describe('clampScale', () => {
++  it('keeps the scale between 1 and 4', () => {
++    expect(clampScale(0.5)).toBe(1);
++    expect(clampScale(6)).toBe(4);
++    expect(clampScale(2.2)).toBe(2.2);
++  });
++});
++
++describe('toggleZoom', () => {
++  it('zooms to 2.5 from about 1x and back to 1 otherwise', () => {
++    expect(toggleZoom(1)).toBe(2.5);
++    expect(toggleZoom(1.04)).toBe(2.5);
++    expect(toggleZoom(2.5)).toBe(1);
++    expect(toggleZoom(1.05)).toBe(1);
++  });
++});
++
++describe('clampPan', () => {
++  it('allows no pan at 1x or below', () => {
++    expect(clampPan({ x: 500, y: -900 }, 1, phone)).toEqual({ x: 0, y: 0 });
++    expect(clampPan({ x: -30, y: 12 }, 1, phone)).toEqual({ x: 0, y: 0 });
++    expect(clampPan({ x: -30, y: 12 }, 0.8, phone)).toEqual({ x: 0, y: 0 });
++  });
++
++  it('never returns -0', () => {
++    const { x, y } = clampPan({ x: -30, y: -12 }, 1, phone);
++
++    expect(Object.is(x, 0)).toBe(true);
++    expect(Object.is(y, 0)).toBe(true);
++  });
++
++  it('stops the scaled image at the viewport edge', () => {
++    expect(clampPan({ x: 500, y: -900 }, 2, phone)).toEqual({ x: 195, y: -422 });
++    expect(clampPan({ x: -500, y: 900 }, 2, phone)).toEqual({ x: -195, y: 422 });
++  });
++
++  it('leaves a translation inside the bounds alone', () => {
++    expect(clampPan({ x: 40, y: -100 }, 2, phone)).toEqual({ x: 40, y: -100 });
++  });
++});
++
++describe('pagingEnabled', () => {
++  it('pages only at about 1x', () => {
++    expect(pagingEnabled(1)).toBe(true);
++    expect(pagingEnabled(1.05)).toBe(true);
++    expect(pagingEnabled(1.06)).toBe(false);
++  });
++});
++
++describe('shouldClose', () => {
++  it('closes on a swipe down past 120 at about 1x', () => {
++    expect(shouldClose(121, 1)).toBe(true);
++    expect(shouldClose(119, 1)).toBe(false);
++    expect(shouldClose(120, 1)).toBe(false);
++    expect(shouldClose(-200, 1)).toBe(false);
++  });
++
++  it('never closes while zoomed', () => {
++    expect(shouldClose(300, 2)).toBe(false);
++  });
++});
++
++describe('focalZoom', () => {
++  it('needs no translation for a focal point at the centre', () => {
++    expect(focalZoom(centre, 1, 2.5, phone)).toEqual({ x: 0, y: 0 });
++  });
++
++  it('keeps a corner fixed when zooming from 1x', () => {
++    // Top-left at 2.5x: the image moves right and down by 1.5 × half the viewport.
++    expect(focalZoom({ x: 0, y: 0 }, 1, 2.5, phone)).toEqual({ x: 292.5, y: 633 });
++  });
++
++  it('keeps the focal point fixed from an already panned zoom', () => {
++    const translation = { x: 50, y: -20 };
++    const focal = { x: 300, y: 200 };
++    const t = focalZoom(focal, 2, 3, phone, translation);
++
++    // The image point under the focal before (scale 2) is still under it after (scale 3).
++    const before = { x: (focal.x - centre.x - translation.x) / 2, y: (focal.y - centre.y - translation.y) / 2 };
++    expect(centre.x + t.x + 3 * before.x).toBeCloseTo(focal.x);
++    expect(centre.y + t.y + 3 * before.y).toBeCloseTo(focal.y);
++  });
++
++  it('returns to no translation when zooming back to 1x around the centre', () => {
++    expect(focalZoom(centre, 2.5, 1, phone)).toEqual({ x: 0, y: 0 });
++  });
++});
++
++describe('dragDown', () => {
++  it('follows a downward drag and ignores an upward one', () => {
++    expect(dragDown(150)).toBe(150);
++    expect(dragDown(0)).toBe(0);
++    expect(Object.is(dragDown(-40), 0)).toBe(true);
++  });
++});
++
+diff --git a/src/__tests__/photo-viewer.test.tsx b/src/__tests__/photo-viewer.test.tsx
+new file mode 100644
+index 0000000..14881f3
+--- /dev/null
++++ b/src/__tests__/photo-viewer.test.tsx
+@@ -0,0 +1,556 @@
++import { act, fireEvent, render, screen } from '@testing-library/react-native';
++import { Alert, Dimensions, FlatList, Image, StyleSheet, type AlertButton } from 'react-native';
++import { StatusBar } from 'expo-status-bar';
++import { SafeAreaProvider } from 'react-native-safe-area-context';
++import { useLocalSearchParams, useRouter } from 'expo-router';
++import { useMediaStore, useSpotsStore } from '@/src/stores';
++import { resolvePhotoUri } from '@/src/utils/photo-storage';
++import type { Media } from '@/src/types';
++import { State } from 'react-native-gesture-handler';
++import { fireGestureHandler, getByGestureTestId } from 'react-native-gesture-handler/jest-utils';
++import { ZoomablePhoto } from '@/src/components';
++import { createTestMedia, createTestSpot } from './factories';
++
++// The real hooks update the stores; these do the same without a db (removePhotos resolves the ids it removed).
++const mockUpdateSpot = jest.fn(async (id: string, updates: object) => {
++  const { useSpotsStore: spots } = jest.requireActual('@/src/stores');
++  spots.getState().updateSpot(id, updates);
++});
++const mockRemovePhotos = jest.fn(async (ids: string[]) => {
++  const { useMediaStore: media } = jest.requireActual('@/src/stores');
++  media.getState().removeMany(ids);
++  return ids;
++});
++jest.mock('@/src/hooks/use-spot-actions', () => ({
++  useSpotActions: () => ({ updateSpot: mockUpdateSpot, addSpot: jest.fn(), removeSpot: jest.fn() }),
++}));
++jest.mock('@/src/hooks/use-media-actions', () => ({
++  useMediaActions: () => ({ removePhotos: mockRemovePhotos, savePhotos: jest.fn() }),
++}));
++
++import PhotoViewerScreen from '@/app/spot/[id]/photos';
++
++const back = jest.fn();
++const { width } = Dimensions.get('window');
++const METRICS = {
++  frame: { x: 0, y: 0, width, height: Dimensions.get('window').height },
++  insets: { top: 47, left: 0, right: 0, bottom: 34 },
++};
++
++beforeEach(() => {
++  back.mockReset();
++  jest.mocked(useRouter).mockReturnValue({ push: jest.fn(), back, replace: jest.fn() } as never);
++});
++
++const at = (min: number) => `2026-10-13T14:${String(min).padStart(2, '0')}:00.000Z`;
++
++/** A spot with `count` photos (the 4th is primary when there are at least 4), opened at `index`. */
++function renderViewer(count: number, index?: string) {
++  const spot = createTestSpot();
++  const media: Media[] = Array.from({ length: count }, (_, i) =>
++    createTestMedia({ spot_id: spot.id, created_at: at(i + 1), file_path: `photos/${spot.id}/${i}.jpg` }),
++  );
++  const withPrimary = count >= 4 ? { ...spot, primary_photo_id: media[3].id } : spot;
++  useSpotsStore.setState({ spots: [withPrimary] });
++  useMediaStore.setState({ mediaBySpot: {} });
++  useMediaStore.getState().setAll(media);
++  jest.mocked(useLocalSearchParams).mockReturnValue((index === undefined ? { id: spot.id } : { id: spot.id, index }) as never);
++  render(
++    <SafeAreaProvider initialMetrics={METRICS}>
++      <PhotoViewerScreen />
++    </SafeAreaProvider>,
++  );
++  return { spot: withPrimary, media };
++}
++
++const list = () => screen.UNSAFE_getByType(FlatList);
++
++describe('Photo viewer', () => {
++  it('opens at ?index=2 of 7 and shows the counter 3 / 7', () => {
++    renderViewer(7, '2');
++
++    expect(screen.getByText('3 / 7')).toBeOnTheScreen();
++    expect(list().props.initialScrollIndex).toBe(2);
++    expect(screen.getByLabelText('Photo 3 of 7')).toBeOnTheScreen();
++  });
++
++  it('is a horizontal paging list with one window-wide page per photo', () => {
++    renderViewer(7, '2');
++
++    const props = list().props;
++    expect(props.horizontal).toBe(true);
++    expect(props.pagingEnabled).toBe(true);
++    expect(props.getItemLayout(undefined, 4)).toEqual({ length: width, offset: 4 * width, index: 4 });
++  });
++
++  it('pages through the photos in spotPhotos order, primary first', () => {
++    const { media } = renderViewer(7, '0');
++
++    const ids = (list().props.data as Media[]).map((m) => m.id);
++    expect(ids).toEqual([3, 0, 1, 2, 4, 5, 6].map((i) => media[i].id));
++    const first = screen.getByLabelText('Photo 1 of 7');
++    const uri = (first.findByType(Image).props.source as { uri: string }).uri;
++    expect(uri).toBe(resolvePhotoUri(media[3].file_path));
++  });
++
++  it('keeps its order while open when the primary changes, and appends a photo added meanwhile (D29)', () => {
++    const { spot, media } = renderViewer(4, '1');
++    const before = (list().props.data as Media[]).map((m) => m.id);
++    const added = createTestMedia({ spot_id: spot.id, created_at: at(30) });
++
++    act(() => {
++      useSpotsStore.setState({ spots: [{ ...spot, primary_photo_id: media[2].id }] });
++      useMediaStore.getState().setAll([...media, added]);
++    });
++
++    expect((list().props.data as Media[]).map((m) => m.id)).toEqual([...before, added.id]);
++    expect(screen.getByText('2 / 5')).toBeOnTheScreen();
++  });
++
++  it('labels each page as one image for VoiceOver', () => {
++    renderViewer(7, '2');
++
++    const page = screen.getByLabelText('Photo 3 of 7');
++    expect(page.props.accessible).toBe(true);
++    expect(page.props.accessibilityRole).toBe('image');
++  });
++
++  it('has a Close button that goes back', () => {
++    renderViewer(7, '2');
++
++    const close = screen.getByRole('button', { name: 'Close' });
++    fireEvent.press(close);
++
++    expect(back).toHaveBeenCalledTimes(1);
++  });
++
++  it('updates the counter when a swipe settles on page 5', () => {
++    renderViewer(7, '2');
++
++    act(() => {
++      fireEvent(list(), 'momentumScrollEnd', { nativeEvent: { contentOffset: { x: 5 * width, y: 0 } } });
++    });
++
++    expect(screen.getByText('6 / 7')).toBeOnTheScreen();
++  });
++
++  it('opens an out-of-range index at the last photo', () => {
++    renderViewer(7, '99');
++
++    expect(screen.getByText('7 / 7')).toBeOnTheScreen();
++    expect(list().props.initialScrollIndex).toBe(6);
++  });
++
++  it('opens at the first photo when the index is missing or not a number', () => {
++    renderViewer(3);
++    expect(screen.getByText('1 / 3')).toBeOnTheScreen();
++    screen.unmount();
++
++    renderViewer(3, 'abc');
++    expect(screen.getByText('1 / 3')).toBeOnTheScreen();
++  });
++
++  it('is black with the status bar hidden', () => {
++    renderViewer(2, '0');
++
++    expect(StyleSheet.flatten(screen.getByTestId('photo-viewer').props.style).backgroundColor).toBe('#000');
++    expect(screen.UNSAFE_getByType(StatusBar).props.hidden).toBe(true);
++  });
++
++  it('says Spot not found for an unknown spot', () => {
++    useSpotsStore.setState({ spots: [] });
++    jest.mocked(useLocalSearchParams).mockReturnValue({ id: 'nope', index: '0' } as never);
++    render(
++      <SafeAreaProvider initialMetrics={METRICS}>
++        <PhotoViewerScreen />
++      </SafeAreaProvider>,
++    );
++
++    expect(screen.getByText('Spot not found')).toBeOnTheScreen();
++    // Still closable.
++    fireEvent.press(screen.getByRole('button', { name: 'Close' }));
++    expect(back).toHaveBeenCalledTimes(1);
++  });
++});
++
++describe('Photo viewer: zoom, pan and swipe-down close', () => {
++  const { height } = Dimensions.get('window');
++  // Gesture callbacks hand results to React through scheduleOnRN, which the worklets mock queues as a microtask.
++  // The first ACTIVE event only starts a gesture (onStart); onUpdate runs from the second one on.
++  const flush = () => act(async () => {});
++  const pinchTo = (page: number, scale: number) =>
++    fireGestureHandler(getByGestureTestId(`viewer-${page}-pinch`), [
++      { state: State.BEGAN, scale: 1, focalX: width / 2, focalY: height / 2 },
++      { state: State.ACTIVE, scale: 1, focalX: width / 2, focalY: height / 2 },
++      { state: State.ACTIVE, scale, focalX: width / 2, focalY: height / 2 },
++      { state: State.END, scale, focalX: width / 2, focalY: height / 2 },
++    ]);
++  const swipeDown = (page: number, dy: number) =>
++    fireGestureHandler(getByGestureTestId(`viewer-${page}-pan`), [
++      { state: State.BEGAN, translationX: 0, translationY: 0 },
++      { state: State.ACTIVE, translationX: 0, translationY: 0 },
++      { state: State.ACTIVE, translationX: 0, translationY: dy },
++      { state: State.END, translationX: 0, translationY: dy },
++    ]);
++
++  it('gives every page a ZoomablePhoto of the window size showing that photo', () => {
++    const { media } = renderViewer(7, '2');
++
++    const zoomable = screen.getByLabelText('Photo 3 of 7').findByType(ZoomablePhoto);
++    expect(zoomable.props.width).toBe(width);
++    expect(zoomable.props.height).toBe(height);
++    expect(zoomable.props.uri).toBe(resolvePhotoUri(media[1].file_path));
++    expect(zoomable.props.recyclingKey).toBe(media[1].id);
++  });
++
++  it('pages at 1× and locks paging once the page reports a zoom past 1.05×', () => {
++    renderViewer(7, '2');
++    expect(list().props.scrollEnabled).toBe(true);
++
++    const zoomable = screen.getByLabelText('Photo 3 of 7').findByType(ZoomablePhoto);
++    act(() => zoomable.props.onScaleChange(2));
++    expect(list().props.scrollEnabled).toBe(false);
++
++    act(() => zoomable.props.onScaleChange(1));
++    expect(list().props.scrollEnabled).toBe(true);
++  });
++
++  it('locks paging after a pinch to 2× and unlocks after a pinch back to 1×', async () => {
++    renderViewer(7, '2');
++
++    pinchTo(2, 2);
++    await flush();
++    expect(list().props.scrollEnabled).toBe(false);
++
++    pinchTo(2, 0.5);
++    await flush();
++    expect(list().props.scrollEnabled).toBe(true);
++  });
++
++  it('snaps a pinch that ends at or below 1.05× back to 1×', async () => {
++    renderViewer(7, '2');
++
++    pinchTo(2, 1.04);
++    await flush();
++    expect(list().props.scrollEnabled).toBe(true);
++    // Unzoomed, so a swipe down still closes.
++    swipeDown(2, 150);
++    await flush();
++    expect(back).toHaveBeenCalledTimes(1);
++  });
++
++  it('toggles between 1× and 2.5× on a double tap', async () => {
++    renderViewer(7, '2');
++    const doubleTap = () =>
++      fireGestureHandler(getByGestureTestId('viewer-2-double-tap'), [
++        { state: State.BEGAN, x: width / 2, y: height / 2 },
++        { state: State.ACTIVE, x: width / 2, y: height / 2 },
++        { state: State.END, x: width / 2, y: height / 2 },
++      ]);
++
++    doubleTap();
++    await flush();
++    expect(list().props.scrollEnabled).toBe(false);
++
++    doubleTap();
++    await flush();
++    expect(list().props.scrollEnabled).toBe(true);
++  });
++
++  it('closes on a swipe down of 150 at 1×', async () => {
++    renderViewer(7, '2');
++
++    swipeDown(2, 150);
++    await flush();
++
++    expect(back).toHaveBeenCalledTimes(1);
++  });
++
++  it('does not close on a swipe down of 119 at 1×', async () => {
++    renderViewer(7, '2');
++
++    swipeDown(2, 119);
++    await flush();
++
++    expect(back).not.toHaveBeenCalled();
++  });
++
++  it('pans instead of closing on a swipe down of 150 at 2×', async () => {
++    renderViewer(7, '2');
++    pinchTo(2, 2);
++    await flush();
++
++    swipeDown(2, 150);
++    await flush();
++
++    expect(back).not.toHaveBeenCalled();
++  });
++});
++
++describe('ZoomablePhoto', () => {
++  const size = { width: 390, height: 844 };
++  const centre = { focalX: 195, focalY: 422 };
++  const flush = () => act(async () => {});
++  function renderPhoto() {
++    const onScaleChange = jest.fn();
++    const onRequestClose = jest.fn();
++    render(
++      <ZoomablePhoto
++        uri="file:///p.jpg"
++        recyclingKey="m1"
++        {...size}
++        onScaleChange={onScaleChange}
++        onRequestClose={onRequestClose}
++        testIdPrefix="zp"
++      />,
++    );
++    return { onScaleChange, onRequestClose };
++  }
++  const pinch = (scale: number) =>
++    fireGestureHandler(getByGestureTestId('zp-pinch'), [
++      { state: State.BEGAN, scale: 1, ...centre },
++      { state: State.ACTIVE, scale: 1, ...centre },
++      { state: State.ACTIVE, scale, ...centre },
++      { state: State.END, scale, ...centre },
++    ]);
++
++  it('reports the settled scale: clamped to 4, and 1 after a pinch that ends at 1.04', async () => {
++    const { onScaleChange } = renderPhoto();
++
++    pinch(6);
++    await flush();
++    expect(onScaleChange).toHaveBeenLastCalledWith(4);
++
++    pinch(1.04 / 4);
++    await flush();
++    expect(onScaleChange).toHaveBeenLastCalledWith(1);
++  });
++
++  it('does not close when a long swipe down is cancelled instead of ending', async () => {
++    const { onRequestClose } = renderPhoto();
++
++    fireGestureHandler(getByGestureTestId('zp-pan'), [
++      { state: State.BEGAN, translationX: 0, translationY: 0 },
++      { state: State.ACTIVE, translationX: 0, translationY: 0 },
++      { state: State.ACTIVE, translationX: 0, translationY: 200 },
++      { state: State.CANCELLED, translationX: 0, translationY: 200 },
++    ]);
++    await flush();
++
++    expect(onRequestClose).not.toHaveBeenCalled();
++  });
++});
++
++describe('Photo viewer: long-press options', () => {
++  const flush = () => act(async () => {});
++  let alert: jest.SpyInstance;
++  beforeEach(() => {
++    mockUpdateSpot.mockClear();
++    mockRemovePhotos.mockClear();
++    alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
++  });
++  afterEach(() => alert.mockRestore());
++
++  const longPress = async (page: number) => {
++    fireGestureHandler(getByGestureTestId(`viewer-${page}-long-press`), [
++      { state: State.BEGAN },
++      { state: State.ACTIVE },
++      { state: State.END },
++    ]);
++    await flush();
++  };
++  const buttons = (call: number) => alert.mock.calls[call][2] as AlertButton[];
++  // A Cancel button has no onPress: the alert just closes.
++  const press = async (call: number, text: string) => {
++    await act(async () => {
++      buttons(call).find((b) => b.text === text)!.onPress?.();
++    });
++  };
++  /** Long-press `page`, choose Remove photo, then confirm. */
++  const removePage = async (page: number) => {
++    await longPress(page);
++    await press(0, 'Remove photo');
++    await press(1, 'Remove');
++  };
++
++  it('offers Set as primary, Remove photo (destructive) and Cancel on a long press', async () => {
++    renderViewer(7, '2');
++
++    await longPress(2);
++
++    expect(alert).toHaveBeenCalledTimes(1);
++    expect(buttons(0).map((b) => b.text)).toEqual(['Set as primary', 'Remove photo', 'Cancel']);
++    expect(buttons(0)[1].style).toBe('destructive');
++    expect(buttons(0)[2].style).toBe('cancel');
++  });
++
++  it('tells VoiceOver users each page has options', () => {
++    renderViewer(7, '2');
++
++    expect(screen.getByLabelText('Photo 3 of 7').props.accessibilityHint).toBe('Double-tap and hold for options');
++  });
++
++  it('offers the same options through the long-press accessibility action', () => {
++    renderViewer(7, '2');
++    const page = screen.getByLabelText('Photo 3 of 7');
++    expect(page.props.accessibilityActions).toEqual([{ name: 'longpress', label: 'Photo options' }]);
++
++    fireEvent(page, 'accessibilityAction', { nativeEvent: { actionName: 'longpress' } });
++
++    expect(alert).toHaveBeenCalledTimes(1);
++    expect(buttons(0).map((b) => b.text)).toEqual(['Set as primary', 'Remove photo', 'Cancel']);
++  });
++
++  it('says so when setting the primary fails', async () => {
++    renderViewer(7, '2');
++    mockUpdateSpot.mockRejectedValueOnce(new Error('disk full'));
++
++    await longPress(2);
++    await press(0, 'Set as primary');
++
++    expect(alert).toHaveBeenCalledTimes(2);
++    expect(alert.mock.calls[1][0]).toBe("This photo couldn't be set as primary");
++  });
++
++  it('sets the pressed photo as primary and stays on the same page', async () => {
++    const { spot, media } = renderViewer(7, '2');
++    const before = (list().props.data as Media[]).map((m) => m.id);
++
++    await longPress(2);
++    await press(0, 'Set as primary');
++
++    expect(mockUpdateSpot).toHaveBeenCalledTimes(1);
++    expect(mockUpdateSpot).toHaveBeenCalledWith(spot.id, { primary_photo_id: media[1].id });
++    expect(screen.getByText('3 / 7')).toBeOnTheScreen();
++    expect((list().props.data as Media[]).map((m) => m.id)).toEqual(before);
++  });
++
++  it('asks before removing, then removes the photo once and shows the next one in its place', async () => {
++    const { media } = renderViewer(7, '2');
++
++    await longPress(2);
++    await press(0, 'Remove photo');
++    expect(alert).toHaveBeenCalledTimes(2);
++    expect(alert.mock.calls[1][0]).toBe('Remove this photo?');
++    expect(buttons(1).find((b) => b.text === 'Remove')!.style).toBe('destructive');
++    expect(mockRemovePhotos).not.toHaveBeenCalled();
++
++    await press(1, 'Remove');
++
++    expect(mockRemovePhotos).toHaveBeenCalledTimes(1);
++    expect(mockRemovePhotos).toHaveBeenCalledWith([media[1].id]);
++    expect(screen.getByText('3 / 6')).toBeOnTheScreen();
++    const uri = screen.getByLabelText('Photo 3 of 6').findByType(ZoomablePhoto).props.uri as string;
++    expect(uri).toBe(resolvePhotoUri(media[2].file_path));
++    // Not the primary, so the spot is left alone.
++    expect(mockUpdateSpot).not.toHaveBeenCalled();
++    expect(back).not.toHaveBeenCalled();
++  });
++
++  it('keeps the photo when the removal is cancelled', async () => {
++    renderViewer(7, '2');
++
++    await longPress(2);
++    await press(0, 'Remove photo');
++    await press(1, 'Cancel');
++
++    expect(mockRemovePhotos).not.toHaveBeenCalled();
++    expect(screen.getByText('3 / 7')).toBeOnTheScreen();
++  });
++
++  it('moves to the new last page after removing the last photo', async () => {
++    const scrollToIndex = jest.spyOn(FlatList.prototype, 'scrollToIndex').mockImplementation(() => {});
++    renderViewer(7, '6');
++
++    await removePage(6);
++
++    expect(screen.getByText('6 / 6')).toBeOnTheScreen();
++    expect(scrollToIndex).toHaveBeenCalledWith({ index: 5, animated: false });
++    scrollToIndex.mockRestore();
++  });
++
++  it('keeps showing the same photo when an earlier one is removed', async () => {
++    const scrollToIndex = jest.spyOn(FlatList.prototype, 'scrollToIndex').mockImplementation(() => {});
++    const { media } = renderViewer(7, '4'); // page 4 is media[4]; page 1 is media[0]
++
++    act(() => useMediaStore.getState().removeMany([media[0].id]));
++
++    expect(screen.getByText('4 / 6')).toBeOnTheScreen();
++    expect(scrollToIndex).toHaveBeenCalledWith({ index: 3, animated: false });
++    expect((list().props.data as Media[])[3].id).toBe(media[4].id);
++    scrollToIndex.mockRestore();
++  });
++
++  it('makes the next photo primary when the primary is removed', async () => {
++    const { spot, media } = renderViewer(7, '0');
++
++    await removePage(0);
++
++    expect(mockRemovePhotos).toHaveBeenCalledWith([media[3].id]);
++    expect(mockUpdateSpot).toHaveBeenCalledWith(spot.id, { primary_photo_id: media[0].id });
++    expect(screen.getByText('1 / 6')).toBeOnTheScreen();
++  });
++
++  it('makes the previous photo primary when the primary on the last page is removed', async () => {
++    const { spot, media } = renderViewer(7, '6');
++    act(() => useSpotsStore.setState({ spots: [{ ...spot, primary_photo_id: media[6].id }] }));
++
++    await removePage(6);
++
++    expect(mockUpdateSpot).toHaveBeenCalledWith(spot.id, { primary_photo_id: media[5].id });
++    expect(screen.getByText('6 / 6')).toBeOnTheScreen();
++  });
++
++  it('still closes when clearing the primary of the only photo fails', async () => {
++    renderViewer(1, '0');
++    mockUpdateSpot.mockRejectedValueOnce(new Error('disk full'));
++
++    await removePage(0);
++
++    expect(back).toHaveBeenCalledTimes(1);
++  });
++
++  it('clears the primary and closes the viewer when the only photo is removed', async () => {
++    const { spot, media } = renderViewer(1, '0');
++
++    await removePage(0);
++
++    expect(mockRemovePhotos).toHaveBeenCalledWith([media[0].id]);
++    expect(mockUpdateSpot).toHaveBeenCalledWith(spot.id, { primary_photo_id: null });
++    expect(back).toHaveBeenCalledTimes(1);
++  });
++
++  it('unlocks paging after removing a zoomed photo', async () => {
++    renderViewer(7, '2');
++    act(() => screen.getByLabelText('Photo 3 of 7').findByType(ZoomablePhoto).props.onScaleChange(2));
++    expect(list().props.scrollEnabled).toBe(false);
++
++    await removePage(2);
++
++    expect(list().props.scrollEnabled).toBe(true);
++  });
++
++  it('keeps the photo and says so when the removal fails', async () => {
++    renderViewer(7, '2');
++    mockRemovePhotos.mockResolvedValueOnce([]);
++
++    await removePage(2);
++
++    expect(screen.getByText('3 / 7')).toBeOnTheScreen();
++    expect(mockUpdateSpot).not.toHaveBeenCalled();
++    expect(alert).toHaveBeenCalledTimes(3);
++    expect(alert.mock.calls[2][0]).toBe("This photo couldn't be removed");
++  });
++});
++
++describe('ZoomablePhoto: long press', () => {
++  it('calls onLongPress when held', async () => {
++    const onLongPress = jest.fn();
++    render(<ZoomablePhoto uri="file:///p.jpg" recyclingKey="m1" width={390} height={844} onLongPress={onLongPress} testIdPrefix="zp" />);
++
++    fireGestureHandler(getByGestureTestId('zp-long-press'), [{ state: State.BEGAN }, { state: State.ACTIVE }, { state: State.END }]);
++    await act(async () => {});
++
++    expect(onLongPress).toHaveBeenCalledTimes(1);
++  });
++});
+diff --git a/src/__tests__/root-layout.test.tsx b/src/__tests__/root-layout.test.tsx
+new file mode 100644
+index 0000000..9c6fdf0
+--- /dev/null
++++ b/src/__tests__/root-layout.test.tsx
+@@ -0,0 +1,72 @@
++import React from 'react';
++import { Text, View } from 'react-native';
++import { render, screen } from '@testing-library/react-native';
++import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
++import { fireGestureHandler, getByGestureTestId } from 'react-native-gesture-handler/jest-utils';
++
++// The root layout's providers, reduced to their children: the test checks the tree shape, not the
++// database or the navigator.
++jest.mock('expo-router', () => {
++  const { createElement, Fragment } = jest.requireActual('react');
++  const { Text: MockText, View: MockView } = jest.requireActual('react-native');
++  const MockStack = ({ children }: { children: React.ReactNode }) =>
++    createElement(MockView, { testID: 'stack' }, children);
++  MockStack.Screen = ({ name }: { name: string; options?: object }) =>
++    createElement(MockText, null, `screen:${name}`);
++  return {
++    DefaultTheme: {},
++    ThemeProvider: ({ children }: { children: React.ReactNode }) => createElement(Fragment, null, children),
++    Stack: MockStack,
++  };
++});
++jest.mock('expo-sqlite', () => ({
++  SQLiteProvider: ({ children }: { children: React.ReactNode }) => children,
++}));
++jest.mock('@/src/components/DBInitializer', () => ({
++  DBInitializer: ({ children }: { children: React.ReactNode }) => children,
++}));
++
++import RootLayout from '@/app/_layout';
++
++describe('RootLayout', () => {
++  it('wraps the whole tree in a flex-1 GestureHandlerRootView', () => {
++    render(<RootLayout />);
++
++    const roots = screen.UNSAFE_getAllByType(GestureHandlerRootView);
++    expect(roots).toHaveLength(1);
++    expect(roots[0].props.style).toEqual({ flex: 1 });
++    // The navigator and its screens sit inside it.
++    expect(screen.getByTestId('stack')).toBeOnTheScreen();
++    expect(screen.getByText('screen:spot/[id]/index')).toBeOnTheScreen();
++    expect(roots[0].findByProps({ testID: 'stack' })).toBeTruthy();
++  });
++});
++
++describe('RootLayout: photo viewer', () => {
++  it('registers spot/[id]/photos as a full-screen modal without a header', () => {
++    render(<RootLayout />);
++
++    const viewer = screen.UNSAFE_getAllByProps({ name: 'spot/[id]/photos' })[0];
++    expect(viewer.props.options).toEqual({ presentation: 'fullScreenModal', headerShown: false });
++  });
++});
++
++describe("gesture-handler's jest setup", () => {
++  it('lets a test drive a gesture through jest-utils', () => {
++    const onEnd = jest.fn();
++    const tap = Gesture.Tap().withTestId('tap').onEnd(() => onEnd());
++    render(
++      <GestureHandlerRootView>
++        <GestureDetector gesture={tap}>
++          <View>
++            <Text>target</Text>
++          </View>
++        </GestureDetector>
++      </GestureHandlerRootView>,
++    );
++
++    fireGestureHandler(getByGestureTestId('tap'));
++
++    expect(onEnd).toHaveBeenCalledTimes(1);
++  });
++});
+diff --git a/src/__tests__/spot-detail.test.tsx b/src/__tests__/spot-detail.test.tsx
+index cfd1a3d..856c5b8 100644
+--- a/src/__tests__/spot-detail.test.tsx
++++ b/src/__tests__/spot-detail.test.tsx
+@@ -140,6 +140,16 @@ describe('Spot detail: photos', () => {
+ 
+     expect(push).toHaveBeenCalledWith(`/spot/${spot.id}/edit`);
+   });
++
++  it('opens the full-screen viewer at the pressed photo', async () => {
++    const media = [1, 2, 3, 4, 5].map((n) => createTestMedia({ created_at: at(n) }));
++    const spot = await renderDetail({}, media);
++
++    expect(screen.getByRole('imagebutton', { name: 'Photo 4 of 5' })).toBe(screen.getByTestId('photo-tile-3'));
++    fireEvent.press(screen.getByTestId('photo-tile-3'));
++
++    expect(push).toHaveBeenCalledWith(`/spot/${spot.id}/photos?index=3`);
++  });
+ });
+ 
+ describe('Spot detail: Older details', () => {
+diff --git a/src/components/ZoomablePhoto.tsx b/src/components/ZoomablePhoto.tsx
+new file mode 100644
+index 0000000..94aa773
+--- /dev/null
++++ b/src/components/ZoomablePhoto.tsx
+@@ -0,0 +1,149 @@
++import { useCallback, useMemo, useState } from 'react';
++import { StyleSheet, View } from 'react-native';
++import { Image } from 'expo-image';
++import { Gesture, GestureDetector } from 'react-native-gesture-handler';
++import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
++import { scheduleOnRN } from 'react-native-worklets';
++
++import {
++  LONG_PRESS_MS,
++  MIN_SCALE,
++  clampPan,
++  clampScale,
++  dragDown,
++  focalZoom,
++  pagingEnabled,
++  shouldClose,
++  toggleZoom,
++  type Point,
++} from '@/src/utils/gallery-gestures';
++
++type ZoomablePhotoProps = {
++  uri: string;
++  recyclingKey: string;
++  width: number;
++  height: number;
++  /** The scale a gesture settled on (1 after a pinch that ends at or below 1.05×). */
++  onScaleChange?: (scale: number) => void;
++  /** A swipe down past the close distance at 1×. */
++  onRequestClose?: () => void;
++  /** A one-finger press held for LONG_PRESS_MS (not during a pinch, not on a double tap). */
++  onLongPress?: () => void;
++  /** Gesture test ids: `<prefix>-pinch`, `<prefix>-pan`, `<prefix>-double-tap`, `<prefix>-long-press`. */
++  testIdPrefix?: string;
++};
++
++/**
++ * One viewer page: pinch 1×–4× about the fingers, pan while zoomed, double tap 1× ↔ 2.5×, swipe down at 1× to close,
++ * long press for options. Every number comes from `gallery-gestures`; the worklets read only shared values and the
++ * captured size. At 1× the pan is vertical only (it fails on sideways movement), so the pager keeps sideways swipes.
++ */
++export function ZoomablePhoto(props: ZoomablePhotoProps) {
++  const { uri, recyclingKey, width, height, onScaleChange, onRequestClose, onLongPress, testIdPrefix = 'photo' } = props;
++  const scale = useSharedValue(MIN_SCALE);
++  const tx = useSharedValue(0);
++  const ty = useSharedValue(0);
++  const startScale = useSharedValue(MIN_SCALE);
++  const startT = useSharedValue<Point>({ x: 0, y: 0 });
++  const dragY = useSharedValue(0);
++  const pinching = useSharedValue(false);
++  const panZoomed = useSharedValue(false); // the pan began zoomed: it moves the photo and never closes
++  // Mirrors the settled scale on the React side; it only switches the pan's activation rules.
++  const [zoomed, setZoomed] = useState(false);
++
++  const report = useCallback(
++    (next: number) => {
++      setZoomed(!pagingEnabled(next));
++      onScaleChange?.(next);
++    },
++    [onScaleChange],
++  );
++  const close = useCallback(() => onRequestClose?.(), [onRequestClose]);
++  const longPressed = useCallback(() => onLongPress?.(), [onLongPress]);
++
++  const gesture = useMemo(() => {
++    const viewport = { width, height };
++    const settle = (next: number, t: Point) => {
++      'worklet';
++      scale.set(withTiming(next));
++      tx.set(withTiming(t.x));
++      ty.set(withTiming(t.y));
++      scheduleOnRN(report, next);
++    };
++
++    const pinch = Gesture.Pinch()
++      .withTestId(`${testIdPrefix}-pinch`)
++      .onStart(() => {
++        pinching.set(true);
++        startScale.set(scale.get());
++        startT.set({ x: tx.get(), y: ty.get() });
++      })
++      .onUpdate((e) => {
++        const next = clampScale(startScale.get() * e.scale);
++        const t = focalZoom({ x: e.focalX, y: e.focalY }, startScale.get(), next, viewport, startT.get());
++        const clamped = clampPan(t, next, viewport);
++        scale.set(next);
++        tx.set(clamped.x);
++        ty.set(clamped.y);
++      })
++      .onEnd(() => {
++        pinching.set(false);
++        const next = pagingEnabled(scale.get()) ? MIN_SCALE : scale.get();
++        settle(next, clampPan({ x: tx.get(), y: ty.get() }, next, viewport));
++      });
++
++    const pan = Gesture.Pan()
++      .withTestId(`${testIdPrefix}-pan`)
++      .maxPointers(1)
++      .onStart(() => panZoomed.set(!pagingEnabled(scale.get())))
++      .onChange((e) => {
++        if (!panZoomed.get()) {
++          dragY.set(dragDown(e.translationY));
++          return;
++        }
++        // Per-frame deltas, so a pinch that starts or ends mid-pan (and owns tx/ty meanwhile) causes no jump.
++        if (pinching.get()) return;
++        const t = clampPan({ x: tx.get() + e.changeX, y: ty.get() + e.changeY }, scale.get(), viewport);
++        tx.set(t.x);
++        ty.set(t.y);
++      })
++      .onEnd((e, success) => {
++        if (success && !panZoomed.get() && shouldClose(e.translationY, scale.get())) scheduleOnRN(close);
++        else dragY.set(withTiming(0));
++      });
++    if (!zoomed) pan.activeOffsetY([-10, 10]).failOffsetX([-10, 10]);
++
++    const doubleTap = Gesture.Tap()
++      .withTestId(`${testIdPrefix}-double-tap`)
++      .numberOfTaps(2)
++      .onEnd((e, success) => {
++        if (!success) return;
++        const next = toggleZoom(scale.get());
++        const from = { x: tx.get(), y: ty.get() };
++        settle(next, clampPan(focalZoom({ x: e.x, y: e.y }, scale.get(), next, viewport, from), next, viewport));
++      });
++
++    const longPress = Gesture.LongPress()
++      .withTestId(`${testIdPrefix}-long-press`)
++      .minDuration(LONG_PRESS_MS)
++      .onStart(() => !pinching.get() && scheduleOnRN(longPressed));
++
++    return Gesture.Simultaneous(pinch, pan, Gesture.Exclusive(doubleTap, longPress));
++  }, [width, height, zoomed, testIdPrefix, report, close, longPressed, scale, tx, ty, startScale, startT, dragY,
++    pinching, panZoomed]);
++
++  const transform = useAnimatedStyle(() => ({
++    transform: [{ translateX: tx.get() }, { translateY: ty.get() + dragY.get() }, { scale: scale.get() }],
++  }));
++
++  return (
++    <GestureDetector gesture={gesture}>
++      {/* Not transformed, so gesture coordinates (focal point, tap) are in page space. */}
++      <View style={{ width, height }} collapsable={false}>
++        <Animated.View style={[StyleSheet.absoluteFill, transform]}>
++          <Image source={{ uri }} recyclingKey={recyclingKey} contentFit="contain" style={StyleSheet.absoluteFill} />
++        </Animated.View>
++      </View>
++    </GestureDetector>
++  );
++}
+diff --git a/src/components/index.ts b/src/components/index.ts
+index 8239108..7253e2d 100644
+--- a/src/components/index.ts
++++ b/src/components/index.ts
+@@ -9,3 +9,4 @@ export { SpeedScale } from './SpeedScale';
+ export { PhotoGrid } from './PhotoGrid';
+ export { AddPhotosTile } from './AddPhotosTile';
+ export { SpotTagFields, type SpotTags } from './SpotTagFields';
++export { ZoomablePhoto } from './ZoomablePhoto';
+diff --git a/src/utils/gallery-gestures.ts b/src/utils/gallery-gestures.ts
+new file mode 100644
+index 0000000..384b331
+--- /dev/null
++++ b/src/utils/gallery-gestures.ts
+@@ -0,0 +1,77 @@
++// Gesture maths for the full-screen photo viewer. Every function is a worklet so the gesture
++// callbacks can call it on the UI thread; nothing here imports React or reanimated.
++// The page transform is translate then scale about the view's centre (React Native's default origin).
++
++export type Point = { x: number; y: number };
++export type Size = { width: number; height: number };
++
++export const MIN_SCALE = 1;
++export const MAX_SCALE = 4;
++export const DOUBLE_TAP_SCALE = 2.5;
++export const ZOOMED_EPSILON = 1.05; // at or below this the photo counts as unzoomed
++export const CLOSE_DISTANCE = 120; // swipe-down distance that closes the viewer at 1×
++export const LONG_PRESS_MS = 500; // a page's options; the double tap it waits for fails only after its 500 ms maxDuration
++
++/** `+ 0` turns -0 into 0, so callers (and `toEqual`) never see a signed zero. */
++function point(x: number, y: number): Point {
++  'worklet';
++  return { x: x + 0, y: y + 0 };
++}
++
++function clamp(value: number, limit: number): number {
++  'worklet';
++  return Math.min(Math.max(value, -limit), limit);
++}
++
++export function clampScale(scale: number): number {
++  'worklet';
++  return Math.min(Math.max(scale, MIN_SCALE), MAX_SCALE);
++}
++
++/** Double tap: zoom in from about 1×, otherwise back to 1×. */
++export function toggleZoom(scale: number): number {
++  'worklet';
++  return scale < ZOOMED_EPSILON ? DOUBLE_TAP_SCALE : MIN_SCALE;
++}
++
++/** Limits the translation so the scaled image never leaves a gap at the viewport edge (bounded by the viewport, not the contained photo). */
++export function clampPan(t: Point, scale: number, viewport: Size): Point {
++  'worklet';
++  const extra = Math.max(0, scale - 1) / 2;
++  return point(clamp(t.x, viewport.width * extra), clamp(t.y, viewport.height * extra));
++}
++
++/** The pager swipes only while the photo is unzoomed. */
++export function pagingEnabled(scale: number): boolean {
++  'worklet';
++  return scale <= ZOOMED_EPSILON;
++}
++
++export function shouldClose(dy: number, scale: number): boolean {
++  'worklet';
++  return scale <= ZOOMED_EPSILON && dy > CLOSE_DISTANCE;
++}
++
++/** How far the photo follows a swipe-down at 1×: downward only, an upward drag stays at 0. */
++export function dragDown(dy: number): number {
++  'worklet';
++  return Math.max(0, dy) + 0;
++}
++
++/**
++ * The translation at `nextScale` that keeps `focal` (view coordinates, e.g. a gesture's x/y) over the same
++ * image point it covers at `scale` with `translation`.
++ */
++export function focalZoom(
++  focal: Point,
++  scale: number,
++  nextScale: number,
++  viewport: Size,
++  translation: Point = { x: 0, y: 0 },
++): Point {
++  'worklet';
++  const dx = focal.x - viewport.width / 2;
++  const dy = focal.y - viewport.height / 2;
++  const ratio = nextScale / scale;
++  return point(dx - ratio * (dx - translation.x), dy - ratio * (dy - translation.y));
++}

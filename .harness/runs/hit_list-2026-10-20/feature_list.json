@@ -256,7 +256,7 @@
         "npx expo export --platform ios --output-dir /tmp/hl-export exits 0 after the wiring; the plan records the bundle size before and after.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M4-02",
@@ -269,7 +269,7 @@
         "src/__tests__/gallery-gestures.test.ts passes with at least these cases: clampScale(0.5)=1, clampScale(6)=4, clampScale(2.2)=2.2; toggleZoom(1)=2.5, toggleZoom(2.5)=1, toggleZoom(1.04)=2.5; clampPan at scale 1 returns {0,0} for any input; clampPan({x: 500, y: -900}, 2, {390, 844}) = {195, -422}; pagingEnabled(1)=true, pagingEnabled(1.06)=false; shouldClose(121, 1)=true, shouldClose(119, 1)=false, shouldClose(300, 2)=false.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M4-03",
@@ -283,7 +283,7 @@
         "src/__tests__/spot-detail.test.tsx gains: pressing photo-tile-3 on the detail screen calls router.push with pathname '/spot/<id>/photos' and params { index: '3' } (or the string '/spot/<id>/photos?index=3').",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines, and npx expo export --platform ios --output-dir /tmp/hl-export exits 0."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M4-04",
@@ -298,7 +298,7 @@
         "Android/iOS back gesture: the screen handles the hardware back/edge swipe by letting the Stack pop (no custom interception), stated in the plan.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines, and npx expo export --platform ios --output-dir /tmp/hl-export exits 0."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M4-05",
@@ -312,7 +312,7 @@
         "The long-press target has accessibilityHint 'Double-tap and hold for options'.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M4-06",
@@ -327,7 +327,7 @@
         "The file records npx jest --silent totals and npx expo export --platform ios --output-dir /tmp/hl-export exit 0 with the bundle size.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M4-07",
@@ -341,7 +341,7 @@
         "A 'refactor:' commit applies the simplification pass; CLAUDE.md Layout lists app/spot/[id]/photos.tsx and src/utils/gallery-gestures.ts and Testing mentions the gesture-handler jest setup; README.md Status mentions the full-screen photo viewer and docs/RUNNING-ON-PHONE.md describes opening it from the detail screen.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M5-01",

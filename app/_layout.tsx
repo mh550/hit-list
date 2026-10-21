@@ -1,8 +1,9 @@
 import { Suspense } from 'react';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { DefaultTheme, Stack, ThemeProvider } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { SQLiteProvider } from 'expo-sqlite';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import 'react-native-reanimated';
 
 import { DB_NAME } from '@/src/db';
@@ -19,31 +20,42 @@ function LoadingScreen() {
 
 // Light only (app.json userInterfaceStyle "light"): the screens use light-theme colours and set no
 // backgrounds, so DarkTheme's near-black would hide their text.
+// GestureHandlerRootView wraps everything so any screen (the photo viewer) can use gesture-handler.
 export default function RootLayout() {
   return (
-    <ThemeProvider value={DefaultTheme}>
-      <Suspense fallback={<LoadingScreen />}>
-        <SQLiteProvider databaseName={DB_NAME} useSuspense>
-          <DBInitializer>
-            <Stack>
-              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-              <Stack.Screen name="spot/[id]/index" options={{ title: 'Spot Details' }} />
-              <Stack.Screen
-                name="spot/[id]/edit"
-                options={{ presentation: 'formSheet', title: 'Edit Spot' }}
-              />
-              <Stack.Screen
-                name="add/camera"
-                options={{ headerShown: false, animation: 'slide_from_bottom' }}
-              />
-              <Stack.Screen name="add/review" options={{ title: 'Review Spot' }} />
-              <Stack.Screen name="import/index" options={{ title: 'Import Photos' }} />
-              <Stack.Screen name="import/review" options={{ title: 'Review Import' }} />
-            </Stack>
-          </DBInitializer>
-        </SQLiteProvider>
-      </Suspense>
-      <StatusBar style="dark" />
-    </ThemeProvider>
+    <GestureHandlerRootView style={styles.root}>
+      <ThemeProvider value={DefaultTheme}>
+        <Suspense fallback={<LoadingScreen />}>
+          <SQLiteProvider databaseName={DB_NAME} useSuspense>
+            <DBInitializer>
+              <Stack>
+                <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                <Stack.Screen name="spot/[id]/index" options={{ title: 'Spot Details' }} />
+                <Stack.Screen
+                  name="spot/[id]/edit"
+                  options={{ presentation: 'formSheet', title: 'Edit Spot' }}
+                />
+                <Stack.Screen
+                  name="spot/[id]/photos"
+                  options={{ presentation: 'fullScreenModal', headerShown: false }}
+                />
+                <Stack.Screen
+                  name="add/camera"
+                  options={{ headerShown: false, animation: 'slide_from_bottom' }}
+                />
+                <Stack.Screen name="add/review" options={{ title: 'Review Spot' }} />
+                <Stack.Screen name="import/index" options={{ title: 'Import Photos' }} />
+                <Stack.Screen name="import/review" options={{ title: 'Review Import' }} />
+              </Stack>
+            </DBInitializer>
+          </SQLiteProvider>
+        </Suspense>
+        <StatusBar style="dark" />
+      </ThemeProvider>
+    </GestureHandlerRootView>
   );
 }
+
+const styles = StyleSheet.create({
+  root: { flex: 1 },
+});

@@ -12,6 +12,158 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 · verify M4
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| M4-01 | 1 | read docs/plans/2026-10-20-m4-viewer.md | has route, FlatList pager + why, Simultaneous/Exclusive composition, gallery-gestures signatures, Alert (no ActionSheetIOS), ~150-line zoom-toolkit fallback, test list | yes |
+| M4-01 | 2 | read app/_layout.tsx, jest.setup.ts; ran root-layout.test.tsx | GestureHandlerRootView style flex 1 wraps tree; jestSetup imported, file exists, reanimated mock kept; 3/3 root-layout tests pass | yes |
+| M4-01 | 3 | `npx expo export --platform ios` to scratch dir; read plan l.26 | exit 0; plan records 4,060,375 B → 4,215,187 B | yes |
+| M4-01 | 4 | `check.sh`; `npx jest --ci` on M4 suites | green (530 tests); no console.error lines | yes |
+| M4-02 | 1 | read src/utils/gallery-gestures.ts exports | clampScale, toggleZoom, clampPan, pagingEnabled, shouldClose, focalZoom all exported with the stated signatures | yes |
+| M4-02 | 2 | gallery-gestures.test.ts, read assertions | clampScale 0.5→1, 6→4, 2.2; toggleZoom 1→2.5, 2.5→1, 1.04→2.5; clampPan scale 1 → 0,0; ({500,-900},2) = {195,-422}; pagingEnabled 1/1.06; shouldClose 121/119/(300,2) | yes |
+| M4-02 | 3 | check.sh | green, 0 console.error | yes |
+| M4-03 | 1 | read _layout.tsx l.39, photos.tsx l.150-200, tests | Stack.Screen spot/[id]/photos registered; FlatList with initialScrollIndex + getItemLayout; labels 'Photo N of M'; black root; StatusBar hidden; tests pass | yes |
+| M4-03 | 2 | photo-viewer.test.tsx verbose | '3 / 7' at index 2; Close button role/label → router.back; page 5 → '6 / 7'; index 99 → last; 'Spot not found' — all pass | yes |
+| M4-03 | 3 | spot-detail.test.tsx -t viewer | 'opens the full-screen viewer at the pressed photo' passes (push to /spot/<id>/photos index 3) | yes |
+| M4-03 | 4 | check.sh + expo export | green; export exit 0 | yes |
+| M4-04 | 1 | wc -l ZoomablePhoto.tsx; grep StyleSheet | 144 lines, no styles block; Pinch+Pan+Tap+gallery-gestures; no toolkit installed (<150) | yes |
+| M4-04 | 2 | photo-viewer.test.tsx l.208-215 | scrollEnabled true at 1×, false after onScaleChange(2), true after 1 | yes |
+| M4-04 | 3 | photo-viewer.test.tsx swipe-down tests | 150 at 1× → back; 119 → none; 150 at 2× → pans, no back; use fireGestureHandler | yes |
+| M4-04 | 4 | read plan l.44, l.134 | states no back interception; Stack pops | yes |
+| M4-04 | 5 | check.sh + export | green; export exit 0 | yes |
+| M4-05 | 1 | photo-viewer.test.tsx l.470-500 | Alert buttons Set as primary / Remove photo (destructive) / Cancel; updateSpot(id,{primary_photo_id}); 'Remove this photo?' → removePhotos once; counter N / 6 | yes |
+| M4-05 | 2 | tests l.540-580 | last photo → back; primary removed → next id or null (both tested) | yes |
+| M4-05 | 3 | grep photos.tsx:161, test l.448 | accessibilityHint 'Double-tap and hold for options' present and asserted | yes |
+| M4-05 | 4 | check.sh | green | yes |
+| M4-06 | 1 | read docs/plans/2026-10-20-m4-what-michael-will-see.md; git status clean | has 7-photo index-2 tree (counter, Close, page labels), after-swipe render, detail tile; no leftover temp test | yes |
+| M4-06 | 2 | read 'Try on the phone' | all listed gestures with expected results, plus note none ran on a device | yes |
+| M4-06 | 3 | read 'Verification numbers' | records jest totals (520, stale vs 530 now), export exit 0, bundle 4,240,251 B | yes |
+| M4-06 | 4 | check.sh | green | yes |
+| M4-07 | 1 | ls reviews/m4.diff; read plan Review; git log | diff exists; findings table with severity/location/fix; RED 0b1dfe8 precedes GREEN d2b3e46 for Important fixes | yes |
+| M4-07 | 2 | read written answers; grep photos.tsx, ZoomablePhoto.tsx | windowSize 3, contentFit contain, recyclingKey, StatusBar hidden only while mounted, ✕ 44×44; worklets use shared values/pure utils | yes |
+| M4-07 | 3 | git log; grep CLAUDE.md, README.md, RUNNING-ON-PHONE.md | refactor: f89bb03; docs all mention viewer, gallery-gestures, gesture jest setup | yes |
+| M4-07 | 4 | check.sh | green | yes |
+
+### 2026-10-21 17:30 · M4-04 · passes
+
+- Fixes the verify-pass failure: `src/components/ZoomablePhoto.tsx` goes from 156 to **144 lines** (no styles block), under step 1's 150 limit. I reflowed the `gallery-gestures` import and the `report` callback; behaviour is unchanged. The unzoomed pan's `[-10, 10]` offsets became `PAN_SLOP` (10) in `src/utils/gallery-gestures.ts`, so the component has no number of its own. No zoom-toolkit.
+- Tests went from 529 to 530 (`PAN_SLOP` constant test, RED first). The plan's `ZoomablePhoto` note in `docs/plans/2026-10-20-m4-viewer.md` now gives the new line count.
+- Verified: `wc -l` = 144; the photo-viewer tests for scrollEnabled 1×/2×, swipe-down 150 at 1× → back, 119 → none, 150 at 2× → none all pass; plan l.44 says there is no back interception; `check.sh` green (530); `npx jest --ci` prints 0 `console.error`; `expo export --platform ios` (scratch dir) exit 0.
+- Next: M4 should be all green now. Questions for Michael: none.
+
+### 2026-10-21 verify M4
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| M4-01 | 1 | read docs/plans/2026-10-20-m4-viewer.md | Has route (fullScreenModal, headerShown false), FlatList pager + getItemLayout rationale, Simultaneous/Exclusive composition, gallery-gestures signatures, Alert.alert sheet (no ActionSheetIOS), fallback rule to zoom-toolkit, test table | yes |
+| M4-01 | 2 | read app/_layout.tsx, jest.setup.ts; `jest root-layout.test.tsx --verbose` | GestureHandlerRootView style flex 1 wraps tree; jestSetup imported (file exists); 3/3 root-layout tests pass incl. flex-1 wrap assertion | yes |
+| M4-01 | 3 | `npx expo export --platform ios --output-dir /tmp/harness/hit_list/hit_list-2026-10-20/exp`; read plan l.26 | exit 0; plan records 4,060,375 B before → 4,215,187 B after | yes |
+| M4-01 | 4 | `check.sh`; `npx jest --ci | grep -c console.error` | green, 529 tests; 0 console.error lines | yes |
+| M4-02 | 1 | read src/utils/gallery-gestures.ts | All six functions exported with specified behaviour; clampPan scale 2, 390×844 → ±195/±422 by formula | yes |
+| M4-02 | 2 | `jest gallery-gestures.test.ts --verbose`; read assertions l.27-85 | 19 pass; asserts clampScale(0.5)=1/(6)=4/(2.2)=2.2, toggleZoom 1/2.5/1.04, clampPan({500,-900},2)={195,-422}, scale 1 → 0,0, pagingEnabled(1.06)=false, shouldClose(121/119,1), (300,2); focalZoom centre test | yes |
+| M4-02 | 3 | `check.sh`; jest console.error count | green; 0 console.error | yes |
+| M4-03 | 1 | read app/_layout.tsx, app/spot/[id]/photos.tsx | Stack.Screen spot/[id]/photos fullScreenModal headerShown false; horizontal pagingEnabled FlatList, initialScrollIndex, getItemLayout by window width; label "Photo N of M"; root #000; StatusBar hidden | yes |
+| M4-03 | 2 | `jest photo-viewer.test.tsx --verbose` | Passes: opens at ?index=2 shows "3 / 7"; Close button; swipe to page 5 → counter; index 99 → last; Spot not found | yes |
+| M4-03 | 3 | `jest spot-detail.test.tsx`; read l.144-152 | Passes; photo-tile-3 press → push(`/spot/<id>/photos?index=3`) | yes |
+| M4-03 | 4 | `check.sh`, export (see M4-01) | green; export exit 0; 0 console.error | yes |
+| M4-04 | 1 | read src/components/ZoomablePhoto.tsx; `wc -l`; grep package.json for zoom-toolkit | Pinch + Pan + Tap(numberOfTaps 2) with shared values, pure fns only. But file is 156 lines with no styles block (129 non-comment/blank); step says under 150 excl. styles or toolkit installed; toolkit not installed; plan l.277 admits 156 | NO |
+| M4-04 | 2 | `jest photo-viewer.test.tsx` "pages at 1× and locks paging once the page reports a zoom past 1.05×" | Passes; scrollEnabled prop true at 1×, false after zoom report | yes |
+| M4-04 | 3 | photo-viewer tests "closes on a swipe down of 150 at 1×", "pans instead of closing … at 2×", "does not close … 119" | Pass; fireGestureHandler drives pan; router.back called at 150/1×, not at 2× | yes |
+| M4-04 | 4 | read photos.tsx doc comment and plan l.45 | Stack pops on back, nothing intercepted; stated in plan and comment | yes |
+| M4-04 | 5 | `check.sh`; export | green; export exit 0; 0 console.error | yes |
+| M4-05 | 1 | photo-viewer tests under "long-press options" | Pass: Alert buttons Set as primary / Remove photo (destructive) / Cancel; updateSpot primary_photo_id; "Remove this photo?" confirm → removePhotos once; counter drops | yes |
+| M4-05 | 2 | tests "moves to the new last page…", "makes the next/previous photo primary…", "clears the primary and closes the viewer when the only photo is removed" | Pass; router.back on last removal; primary → next id or null (both) | yes |
+| M4-05 | 3 | read photos.tsx renderItem | accessibilityHint "Double-tap and hold for options" on page; test "tells VoiceOver users each page has options" passes | yes |
+| M4-05 | 4 | `check.sh`; console.error count | green; 0 | yes |
+| M4-06 | 1 | read docs/plans/2026-10-20-m4-what-michael-will-see.md | Viewer tree for 7 photos at index 2 (counter, Close label, page labels), after-swipe "6 / 7", detail tile render; notes temp tests deleted | yes |
+| M4-06 | 2 | same file, "Try on the phone" | Checklist covers swipe, 4× cap, double-tap, paging lock, swipe-down at 1× only, ✕, long-press, remove drops count; states no gesture ran on a device | yes |
+| M4-06 | 3 | same file, "Verification numbers" | Records jest totals (520 tests, since 529 after M4-07) and export exit 0 with 4,240,251 B bundle; my export also exit 0 | yes |
+| M4-06 | 4 | `check.sh` | green | yes |
+| M4-07 | 1 | read plan "Review (M4-07)", reviews/m4.diff (1752 lines), git log | Findings table with severity, location, fix; RED 0b1dfe8 precedes GREEN d2b3e46 | yes |
+| M4-07 | 2 | read plan "Answers"; read photos.tsx/ZoomablePhoto.tsx | All five answered and match code: windowSize 3, initialNumToRender 1, contentFit contain + recyclingKey, StatusBar hidden only in viewer, close 44×44 | yes |
+| M4-07 | 3 | git log, CLAUDE.md, README, docs/RUNNING-ON-PHONE.md | refactor commit f89bb03; CLAUDE.md lists photos route, gallery-gestures, gesture jest setup; README Status and RUNNING-ON-PHONE mention viewer | yes |
+| M4-07 | 4 | `check.sh`; console.error count | green; 0 | yes |
+
+M4-04 set to passes=false: ZoomablePhoto.tsx is 156 lines (step 1 requires under 150 excl. styles or the toolkit). Fix: trim ≥7 lines, or install react-native-zoom-toolkit as specified.
+
+### 2026-10-21 16:40 · M4-07 · passes
+
+- Opus review of the M4 diff (`reviews/m4.diff`, 1752 lines): 0 Critical, 2 Important, both fixed. Zoomed photos were decoded at screen size and would blur at 2.5–4×; now `allowDownscaling={!zoomed}`. A pinch starting at 1× could slide the native pager; `ZoomablePhoto` now reports `onPinchChange` and the screen turns `scrollEnabled` off while a pinch runs. Three Minor fixes: a swipe during a removal is kept, a photo already gone is not removed, and a pinch follows dragging fingers. RED `0b1dfe8` → GREEN `d2b3e46`. Rejected the cold-deep-link finding again (`DBInitializer`).
+- `refactor:` `f89bb03`: one `PinchStart` shared value; `pinchPan`/`doubleTapZoom` in `gallery-gestures`; no-op defaults; memoised pages. The Review section, the five answers and the simplification notes are in `docs/plans/2026-10-20-m4-viewer.md`. `ZoomablePhoto.tsx` is 156 lines, past the ~150 guideline; the plan says why there's no toolkit switch.
+- Docs: CLAUDE.md (viewer route, `ZoomablePhoto`, gallery-gestures, gesture jest setup), README Status, RUNNING-ON-PHONE (Photo viewer). The phone checklist gains sharp 4×, pinch vs pager and a still-finger long press.
+- Tests went from 520 to 529. Verified: `check.sh` green (529), `npx jest --ci` prints 0 `console.error`, and `expo export --platform ios` (to the scratch dir) exited 0 with a 4,242,180 B bundle.
+- Next: M4 is done. Both Important fixes need the phone to confirm (Jest can't run UIKit's gesture arbitration). Questions for Michael: none new.
+
+### 2026-10-21 15:50 · M4-06 · passes
+
+- New `docs/plans/2026-10-20-m4-what-michael-will-see.md`: the viewer tree (7 photos at index 2, then after a swipe to page 6), the detail tile that opens it, a "Try on the phone" checklist (all gestures, expected results, and a note that none ran on a device), and the totals.
+- Rendered with two temporary tests (deleted before commit; `git status` clean of them). No code changed.
+- Verified: `npx jest --silent` 46 suites / 520 tests; `expo export --platform ios` (scratch dir) exit 0, bundle 4,240,251 B; `check.sh` green.
+- Next: M4 is done. Questions for Michael: none new.
+
+### 2026-10-21 15:20 · M4-05 · passes
+
+- Long-pressing a viewer page opens an Alert: 'Set as primary', 'Remove photo' (red) or 'Cancel'. 'Remove photo' asks 'Remove this photo?' first. The photo in its place is shown next (the next one, or the previous one at the end), and it becomes the primary if the removed one was. Removing the last photo closes the viewer. Files: `ZoomablePhoto.tsx` (LongPress gesture `Exclusive` with the double tap, 149 lines), `photos.tsx`, `gallery-gestures.ts` (`LONG_PRESS_MS` 500).
+- Fixed the M4-03 Important finding: the shown photo is pinned by id, and after a removal `scrollToIndex` moves the native offset to it (in a layout effect).
+- Tests went from 504 to 520 (15 in the viewer, 1 for ZoomablePhoto). Each failed first. Two mutations (scroll sync, zoom reset) turned their tests red.
+- Verified: `check.sh` green (520), `npx jest --ci` prints 0 `console.error`, and `expo export --platform ios` (to the scratch dir) exited 0 with a 4,240,251 B bundle (+5 KB).
+- Opus review (no Critical). Fixed:
+  - the `exhaustive-deps` warning;
+  - stale closures: the actions now read the stores when pressed. A RED test caught this: removing a photo just set as primary didn't update the primary;
+  - a long press during a pinch is ignored;
+  - TalkBack and VoiceOver reach the options through `accessibilityActions`;
+  - the 450 ms hold had no effect, so it is now 500;
+  - `pos` is updated on removal, and photos are compared by id;
+  - the viewer closes before the primary write;
+  - the scroll sync uses a layout effect.
+
+  Left as is: a quick double press on an option runs it twice.
+- Next (M4-06): the plan's "Built in M4-05" section lists the gestures to check on the phone (a pinch after a still two-finger hold, double tap vs long press, VoiceOver). Questions for Michael: none new.
+
+### 2026-10-21 14:30 · M4-04 · passes
+
+- New `src/components/ZoomablePhoto.tsx` (143 lines, no fallback library installed): pinch 1×–4× about the fingers, a pan that moves the photo while zoomed, double tap 1× ↔ 2.5×, and swipe down at 1× (the photo follows the finger). It uses `Gesture.Simultaneous(Pinch, Pan, Tap×2)` and reanimated `.get()/.set()` (the React Compiler lint rejects `.value =`). Every number comes from `gallery-gestures`, which gains `dragDown`.
+- `photos.tsx`: every page is a `ZoomablePhoto` (test ids `viewer-<i>-pinch|pan|double-tap`). `scrollEnabled={pagingEnabled(zoom)}`, a swipe down calls `router.back()`, and the back gesture is not intercepted.
+- `jest.setup.ts`: reanimated's mock `useSharedValue` gave a new value on every render, so a zoom was forgotten after a re-render. It is now wrapped in `useState`, which keeps the value like the real hook does.
+- Tests went from 493 to 504 (10 in `photo-viewer.test.tsx`, 1 in `gallery-gestures.test.ts`). Each failed first.
+- Verified: `check.sh` green (504). `npx jest --ci` prints 0 `console.error` lines. `expo export --platform ios` (to the scratch dir) exited 0, and the bundle is 4,235,237 B (+14 KB).
+- Opus review:
+  - Fixed the Important finding: pinch and pan shared start values, so a pinch starting mid-pan made the photo jump. The zoomed pan now applies per-frame deltas and pauses while a pinch runs.
+  - Fixed Minor: a cancelled pan no longer closes the viewer, and a pan that started zoomed never closes it.
+  - The rest (pinch vs pager at 1×, activation offsets) can't be checked in Jest and is listed in the plan's "Built in M4-04" for M4-06's phone checklist.
+- Next (M4-05): add a LongPress gesture to `ZoomablePhoto` (`Gesture.Exclusive(doubleTap, longPress)`). Still to do from M4-03: pin the page to the shown photo after a removal. M4-07: CLAUDE.md should mention the stable `useSharedValue` mock and the `.get()/.set()` rule. Questions for Michael: none new.
+
+### 2026-10-21 13:45 · M4-03 · passes
+
+- New `app/spot/[id]/photos.tsx`: a black (`#000`) full-screen pager. It is an RN `FlatList` (horizontal, `pagingEnabled`, `getItemLayout` = window width, `initialScrollIndex` = `?index`, which is clamped and falls back to 0 when missing or NaN, `windowSize` 3). Other parts: a `'N / M'` counter, a 44×44 ✕ (`Close` → `router.back()`), `<StatusBar hidden />`, and pages that are `accessible` images labelled 'Photo N of M'. The order is fixed while open (D29); a removed photo drops out and an added one goes at the end. A missing spot shows 'Spot not found' and still has the ✕.
+- `app/_layout.tsx` registers `spot/[id]/photos` (`fullScreenModal`, `headerShown: false`). Detail tiles now push `/spot/<id>/photos?index=N` (string form, role `imagebutton`).
+- Tests went from 480 to 493: new `photo-viewer.test.tsx` (11), plus 1 in `spot-detail.test.tsx` and 1 in `root-layout.test.tsx`. Each failed first (module missing, or no route or handler).
+- Verified: `check.sh` green (493). `npx jest --ci` shows 46 suites and 0 `console.error`. `expo export --platform ios` exited 0 (I wrote it to the scratch dir, not `/tmp/hl-export`). The Hermes bundle is 4,221,065 B (+5.9 KB since M4-01).
+- Opus review: I fixed 3 Minor findings (dropped `removeClippedSubviews`, made the pages accessible images, added a D29 test). I rejected the cold-start finding, because `DBInitializer` renders screens only after the media have loaded.
+- **Next (M4-05)** must fix the Important review finding, now in the plan's Pager section: after a removal the page index is not pinned to a photo and the native offset is not moved. Track the shown photo's id and call `scrollToIndex` when the count changes. Also still to do: iPad width changes, and iOS VoiceOver page announcements (`accessibilityLiveRegion` works on Android only).
+- Questions for Michael: none new (D29 and the clampPan bounds are still open).
+
+### 2026-10-21 13:10 · M4-02 · passes
+
+- New `src/utils/gallery-gestures.ts`: `clampScale`, `toggleZoom`, `clampPan`, `pagingEnabled`, `shouldClose` and `focalZoom`, plus the plan's constants (`MIN_SCALE` 1, `MAX_SCALE` 4, `DOUBLE_TAP_SCALE` 2.5, `ZOOMED_EPSILON` 1.05, `CLOSE_DISTANCE` 120). Every function is marked `'worklet'`, imports nothing, and returns `0` instead of `-0`.
+- `focalZoom(focal, scale, nextScale, viewport, translation = {0,0})`: the 4th argument is the viewport (for the centre), as the plan says. The 5th, the current translation, is new and optional, so a pinch that starts panned keeps its focal point. The plan's Pure functions section records both.
+- New `src/__tests__/gallery-gestures.test.ts` (14 tests) covers every case in the feature, plus the bounds, -0, and focalZoom at a corner, from a panned zoom, and when zooming back to 1×. It failed first because the module was missing. Tests went from 466 to 480.
+- Verified: `check.sh` green (480). `npx jest --ci`: 45 suites, 0 `console.error`.
+- Next (M4-03/04): call `focalZoom(e, scale.value, next, {width, height}, {x: tx.value, y: ty.value})`, then `clampPan`.
+- Questions for Michael: none new. The D29 and clampPan-bounds questions from M4-01 are still open.
+
+### 2026-10-21 12:40 · M4-01 · passes
+
+- `app/_layout.tsx`: the outermost element is now `GestureHandlerRootView` (flex 1), around `ThemeProvider`. `jest.setup.ts` imports `react-native-gesture-handler/jestSetup` and adds a `react-native-worklets` mock. The reanimated mock is unchanged.
+- Found while wiring: the existing reanimated mock **could not load** under reanimated 4.5. It imports worklets, whose native module throws in Jest (`loadUnpackers` of undefined). It never showed up because no test imported reanimated. The worklets mock fixes it.
+- New `src/__tests__/root-layout.test.tsx` (2 tests): RootLayout has one flex-1 root wrapping the Stack, and a Tap gesture fires through `fireGestureHandler`. Both failed without the jestSetup import. Tests went from 464 to 466.
+- New `docs/plans/2026-10-20-m4-viewer.md` covers the route, the FlatList pager and why, the `ZoomablePhoto` gesture composition, the `gallery-gestures.ts` signatures, the long-press `Alert.alert`, the 150-line fallback rule and the test table.
+- Verified: `check.sh` green (466). `npx jest --ci` shows 0 `console.error`. `expo export --platform ios` exited 0 both before and after. The bundle went from 4,060,375 B to 4,215,187 B (+151 KB, gesture-handler).
+- Next (M4-02): `focalZoom` in the plan takes a 4th `viewport` argument for the centre. Mark the pure functions `'worklet'` and normalise `-0` to `0`.
+- Question for Michael: D29 *default* (spec §9 Q9). After 'Set as primary', the viewer keeps its order while open, so the photo does not jump to page 1. OK?
+- Question for Michael: when zoomed, `clampPan` limits panning by the screen size, not the photo's, so a letterboxed photo's black bars can pan into view. Fine for now?
+
 ### 2026-10-21 · verify M3
 
 All 4 features hold; no `passes` changed.

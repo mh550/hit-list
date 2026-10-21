@@ -9,3 +9,4 @@ export { SpeedScale } from './SpeedScale';
 export { PhotoGrid } from './PhotoGrid';
 export { AddPhotosTile } from './AddPhotosTile';
 export { SpotTagFields, type SpotTags } from './SpotTagFields';
+export { ZoomablePhoto } from './ZoomablePhoto';

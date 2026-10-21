@@ -68,6 +68,7 @@ re-hydrated per user ("add the features and fields you want"); none of that is b
 | D26 | **Old data is archived, not deleted** | Migration 3 copies each spot's removed fields into one `legacy_json` column on the row (and maps `feature.type` → `feature_types`, `skate_stops.is_stopped` → `stopped`, `metadata.notes` → `notes`). Nothing reads `legacy_json` except a one-line "Older details" disclosure on the detail screen when it is non-empty. Details §4. | *my call* (§9 Q4) |
 | D27 | **Groups / sharing deferred** | §7 is direction, not scope. Nothing in §7 is built this run. | Michael: "consider deferring #5 until after the simplification has been done and tested" |
 | D28 | **A failed upgrade blocks the app** *default* | If `migrateDb` throws at launch (e.g. migration 3), the app shows "Couldn't upgrade your spots — Nothing was lost… Close HitList and open it again to retry" instead of the tabs; the next launch retries. Media and settings still load, each on its own. | Builder (M1-05 review): this build's writes fail on an older schema, so a usable-looking empty app would let a Quick Add copy photos and then lose the spot, and saving Units would write default settings over the stored ones (§9 Q8) |
+| D29 | **The viewer keeps its photo order while open** *default* | 'Set as primary' in the viewer does not move the photo to page 1 under the user: the viewer snapshots `spotPhotos()` order when it opens and only drops removed photos. The detail grid shows the new primary first as usual. Plan: `docs/plans/2026-10-20-m4-viewer.md`. | Builder (M4-01 plan): a page that jumps away right after a long-press action is disorienting (§9 Q9) |
 
 ---
 
@@ -464,6 +465,10 @@ Stretch, in order, only if all above is green: (a) FilterSheet range mode polish
    upgrade your spots · Nothing was lost · close and reopen to retry" screen when a migration throws
    at launch. Say "let me in anyway" for the old behaviour (the list loads what it can and writes
    may fail).
+
+9. **Viewer order after 'Set as primary' (D29, added by the M4-01 plan).** **Default: the viewer keeps
+   its order while open** (the photo stays on the page you are looking at). Say "jump to first" to move it to
+   page 1 at once.
 
 ---
 

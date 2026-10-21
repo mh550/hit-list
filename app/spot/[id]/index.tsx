@@ -63,9 +63,7 @@ export default function SpotDetailScreen() {
           </ScrollView>
         ) : null}
 
-        <View style={styles.headerRow}>
-          <Text style={styles.title}>{displayName}</Text>
-        </View>
+        <Text style={styles.title}>{displayName}</Text>
 
         {spot.notes ? (
           <View style={styles.notes}>
@@ -108,19 +106,13 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     marginRight: spacing.sm,
   },
-  headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.sm,
-  },
   title: {
     fontSize: 24,
     fontWeight: '700',
     color: palette.gray[900],
-    flex: 1,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.sm,
   },
   editButton: {
     fontSize: 17,

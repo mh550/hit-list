@@ -39,8 +39,7 @@ export function PhotoGrid({ photos, onPressPhoto, renderBadge, trailing }: Photo
       <Pressable
         testID={`photo-tile-${index}`}
         onPress={onPressPhoto ? () => onPressPhoto(index) : undefined}
-        disabled={!onPressPhoto}
-        accessibilityRole="imagebutton"
+        accessibilityRole={onPressPhoto ? 'imagebutton' : 'image'}
         accessibilityLabel={`Photo ${index + 1} of ${photos.length}`}
         style={index === 0 ? styles.hero : styles.tile}>
         <Image source={{ uri: resolvePhotoUri(media.file_path) }} style={styles.image} contentFit="cover" />

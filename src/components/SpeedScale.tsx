@@ -59,6 +59,7 @@ export function SpeedScale({ value, onChange, readonly }: SpeedScaleProps) {
               style={[styles.segment, checked && styles.filled]}
               accessibilityRole="radio"
               accessibilityState={{ checked }}
+              accessibilityHint={checked ? 'Double-tap to clear the rating.' : undefined}
               accessibilityLabel={`${label}: ${description}`}>
               <Text
                 style={[styles.segmentLabel, checked && styles.selectedLabel]}

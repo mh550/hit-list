@@ -107,11 +107,19 @@ describe('SpotMap', () => {
     expect(screen.queryByTestId(`spot-marker-${lost.id}`)).toBeNull();
   });
 
-  it('shows the feature types label in the callout', () => {
+  it('describes a spot in the callout by all its feature types joined with a middle dot', () => {
     const tagged = createTestSpot({ feature_types: [FeatureType.Rail, FeatureType.Ledge] });
     renderMap([tagged]);
 
-    expect(screen.getByTestId(`spot-marker-${tagged.id}`).props.description).toBe('Rail +1');
+    expect(screen.getByTestId(`spot-marker-${tagged.id}`).props.description).toBe('Rail · Ledge');
+  });
+
+  it('titles every callout with the display name, untitled spots included', () => {
+    renderMap([named, unnamed]);
+
+    for (const spot of [named, unnamed]) {
+      expect(screen.getByTestId(`spot-marker-${spot.id}`).props.title).toBe(getSpotDisplayName(spot));
+    }
   });
 
   it('tracks the user only while the tab is focused', () => {

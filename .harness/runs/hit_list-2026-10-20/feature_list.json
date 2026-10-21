@@ -383,7 +383,7 @@
         "src/components/SpotListItem.tsx props are { id, displayName, thumbnailUri?, featureType?, stopped, naturalSpeed?, distance?, onPress } and the component is still wrapped in memo.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M5-04",

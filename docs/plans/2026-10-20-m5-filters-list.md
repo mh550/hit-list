@@ -88,7 +88,9 @@ still `memo` (primitives only, so memo holds). Content column: name (`numberOfLi
 nothing when unrated; a11y label 'Natural speed: Too much') · distance on its own line below, so a wrapping badge
 row never pushes it off. Row `accessibilityLabel` stays `displayName` (tests and VoiceOver read the name; M5-05
 reviews whether to append the tags). `app/(tabs)/index.tsx` `renderItem` passes `stopped={item.stopped}`
-`naturalSpeed={item.natural_speed}`.
+`naturalSpeed={item.natural_speed}`. Built (M5-03): the row uses `Tag size="small"` and `SpeedScale readonly compact`
+(12-pt words, matching the type badge; the full-size Tag/bar looked oversized in a row). Known for M5-05: the
+Pressable's `accessibilityLabel` hides the children from VoiceOver, so the tags are not announced yet.
 
 ## Map callout (M5-03)
 

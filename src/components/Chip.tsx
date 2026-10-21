@@ -46,14 +46,19 @@ interface TagProps {
   label: string;
   /** 'stopped' draws the red outline of the 'Skate stopped' tag. */
   tone?: 'default' | 'stopped';
+  /** 'small' matches a list row's 12-pt badges. */
+  size?: 'default' | 'small';
   testID?: string;
 }
 
 /** A read-only chip: no role and nothing to press, so VoiceOver reads it as text rather than a checkbox. */
-export function Tag({ label, tone = 'default', testID }: TagProps) {
+export function Tag({ label, tone = 'default', size = 'default', testID }: TagProps) {
+  const small = size === 'small';
   return (
-    <View testID={testID} style={[styles.chip, tone === 'stopped' && styles.tagStopped]}>
-      <Text style={[styles.chipText, tone === 'stopped' && styles.tagStoppedText]}>{label}</Text>
+    <View testID={testID} style={[styles.chip, small && styles.tagSmall, tone === 'stopped' && styles.tagStopped]}>
+      <Text style={[styles.chipText, small && styles.tagSmallText, tone === 'stopped' && styles.tagStoppedText]}>
+        {label}
+      </Text>
     </View>
   );
 }
@@ -92,6 +97,13 @@ const styles = StyleSheet.create({
   },
   chipTextSelected: {
     color: palette.white,
+  },
+  tagSmall: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 1,
+  },
+  tagSmallText: {
+    fontSize: 12,
   },
   tagStopped: {
     backgroundColor: palette.white,

@@ -36,3 +36,8 @@ export function featureTypesLabel(spot: Spot): string | undefined {
   if (!first) return undefined;
   return rest.length > 0 ? `${FEATURE_TYPE_LABELS[first]} +${rest.length}` : FEATURE_TYPE_LABELS[first];
 }
+
+/** Every feature type's label, joined with ' · ' (`Rail · Ledge`), for the map callout; undefined for an untagged spot. */
+export function featureTypesList(spot: Spot): string | undefined {
+  return spot.feature_types.map((t) => FEATURE_TYPE_LABELS[t]).join(' · ') || undefined;
+}

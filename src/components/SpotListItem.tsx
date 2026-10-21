@@ -2,12 +2,17 @@ import React, { memo } from 'react';
 import { Pressable, View, Text, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
 import { palette, spacing, radius } from '@/src/constants/theme';
+import type { NaturalSpeed } from '@/src/types';
+import { Tag } from '@/src/components/Chip';
+import { SpeedScale } from '@/src/components/SpeedScale';
 
 interface SpotListItemProps {
   id: string;
   displayName: string;
   thumbnailUri?: string;
   featureType?: string;
+  stopped: boolean;
+  naturalSpeed?: NaturalSpeed;
   distance?: string;
   onPress: (id: string) => void;
 }
@@ -17,6 +22,8 @@ export const SpotListItem = memo(function SpotListItem({
   displayName,
   thumbnailUri,
   featureType,
+  stopped,
+  naturalSpeed,
   distance,
   onPress,
 }: SpotListItemProps) {
@@ -52,6 +59,8 @@ export const SpotListItem = memo(function SpotListItem({
               <Text style={styles.typeText}>{featureType}</Text>
             </View>
           ) : null}
+          {stopped ? <Tag label="Stopped" tone="stopped" size="small" /> : null}
+          <SpeedScale readonly compact value={naturalSpeed} />
         </View>
 
         {distance ? <Text style={styles.distance}>{distance}</Text> : null}
@@ -100,10 +109,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: palette.gray[900],
   },
+  // Wraps rather than squeezing; the distance sits on its own line below, so a second badge line never hides it.
   badgeRow: {
     flexDirection: 'row',
-    gap: spacing.sm,
     flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: spacing.sm,
   },
   typeBadge: {
     backgroundColor: palette.gray[100],

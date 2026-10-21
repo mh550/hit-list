@@ -14,6 +14,8 @@ interface SingleProps {
   onChange?: (value: NaturalSpeed | undefined) => void;
   /** Compact five-cell bar with the word beside it; renders nothing when not rated. */
   readonly?: boolean;
+  /** Readonly only: a 12-pt word for a list row. */
+  compact?: boolean;
   rangeValue?: never;
   onRangeChange?: never;
 }
@@ -25,6 +27,7 @@ interface RangeProps {
   value?: never;
   onChange?: never;
   readonly?: never;
+  compact?: never;
 }
 
 type SpeedScaleProps = SingleProps | RangeProps;
@@ -34,11 +37,11 @@ export function SpeedScale(props: SpeedScaleProps) {
   if (props.onRangeChange !== undefined) {
     return <SpeedRangePicker rangeValue={props.rangeValue} onRangeChange={props.onRangeChange} />;
   }
-  if (props.readonly) return <SpeedBar value={props.value} />;
+  if (props.readonly) return <SpeedBar value={props.value} compact={props.compact} />;
   return <SpeedPicker value={props.value} onChange={props.onChange} />;
 }
 
-function SpeedBar({ value }: { value?: NaturalSpeed }) {
+function SpeedBar({ value, compact }: { value?: NaturalSpeed; compact?: boolean }) {
   if (value === undefined) return null;
   const { label } = SPEED_LABELS[value];
   return (
@@ -56,7 +59,7 @@ function SpeedBar({ value }: { value?: NaturalSpeed }) {
           );
         })}
       </View>
-      <Text style={styles.barLabel}>{label}</Text>
+      <Text style={[styles.barLabel, compact && styles.barLabelCompact]}>{label}</Text>
     </View>
   );
 }
@@ -198,5 +201,8 @@ const styles = StyleSheet.create({
   barLabel: {
     ...typography.subheadline,
     color: palette.gray[700],
+  },
+  barLabelCompact: {
+    ...typography.caption1,
   },
 });

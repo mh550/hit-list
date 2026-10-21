@@ -12,6 +12,13 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 19:20 · M5-03 · passes
+
+- `SpotListItem` props now `{ id, displayName, thumbnailUri?, featureType?, stopped, naturalSpeed?, distance?, onPress }` (still `memo`); badge row (wrap, centred): type badge 'Rail +2' · `Tag size="small" tone="stopped"` 'Stopped' · `SpeedScale readonly compact` bar; distance stays on its own line. `Tag` gains `size`, the readonly bar gains `compact` (12-pt word). `app/(tabs)/index.tsx` passes `stopped`/`natural_speed`. Map callout description = new `featureTypesList` ('Rail · Ledge', `[]` → undefined) in `src/utils/spot-name.ts`.
+- Tests 572 → 584: spot-list (+7: 'Rail +2', Stopped only when stopped, 'Natural speed: Too much', None (0) shown, unrated none, 12-pt/red sizes, two-line name + distance), spot-map ('Rail · Ledge', titles = display name), spot-name `featureTypesList` (+3), spots-view-mode (screen passes stopped + speed).
+- Verified: every step's test passes; mutation `stopped={false}` in renderItem fails the screen test (reverted); `check.sh` green (584); `jest --ci` 0 console.error. Opus review: 0 Critical; applied Important 1–2 (oversized Tag/bar in the row) and fixture reuse; skipped the pre-existing 'memo behavior' test naming.
+- Next (M5-04/05): the row's VoiceOver label is still `displayName`, so Stopped/speed are not announced (the Pressable hides its children); M5-05 should decide on appending them. Questions for Michael: none.
+
 ### 2026-10-21 18:45 · M5-02 · passes
 
 - `src/components/FilterSheet.tsx`: three sections (What's here chips · Skate stopped `SegmentedControl` Any/Not stopped/Stopped · Natural speed `SpeedScale` range); section titles and 'Filters' are `accessibilityRole="header"`; stopped/range keys always written (explicit undefined) so Apply clears old values. `SpeedScale.tsx` is now a dispatcher (`SpeedBar` / `SpeedPicker` / `SpeedRangePicker`); tap rules in new pure `src/utils/speed-range.ts` (`nextSpeedRange`, `liveAnchor`, `inSpeedRange`, `speedRangeLabel`).

@@ -86,6 +86,11 @@ describe('Spot detail: tag line and speed', () => {
 
     expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
     expect(screen.queryAllByRole('button')).toHaveLength(0);
+    const stopped = screen.getByTestId('tag-stopped');
+    expect(stopped.props.accessibilityRole).toBeUndefined();
+    expect(stopped.props.accessibilityState).toBeUndefined();
+    expect(stopped.props.accessible).toBeUndefined();
+    expect(screen.getByText('Skate stopped')).toBeOnTheScreen();
   });
 
   it('shows no Skate stopped tag when the spot is not stopped', async () => {
@@ -196,6 +201,19 @@ describe('Spot detail: Older details', () => {
     expect(screen.getByText('Pier 57')).toBeOnTheScreen();
     expect(screen.queryByText('Older details')).toBeNull();
     expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it('does not warn when the archive fails after the screen has closed', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    let fail: (e: Error) => void = () => {};
+    legacyMock.mockReturnValue(new Promise((_, reject) => (fail = reject)));
+
+    await renderDetail({ name: 'Pier 57' });
+    screen.unmount();
+    await act(async () => fail(new SyntaxError('Unexpected token')));
+
+    expect(warn).not.toHaveBeenCalled();
     warn.mockRestore();
   });
 

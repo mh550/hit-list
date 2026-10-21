@@ -1,3 +1,4 @@
+import type { SpotLegacy } from '@/src/db';
 import { UnitSystem } from '@/src/types';
 import { formatLegacyDetails } from '@/src/utils/legacy-details';
 import v2Spots from './fixtures/v2-spots.json';
@@ -99,5 +100,13 @@ describe('formatLegacyDetails', () => {
   it('shows a setup option it cannot read as its stored JSON', () => {
     const rows = formatLegacyDetails({ setup_options: ['winch', { requires: [{ quantity: 2 }] }] }, UnitSystem.Imperial);
     expect(rows).toEqual([{ label: 'Setup options', value: '2 options: "winch"; {"requires":[{"quantity":2}]}' }]);
+  });
+
+  it('takes what getSpotLegacy returns without a cast', () => {
+    const legacy: SpotLegacy = { material: 'concrete', height_m: 0.5 };
+    expect(formatLegacyDetails(legacy, UnitSystem.Metric)).toEqual([
+      { label: 'Height', value: '0.5 m' },
+      { label: 'Material', value: 'concrete' },
+    ]);
   });
 });

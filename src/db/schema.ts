@@ -113,9 +113,10 @@ export interface SpotColumnsV3 {
 
 /**
  * What migration 3 archived from the removed fields (spec §4): the `legacy_json` of a version 3 spot, read only through
- * getSpotLegacy. Lengths in metres.
+ * getSpotLegacy. Lengths in metres. A type, not an interface, so it passes as a `Record<string, unknown>`
+ * (formatLegacyDetails).
  */
-export interface SpotLegacy {
+export type SpotLegacy = {
   custom_type?: string;
   shape?: string;
   length_m?: number;
@@ -137,7 +138,7 @@ export interface SpotLegacy {
   raw_in_run?: string;
   raw_landing?: string;
   raw_metadata?: string;
-}
+};
 
 // The feature types that survive migration 3 ('other' is gone, D19). Literal on purpose: a migration must not
 // change meaning when the app's enums do.

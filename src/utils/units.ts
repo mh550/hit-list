@@ -22,8 +22,10 @@ export function radiusToDisplay(meters: number, units: UnitSystem): number {
 /** Typed feet or metres as whole metres (at least 1), or null when the text is not a positive number. */
 export function radiusFromInput(text: string, units: UnitSystem): number | null {
   const trimmed = text.trim();
-  const value = trimmed === '' ? NaN : Number(trimmed);
-  if (!Number.isFinite(value) || value <= 0) return null;
+  // Plain decimals only: Number() would also read '0x10', '1e3' and 'Infinity' (a paste gets past number-pad).
+  if (!/^\d+(\.\d+)?$/.test(trimmed)) return null;
+  const value = Number(trimmed);
+  if (value <= 0) return null;
   const meters = units === UnitSystem.Imperial ? value / FEET_PER_METER : value;
   return Math.max(1, Math.round(meters));
 }

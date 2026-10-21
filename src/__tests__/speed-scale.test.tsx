@@ -29,6 +29,12 @@ describe('SpeedScale (edit form)', () => {
     expect(screen.getAllByRole('radio')).toHaveLength(5);
   });
 
+  it('tells VoiceOver that the checked segment clears on a second tap', () => {
+    render(<SpeedScale value={3} onChange={() => {}} />);
+    const hints = screen.getAllByRole('radio').map((r) => r.props.accessibilityHint);
+    expect(hints).toEqual([undefined, undefined, undefined, 'Double-tap to clear the rating.', undefined]);
+  });
+
   it('reads "Not rated" when unset', () => {
     render(<SpeedScale onChange={() => {}} />);
     expect(screen.getByText('Not rated')).toBeTruthy();

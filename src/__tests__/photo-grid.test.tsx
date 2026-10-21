@@ -94,11 +94,13 @@ describe('PhotoGrid', () => {
     expect(uri).not.toBe(photos[0].file_path);
   });
 
-  it('makes tiles inert without onPressPhoto', () => {
+  it('makes tiles plain images without onPressPhoto', () => {
+    // A 'dimmed' imagebutton would tell VoiceOver there is something to press.
     render(<PhotoGrid photos={photos.slice(0, 2)} />);
-    expect(screen.getByTestId('photo-tile-1').props.accessibilityState).toEqual(
-      expect.objectContaining({ disabled: true }),
-    );
+    const tile = screen.getByTestId('photo-tile-1');
+    expect(tile.props.accessibilityRole).toBe('image');
+    expect(tile.props.accessibilityState?.disabled).not.toBe(true);
+    expect(screen.queryAllByRole('imagebutton')).toHaveLength(0);
   });
 
   it('sizes measured tiles to a pixel-snapped third of the row, the trailing tile too', () => {

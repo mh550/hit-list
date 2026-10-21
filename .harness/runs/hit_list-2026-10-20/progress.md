@@ -12,6 +12,14 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 16:40 · M4-07 · passes
+
+- Opus review of the M4 diff (`reviews/m4.diff`, 1752 lines): 0 Critical, 2 Important, both fixed. Zoomed photos were decoded at screen size and would blur at 2.5–4×; now `allowDownscaling={!zoomed}`. A pinch starting at 1× could slide the native pager; `ZoomablePhoto` now reports `onPinchChange` and the screen turns `scrollEnabled` off while a pinch runs. Three Minor fixes: a swipe during a removal is kept, a photo already gone is not removed, and a pinch follows dragging fingers. RED `0b1dfe8` → GREEN `d2b3e46`. Rejected the cold-deep-link finding again (`DBInitializer`).
+- `refactor:` `f89bb03`: one `PinchStart` shared value; `pinchPan`/`doubleTapZoom` in `gallery-gestures`; no-op defaults; memoised pages. The Review section, the five answers and the simplification notes are in `docs/plans/2026-10-20-m4-viewer.md`. `ZoomablePhoto.tsx` is 156 lines, past the ~150 guideline; the plan says why there's no toolkit switch.
+- Docs: CLAUDE.md (viewer route, `ZoomablePhoto`, gallery-gestures, gesture jest setup), README Status, RUNNING-ON-PHONE (Photo viewer). The phone checklist gains sharp 4×, pinch vs pager and a still-finger long press.
+- Tests went from 520 to 529. Verified: `check.sh` green (529), `npx jest --ci` prints 0 `console.error`, and `expo export --platform ios` (to the scratch dir) exited 0 with a 4,242,180 B bundle.
+- Next: M4 is done. Both Important fixes need the phone to confirm (Jest can't run UIKit's gesture arbitration). Questions for Michael: none new.
+
 ### 2026-10-21 15:50 · M4-06 · passes
 
 - New `docs/plans/2026-10-20-m4-what-michael-will-see.md`: the viewer tree (7 photos at index 2, then after a swipe to page 6), the detail tile that opens it, a "Try on the phone" checklist (all gestures, expected results, and a note that none ran on a device), and the totals.

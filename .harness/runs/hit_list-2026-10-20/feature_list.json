@@ -341,7 +341,7 @@
         "A 'refactor:' commit applies the simplification pass; CLAUDE.md Layout lists app/spot/[id]/photos.tsx and src/utils/gallery-gestures.ts and Testing mentions the gesture-handler jest setup; README.md Status mentions the full-screen photo viewer and docs/RUNNING-ON-PHONE.md describes opening it from the detail screen.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M5-01",

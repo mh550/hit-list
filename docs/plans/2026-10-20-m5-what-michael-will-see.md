@@ -4,7 +4,7 @@ Rendered from scratch in Jest (a temporary test, deleted before commit; trees tr
 
 ## List rows (`SpotListItem`)
 
-Every row is `role=button`, label = the display name only (Stopped and speed are not announced by the row; see "Known gaps").
+Every row is `role=button`. Since M5-05 its label reads the name, type, 'Skate stopped', 'Natural speed: <word>' and distance, joined with ', ' (e.g. 'Downtown Rail, Rail +2, Skate stopped, Natural speed: Too much, 2.3 mi'); the type badge is a small pill `Tag` like Stopped.
 
 **1. Three types + stopped + speed Too much** (photo)
 ```
@@ -65,7 +65,7 @@ Both have `onCalloutPress` (opens the spot). The unnamed spot has no town here b
 
 ## Known gaps
 
-- The row's VoiceOver label is still just the name (carried over from M5-03); M5-05 should decide on appending Stopped / speed.
+- Fixed in M5-05: the row's VoiceOver label now reads every tag (it was the name only).
 - None of this ran on a device; layout (badge wrapping, 12-pt word, callout look in Apple Maps) is untested by eye.
 
 ## Try on the phone

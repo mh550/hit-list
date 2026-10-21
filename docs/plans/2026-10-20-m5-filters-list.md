@@ -111,6 +111,48 @@ feature types label in the callout' changes 'Rail +1' → 'Rail · Ledge'.
 | `spot-list.test.tsx` | M5-03 | 'Rail +2'; 'Stopped' only when stopped; 'Natural speed: Too much' label; none when unrated; `numberOfLines` 2; distance unchanged |
 | `spot-map.test.tsx` | M5-03 | 'Rail · Ledge'; `[]` → undefined; every pin `SPOT_PIN`; title = display name |
 
+## Review (M5-05)
+
+An Opus review of `git diff b55e7ac..f60daff -- . ':!.harness' ':!docs/plans/2026-10-20-m5-what-michael-will-see.md'`
+(`b55e7ac` is "HARNESS: M4 verified"), written to `.harness/runs/hit_list-2026-10-20/reviews/m5.diff` (1243 lines).
+**No Critical**, **1 Important** (fixed). RED commit `ea1e9a2` before GREEN `6571829`.
+
+| # | Severity | Where | Finding | Fix |
+|---|---|---|---|---|
+| 1 | Important | `SpotListItem.tsx` Pressable `accessibilityLabel` (was l.35) | The row's label was `displayName` only; a labelled Pressable hides its children, so VoiceOver never read the type, Stopped, speed or distance. | Label = `[name, type, 'Skate stopped', 'Natural speed: <word>', distance]` joined with ', ', empties dropped (0 = None kept). GREEN `6571829`; tests "reads every tag in the row label…" and "labels the row with the name alone…". |
+| 2 | Minor | `SpotListItem.tsx` type badge | Custom rounded rectangle next to the pill-shaped `Tag` Stopped: two shapes in one row. | Badge is `<Tag size="small">`; `typeBadge`/`typeText` styles gone. `refactor:` `595e53a`. |
+| 3 | Minor | `FilterSheet.tsx` Reset (l.107) | No `accessibilityRole="button"`; VoiceOver read it as text. | Role added. GREEN `6571829`; test "announces Reset and Apply as buttons". |
+| 4 | Minor | `SegmentedControl.tsx` `segment` | ~34-pt segments (Any / Not stopped / Stopped, and List / Map) under the 44-pt minimum. | `minHeight: 44` + `justifyContent: 'center'` (shared, so List / Map grows too). GREEN `6571829`; test "gives every segment a 44-pt touch target". |
+| 5 | Minor (test gap) | `spots-sort-search.test.tsx` | No empty-state test reset a What's here filter (it worked: `resetFilters` writes `DEFAULT_FILTERS`). | Test '"Reset filters" also clears a What's here filter' (passed on first run, coverage only). |
+| 6 | Minor, not fixed | `SpeedScale.tsx` range description | The 'Little to Enough' line is not announced when it changes. | Left: each segment's `selected` state changes and is read on focus; a live region would be Android only. |
+
+### Answers to the M5-05 questions
+
+1. **Range accessibility: yes.** Every segment inside the range has `accessibilityState={{ selected }}` from the
+   inclusive `inSpeedRange` (`SpeedScale.tsx` `SpeedRangePicker`; `speed-scale.test.tsx` expects
+   `[false, true, true, true, false]` for `[1, 3]`). Role `button` (no radiogroup), label '<word>: <description>', hint
+   from `rangeHint` ('Double-tap to start a range here' / 'end the range here' / 'select just this one' / 'clear the
+   range'); the summary line is labelled 'Natural speed: Any | Some | Little to Enough'.
+2. **Row with everything present: wraps, never clips.** `badgeRow` has `flexDirection: 'row'`, `flexWrap: 'wrap'`,
+   `alignItems: 'center'`; the distance is its own `Text` below it in the `flex: 1` column. 'Rail +2' + Stopped + bar
+   'Too much' ≈ 264 pt against ≈ 267 pt of content on a 375-pt phone: one line on current iPhones, a second badge line
+   at larger Dynamic Type (the row grows past the 72-pt thumbnail; nothing is cut). Test "keeps the two-line name and
+   still shows the distance with every tag present".
+3. **'Reset filters' empty state: yes, all three.** `app/(tabs)/index.tsx` shows it when `activeFilterCount > 0`
+   and runs `resetFilters` (`{ ...DEFAULT_FILTERS }`). Tests in `spots-sort-search.test.tsx` › 'offers a way out':
+   stopped ('pressing "Reset filters" restores the default filters…'), speed range ('…also clears a speed range'),
+   types ('…also clears a What's here filter').
+
+### Simplification pass (`refactor:` commit `595e53a`)
+
+- `SpotListItem`: the type badge is a small `Tag` (finding 2).
+- `FilterSheet`: one `STOPPED_SEGMENTS` table (`label`, `value`, `stopped`) replaces the segments list, the
+  `STOPPED_CHOICE` map and the switch in `stoppedChoice`; `StoppedChoice` is derived from it.
+- `SpeedRangePicker`: the summary is computed once; `press` hands the raw anchor to `nextSpeedRange` (which checks it
+  is live itself) instead of checking twice.
+- Not done: dropping `accessibilityState` on the readonly bar's cells (tests read the fill through it) and folding
+  `compact` into the bar (detail keeps the 15-pt word).
+
 ## Unresolved questions
 
 None for Michael. Builder's calls recorded above: first tap emits `[t, t]`; tap outside a complete range starts a

@@ -12,6 +12,14 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 20:30 · M5-05 · passes
+
+- Opus review of `reviews/m5.diff` (1243 lines): 0 Critical, 1 Important (fixed), 5 Minor (4 fixed, 1 left), recorded under 'Review (M5-05)' in `docs/plans/2026-10-20-m5-filters-list.md` with the three written answers (range a11y: every in-range segment `selected`; row `flexWrap: 'wrap'`, distance on its own line; 'Reset filters' clears all three, tests named).
+- Important: the list row's VoiceOver label was the name only; now 'Downtown Rail, Rail +2, Skate stopped, Natural speed: Too much, 2.3 mi' (RED `ea1e9a2` → GREEN `6571829`). Also: sheet Reset has role button, `SegmentedControl` segments 44 pt (List / Map too), types reset test.
+- `refactor:` `595e53a`: type badge = small `Tag` (pill, like Stopped), one `STOPPED_SEGMENTS` table, range summary once. Docs `22cf902`: CLAUDE.md stores line (three filters), README Status (feature type / skate stopped / natural speed; sort Distance, Date, Name), RUNNING-ON-PHONE Filter + row + callout.
+- Tests 584 → 589; `check.sh` green (589), `jest --ci` 0 console.error.
+- Next: M5 verify. Phone checks: the taller List / Map switch and the pill type badge look. Questions for Michael: none.
+
 ### 2026-10-21 19:50 · M5-04 · passes
 
 - New `docs/plans/2026-10-20-m5-what-michael-will-see.md`: three list rows (three types + Stopped + Too much; untagged; one type, no photo), sort chips in order Distance · Date · Name (with/without location), Filter sheet empty and all-three-set, Marker props for two spots, a phone checklist. Rendered from a temporary test (deleted); no code changed.

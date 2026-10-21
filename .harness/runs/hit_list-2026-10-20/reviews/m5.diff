@@ -1,0 +1,1243 @@
+diff --git a/app/(tabs)/index.tsx b/app/(tabs)/index.tsx
+index a8b4c2c..e1b015b 100644
+--- a/app/(tabs)/index.tsx
++++ b/app/(tabs)/index.tsx
+@@ -104,6 +104,8 @@ export default function SpotsScreen() {
+           displayName={getSpotDisplayName(item)}
+           thumbnailUri={thumbnail ? resolvePhotoUri(thumbnail.file_path) : undefined}
+           featureType={featureTypesLabel(item)}
++          stopped={item.stopped}
++          naturalSpeed={item.natural_speed}
+           distance={getDistance(item)}
+           onPress={handleSpotPress}
+         />
+diff --git a/docs/plans/2026-10-20-m5-filters-list.md b/docs/plans/2026-10-20-m5-filters-list.md
+new file mode 100644
+index 0000000..f5b9714
+--- /dev/null
++++ b/docs/plans/2026-10-20-m5-filters-list.md
+@@ -0,0 +1,117 @@
++# M5 plan: three-filter sheet, SpeedScale range mode, list rows and map callouts
++
++Spec: `docs/specs/2026-10-16-simplification-design.md` §2.3 (SpeedScale, range mode), §2.5 (Filter sheet,
++`SpotFilters`), §2.6 (list row, map callout). Features: M5-01 this plan + store semantics · M5-02 sheet + range
++mode · M5-03 list row + callout · M5-04 walkthrough · M5-05 review. Each task: RED test first, then code;
++`check.sh` green per commit.
++
++Starting point (after M4): store already filters on all three (`selectFilteredSpots`) and counts all three
++(`selectActiveFilterCount`); the sheet shows **only** What's here chips; `SpeedScale` has edit + `readonly` forms;
++`SpotListItem` shows name, one type badge (`featureTypesLabel`, "Rail +1"), distance; Marker description =
++`featureTypesLabel` ("Rail +1"), pin `SPOT_PIN`.
++
++## M5-01 store semantics (done in this feature)
++
++`SpotFilters` unchanged (`types`, `stopped?`, `natural_speed_min?`, `natural_speed_max?`; `DEFAULT_FILTERS = { types: [] }`).
++
++| Filter | Rule | Test (`stores.test.ts`) |
++|---|---|---|
++| types | any-of against `feature_types`; `[]` = all | 'filters by type', 'types is any-of…' |
++| stopped | `undefined` keeps all · `true` only stopped · `false` only not stopped | 'stopped: undefined keeps every spot…', 'stopped: true…', 'stopped: false…' |
++| speed | `min ≤ speed ≤ max`, either end optional; **unrated kept**; 0 real | 'min 1 and max 3 keep speeds 1, 2, 3 and unrated, and drop 0 and 4', 'treats 0 as a real value…' |
++| count | 1 per filter set: types non-empty · stopped `!== undefined` · min or max `!== undefined` | `{types:[rail]}` 1 · `{stopped:false}` 1 · `{min:0,max:2}` 1 · `{max:0}` 1 · all three 3 · default 0 |
++| setFilters | shallow merge; an **explicit `undefined` clears** (Any), unlike `SpotUpdate` where undefined keeps | 'an explicit undefined clears stopped and the speed range…' |
++
++Count used `!= null`; now `!== undefined` (project rule for speed). Mutation check: count by truthiness → the
++`{min:0,max:2}` test fails.
++
++## FilterSheet layout (M5-02)
++
++`src/components/FilterSheet.tsx`, pageSheet modal, unchanged shell (header 'Filters' + Reset; footer Apply; pending
++state seeded from the store on each open, written only on Apply). ScrollView body, top to bottom, exactly three
++section labels:
++
++1. **What's here**: `ChipGroup` of the eight `FEATURE_TYPE_LABELS` chips (unchanged).
++2. **Skate stopped**: existing `SegmentedControl` (tablist/tab), segments `Any` · `Not stopped` · `Stopped`,
++   string values `'any' | 'not-stopped' | 'stopped'` ↔ `undefined | false | true` (two tiny maps in the sheet).
++3. **Natural speed**: `<SpeedScale rangeValue={…} onRangeChange={…} />`; description line under it.
++
++- Store ↔ range: seed `rangeValue = min === undefined && max === undefined ? undefined : [min ?? 0, max ?? 4]`.
++  `onRangeChange(r)` → pending `{ natural_speed_min: r?.[0], natural_speed_max: r?.[1] }` — keys **always present**
++  (explicit undefined), so Apply's merge clears an old range.
++- Stopped segment → pending `{ stopped }` with the key always present, same reason.
++- Apply: `setFilters(pending)`, close. Reset: `resetFilters()` + pending `{ ...DEFAULT_FILTERS }`, sheet stays open
++  (today's behaviour; search untouched).
++- Full range None–Too much (`[0, 4]`) is written as chosen and counts 1 (filters nothing). Builder's call (§10):
++  silently turning it into Any would flip the UI under the user's finger.
++
++## SpeedScale range mode API (M5-02)
++
++```ts
++type SpeedScaleProps =
++  | { value?: NaturalSpeed; onChange?: (v: NaturalSpeed | undefined) => void; readonly?: boolean }   // today
++  | { rangeValue?: [NaturalSpeed, NaturalSpeed]; onRangeChange: (r: [NaturalSpeed, NaturalSpeed] | undefined) => void };
++```
++
++Range mode = `onRangeChange` passed. `SpeedScale` becomes a dispatcher over three internal components
++(`SpeedBar` readonly, `SpeedPicker` single, `SpeedRangePicker` range) so the range picker's `useState` is not behind
++an early return (rules of hooks). Segment row + styles shared.
++
++Tap rules (pure `nextSpeedRange(range, anchor, tapped) → { range, anchor }` in `src/utils/speed-range.ts`, unit
++tested; the component keeps `anchor` in `useState`; an anchor counts only while `range` is `[anchor, anchor]`, so
++an outside Reset drops it without an effect):
++
++| State | Tap `t` | Emits | Anchor after |
++|---|---|---|---|
++| no range | t | `[t, t]` (Apply after one tap works) | t |
++| anchor `a` (range `[a, a]`) | t ≠ a | `[min(a,t), max(a,t)]` (high-before-low ok) | none |
++| anchor `a` | t = a | `[a, a]` (just that value) | none |
++| complete range, t inside | t | `undefined` (third tap clears) | none |
++| complete range, t outside | t | `[t, t]` (new range) | t |
++
++Examples (M5-02 tests): Little, Enough → `[1, 3]`; Some, Some → `[2, 2]`; Enough, Little → `[1, 3]`; `[2,2]` + Some →
++`undefined`.
++
++Description line: `undefined` → 'Any'; `[a, a]` → `SPEED_LABELS[a].label` ('Some'); `[a, b]` → 'Little to Enough'.
++Segments inside the range are filled `palette.blue[500]`. A11y: row has no radiogroup role; each segment
++`accessibilityRole="button"`, `accessibilityState={{ selected: inRange }}`, label `"<label>: <description>"`, hint:
++'Double-tap to start a range here' / 'Double-tap to end the range here' (anchor set; the anchor itself:
++'Double-tap to select just this one') / 'Double-tap to clear the range' (inside a complete range). Built (M5-02): the
++description line is labelled 'Natural speed: <range>'; the props union uses `?: never` so the two modes cannot mix.
++
++## List row (M5-03)
++
++`SpotListItem` props: `{ id, displayName, thumbnailUri?, featureType?, stopped, naturalSpeed?, distance?, onPress }`,
++still `memo` (primitives only, so memo holds). Content column: name (`numberOfLines={2}`) · badge row
++(`flexDirection: 'row'`, **`flexWrap: 'wrap'`**, `alignItems: 'center'`): type badge ('Rail +2', `featureTypesLabel`),
++`Tag label="Stopped" tone="stopped"` when `stopped`, `<SpeedScale readonly value={naturalSpeed} />` (renders
++nothing when unrated; a11y label 'Natural speed: Too much') · distance on its own line below, so a wrapping badge
++row never pushes it off. Row `accessibilityLabel` stays `displayName` (tests and VoiceOver read the name; M5-05
++reviews whether to append the tags). `app/(tabs)/index.tsx` `renderItem` passes `stopped={item.stopped}`
++`naturalSpeed={item.natural_speed}`. Built (M5-03): the row uses `Tag size="small"` and `SpeedScale readonly compact`
++(12-pt words, matching the type badge; the full-size Tag/bar looked oversized in a row). Known for M5-05: the
++Pressable's `accessibilityLabel` hides the children from VoiceOver, so the tags are not announced yet.
++
++## Map callout (M5-03)
++
++`Marker description = spot.feature_types.map((t) => FEATURE_TYPE_LABELS[t]).join(' · ') || undefined` — new
++`featureTypesList(spot)` in `src/utils/spot-name.ts` next to `featureTypesLabel` (list keeps "Rail +2"; the callout
++has room for all). Title `getSpotDisplayName(spot)`, `pinColor={SPOT_PIN}` unchanged. Existing test 'shows the
++feature types label in the callout' changes 'Rail +1' → 'Rail · Ledge'.
++
++## Test list
++
++| File | Feature | Cases |
++|---|---|---|
++| `stores.test.ts` | M5-01 ✔ | table above |
++| `speed-range.test.ts` (new) | M5-02 | every row of the tap table; anchor ignored when range ≠ `[a, a]` |
++| `speed-scale.test.tsx` | M5-02 | range: undefined → none selected + 'Any'; Little, Enough → `[1,3]` + 'Little to Enough'; Some ×2 → `[2,2]` + 'Some'; Enough, Little → `[1,3]`; `[2,2]` + Some → undefined; in-range segments `selected`; edit and readonly cases unchanged |
++| `filter-sheet.test.tsx` | M5-02 | labels exactly What's here / Skate stopped / Natural speed; tabs Any / Not stopped / Stopped; Stopped + Rail + Little–Enough + Apply → `{ types: ['rail'], stopped: true, natural_speed_min: 1, natural_speed_max: 3 }`; Reset → `DEFAULT_FILTERS`; stored filters pre-selected (tab, chips, range description); Any after stored Stopped clears it on Apply |
++| `spots-sort-search.test.tsx` | M5-02 | badge 'Filter spots, 3 active' with all three set; 'Reset filters' empty-state action with stopped / speed filters |
++| `spot-list.test.tsx` | M5-03 | 'Rail +2'; 'Stopped' only when stopped; 'Natural speed: Too much' label; none when unrated; `numberOfLines` 2; distance unchanged |
++| `spot-map.test.tsx` | M5-03 | 'Rail · Ledge'; `[]` → undefined; every pin `SPOT_PIN`; title = display name |
++
++## Unresolved questions
++
++None for Michael. Builder's calls recorded above: first tap emits `[t, t]`; tap outside a complete range starts a
++new one; `[0, 4]` kept as chosen.
+diff --git a/src/__tests__/filter-sheet.test.tsx b/src/__tests__/filter-sheet.test.tsx
+index a7a4c54..29db868 100644
+--- a/src/__tests__/filter-sheet.test.tsx
++++ b/src/__tests__/filter-sheet.test.tsx
+@@ -1,5 +1,5 @@
+ import React from 'react';
+-import { render, screen, fireEvent } from '@testing-library/react-native';
++import { render, screen, fireEvent, within } from '@testing-library/react-native';
+ import { FilterSheet } from '@/src/components/FilterSheet';
+ import { useSpotsStore } from '@/src/stores';
+ import { DEFAULT_FILTERS, FeatureType } from '@/src/types';
+@@ -93,6 +93,122 @@ describe('FilterSheet', () => {
+     expect(useSpotsStore.getState().filters.types).toEqual([]);
+   });
+ 
++  describe('the three filters', () => {
++    const headers = () => screen.getAllByRole('header').map((h) => h.props.children);
++    const tabs = () => screen.getAllByRole('tab');
++    const selectedTab = () =>
++      tabs()
++        .filter((t) => t.props.accessibilityState?.selected)
++        .map((t) => within(t).getByText(/./).props.children);
++    const speedSegments = () =>
++      screen.getAllByRole('button').filter((b) => /^(None|Little|Some|Enough|Too much):/.test(b.props.accessibilityLabel));
++    const speedSelected = () => speedSegments().map((b) => b.props.accessibilityState?.selected === true);
++
++    it("has exactly three sections: What's here, Skate stopped, Natural speed", () => {
++      render(<FilterSheet visible onClose={onClose} />);
++      expect(headers()).toEqual(['Filters', "What's here", 'Skate stopped', 'Natural speed']);
++    });
++
++    it('Skate stopped is a segmented control: Any, Not stopped, Stopped; Any by default', () => {
++      render(<FilterSheet visible onClose={onClose} />);
++      expect(tabs().map((t) => within(t).getByText(/./).props.children)).toEqual(['Any', 'Not stopped', 'Stopped']);
++      expect(selectedTab()).toEqual(['Any']);
++    });
++
++    it('Natural speed is the five-segment range scale, Any by default', () => {
++      render(<FilterSheet visible onClose={onClose} />);
++      expect(speedSegments()).toHaveLength(5);
++      expect(speedSelected()).toEqual([false, false, false, false, false]);
++      // 'Any' twice: the Skate stopped tab and the speed range's description line.
++      expect(screen.getAllByText('Any')).toHaveLength(2);
++    });
++
++    it('Stopped + Rail + Little to Enough, then Apply, writes all three', () => {
++      render(<FilterSheet visible onClose={onClose} />);
++      fireEvent.press(screen.getByText('Stopped'));
++      fireEvent.press(screen.getByText('Rail'));
++      fireEvent.press(screen.getByText('Little'));
++      fireEvent.press(screen.getByText('Enough'));
++      expect(screen.getByText('Little to Enough')).toBeTruthy();
++      fireEvent.press(screen.getByText('Apply'));
++
++      expect(useSpotsStore.getState().filters).toEqual({
++        types: ['rail'],
++        stopped: true,
++        natural_speed_min: 1,
++        natural_speed_max: 3,
++      });
++      expect(onClose).toHaveBeenCalled();
++    });
++
++    it('Reset after Apply leaves DEFAULT_FILTERS', () => {
++      render(<FilterSheet visible onClose={onClose} />);
++      fireEvent.press(screen.getByText('Stopped'));
++      fireEvent.press(screen.getByText('Rail'));
++      fireEvent.press(screen.getByText('Little'));
++      fireEvent.press(screen.getByText('Enough'));
++      fireEvent.press(screen.getByText('Apply'));
++
++      fireEvent.press(screen.getByText('Reset'));
++      expect(useSpotsStore.getState().filters).toEqual(DEFAULT_FILTERS);
++      expect(selectedTab()).toEqual(['Any']);
++      expect(speedSelected()).toEqual([false, false, false, false, false]);
++      expect(screen.getByRole('checkbox', { name: 'Rail' }).props.accessibilityState).toEqual(
++        expect.objectContaining({ checked: false }),
++      );
++    });
++
++    it('opening with stored filters pre-selects them', () => {
++      useSpotsStore.setState({
++        filters: { types: [FeatureType.Ledge], stopped: false, natural_speed_min: 1, natural_speed_max: 3 },
++      });
++      render(<FilterSheet visible onClose={onClose} />);
++      expect(screen.getByRole('checkbox', { name: 'Ledge' }).props.accessibilityState).toEqual(
++        expect.objectContaining({ checked: true }),
++      );
++      expect(selectedTab()).toEqual(['Not stopped']);
++      expect(screen.getByText('Little to Enough')).toBeTruthy();
++      expect(speedSelected()).toEqual([false, true, true, true, false]);
++    });
++
++    it('a stored min only (no max) shows the range up to Too much', () => {
++      useSpotsStore.setState({ filters: { ...DEFAULT_FILTERS, natural_speed_min: 2 } });
++      render(<FilterSheet visible onClose={onClose} />);
++      expect(screen.getByText('Some to Too much')).toBeTruthy();
++    });
++
++    it('a stored speed of 0 (None) is pre-selected, not read as unset', () => {
++      useSpotsStore.setState({ filters: { ...DEFAULT_FILTERS, natural_speed_min: 0, natural_speed_max: 0 } });
++      render(<FilterSheet visible onClose={onClose} />);
++      expect(speedSelected()).toEqual([true, false, false, false, false]);
++    });
++
++    it('choosing Any after a stored Stopped clears it on Apply', () => {
++      useSpotsStore.setState({ filters: { ...DEFAULT_FILTERS, stopped: true } });
++      render(<FilterSheet visible onClose={onClose} />);
++      fireEvent.press(screen.getByRole('tab', { name: 'Any' }));
++      fireEvent.press(screen.getByText('Apply'));
++      expect(useSpotsStore.getState().filters.stopped).toBeUndefined();
++    });
++
++    it('Not stopped writes stopped: false', () => {
++      render(<FilterSheet visible onClose={onClose} />);
++      fireEvent.press(screen.getByText('Not stopped'));
++      fireEvent.press(screen.getByText('Apply'));
++      expect(useSpotsStore.getState().filters.stopped).toBe(false);
++    });
++
++    it('clearing a stored speed range writes it away on Apply', () => {
++      useSpotsStore.setState({ filters: { ...DEFAULT_FILTERS, natural_speed_min: 1, natural_speed_max: 3 } });
++      render(<FilterSheet visible onClose={onClose} />);
++      fireEvent.press(screen.getByText('Some')); // inside the complete range: clears it
++      fireEvent.press(screen.getByText('Apply'));
++      const { filters } = useSpotsStore.getState();
++      expect(filters.natural_speed_min).toBeUndefined();
++      expect(filters.natural_speed_max).toBeUndefined();
++    });
++  });
++
+   it('does not render when not visible', () => {
+     render(<FilterSheet visible={false} onClose={onClose} />);
+     expect(screen.queryByText('Apply')).toBeNull();
+diff --git a/src/__tests__/speed-range.test.ts b/src/__tests__/speed-range.test.ts
+new file mode 100644
+index 0000000..50b871a
+--- /dev/null
++++ b/src/__tests__/speed-range.test.ts
+@@ -0,0 +1,53 @@
++import { nextSpeedRange, speedRangeLabel } from '@/src/utils/speed-range';
++
++describe('nextSpeedRange', () => {
++  it('a first tap with no range emits [t, t] and anchors on t', () => {
++    expect(nextSpeedRange(undefined, undefined, 2)).toEqual({ range: [2, 2], anchor: 2 });
++  });
++
++  it('a second, different tap completes the range low to high', () => {
++    expect(nextSpeedRange([1, 1], 1, 3)).toEqual({ range: [1, 3], anchor: undefined });
++  });
++
++  it('high before low still orders the range', () => {
++    expect(nextSpeedRange([3, 3], 3, 1)).toEqual({ range: [1, 3], anchor: undefined });
++  });
++
++  it('tapping the anchor again selects just that value', () => {
++    expect(nextSpeedRange([2, 2], 2, 2)).toEqual({ range: [2, 2], anchor: undefined });
++  });
++
++  it('a tap inside a complete range clears it', () => {
++    expect(nextSpeedRange([2, 2], undefined, 2)).toEqual({ range: undefined, anchor: undefined });
++    expect(nextSpeedRange([1, 3], undefined, 2)).toEqual({ range: undefined, anchor: undefined });
++    expect(nextSpeedRange([1, 3], undefined, 1)).toEqual({ range: undefined, anchor: undefined });
++  });
++
++  it('a tap outside a complete range starts a new one', () => {
++    expect(nextSpeedRange([1, 3], undefined, 4)).toEqual({ range: [4, 4], anchor: 4 });
++    expect(nextSpeedRange([1, 3], undefined, 0)).toEqual({ range: [0, 0], anchor: 0 });
++  });
++
++  it('ignores an anchor that no longer matches the range (reset from outside)', () => {
++    // The anchor counts only while the range is [anchor, anchor]; after an outside change it is stale.
++    expect(nextSpeedRange(undefined, 2, 3)).toEqual({ range: [3, 3], anchor: 3 });
++    expect(nextSpeedRange([0, 4], 2, 3)).toEqual({ range: undefined, anchor: undefined });
++  });
++
++  it('treats 0 as a real value', () => {
++    expect(nextSpeedRange([0, 0], 0, 2)).toEqual({ range: [0, 2], anchor: undefined });
++    expect(nextSpeedRange([0, 2], undefined, 0)).toEqual({ range: undefined, anchor: undefined });
++  });
++});
++
++describe('speedRangeLabel', () => {
++  it.each([
++    [undefined, 'Any'],
++    [[2, 2], 'Some'],
++    [[0, 0], 'None'],
++    [[1, 3], 'Little to Enough'],
++    [[0, 4], 'None to Too much'],
++  ] as const)('%j reads %s', (range, label) => {
++    expect(speedRangeLabel(range as never)).toBe(label);
++  });
++});
+diff --git a/src/__tests__/speed-scale.test.tsx b/src/__tests__/speed-scale.test.tsx
+index 70d269d..1a950dd 100644
+--- a/src/__tests__/speed-scale.test.tsx
++++ b/src/__tests__/speed-scale.test.tsx
+@@ -1,9 +1,10 @@
+-import React from 'react';
++import React, { useState } from 'react';
+ import { StyleSheet } from 'react-native';
+ import { render, screen, fireEvent, within } from '@testing-library/react-native';
+ 
+ import { SpeedScale } from '@/src/components';
+ import { palette } from '@/src/constants/theme';
++import type { NaturalSpeed } from '@/src/types';
+ 
+ // The radiogroup container is deliberately not `accessible` (that would merge the radios into one VoiceOver
+ // element), so getByRole cannot see it; find the host View by its role prop instead.
+@@ -113,3 +114,117 @@ describe('SpeedScale (readonly bar)', () => {
+     expect(screen.toJSON()).toBeNull();
+   });
+ });
++
++describe('SpeedScale (range mode)', () => {
++  type Range = [NaturalSpeed, NaturalSpeed] | undefined;
++
++  // The Filter sheet owns the range; this harness plays that part so taps build on each other.
++  function Controlled({ initial, onRangeChange }: { initial?: Range; onRangeChange: (r: Range) => void }) {
++    const [range, setRange] = useState<Range>(initial);
++    return (
++      <SpeedScale
++        rangeValue={range}
++        onRangeChange={(r) => {
++          onRangeChange(r);
++          setRange(r);
++        }}
++      />
++    );
++  }
++
++  const segments = () => screen.getAllByRole('button');
++  const selected = () => segments().map((s) => s.props.accessibilityState?.selected === true);
++
++  it('with no range selects no segment and reads "Any"', () => {
++    render(<SpeedScale rangeValue={undefined} onRangeChange={() => {}} />);
++    expect(segments()).toHaveLength(5);
++    expect(selected()).toEqual([false, false, false, false, false]);
++    expect(screen.getByText('Any')).toBeTruthy();
++    expect(screen.queryAllByRole('radio')).toHaveLength(0);
++    expect(radioGroups()).toHaveLength(0);
++  });
++
++  it('the description line tells VoiceOver what it describes', () => {
++    render(<SpeedScale rangeValue={[1, 3]} onRangeChange={() => {}} />);
++    expect(screen.getByLabelText('Natural speed: Little to Enough')).toBeTruthy();
++  });
++
++  it('Little then Enough selects [1, 3] and reads "Little to Enough"', () => {
++    const onRangeChange = jest.fn();
++    render(<Controlled onRangeChange={onRangeChange} />);
++    fireEvent.press(screen.getByText('Little'));
++    fireEvent.press(screen.getByText('Enough'));
++    expect(onRangeChange).toHaveBeenLastCalledWith([1, 3]);
++    expect(screen.getByText('Little to Enough')).toBeTruthy();
++    expect(selected()).toEqual([false, true, true, true, false]);
++  });
++
++  it('Some twice selects just [2, 2] and reads "Some"', () => {
++    const onRangeChange = jest.fn();
++    render(<Controlled onRangeChange={onRangeChange} />);
++    fireEvent.press(screen.getByText('Some'));
++    // After one tap the description line reads 'Some' too; the segment comes first.
++    fireEvent.press(screen.getAllByText('Some')[0]);
++    expect(onRangeChange).toHaveBeenCalledTimes(2);
++    expect(onRangeChange).toHaveBeenLastCalledWith([2, 2]);
++    expect(screen.getAllByText('Some')).toHaveLength(2);
++    expect(selected()).toEqual([false, false, true, false, false]);
++  });
++
++  it('Enough then Little (high before low) still selects [1, 3]', () => {
++    const onRangeChange = jest.fn();
++    render(<Controlled onRangeChange={onRangeChange} />);
++    fireEvent.press(screen.getByText('Enough'));
++    fireEvent.press(screen.getByText('Little'));
++    expect(onRangeChange).toHaveBeenLastCalledWith([1, 3]);
++  });
++
++  it('with [2, 2] selected, pressing Some again clears the range', () => {
++    const onRangeChange = jest.fn();
++    render(<Controlled initial={[2, 2]} onRangeChange={onRangeChange} />);
++    fireEvent.press(screen.getAllByText('Some')[0]);
++    expect(onRangeChange).toHaveBeenCalledTimes(1);
++    expect(onRangeChange).toHaveBeenCalledWith(undefined);
++    expect(screen.getByText('Any')).toBeTruthy();
++  });
++
++  it('a tap outside a complete range starts a new one', () => {
++    const onRangeChange = jest.fn();
++    render(<Controlled initial={[1, 3]} onRangeChange={onRangeChange} />);
++    fireEvent.press(screen.getByText('Too much'));
++    expect(onRangeChange).toHaveBeenLastCalledWith([4, 4]);
++  });
++
++  it('fills the segments inside the range with palette.blue[500]', () => {
++    render(<SpeedScale rangeValue={[1, 3]} onRangeChange={() => {}} />);
++    const fills = segments().map((s) => StyleSheet.flatten(s.props.style).backgroundColor === palette.blue[500]);
++    expect(fills).toEqual([false, true, true, true, false]);
++  });
++
++  it('labels each segment "<label>: <description>" and hints what a tap does', () => {
++    const { rerender } = render(<SpeedScale rangeValue={undefined} onRangeChange={() => {}} />);
++    expect(segments().map((s) => s.props.accessibilityLabel)).toEqual(SEGMENTS);
++    expect(segments().every((s) => s.props.accessibilityHint === 'Double-tap to start a range here')).toBe(true);
++
++    rerender(<SpeedScale rangeValue={[1, 3]} onRangeChange={() => {}} />);
++    expect(segments().map((s) => s.props.accessibilityHint)).toEqual([
++      'Double-tap to start a range here',
++      'Double-tap to clear the range',
++      'Double-tap to clear the range',
++      'Double-tap to clear the range',
++      'Double-tap to start a range here',
++    ]);
++  });
++
++  it('after the first tap the other segments hint that they end the range', () => {
++    render(<Controlled onRangeChange={() => {}} />);
++    fireEvent.press(screen.getByText('Little'));
++    expect(segments().map((s) => s.props.accessibilityHint)).toEqual([
++      'Double-tap to end the range here',
++      'Double-tap to select just this one',
++      'Double-tap to end the range here',
++      'Double-tap to end the range here',
++      'Double-tap to end the range here',
++    ]);
++  });
++});
+diff --git a/src/__tests__/spot-list.test.tsx b/src/__tests__/spot-list.test.tsx
+index 4603714..c19c660 100644
+--- a/src/__tests__/spot-list.test.tsx
++++ b/src/__tests__/spot-list.test.tsx
+@@ -1,15 +1,19 @@
+ import React from 'react';
++import { StyleSheet } from 'react-native';
+ import { render, screen, fireEvent } from '@testing-library/react-native';
+ 
+ import { SpotListItem } from '@/src/components/SpotListItem';
+-import { getSpotDisplayName } from '@/src/utils/spot-name';
++import { featureTypesLabel, getSpotDisplayName } from '@/src/utils/spot-name';
+ import { createTestSpot } from './factories';
++import { palette } from '@/src/constants/theme';
+ import { FeatureType } from '@/src/types';
++import type { Spot } from '@/src/types';
+ 
+ describe('SpotListItem', () => {
+   const defaultProps = {
+     id: 'test-id',
+     displayName: 'Downtown Rail',
++    stopped: false,
+     onPress: jest.fn(),
+   };
+ 
+@@ -55,6 +59,75 @@ describe('SpotListItem', () => {
+   });
+ });
+ 
++describe('SpotListItem tags (M5-03)', () => {
++  // Mirrors the Spots tab's renderItem: the row gets the spot's label, stopped flag and speed.
++  const renderRow = (spot: Spot, distance?: string) =>
++    render(
++      <SpotListItem
++        id={spot.id}
++        displayName={getSpotDisplayName(spot)}
++        featureType={featureTypesLabel(spot)}
++        stopped={spot.stopped}
++        naturalSpeed={spot.natural_speed}
++        distance={distance}
++        onPress={jest.fn()}
++      />,
++    );
++
++  it('shows the first feature type with +N for the rest', () => {
++    renderRow(createTestSpot({ feature_types: [FeatureType.Rail, FeatureType.Ledge, FeatureType.Bank] }));
++    expect(screen.getByText('Rail +2')).toBeTruthy();
++  });
++
++  it('shows a Stopped tag only on a stopped spot', () => {
++    const { unmount } = renderRow(createTestSpot({ stopped: true }));
++    expect(screen.getByText('Stopped')).toBeTruthy();
++    unmount();
++
++    renderRow(createTestSpot({ stopped: false }));
++    expect(screen.queryByText('Stopped')).toBeNull();
++  });
++
++  it('shows the read-only speed bar for a rated spot', () => {
++    renderRow(createTestSpot({ natural_speed: 4 }));
++    expect(screen.getByLabelText('Natural speed: Too much')).toBeTruthy();
++  });
++
++  it('shows the speed bar for a spot rated None (0 is a real value)', () => {
++    renderRow(createTestSpot({ natural_speed: 0 }));
++    expect(screen.getByLabelText('Natural speed: None')).toBeTruthy();
++  });
++
++  it('shows no speed bar for an unrated spot', () => {
++    renderRow(createTestSpot({ natural_speed: undefined }));
++    expect(screen.queryAllByLabelText(/^Natural speed/)).toHaveLength(0);
++  });
++
++  it('draws Stopped and the speed word at the type badge size (12), Stopped in red', () => {
++    renderRow(createTestSpot({ feature_types: [FeatureType.Rail], stopped: true, natural_speed: 4 }));
++
++    const style = (text: string) => StyleSheet.flatten(screen.getByText(text).props.style);
++    expect(style('Rail').fontSize).toBe(12);
++    expect(style('Stopped')).toMatchObject({ fontSize: 12, color: palette.red[700] });
++    expect(style('Too much').fontSize).toBe(12);
++  });
++
++  it('keeps the two-line name and still shows the distance with every tag present', () => {
++    const spot = createTestSpot({
++      name: undefined,
++      generated_name: 'San Francisco',
++      created_at: '2025-10-13T14:22:00Z',
++      feature_types: [FeatureType.Rail, FeatureType.Ledge, FeatureType.Bank],
++      stopped: true,
++      natural_speed: 4,
++    });
++    renderRow(spot, '2.3 mi');
++
++    expect(screen.getByText('Untitled · San Francisco · Oct 13, 2:22 PM').props.numberOfLines).toBe(2);
++    expect(screen.getByText('2.3 mi')).toBeTruthy();
++  });
++});
++
+ describe('Name fallback chain', () => {
+   it('level 1: user-provided name', () => {
+     const spot = createTestSpot({ name: 'My Rail', generated_name: 'NE 45th St' });
+@@ -79,6 +152,8 @@ describe('SpotListItem memo behavior', () => {
+         id="test"
+         displayName="Test Spot"
+         featureType="Rail +1"
++        stopped
++        naturalSpeed={2}
+         distance="1.2 mi"
+         onPress={() => {}}
+       />,
+diff --git a/src/__tests__/spot-map.test.tsx b/src/__tests__/spot-map.test.tsx
+index 8e4526d..64ef011 100644
+--- a/src/__tests__/spot-map.test.tsx
++++ b/src/__tests__/spot-map.test.tsx
+@@ -107,11 +107,19 @@ describe('SpotMap', () => {
+     expect(screen.queryByTestId(`spot-marker-${lost.id}`)).toBeNull();
+   });
+ 
+-  it('shows the feature types label in the callout', () => {
++  it('describes a spot in the callout by all its feature types joined with a middle dot', () => {
+     const tagged = createTestSpot({ feature_types: [FeatureType.Rail, FeatureType.Ledge] });
+     renderMap([tagged]);
+ 
+-    expect(screen.getByTestId(`spot-marker-${tagged.id}`).props.description).toBe('Rail +1');
++    expect(screen.getByTestId(`spot-marker-${tagged.id}`).props.description).toBe('Rail · Ledge');
++  });
++
++  it('titles every callout with the display name, untitled spots included', () => {
++    renderMap([named, unnamed]);
++
++    for (const spot of [named, unnamed]) {
++      expect(screen.getByTestId(`spot-marker-${spot.id}`).props.title).toBe(getSpotDisplayName(spot));
++    }
+   });
+ 
+   it('tracks the user only while the tab is focused', () => {
+diff --git a/src/__tests__/spot-name.test.ts b/src/__tests__/spot-name.test.ts
+index 3607da2..2bf4b00 100644
+--- a/src/__tests__/spot-name.test.ts
++++ b/src/__tests__/spot-name.test.ts
+@@ -1,4 +1,4 @@
+-import { getSpotDisplayName, formatSpotTime, featureTypesLabel } from '@/src/utils/spot-name';
++import { getSpotDisplayName, formatSpotTime, featureTypesLabel, featureTypesList } from '@/src/utils/spot-name';
+ import { FeatureType } from '@/src/types';
+ import type { Spot } from '@/src/types';
+ import { createTestSpot } from './factories';
+@@ -61,3 +61,20 @@ describe('featureTypesLabel', () => {
+     expect(label([])).toBeUndefined();
+   });
+ });
++
++describe('featureTypesList', () => {
++  const list = (feature_types: FeatureType[]) => featureTypesList(createTestSpot({ feature_types }));
++
++  it('joins every type label with a middle dot, in the stored order', () => {
++    expect(list([FeatureType.Rail, FeatureType.Ledge])).toBe('Rail · Ledge');
++    expect(list([FeatureType.StairSet, FeatureType.Rail, FeatureType.Gap])).toBe('Stair set · Rail · Gap');
++  });
++
++  it('shows a single type by its label', () => {
++    expect(list([FeatureType.Bank])).toBe('Bank');
++  });
++
++  it('is undefined for an untagged spot', () => {
++    expect(list([])).toBeUndefined();
++  });
++});
+diff --git a/src/__tests__/spots-sort-search.test.tsx b/src/__tests__/spots-sort-search.test.tsx
+index 3dd3f80..387505a 100644
+--- a/src/__tests__/spots-sort-search.test.tsx
++++ b/src/__tests__/spots-sort-search.test.tsx
+@@ -189,6 +189,21 @@ describe('Spots tab search', () => {
+       expect(headerFilterLabel()).toBe('Filter spots, 1 active');
+     });
+ 
++    it('counts all three filters: 3 active', () => {
++      useSpotsStore.setState({
++        filters: { types: [FeatureType.Rail], stopped: true, natural_speed_min: 1, natural_speed_max: 3 },
++      });
++
++      render(<SpotsScreen />);
++      const { options } = screen.UNSAFE_getByType('Stack.Screen' as never).props as {
++        options: { headerRight: () => ReactElement };
++      };
++      const header = render(options.headerRight());
++
++      expect(header.getByRole('button').props.accessibilityLabel).toBe('Filter spots, 3 active');
++      expect(header.getByText('Filter (3)')).toBeTruthy();
++    });
++
+     it('does not gain a badge while searching', () => {
+       // Search has its own visible field, so counting it in "Filter (n)" would be confusing.
+       // Set via the store so this test depends only on the badge, not on the search field existing.
+@@ -514,6 +529,21 @@ describe('Spots tab no-match state', () => {
+       expect(screen.getByText('Open rail')).toBeTruthy();
+     });
+ 
++    it('"Reset filters" also clears a speed range', () => {
++      // Unrated spots pass a speed filter, so the spot needs a speed outside the range.
++      useSpotsStore.setState({
++        spots: [{ ...notStopped, natural_speed: 3 }],
++        filters: { ...DEFAULT_FILTERS, natural_speed_min: 0, natural_speed_max: 0 },
++      });
++      render(<SpotsScreen />);
++
++      expect(screen.getByText('No matching spots')).toBeTruthy();
++      fireEvent.press(screen.getByText('Reset filters'));
++
++      expect(useSpotsStore.getState().filters).toEqual(DEFAULT_FILTERS);
++      expect(screen.getByText('Open rail')).toBeTruthy();
++    });
++
+     it('with a search active the action is "Clear search"', () => {
+       // A search with no match is cleared by clearing it, not by touching filters.
+       useSpotsStore.setState({ filters: { ...DEFAULT_FILTERS }, searchQuery: 'zzz-nothing' });
+diff --git a/src/__tests__/spots-view-mode.test.tsx b/src/__tests__/spots-view-mode.test.tsx
+index 3df6809..2631efc 100644
+--- a/src/__tests__/spots-view-mode.test.tsx
++++ b/src/__tests__/spots-view-mode.test.tsx
+@@ -24,6 +24,21 @@ describe('Spots tab Map | List toggle', () => {
+     expect(screen.getByText('Pier 57 rail')).toBeTruthy();
+   });
+ 
++  it('shows each row with its Stopped tag and speed bar', () => {
++    useSpotsStore.setState({
++      spots: [
++        createTestSpot({ name: 'Library ledge', stopped: true, natural_speed: 3, location: CITIES.portland }),
++        createTestSpot({ name: 'Pier 57 rail', location: CITIES.seattle }),
++      ],
++    });
++    render(<SpotsScreen />);
++
++    expect(screen.getAllByText('Stopped')).toHaveLength(1);
++    expect(screen.getAllByLabelText(/^Natural speed: /).map((e) => e.props.accessibilityLabel)).toEqual([
++      'Natural speed: Enough',
++    ]);
++  });
++
+   it('switches to the map and back, keeping the choice in the store', () => {
+     render(<SpotsScreen />);
+ 
+diff --git a/src/__tests__/stores.test.ts b/src/__tests__/stores.test.ts
+index 23ea461..3a9a88b 100644
+--- a/src/__tests__/stores.test.ts
++++ b/src/__tests__/stores.test.ts
+@@ -72,6 +72,17 @@ describe('selectFilteredSpots', () => {
+     it('min 4 keeps only the fastest and unrated', () => {
+       expect(ids({ ...DEFAULT_FILTERS, natural_speed_min: 4 })).toEqual(['fast', 'unrated']);
+     });
++
++    it('min 1 and max 3 keep speeds 1, 2, 3 and unrated, and drop 0 and 4', () => {
++      const all = ([0, 1, 2, 3, 4] as const).map((v) => createTestSpot({ id: `speed-${v}`, natural_speed: v }));
++      const result = selectFilteredSpots([...all, unrated], { ...DEFAULT_FILTERS, natural_speed_min: 1, natural_speed_max: 3 });
++      expect(result.map((s) => s.id)).toEqual(['speed-1', 'speed-2', 'speed-3', 'unrated']);
++    });
++  });
++
++  it('stopped: undefined keeps every spot, stopped or not', () => {
++    const result = selectFilteredSpots(allSpots, { ...DEFAULT_FILTERS, stopped: undefined });
++    expect(result.map((s) => s.id)).toEqual(['rail-spot', 'ledge-spot', 'untagged-spot']);
+   });
+ 
+   it('stopped: true keeps only stopped spots', () => {
+@@ -207,6 +218,11 @@ describe('selectActiveFilterCount', () => {
+     expect(selectActiveFilterCount({ ...DEFAULT_FILTERS, stopped: false })).toBe(1);
+   });
+ 
++  it('counts a speed range that starts at 0 (None is a real value) as 1', () => {
++    expect(selectActiveFilterCount({ ...DEFAULT_FILTERS, natural_speed_min: 0, natural_speed_max: 2 })).toBe(1);
++    expect(selectActiveFilterCount({ ...DEFAULT_FILTERS, natural_speed_max: 0 })).toBe(1);
++  });
++
+   it('counts types, stopped and the speed range: 3', () => {
+     expect(
+       selectActiveFilterCount({
+@@ -219,6 +235,37 @@ describe('selectActiveFilterCount', () => {
+   });
+ });
+ 
++describe('useSpotsStore.setFilters: what the Filter sheet writes on Apply', () => {
++  beforeEach(() => useSpotsStore.getState().resetFilters());
++
++  it('writes all three filters, counted as 3', () => {
++    useSpotsStore.getState().setFilters({
++      types: [FeatureType.Rail],
++      stopped: false,
++      natural_speed_min: 1,
++      natural_speed_max: 3,
++    });
++    const { filters } = useSpotsStore.getState();
++    expect(filters).toEqual({ types: [FeatureType.Rail], stopped: false, natural_speed_min: 1, natural_speed_max: 3 });
++    expect(selectActiveFilterCount(filters)).toBe(3);
++  });
++
++  it('an explicit undefined clears stopped and the speed range (Any), unlike a SpotUpdate', () => {
++    useSpotsStore.getState().setFilters({ stopped: true, natural_speed_min: 1, natural_speed_max: 3 });
++    useSpotsStore.getState().setFilters({ stopped: undefined, natural_speed_min: undefined, natural_speed_max: undefined });
++    const { filters } = useSpotsStore.getState();
++    expect(filters).toEqual(DEFAULT_FILTERS);
++    expect(selectActiveFilterCount(filters)).toBe(0);
++  });
++
++  it('resetFilters leaves DEFAULT_FILTERS untouched (a copy, not the shared object)', () => {
++    useSpotsStore.getState().setFilters({ types: [FeatureType.Ledge] });
++    useSpotsStore.getState().resetFilters();
++    expect(useSpotsStore.getState().filters).not.toBe(DEFAULT_FILTERS);
++    expect(DEFAULT_FILTERS).toEqual({ types: [] });
++  });
++});
++
+ describe('useSettingsStore', () => {
+   beforeEach(() => {
+     useSettingsStore.setState({
+diff --git a/src/components/Chip.tsx b/src/components/Chip.tsx
+index 9d598ee..f5d8971 100644
+--- a/src/components/Chip.tsx
++++ b/src/components/Chip.tsx
+@@ -46,14 +46,19 @@ interface TagProps {
+   label: string;
+   /** 'stopped' draws the red outline of the 'Skate stopped' tag. */
+   tone?: 'default' | 'stopped';
++  /** 'small' matches a list row's 12-pt badges. */
++  size?: 'default' | 'small';
+   testID?: string;
+ }
+ 
+ /** A read-only chip: no role and nothing to press, so VoiceOver reads it as text rather than a checkbox. */
+-export function Tag({ label, tone = 'default', testID }: TagProps) {
++export function Tag({ label, tone = 'default', size = 'default', testID }: TagProps) {
++  const small = size === 'small';
+   return (
+-    <View testID={testID} style={[styles.chip, tone === 'stopped' && styles.tagStopped]}>
+-      <Text style={[styles.chipText, tone === 'stopped' && styles.tagStoppedText]}>{label}</Text>
++    <View testID={testID} style={[styles.chip, small && styles.tagSmall, tone === 'stopped' && styles.tagStopped]}>
++      <Text style={[styles.chipText, small && styles.tagSmallText, tone === 'stopped' && styles.tagStoppedText]}>
++        {label}
++      </Text>
+     </View>
+   );
+ }
+@@ -93,6 +98,13 @@ const styles = StyleSheet.create({
+   chipTextSelected: {
+     color: palette.white,
+   },
++  tagSmall: {
++    paddingHorizontal: spacing.sm,
++    paddingVertical: 1,
++  },
++  tagSmallText: {
++    fontSize: 12,
++  },
+   tagStopped: {
+     backgroundColor: palette.white,
+     borderColor: palette.red[500],
+diff --git a/src/components/FilterSheet.tsx b/src/components/FilterSheet.tsx
+index 55e1fe6..882119e 100644
+--- a/src/components/FilterSheet.tsx
++++ b/src/components/FilterSheet.tsx
+@@ -10,18 +10,46 @@ import {
+ 
+ import { useSpotsStore } from '@/src/stores';
+ import { Chip, ChipGroup } from '@/src/components/Chip';
++import { SegmentedControl } from '@/src/components/SegmentedControl';
++import { SpeedScale } from '@/src/components/SpeedScale';
+ import { palette, spacing, radius } from '@/src/constants/theme';
+ import { FEATURE_TYPE_LABELS } from '@/src/constants/labels';
+ import { FeatureType, DEFAULT_FILTERS } from '@/src/types';
+ import type { SpotFilters } from '@/src/types';
++import type { SpeedRange } from '@/src/utils/speed-range';
+ 
+ interface Props {
+   visible: boolean;
+   onClose: () => void;
+ }
+ 
++type StoppedChoice = 'any' | 'not-stopped' | 'stopped';
++
++const STOPPED_SEGMENTS = [
++  { label: 'Any', value: 'any' },
++  { label: 'Not stopped', value: 'not-stopped' },
++  { label: 'Stopped', value: 'stopped' },
++] as const;
++
++const STOPPED_CHOICE = { any: undefined, 'not-stopped': false, stopped: true } as const;
++
++function stoppedChoice(stopped: boolean | undefined): StoppedChoice {
++  if (stopped === undefined) return 'any';
++  return stopped ? 'stopped' : 'not-stopped';
++}
++
++/** A stored range may have one open end; the scale shows it running to that end of the scale. */
++function speedRange({ natural_speed_min: min, natural_speed_max: max }: SpotFilters): SpeedRange | undefined {
++  if (min === undefined && max === undefined) return undefined;
++  return [min ?? 0, max ?? 4];
++}
++
+ function SectionHeader({ title }: { title: string }) {
+-  return <Text style={styles.sectionHeader}>{title}</Text>;
++  return (
++    <Text style={styles.sectionHeader} accessibilityRole="header">
++      {title}
++    </Text>
++  );
+ }
+ 
+ export function FilterSheet({ visible, onClose }: Props) {
+@@ -47,6 +75,15 @@ function FilterSheetContent({ onClose }: Omit<Props, 'visible'>) {
+     }));
+   };
+ 
++  // Every key is written, even as undefined, so Apply's merge clears an old stopped value or range.
++  const setStopped = (choice: StoppedChoice) => {
++    setPending((prev) => ({ ...prev, stopped: STOPPED_CHOICE[choice] }));
++  };
++
++  const setSpeedRange = (range: SpeedRange | undefined) => {
++    setPending((prev) => ({ ...prev, natural_speed_min: range?.[0], natural_speed_max: range?.[1] }));
++  };
++
+   const handleApply = () => {
+     setFilters(pending);
+     onClose();
+@@ -66,7 +103,9 @@ function FilterSheetContent({ onClose }: Omit<Props, 'visible'>) {
+       <View style={styles.container}>
+         {/* Header */}
+         <View style={styles.header}>
+-          <Text style={styles.title}>Filters</Text>
++          <Text style={styles.title} accessibilityRole="header">
++            Filters
++          </Text>
+           <Pressable onPress={handleReset} hitSlop={8}>
+             <Text style={styles.resetText}>Reset</Text>
+           </Pressable>
+@@ -87,6 +126,16 @@ function FilterSheetContent({ onClose }: Omit<Props, 'visible'>) {
+               />
+             ))}
+           </ChipGroup>
++
++          <SectionHeader title="Skate stopped" />
++          <SegmentedControl
++            segments={STOPPED_SEGMENTS}
++            selectedValue={stoppedChoice(pending.stopped)}
++            onValueChange={setStopped}
++          />
++
++          <SectionHeader title="Natural speed" />
++          <SpeedScale rangeValue={speedRange(pending)} onRangeChange={setSpeedRange} />
+         </ScrollView>
+ 
+         {/* Footer */}
+diff --git a/src/components/SpeedScale.tsx b/src/components/SpeedScale.tsx
+index b78b389..39724e8 100644
+--- a/src/components/SpeedScale.tsx
++++ b/src/components/SpeedScale.tsx
+@@ -1,43 +1,78 @@
+-import React from 'react';
++import React, { useState } from 'react';
+ import { View, Pressable, Text, StyleSheet } from 'react-native';
+ import { palette, spacing, radius, typography } from '@/src/constants/theme';
+ import { SPEED_LABELS } from '@/src/constants/labels';
++import { inSpeedRange, liveAnchor, nextSpeedRange, speedRangeLabel } from '@/src/utils/speed-range';
++import type { SpeedRange } from '@/src/utils/speed-range';
+ import type { NaturalSpeed } from '@/src/types';
+ 
+ const LEVELS: readonly NaturalSpeed[] = [0, 1, 2, 3, 4];
+ 
+-interface SpeedScaleProps {
++interface SingleProps {
+   /** undefined = not rated; 0 (None) is a real value. */
+   value?: NaturalSpeed;
+   onChange?: (value: NaturalSpeed | undefined) => void;
+   /** Compact five-cell bar with the word beside it; renders nothing when not rated. */
+   readonly?: boolean;
++  /** Readonly only: a 12-pt word for a list row. */
++  compact?: boolean;
++  rangeValue?: never;
++  onRangeChange?: never;
+ }
+ 
+-export function SpeedScale({ value, onChange, readonly }: SpeedScaleProps) {
+-  if (readonly) {
+-    if (value === undefined) return null;
+-    const { label } = SPEED_LABELS[value];
+-    return (
+-      <View style={styles.bar} accessible accessibilityLabel={`Natural speed: ${label}`}>
+-        <View style={styles.cells}>
+-          {LEVELS.map((level) => {
+-            const filled = level <= value;
+-            return (
+-              <View
+-                key={level}
+-                testID={`speed-cell-${level}`}
+-                accessibilityState={{ selected: filled }}
+-                style={[styles.cell, filled && styles.filled]}
+-              />
+-            );
+-          })}
+-        </View>
+-        <Text style={styles.barLabel}>{label}</Text>
+-      </View>
+-    );
++interface RangeProps {
++  /** Filter sheet: undefined = Any; [a, a] = just a. */
++  rangeValue?: SpeedRange;
++  onRangeChange: (range: SpeedRange | undefined) => void;
++  value?: never;
++  onChange?: never;
++  readonly?: never;
++  compact?: never;
++}
++
++type SpeedScaleProps = SingleProps | RangeProps;
++
++/** Range mode when `onRangeChange` is passed; otherwise the edit radios, or the bar when `readonly`. */
++export function SpeedScale(props: SpeedScaleProps) {
++  if (props.onRangeChange !== undefined) {
++    return <SpeedRangePicker rangeValue={props.rangeValue} onRangeChange={props.onRangeChange} />;
+   }
++  if (props.readonly) return <SpeedBar value={props.value} compact={props.compact} />;
++  return <SpeedPicker value={props.value} onChange={props.onChange} />;
++}
++
++function SpeedBar({ value, compact }: { value?: NaturalSpeed; compact?: boolean }) {
++  if (value === undefined) return null;
++  const { label } = SPEED_LABELS[value];
++  return (
++    <View style={styles.bar} accessible accessibilityLabel={`Natural speed: ${label}`}>
++      <View style={styles.cells}>
++        {LEVELS.map((level) => {
++          const filled = level <= value;
++          return (
++            <View
++              key={level}
++              testID={`speed-cell-${level}`}
++              accessibilityState={{ selected: filled }}
++              style={[styles.cell, filled && styles.filled]}
++            />
++          );
++        })}
++      </View>
++      <Text style={[styles.barLabel, compact && styles.barLabelCompact]}>{label}</Text>
++    </View>
++  );
++}
+ 
++function SegmentLabel({ level, filled }: { level: NaturalSpeed; filled: boolean }) {
++  return (
++    <Text style={[styles.segmentLabel, filled && styles.selectedLabel]} numberOfLines={level === 4 ? 2 : 1}>
++      {SPEED_LABELS[level].label}
++    </Text>
++  );
++}
++
++function SpeedPicker({ value, onChange }: Pick<SingleProps, 'value' | 'onChange'>) {
+   return (
+     <View>
+       <View style={styles.row} accessibilityRole="radiogroup">
+@@ -53,11 +88,7 @@ export function SpeedScale({ value, onChange, readonly }: SpeedScaleProps) {
+               accessibilityState={{ checked }}
+               accessibilityHint={checked ? 'Double-tap to clear the rating.' : undefined}
+               accessibilityLabel={`${label}: ${description}`}>
+-              <Text
+-                style={[styles.segmentLabel, checked && styles.selectedLabel]}
+-                numberOfLines={level === 4 ? 2 : 1}>
+-                {label}
+-              </Text>
++              <SegmentLabel level={level} filled={checked} />
+             </Pressable>
+           );
+         })}
+@@ -69,6 +100,52 @@ export function SpeedScale({ value, onChange, readonly }: SpeedScaleProps) {
+   );
+ }
+ 
++function rangeHint(range: SpeedRange | undefined, anchor: NaturalSpeed | undefined, level: NaturalSpeed) {
++  if (anchor !== undefined) {
++    return level === anchor ? 'Double-tap to select just this one' : 'Double-tap to end the range here';
++  }
++  return inSpeedRange(range, level) ? 'Double-tap to clear the range' : 'Double-tap to start a range here';
++}
++
++function SpeedRangePicker({ rangeValue, onRangeChange }: RangeProps) {
++  // The first end of a range in progress. It counts only while the range is still [anchor, anchor], so a
++  // Reset from outside drops it without an effect.
++  const [anchorState, setAnchor] = useState<NaturalSpeed | undefined>(undefined);
++  const anchor = liveAnchor(rangeValue, anchorState);
++
++  const press = (level: NaturalSpeed) => {
++    const next = nextSpeedRange(rangeValue, anchor, level);
++    setAnchor(next.anchor);
++    onRangeChange(next.range);
++  };
++
++  return (
++    <View>
++      <View style={styles.row}>
++        {LEVELS.map((level) => {
++          const selected = inSpeedRange(rangeValue, level);
++          const { label, description } = SPEED_LABELS[level];
++          return (
++            <Pressable
++              key={level}
++              onPress={() => press(level)}
++              style={[styles.segment, selected && styles.filled]}
++              accessibilityRole="button"
++              accessibilityState={{ selected }}
++              accessibilityHint={rangeHint(rangeValue, anchor, level)}
++              accessibilityLabel={`${label}: ${description}`}>
++              <SegmentLabel level={level} filled={selected} />
++            </Pressable>
++          );
++        })}
++      </View>
++      <Text style={styles.description} accessibilityLabel={`Natural speed: ${speedRangeLabel(rangeValue)}`}>
++        {speedRangeLabel(rangeValue)}
++      </Text>
++    </View>
++  );
++}
++
+ const styles = StyleSheet.create({
+   row: {
+     flexDirection: 'row',
+@@ -125,4 +202,7 @@ const styles = StyleSheet.create({
+     ...typography.subheadline,
+     color: palette.gray[700],
+   },
++  barLabelCompact: {
++    ...typography.caption1,
++  },
+ });
+diff --git a/src/components/SpotListItem.tsx b/src/components/SpotListItem.tsx
+index 2ddc3c2..fd12837 100644
+--- a/src/components/SpotListItem.tsx
++++ b/src/components/SpotListItem.tsx
+@@ -2,12 +2,17 @@ import React, { memo } from 'react';
+ import { Pressable, View, Text, StyleSheet } from 'react-native';
+ import { Image } from 'expo-image';
+ import { palette, spacing, radius } from '@/src/constants/theme';
++import type { NaturalSpeed } from '@/src/types';
++import { Tag } from '@/src/components/Chip';
++import { SpeedScale } from '@/src/components/SpeedScale';
+ 
+ interface SpotListItemProps {
+   id: string;
+   displayName: string;
+   thumbnailUri?: string;
+   featureType?: string;
++  stopped: boolean;
++  naturalSpeed?: NaturalSpeed;
+   distance?: string;
+   onPress: (id: string) => void;
+ }
+@@ -17,6 +22,8 @@ export const SpotListItem = memo(function SpotListItem({
+   displayName,
+   thumbnailUri,
+   featureType,
++  stopped,
++  naturalSpeed,
+   distance,
+   onPress,
+ }: SpotListItemProps) {
+@@ -52,6 +59,8 @@ export const SpotListItem = memo(function SpotListItem({
+               <Text style={styles.typeText}>{featureType}</Text>
+             </View>
+           ) : null}
++          {stopped ? <Tag label="Stopped" tone="stopped" size="small" /> : null}
++          <SpeedScale readonly compact value={naturalSpeed} />
+         </View>
+ 
+         {distance ? <Text style={styles.distance}>{distance}</Text> : null}
+@@ -100,10 +109,12 @@ const styles = StyleSheet.create({
+     fontWeight: '600',
+     color: palette.gray[900],
+   },
++  // Wraps rather than squeezing; the distance sits on its own line below, so a second badge line never hides it.
+   badgeRow: {
+     flexDirection: 'row',
+-    gap: spacing.sm,
+     flexWrap: 'wrap',
++    alignItems: 'center',
++    gap: spacing.sm,
+   },
+   typeBadge: {
+     backgroundColor: palette.gray[100],
+diff --git a/src/components/SpotMap.tsx b/src/components/SpotMap.tsx
+index e7aacbf..39d1776 100644
+--- a/src/components/SpotMap.tsx
++++ b/src/components/SpotMap.tsx
+@@ -11,7 +11,7 @@ import { clusterPressTarget } from '@/src/utils/cluster-press';
+ import type { ClusterLeaf } from '@/src/utils/cluster-press';
+ import { isKnownLocation } from '@/src/utils/geo';
+ import { initialRegion } from '@/src/utils/map-region';
+-import { featureTypesLabel, getSpotDisplayName } from '@/src/utils/spot-name';
++import { featureTypesList, getSpotDisplayName } from '@/src/utils/spot-name';
+ 
+ export const SPOT_PIN = colors.light.primary;
+ 
+@@ -71,7 +71,7 @@ export function SpotMap({ spots, currentLocation, onOpenSpot }: Props) {
+           testID={`spot-marker-${spot.id}`}
+           coordinate={spot.location}
+           title={getSpotDisplayName(spot)}
+-          description={featureTypesLabel(spot)}
++          description={featureTypesList(spot)}
+           pinColor={SPOT_PIN}
+           onCalloutPress={() => onOpenSpot(spot.id)}
+         />
+diff --git a/src/stores/spots-store.ts b/src/stores/spots-store.ts
+index 6d1c9c6..9af4b59 100644
+--- a/src/stores/spots-store.ts
++++ b/src/stores/spots-store.ts
+@@ -205,6 +205,6 @@ export function selectActiveFilterCount(filters: SpotFilters): number {
+   let count = 0;
+   if (filters.types.length > 0) count++;
+   if (filters.stopped !== undefined) count++;
+-  if (filters.natural_speed_min != null || filters.natural_speed_max != null) count++;
++  if (filters.natural_speed_min !== undefined || filters.natural_speed_max !== undefined) count++;
+   return count;
+ }
+diff --git a/src/utils/speed-range.ts b/src/utils/speed-range.ts
+new file mode 100644
+index 0000000..00bacbe
+--- /dev/null
++++ b/src/utils/speed-range.ts
+@@ -0,0 +1,42 @@
++// Range mode of the natural-speed scale (Filter sheet). Pure, so the tap rules are unit tested apart
++// from the component. The plan's tap table: docs/plans/2026-10-20-m5-filters-list.md.
++import { SPEED_LABELS } from '@/src/constants/labels';
++import type { NaturalSpeed } from '@/src/types';
++
++export type SpeedRange = [NaturalSpeed, NaturalSpeed];
++
++export interface SpeedRangeStep {
++  range: SpeedRange | undefined;
++  /** The first end of a range in progress; it counts only while `range` is `[anchor, anchor]`. */
++  anchor: NaturalSpeed | undefined;
++}
++
++export function inSpeedRange(range: SpeedRange | undefined, level: NaturalSpeed): boolean {
++  return range !== undefined && range[0] <= level && level <= range[1];
++}
++
++/** A live anchor: the range is still the single value it started. A stale one (outside Reset) is ignored. */
++export function liveAnchor(range: SpeedRange | undefined, anchor: NaturalSpeed | undefined) {
++  return anchor !== undefined && range?.[0] === anchor && range[1] === anchor ? anchor : undefined;
++}
++
++export function nextSpeedRange(
++  range: SpeedRange | undefined,
++  anchor: NaturalSpeed | undefined,
++  tapped: NaturalSpeed,
++): SpeedRangeStep {
++  const a = liveAnchor(range, anchor);
++  if (a !== undefined) {
++    return { range: [Math.min(a, tapped), Math.max(a, tapped)] as SpeedRange, anchor: undefined };
++  }
++  if (inSpeedRange(range, tapped)) return { range: undefined, anchor: undefined };
++  return { range: [tapped, tapped], anchor: tapped };
++}
++
++/** 'Any' · 'Some' · 'Little to Enough'. */
++export function speedRangeLabel(range: SpeedRange | undefined): string {
++  if (range === undefined) return 'Any';
++  const [low, high] = range;
++  if (low === high) return SPEED_LABELS[low].label;
++  return `${SPEED_LABELS[low].label} to ${SPEED_LABELS[high].label}`;
++}
+diff --git a/src/utils/spot-name.ts b/src/utils/spot-name.ts
+index 90bea81..eb74018 100644
+--- a/src/utils/spot-name.ts
++++ b/src/utils/spot-name.ts
+@@ -36,3 +36,8 @@ export function featureTypesLabel(spot: Spot): string | undefined {
+   if (!first) return undefined;
+   return rest.length > 0 ? `${FEATURE_TYPE_LABELS[first]} +${rest.length}` : FEATURE_TYPE_LABELS[first];
+ }
++
++/** Every feature type's label, joined with ' · ' (`Rail · Ledge`), for the map callout; undefined for an untagged spot. */
++export function featureTypesList(spot: Spot): string | undefined {
++  return spot.feature_types.map((t) => FEATURE_TYPE_LABELS[t]).join(' · ') || undefined;
++}

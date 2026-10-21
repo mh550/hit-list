@@ -40,6 +40,24 @@ export function Chip({
   );
 }
 
+// ── Tag ─────────────────────────────────────────────────
+
+interface TagProps {
+  label: string;
+  /** 'stopped' draws the red outline of the 'Skate stopped' tag. */
+  tone?: 'default' | 'stopped';
+  testID?: string;
+}
+
+/** A read-only chip: no role and nothing to press, so VoiceOver reads it as text rather than a checkbox. */
+export function Tag({ label, tone = 'default', testID }: TagProps) {
+  return (
+    <View testID={testID} style={[styles.chip, tone === 'stopped' && styles.tagStopped]}>
+      <Text style={[styles.chipText, tone === 'stopped' && styles.tagStoppedText]}>{label}</Text>
+    </View>
+  );
+}
+
 // ── ChipGroup ───────────────────────────────────────────
 
 interface ChipGroupProps {
@@ -74,6 +92,13 @@ const styles = StyleSheet.create({
   },
   chipTextSelected: {
     color: palette.white,
+  },
+  tagStopped: {
+    backgroundColor: palette.white,
+    borderColor: palette.red[500],
+  },
+  tagStoppedText: {
+    color: palette.red[700],
   },
   group: {
     flexDirection: 'row',

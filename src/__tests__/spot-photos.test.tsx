@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react-native';
+import { act, render, screen } from '@testing-library/react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { Image } from 'react-native';
 import { fakeFs as fs } from './helpers/fake-fs';
@@ -6,6 +6,9 @@ import { useMediaStore, useSpotsStore } from '@/src/stores';
 import { spotPhotos } from '@/src/utils/spot-photos';
 import { resolvePhotoUri } from '@/src/utils/photo-storage';
 import { createTestMedia, createTestSpot } from './factories';
+
+// The detail screen reads the Older details archive on mount; these tests are about photos only.
+jest.mock('@/src/db', () => ({ ...jest.requireActual('@/src/db'), getSpotLegacy: jest.fn(async () => null) }));
 
 const showSpot = (id: string) => jest.mocked(useLocalSearchParams).mockReturnValue({ id } as never);
 
@@ -59,7 +62,7 @@ describe('Spots list thumbnails', () => {
 });
 
 describe('Spot detail gallery', () => {
-  it('shows every photo with the primary first', () => {
+  it('shows every photo with the primary first', async () => {
     const spot = createTestSpot();
     const media = [1, 2, 3].map((n) =>
       createTestMedia({ spot_id: spot.id, created_at: at(n), file_path: `photos/${spot.id}/${n}.jpg` }),
@@ -69,23 +72,25 @@ describe('Spot detail gallery', () => {
     showSpot(spot.id);
 
     render(<SpotDetailScreen />);
+    await act(async () => {});
 
     expect(imageUris()).toEqual(
       [media[1], media[0], media[2]].map((m) => resolvePhotoUri(m.file_path)),
     );
   });
 
-  it('shows no image (and never the photo id as a URI) for a spot without media', () => {
+  it('shows no image (and never the photo id as a URI) for a spot without media', async () => {
     const spot = createTestSpot({ primary_photo_id: 'b3c1f7a2-uuid-not-a-uri' });
     useSpotsStore.setState({ spots: [spot] });
     showSpot(spot.id);
 
     render(<SpotDetailScreen />);
+    await act(async () => {});
 
     expect(imageUris()).toEqual([]);
   });
 
-  it('shows all 20 photos of a full spot', () => {
+  it('shows all 20 photos of a full spot', async () => {
     const spot = createTestSpot();
     const media = Array.from({ length: 20 }, (_, n) =>
       createTestMedia({ spot_id: spot.id, created_at: at(n), file_path: `photos/${spot.id}/${n}.jpg` }),
@@ -95,6 +100,7 @@ describe('Spot detail gallery', () => {
     showSpot(spot.id);
 
     render(<SpotDetailScreen />);
+    await act(async () => {});
 
     expect(imageUris()).toHaveLength(20);
   });

@@ -7,7 +7,7 @@ import { getSpotLegacy } from '@/src/db';
 import { useMediaStore, useSettingsStore, useSpotsStore } from '@/src/stores';
 import { palette } from '@/src/constants/theme';
 import { resolvePhotoUri } from '@/src/utils/photo-storage';
-import { UnitSystem, type Media, type Spot } from '@/src/types';
+import { FeatureType, UnitSystem, type Media, type Spot } from '@/src/types';
 import { createTestMedia, createTestSpot } from './factories';
 
 import SpotDetailScreen from '@/app/spot/[id]/index';
@@ -62,10 +62,15 @@ describe('Spot detail: notes', () => {
 });
 
 describe('Spot detail: tag line and speed', () => {
-  const tagged = { feature_types: ['rail', 'ledge'], stopped: true, natural_speed: 3, notes: 'low' } as const;
+  const tagged: Partial<Spot> = {
+    feature_types: [FeatureType.Rail, FeatureType.Ledge],
+    stopped: true,
+    natural_speed: 3,
+    notes: 'low',
+  };
 
   it('shows the feature types in stored order, a red-outlined Skate stopped tag, the speed bar and the notes', async () => {
-    await renderDetail({ ...tagged, feature_types: [...tagged.feature_types] });
+    await renderDetail(tagged);
 
     const order = texts();
     expect(order.indexOf('Rail')).toBeGreaterThan(-1);
@@ -77,14 +82,14 @@ describe('Spot detail: tag line and speed', () => {
   });
 
   it('reads the tags as text, not as checkboxes or buttons', async () => {
-    await renderDetail({ ...tagged, feature_types: [...tagged.feature_types] }, [createTestMedia()]);
+    await renderDetail(tagged, [createTestMedia()]);
 
     expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
     expect(screen.queryAllByRole('button')).toHaveLength(0);
   });
 
   it('shows no Skate stopped tag when the spot is not stopped', async () => {
-    await renderDetail({ feature_types: ['rail'], stopped: false });
+    await renderDetail({ feature_types: [FeatureType.Rail], stopped: false });
 
     expect(screen.getByText('Rail')).toBeOnTheScreen();
     expect(screen.queryByText('Skate stopped')).toBeNull();
@@ -97,7 +102,7 @@ describe('Spot detail: tag line and speed', () => {
   });
 
   it('shows no speed bar when the speed is not rated', async () => {
-    await renderDetail({ feature_types: ['rail'] });
+    await renderDetail({ feature_types: [FeatureType.Rail] });
 
     expect(screen.queryByLabelText(/^Natural speed/)).toBeNull();
   });
@@ -212,7 +217,7 @@ describe('Spot detail: nothing from the old model', () => {
   it('has no old section headers, Draft badge or Type label', async () => {
     legacyMock.mockResolvedValue({ material: 'steel' });
     await renderDetail(
-      { feature_types: ['rail', 'stairs'], stopped: true, natural_speed: 2, notes: 'n' },
+      { feature_types: [FeatureType.Rail, FeatureType.StairSet], stopped: true, natural_speed: 2, notes: 'n' },
       [createTestMedia(), createTestMedia()],
     );
     fireEvent.press(screen.getByRole('button', { name: 'Older details' }));

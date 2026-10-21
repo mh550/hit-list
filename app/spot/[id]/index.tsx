@@ -5,13 +5,13 @@ import { StyleSheet, ScrollView, View, Text, Pressable } from 'react-native';
 
 import { getSpotLegacy, type SpotLegacy } from '@/src/db';
 import { useSpotsStore, useMediaStore, useSettingsStore } from '@/src/stores';
-import { PhotoGrid, SpeedScale, Tag, ChipGroup } from '@/src/components';
+import { AddPhotosTile, PhotoGrid, SpeedScale, Tag, ChipGroup } from '@/src/components';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { FEATURE_TYPE_LABELS } from '@/src/constants/labels';
 import { getSpotDisplayName } from '@/src/utils/spot-name';
 import { spotPhotos } from '@/src/utils/spot-photos';
 import { formatLegacyDetails } from '@/src/utils/legacy-details';
-import { palette, spacing, radius } from '@/src/constants/theme';
+import { palette, spacing } from '@/src/constants/theme';
 
 /**
  * What the old nested model held for this spot (legacy_json), read once per mount. Collapsed by default and absent
@@ -104,15 +104,7 @@ export default function SpotDetailScreen() {
         <PhotoGrid
           photos={photos}
           trailing={
-            photos.length === 0 ? (
-              <Pressable
-                style={({ pressed }) => [styles.addTile, pressed && styles.addTilePressed]}
-                onPress={handleEdit}
-                accessibilityRole="button"
-                accessibilityLabel="Add photos">
-                <IconSymbol name="plus" size={28} color={palette.gray[500]} />
-              </Pressable>
-            ) : undefined
+photos.length === 0 ? <AddPhotosTile onPress={handleEdit} /> : undefined
           }
         />
 
@@ -159,19 +151,6 @@ const styles = StyleSheet.create({
   emptyText: {
     fontSize: 16,
     color: palette.gray[500],
-  },
-  addTile: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    borderColor: palette.gray[300],
-    borderRadius: radius.sm,
-    borderCurve: 'continuous',
-  },
-  addTilePressed: {
-    backgroundColor: palette.gray[200],
   },
   title: {
     fontSize: 24,

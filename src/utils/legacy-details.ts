@@ -1,5 +1,6 @@
 import type { UnitSystem } from '@/src/types';
 import { displayLength } from '@/src/utils/units';
+import { isObject } from '@/src/utils/is-object';
 
 export interface LegacyDetailRow {
   label: string;
@@ -7,8 +8,6 @@ export interface LegacyDetailRow {
 }
 
 type Format = (value: unknown, units: UnitSystem) => string | undefined;
-
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** Old enum values ('snow_built', 'painted_steel') read as words. */
 const words = (text: string) => text.replace(/_/g, ' ');

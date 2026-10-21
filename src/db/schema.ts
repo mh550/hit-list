@@ -1,4 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { isObject } from '@/src/utils/is-object';
 
 export const DB_NAME = 'hit_list.db';
 
@@ -145,8 +146,6 @@ export type SpotLegacy = {
 const KEPT_FEATURE_TYPES = ['rail', 'ledge', 'bank', 'hip', 'stair_set', 'gap', 'wall_ride', 'quarter_pipe'];
 
 type Json = Record<string, unknown>;
-
-const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** Empty never reaches the archive: missing, null, blank text, an empty array, a non-finite number, `false`. */
 function isEmptyValue(v: unknown): boolean {

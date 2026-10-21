@@ -12,6 +12,28 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 · verify M3
+
+All 4 features hold; no `passes` changed.
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| M3-01 | 1 | Read docs/plans/2026-10-20-m3-detail.md | Layout table in §2.4 order (grid, title, tag line, speed, notes); 'Add photos' tile → router.push('/spot/<id>/edit'); Older details collapsed by default, getSpotLegacy once on mount with deps [db,id], hidden when rows empty/null; key→label table present | yes |
+| M3-01 | 2 | Read src/utils/legacy-details.ts + src/__tests__/legacy-details.test.ts; `npx jest --ci` on it | Signature matches; test asserts sample Imperial rows in exact order (Custom type, Length '12.0 ft', Material, Removable 'Yes', Bustability '3/5', Setup options '1 option: bungee'); Metric Length '3.7 m'; 'Stop description' humanised; {} → []; 9/9 pass | yes |
+| M3-01 | 3 | `/home/mh550/projects/agent-harness/lib/check.sh`; `npx jest --ci` | check green; 43 suites, 464 tests pass; zero console.error lines in output | yes |
+| M3-02 | 1 | Read spot-detail.test.tsx 'tag line and speed' tests; ran it | Asserts Rail<Ledge<Skate stopped order, tag-stopped borderColor === palette.red[500], label 'Natural speed: Enough', text 'low'; stopped false → no text; undefined speed → no label /^Natural speed/; all pass | yes |
+| M3-02 | 2 | Read 'photos' tests | 5 media → photo-tile-0..4 in primary-first URI order, no tile-5; no media → button 'Add photos' press → push('/spot/<id>/edit'); pass | yes |
+| M3-02 | 3 | Read 'Older details' tests | {material:'steel'}: collapsed (no 'Material', expanded:false), press shows 'Material'/'steel'; null → absent; getSpotLegacy called once with (useSQLiteContext(), id), still once after store update; pass | yes |
+| M3-02 | 4 | Read 'nothing from the old model' + header tests | With disclosure open, queryByText for Feature, In-Run, Landing, Details, Draft, Type all null; Edit header test present and passes | yes |
+| M3-02 | 5 | check.sh and `npx jest --ci` | lint+tsc+jest green, 464 pass, no console.error | yes |
+| M3-03 | 1 | Read docs/plans/2026-10-20-m3-what-michael-will-see.md; `git ls-files` for stray temp test | Sections A (7 photos, 2 types, stopped, Enough, notes), B (2 photos only: grid+title), C (fullLegacy, closed then open with 16 rows) list texts/labels in order; no temp test file committed | yes |
+| M3-03 | 2 | Read the doc's Commands section; ran `npx expo export --platform ios` to a scratch dir; `npx jest --ci` | Doc records 43 suites/458 tests/0 console.error and export exit 0; I re-ran: export exit 0, now 43 suites/464 tests (6 added by M3-04 after the doc), 0 console.error | yes |
+| M3-03 | 3 | check.sh | green | yes |
+| M3-04 | 1 | Read reviews/m3.diff (1070 lines, wc) and the 'Review (M3-04)' section; `git log` bad6cb6/f3b0099 | Diff exists; findings table has severity, file, fix commit; 0 Critical/Important; RED bad6cb6 precedes GREEN f3b0099 for the behaviour fixes | yes |
+| M3-04 | 2 | Read 'Answers to the M3-04 questions' and the tests they cite | Once-per-mount: spot-detail test counts 1 call after store update+rerender; bad JSON: db-spots.test + 'warns once…' (warn called 1x, no disclosure); tag: test asserts no role/state/accessible, text present; all pass | yes |
+| M3-04 | 3 | `git log` for refactor:, grep CLAUDE.md and README.md | Commit 17efca5 'refactor:' present; CLAUDE.md Layout mentions legacy-details/formatLegacyDetails and OlderDetails calling getSpotLegacy once on mount; README Status mentions collapsed 'Older details' for pre-simplification data | yes |
+| M3-04 | 4 | check.sh and `npx jest --ci` | green, 464 pass, no console.error | yes |
+
 ### 2026-10-21 · M3-04 · passes
 
 - An Opus review of the M3 diff (`reviews/m3.diff`, 1070 lines) found no Critical or Important issues. Of the 4 Minor findings, 3 are fixed, each with a RED commit `bad6cb6` before GREEN `f3b0099`:

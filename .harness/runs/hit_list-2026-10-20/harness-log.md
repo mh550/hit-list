@@ -29,3 +29,4 @@
 - 2026-10-21 12:23 · merged main into harness/hit_list-2026-10-20
 - 2026-10-21 12:25 · M3 verified and tagged run/hit_list-2026-10-20/M3
 - 2026-10-21 12:25 · M3 merged into main · https://github.com/mh550/hit-list/pull/3
+- 2026-10-21 12:29 · M4-01 · claude-opus-5-5 · passes=true · 4 min · 17/39 passing

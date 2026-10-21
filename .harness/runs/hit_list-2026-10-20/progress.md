@@ -12,6 +12,13 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 · M2-06 · passes
+
+- New `docs/plans/2026-10-20-m2-what-michael-will-see.md`: edit screen top to bottom for a 5-photo tagged spot and for an empty spot (every text and accessibility label, in order), captured with `screen.toJSON()` in a temporary test (deleted; `git status` clean of `walkthrough*`).
+- Counts: 29 controls / 20 Text nodes with 5 photos; 19 controls / 20 Text nodes empty. The two-phone-heights claim is argued from these counts only (Jest cannot measure pixels, said so in the doc).
+- Verified: `npx jest --silent` 42 suites, 425 tests, 0 `console.error`; `expo export --platform ios` exit 0, bundle 4043430 bytes; `check.sh` green. Tests unchanged at 425.
+- Next session must know: nothing new; Michael should check scroll length on the phone.
+
 ### 2026-10-21 · M2-05 · passes
 
 - `app/spot/[id]/edit.tsx`: the grid's last tile is an 'Add photos' '+' tile, hidden at 20 photos. Tapping it asks for library access ('Photo access needed' alert when denied), then opens the picker (`allowsMultipleSelection`, `exif`, `selectionLimit` = 20 minus the photos already there). Each picked asset becomes a `StagedPhoto` via `importPhotoFromAsset` (EXIF time and GPS), deduped by `assetId`, and shows with a 'new' pill plus ✕ (unstage). On Save: remove, then `savePhotos`, then the primary (first added photo when the spot had none; when the primary was removed, the next existing photo, else the first added), then `updateSpot` (never `location`). Partial failures share one alert, and the sheet closes from its OK. Icon map gains 'plus'.

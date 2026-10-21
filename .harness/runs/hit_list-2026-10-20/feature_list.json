@@ -169,7 +169,7 @@
         "The file records the commands run and their results: npx jest --silent (count of tests, zero console.error) and npx expo export --platform ios --output-dir /tmp/hl-export (exit 0 and the bundle size).",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M2-07",

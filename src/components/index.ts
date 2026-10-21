@@ -6,3 +6,4 @@ export { FormField, FormInput } from './FormField';
 export { EmptyState } from './EmptyState';
 export { SpotListItem } from './SpotListItem';
 export { SpeedScale, SPEED_LABELS } from './SpeedScale';
+export { PhotoGrid } from './PhotoGrid';

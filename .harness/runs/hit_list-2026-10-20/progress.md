@@ -12,6 +12,14 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 · M2-03 · passes
+
+- New `src/components/PhotoGrid.tsx` (exported from `src/components/index.ts`): hero `photo-tile-0` `width '100%'`, `aspectRatio 4/3`; the rest in a `flexWrap` row of square tiles (`aspectRatio 1`, `spacing.xs` gaps, width = row width from `onLayout` minus gaps, /3, **floored to the pixel grid** so three always fit; `'31%'` before layout). Tiles are `imagebutton` "Photo N of M", `disabled` without `onPressPhoto`; images via `resolvePhotoUri`; `trailing` is a square tile after the last photo; 0 photos + no trailing → `null`.
+- New `src/__tests__/photo-grid.test.tsx` (10 cases, RED 9/9 before the component, then 1 more RED for pixel snapping). Tests 377 → 387. Plan doc PhotoGrid section updated.
+- Verified: `check.sh` green (387), `npx jest --ci` 0 console.error. Opus review: no Critical; the Important (exact-third width may wrap in Yoga) fixed with a test.
+- Next session (M2-04/05) must know: the badge is a **sibling** of the tile's Pressable inside a wrapper View (an accessible imagebutton flattens its children, so a nested ✕ would be unreachable with VoiceOver). So `within(getByTestId('photo-tile-i'))` will NOT find the badge; go through the wrapper (`hostParent` helper in photo-grid.test.tsx) or query by label. A non-button badge ('new') should set `pointerEvents="none"` or it swallows taps on that corner.
+- Proposed changes (M2-07 review, Minor, not done): role `'image'` instead of a "dimmed" `imagebutton` when there is no `onPressPhoto` (kept `imagebutton` because the M2-03 step pins it); fold a 'new' badge into the tile's label ("Photo 3 of 7, new") instead of a separate VoiceOver stop.
+
 ### 2026-10-21 · M2-02 · passes
 
 - New `src/components/SpeedScale.tsx` (exported with `SPEED_LABELS` from `src/components/index.ts`): edit form = `radiogroup` of five `radio` Pressables labelled `'<label>: <description>'` (spec §2.3 words), tap selects, re-tap clears to `undefined`, description line or 'Not rated' (`=== undefined`, 0 = None is real); readonly = five cells `speed-cell-0..4` with `accessibilityState.selected` on filled, word beside, root `accessible` label 'Natural speed: <label>', `null` when unrated. Filled = `palette.blue[500]`; 'Too much' may wrap to 2 lines.

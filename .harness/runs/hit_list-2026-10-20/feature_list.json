@@ -125,7 +125,7 @@
         "Image sources resolve through resolvePhotoUri (the test checks the first Image's source.uri ends with the media file_path).",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M2-04",

@@ -387,4 +387,64 @@ describe('Edit spot: add photos', () => {
     expect(alertSpy.mock.calls[0][0]).toBe("Some photo changes didn't save");
     alertSpy.mockRestore();
   });
+
+  it('Undo never takes the grid past 20 photos: the newest added photos give way', async () => {
+    // Two removals freed two slots for two picks; bringing the removed photos back would make 22.
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    renderEdit(createTestSpot({ id: 's1', primary_photo_id: 'm1' }), makeMedia('s1', 20));
+
+    fireEvent.press(screen.getByLabelText('Remove photo 2'));
+    fireEvent.press(screen.getByLabelText('Remove photo 2'));
+    await addPhotos(A1, A2);
+    fireEvent.press(screen.getByLabelText('Undo'));
+
+    expect(screen.getAllByTestId(/^photo-tile-\d+$/)).toHaveLength(20);
+    expect(screen.queryByText('new')).toBeNull();
+    expect(alertSpy).toHaveBeenCalledTimes(1);
+    expect(alertSpy.mock.calls[0][0]).toBe('20 photos per spot');
+    alertSpy.mockClear();
+
+    await save();
+    expect(mockSavePhotos).not.toHaveBeenCalled();
+    expect(alertSpy).not.toHaveBeenCalled();
+    expect(mockBack).toHaveBeenCalledTimes(1);
+    alertSpy.mockRestore();
+  });
+
+  it('Undo keeps the added photos that still fit under 20', async () => {
+    renderEdit(createTestSpot({ id: 's1', primary_photo_id: 'm1' }), makeMedia('s1', 19));
+
+    fireEvent.press(screen.getByLabelText('Remove photo 2'));
+    await addPhotos(A1, A2);
+    fireEvent.press(screen.getByLabelText('Undo'));
+
+    expect(screen.getAllByTestId(/^photo-tile-\d+$/)).toHaveLength(20);
+    expect(screen.getAllByText('new')).toHaveLength(1);
+  });
+
+  it('freezes the ✕ badges, Undo and Delete while Save runs', async () => {
+    // Save already captured what to write; a change made now would show one thing and save another.
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    let finish = (_ids: string[]) => {};
+    mockRemovePhotos.mockImplementationOnce(() => new Promise<string[]>((resolve) => (finish = resolve)));
+    renderEdit(createTestSpot({ id: 's1', primary_photo_id: 'm1' }), makeMedia('s1', 2));
+
+    fireEvent.press(screen.getByLabelText('Remove photo 1'));
+    await addPhotos(A1);
+    fireEvent.press(screen.getByText('Save'));
+    await waitFor(() => expect(mockRemovePhotos).toHaveBeenCalledTimes(1));
+
+    fireEvent.press(screen.getByLabelText('Remove photo 2')); // the new one
+    fireEvent.press(screen.getByLabelText('Remove photo 1'));
+    fireEvent.press(screen.getByLabelText('Undo'));
+    fireEvent.press(screen.getByText('Delete spot'));
+
+    expect(screen.getAllByText('new')).toHaveLength(1);
+    expect(screen.getAllByTestId(/^photo-tile-\d+$/)).toHaveLength(2);
+    expect(screen.getByText('1 photo will be removed when you save.')).toBeTruthy();
+    expect(alertSpy).not.toHaveBeenCalled();
+    await act(async () => finish(['m1']));
+    await waitFor(() => expect(mockBack).toHaveBeenCalledTimes(1));
+    alertSpy.mockRestore();
+  });
 });

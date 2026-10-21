@@ -27,6 +27,8 @@ type ZoomablePhotoProps = {
   onScaleChange?: (scale: number) => void;
   /** A swipe down past the close distance at 1×. */
   onRequestClose?: () => void;
+  /** True when a pinch starts, false when it ends: the pager stops scrolling under it before the scale settles. */
+  onPinchChange?: (pinching: boolean) => void;
   /** A one-finger press held for LONG_PRESS_MS (not during a pinch, not on a double tap). */
   onLongPress?: () => void;
   /** Gesture test ids: `<prefix>-pinch`, `<prefix>-pan`, `<prefix>-double-tap`, `<prefix>-long-press`. */
@@ -39,16 +41,19 @@ type ZoomablePhotoProps = {
  * captured size. At 1× the pan is vertical only (it fails on sideways movement), so the pager keeps sideways swipes.
  */
 export function ZoomablePhoto(props: ZoomablePhotoProps) {
-  const { uri, recyclingKey, width, height, onScaleChange, onRequestClose, onLongPress, testIdPrefix = 'photo' } = props;
+  const { uri, recyclingKey, width, height, onScaleChange, onRequestClose, onPinchChange, onLongPress } = props;
+  const testIdPrefix = props.testIdPrefix ?? 'photo';
   const scale = useSharedValue(MIN_SCALE);
   const tx = useSharedValue(0);
   const ty = useSharedValue(0);
   const startScale = useSharedValue(MIN_SCALE);
   const startT = useSharedValue<Point>({ x: 0, y: 0 });
+  const startFocal = useSharedValue<Point>({ x: 0, y: 0 });
   const dragY = useSharedValue(0);
   const pinching = useSharedValue(false);
   const panZoomed = useSharedValue(false); // the pan began zoomed: it moves the photo and never closes
-  // Mirrors the settled scale on the React side; it only switches the pan's activation rules.
+  // Mirrors the settled scale on the React side: it switches the pan's activation rules and, while zoomed, decodes the
+  // photo at full size (expo-image otherwise downscales it to the view, which a zoom would blow up blurry).
   const [zoomed, setZoomed] = useState(false);
 
   const report = useCallback(
@@ -60,6 +65,7 @@ export function ZoomablePhoto(props: ZoomablePhotoProps) {
   );
   const close = useCallback(() => onRequestClose?.(), [onRequestClose]);
   const longPressed = useCallback(() => onLongPress?.(), [onLongPress]);
+  const pinchChanged = useCallback((active: boolean) => onPinchChange?.(active), [onPinchChange]);
 
   const gesture = useMemo(() => {
     const viewport = { width, height };
@@ -73,21 +79,26 @@ export function ZoomablePhoto(props: ZoomablePhotoProps) {
 
     const pinch = Gesture.Pinch()
       .withTestId(`${testIdPrefix}-pinch`)
-      .onStart(() => {
+      .onStart((e) => {
         pinching.set(true);
         startScale.set(scale.get());
         startT.set({ x: tx.get(), y: ty.get() });
+        startFocal.set({ x: e.focalX, y: e.focalY });
+        scheduleOnRN(pinchChanged, true);
       })
       .onUpdate((e) => {
+        // Zoom about where the fingers started, then follow them: the image point under them stays under them.
         const next = clampScale(startScale.get() * e.scale);
-        const t = focalZoom({ x: e.focalX, y: e.focalY }, startScale.get(), next, viewport, startT.get());
-        const clamped = clampPan(t, next, viewport);
+        const f0 = startFocal.get();
+        const t = focalZoom(f0, startScale.get(), next, viewport, startT.get());
+        const clamped = clampPan({ x: t.x + e.focalX - f0.x, y: t.y + e.focalY - f0.y }, next, viewport);
         scale.set(next);
         tx.set(clamped.x);
         ty.set(clamped.y);
       })
       .onEnd(() => {
         pinching.set(false);
+        scheduleOnRN(pinchChanged, false);
         const next = pagingEnabled(scale.get()) ? MIN_SCALE : scale.get();
         settle(next, clampPan({ x: tx.get(), y: ty.get() }, next, viewport));
       });
@@ -129,8 +140,8 @@ export function ZoomablePhoto(props: ZoomablePhotoProps) {
       .onStart(() => !pinching.get() && scheduleOnRN(longPressed));
 
     return Gesture.Simultaneous(pinch, pan, Gesture.Exclusive(doubleTap, longPress));
-  }, [width, height, zoomed, testIdPrefix, report, close, longPressed, scale, tx, ty, startScale, startT, dragY,
-    pinching, panZoomed]);
+  }, [width, height, zoomed, testIdPrefix, report, close, longPressed, pinchChanged, scale, tx, ty, startScale, startT,
+    startFocal, dragY, pinching, panZoomed]);
 
   const transform = useAnimatedStyle(() => ({
     transform: [{ translateX: tx.get() }, { translateY: ty.get() + dragY.get() }, { scale: scale.get() }],
@@ -141,7 +152,13 @@ export function ZoomablePhoto(props: ZoomablePhotoProps) {
       {/* Not transformed, so gesture coordinates (focal point, tap) are in page space. */}
       <View style={{ width, height }} collapsable={false}>
         <Animated.View style={[StyleSheet.absoluteFill, transform]}>
-          <Image source={{ uri }} recyclingKey={recyclingKey} contentFit="contain" style={StyleSheet.absoluteFill} />
+          <Image
+            source={{ uri }}
+            recyclingKey={recyclingKey}
+            contentFit="contain"
+            allowDownscaling={!zoomed}
+            style={StyleSheet.absoluteFill}
+          />
         </Animated.View>
       </View>
     </GestureDetector>

@@ -37,9 +37,10 @@ function inViewerOrder(order: string[], current: Media[]): Media[] {
 /**
  * Full-screen photo pager (fullScreenModal, no header): one window-wide page per photo, opened at `?index=N`
  * (clamped; missing or not a number → 0), a 'N / M' counter and a ✕ that goes back. Each page is a ZoomablePhoto;
- * paging is locked while the shown photo is zoomed past 1.05×, and a swipe down at 1× goes back too. The Stack's own
- * back handling (Android back, edge swipe) also closes it; nothing is intercepted. A long press offers Set as primary
- * and Remove photo (confirmed); removing the last photo closes the viewer.
+ * paging is locked while a pinch runs and while the shown photo is zoomed past 1.05×, and a swipe down at 1× goes back
+ * too. Android's back button pops it through the Stack; nothing is intercepted (an iOS fullScreenModal has no swipe to
+ * dismiss of its own). A long press offers Set as primary and Remove photo (confirmed); removing the last photo closes
+ * the viewer.
  */
 export default function PhotoViewerScreen() {
   const { id, index } = useLocalSearchParams<{ id: string; index?: string }>();
@@ -66,8 +67,10 @@ export default function PhotoViewerScreen() {
   });
   const found = photos.findIndex((m) => m.id === pos.id);
   const shown = found >= 0 ? found : clampIndex(pos.index, count);
-  // The settled scale of the shown page (only that page gets gestures); paging follows it.
+  // The settled scale of the shown page (only that page gets gestures) and whether a pinch is running; paging follows
+  // both, so the pager does not slide under a pinch that starts at 1×.
   const [zoom, setZoom] = useState(MIN_SCALE);
+  const [pinching, setPinching] = useState(false);
 
   // A removal changes the pages under the native scroll offset, so move the offset to the shown photo (before paint).
   const listRef = useRef<FlatList<Media>>(null);
@@ -107,15 +110,17 @@ export default function PhotoViewerScreen() {
       const pages = inViewerOrder(order, spotPhotos(now, nowMedia));
       const wasPrimary = primaryPhoto(now, nowMedia)?.id === photoId;
       const i = pages.findIndex((m) => m.id === photoId);
+      if (i < 0) return; // already gone (removed elsewhere while the confirm was up)
       const remaining = pages.filter((m) => m.id !== photoId);
       const removed = await removePhotos([photoId]);
       if (!removed.includes(photoId)) {
         Alert.alert("This photo couldn't be removed", "It's still on this spot. Try again later.");
         return;
       }
-      // The photo now in its place (the next one, else the previous one) is shown, at 1×.
+      // If it is still the shown photo (no swipe while it was removed), the photo now in its place (the next one, else
+      // the previous one) is shown, at 1×.
       const next = remaining[i] ?? remaining[i - 1];
-      setPos({ id: next?.id, index: clampIndex(i, remaining.length) });
+      setPos((p) => (p.id === photoId ? { id: next?.id, index: clampIndex(i, remaining.length) } : p));
       setZoom(MIN_SCALE);
       if (remaining.length === 0) router.back();
       // It also becomes the primary; null clears it when none remain. updateSpot logs a failure, and the primary
@@ -163,6 +168,7 @@ export default function PhotoViewerScreen() {
           width={width}
           height={height}
           onScaleChange={setZoom}
+          onPinchChange={setPinching}
           onRequestClose={close}
           onLongPress={() => showOptions(item.id)}
           testIdPrefix={`viewer-${i}`}
@@ -183,7 +189,7 @@ export default function PhotoViewerScreen() {
           renderItem={renderItem}
           horizontal
           pagingEnabled
-          scrollEnabled={pagingEnabled(zoom)}
+          scrollEnabled={pagingEnabled(zoom) && !pinching}
           showsHorizontalScrollIndicator={false}
           initialScrollIndex={count > 0 ? shown : undefined}
           getItemLayout={getItemLayout}

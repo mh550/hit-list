@@ -168,4 +168,35 @@ describe('useDbInit', () => {
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('initialize'), expect.any(Error));
     consoleSpy.mockRestore();
   });
+
+  it('loads media and settings even when getSpots fails', async () => {
+    // Below version 3 getSpots throws on the missing columns; default settings would then be saved over the real ones.
+    mockGetSpots.mockRejectedValueOnce(new Error('no such column: feature_types_json'));
+    const m = createTestMedia({ spot_id: 'spot-1' });
+    mockGetAllMedia.mockResolvedValue([m]);
+    mockGetUserSettings.mockResolvedValue({ units: UnitSystem.Metric, batch_import_radius: 120 });
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    renderHook(() => useDbInit());
+    await flushInit();
+
+    expect(useMediaStore.getState().mediaBySpot).toEqual({ 'spot-1': [m] });
+    expect(useSettingsStore.getState().batch_import_radius).toBe(120);
+    consoleSpy.mockRestore();
+  });
+
+  it('reports upgradeFailed only when migrateDb throws (D28)', async () => {
+    mockGetSpots.mockResolvedValue([]);
+    mockGetUserSettings.mockResolvedValue(null);
+    const ok = renderHook(() => useDbInit());
+    await flushInit();
+    expect(ok.result.current.upgradeFailed).toBe(false);
+
+    mockMigrateDb.mockRejectedValueOnce(new Error('migration 3 failed'));
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const failed = renderHook(() => useDbInit());
+    await flushInit();
+    expect(failed.result.current).toEqual({ isReady: true, upgradeFailed: true });
+    consoleSpy.mockRestore();
+  });
 });

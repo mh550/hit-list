@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { StyleSheet } from 'react-native';
 import { render, screen, fireEvent, within } from '@testing-library/react-native';
 
 import { SpeedScale } from '@/src/components';
 import { palette } from '@/src/constants/theme';
+import type { NaturalSpeed } from '@/src/types';
 
 // The radiogroup container is deliberately not `accessible` (that would merge the radios into one VoiceOver
 // element), so getByRole cannot see it; find the host View by its role prop instead.
@@ -111,5 +112,119 @@ describe('SpeedScale (readonly bar)', () => {
   it('renders nothing when not rated', () => {
     render(<SpeedScale readonly />);
     expect(screen.toJSON()).toBeNull();
+  });
+});
+
+describe('SpeedScale (range mode)', () => {
+  type Range = [NaturalSpeed, NaturalSpeed] | undefined;
+
+  // The Filter sheet owns the range; this harness plays that part so taps build on each other.
+  function Controlled({ initial, onRangeChange }: { initial?: Range; onRangeChange: (r: Range) => void }) {
+    const [range, setRange] = useState<Range>(initial);
+    return (
+      <SpeedScale
+        rangeValue={range}
+        onRangeChange={(r) => {
+          onRangeChange(r);
+          setRange(r);
+        }}
+      />
+    );
+  }
+
+  const segments = () => screen.getAllByRole('button');
+  const selected = () => segments().map((s) => s.props.accessibilityState?.selected === true);
+
+  it('with no range selects no segment and reads "Any"', () => {
+    render(<SpeedScale rangeValue={undefined} onRangeChange={() => {}} />);
+    expect(segments()).toHaveLength(5);
+    expect(selected()).toEqual([false, false, false, false, false]);
+    expect(screen.getByText('Any')).toBeTruthy();
+    expect(screen.queryAllByRole('radio')).toHaveLength(0);
+    expect(radioGroups()).toHaveLength(0);
+  });
+
+  it('the description line tells VoiceOver what it describes', () => {
+    render(<SpeedScale rangeValue={[1, 3]} onRangeChange={() => {}} />);
+    expect(screen.getByLabelText('Natural speed: Little to Enough')).toBeTruthy();
+  });
+
+  it('Little then Enough selects [1, 3] and reads "Little to Enough"', () => {
+    const onRangeChange = jest.fn();
+    render(<Controlled onRangeChange={onRangeChange} />);
+    fireEvent.press(screen.getByText('Little'));
+    fireEvent.press(screen.getByText('Enough'));
+    expect(onRangeChange).toHaveBeenLastCalledWith([1, 3]);
+    expect(screen.getByText('Little to Enough')).toBeTruthy();
+    expect(selected()).toEqual([false, true, true, true, false]);
+  });
+
+  it('Some twice selects just [2, 2] and reads "Some"', () => {
+    const onRangeChange = jest.fn();
+    render(<Controlled onRangeChange={onRangeChange} />);
+    fireEvent.press(screen.getByText('Some'));
+    // After one tap the description line reads 'Some' too; the segment comes first.
+    fireEvent.press(screen.getAllByText('Some')[0]);
+    expect(onRangeChange).toHaveBeenCalledTimes(2);
+    expect(onRangeChange).toHaveBeenLastCalledWith([2, 2]);
+    expect(screen.getAllByText('Some')).toHaveLength(2);
+    expect(selected()).toEqual([false, false, true, false, false]);
+  });
+
+  it('Enough then Little (high before low) still selects [1, 3]', () => {
+    const onRangeChange = jest.fn();
+    render(<Controlled onRangeChange={onRangeChange} />);
+    fireEvent.press(screen.getByText('Enough'));
+    fireEvent.press(screen.getByText('Little'));
+    expect(onRangeChange).toHaveBeenLastCalledWith([1, 3]);
+  });
+
+  it('with [2, 2] selected, pressing Some again clears the range', () => {
+    const onRangeChange = jest.fn();
+    render(<Controlled initial={[2, 2]} onRangeChange={onRangeChange} />);
+    fireEvent.press(screen.getAllByText('Some')[0]);
+    expect(onRangeChange).toHaveBeenCalledTimes(1);
+    expect(onRangeChange).toHaveBeenCalledWith(undefined);
+    expect(screen.getByText('Any')).toBeTruthy();
+  });
+
+  it('a tap outside a complete range starts a new one', () => {
+    const onRangeChange = jest.fn();
+    render(<Controlled initial={[1, 3]} onRangeChange={onRangeChange} />);
+    fireEvent.press(screen.getByText('Too much'));
+    expect(onRangeChange).toHaveBeenLastCalledWith([4, 4]);
+  });
+
+  it('fills the segments inside the range with palette.blue[500]', () => {
+    render(<SpeedScale rangeValue={[1, 3]} onRangeChange={() => {}} />);
+    const fills = segments().map((s) => StyleSheet.flatten(s.props.style).backgroundColor === palette.blue[500]);
+    expect(fills).toEqual([false, true, true, true, false]);
+  });
+
+  it('labels each segment "<label>: <description>" and hints what a tap does', () => {
+    const { rerender } = render(<SpeedScale rangeValue={undefined} onRangeChange={() => {}} />);
+    expect(segments().map((s) => s.props.accessibilityLabel)).toEqual(SEGMENTS);
+    expect(segments().every((s) => s.props.accessibilityHint === 'Double-tap to start a range here')).toBe(true);
+
+    rerender(<SpeedScale rangeValue={[1, 3]} onRangeChange={() => {}} />);
+    expect(segments().map((s) => s.props.accessibilityHint)).toEqual([
+      'Double-tap to start a range here',
+      'Double-tap to clear the range',
+      'Double-tap to clear the range',
+      'Double-tap to clear the range',
+      'Double-tap to start a range here',
+    ]);
+  });
+
+  it('after the first tap the other segments hint that they end the range', () => {
+    render(<Controlled onRangeChange={() => {}} />);
+    fireEvent.press(screen.getByText('Little'));
+    expect(segments().map((s) => s.props.accessibilityHint)).toEqual([
+      'Double-tap to end the range here',
+      'Double-tap to select just this one',
+      'Double-tap to end the range here',
+      'Double-tap to end the range here',
+      'Double-tap to end the range here',
+    ]);
   });
 });

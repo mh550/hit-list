@@ -75,8 +75,9 @@ Examples (M5-02 tests): Little, Enough → `[1, 3]`; Some, Some → `[2, 2]`; En
 Description line: `undefined` → 'Any'; `[a, a]` → `SPEED_LABELS[a].label` ('Some'); `[a, b]` → 'Little to Enough'.
 Segments inside the range are filled `palette.blue[500]`. A11y: row has no radiogroup role; each segment
 `accessibilityRole="button"`, `accessibilityState={{ selected: inRange }}`, label `"<label>: <description>"`, hint:
-'Double-tap to start a range here' / 'Double-tap to end the range here' (anchor set) / 'Double-tap to clear the
-range' (inside a complete range).
+'Double-tap to start a range here' / 'Double-tap to end the range here' (anchor set; the anchor itself:
+'Double-tap to select just this one') / 'Double-tap to clear the range' (inside a complete range). Built (M5-02): the
+description line is labelled 'Natural speed: <range>'; the props union uses `?: never` so the two modes cannot mix.
 
 ## List row (M5-03)
 

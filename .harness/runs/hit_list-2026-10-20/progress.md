@@ -12,6 +12,13 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 18:45 · M5-02 · passes
+
+- `src/components/FilterSheet.tsx`: three sections (What's here chips · Skate stopped `SegmentedControl` Any/Not stopped/Stopped · Natural speed `SpeedScale` range); section titles and 'Filters' are `accessibilityRole="header"`; stopped/range keys always written (explicit undefined) so Apply clears old values. `SpeedScale.tsx` is now a dispatcher (`SpeedBar` / `SpeedPicker` / `SpeedRangePicker`); tap rules in new pure `src/utils/speed-range.ts` (`nextSpeedRange`, `liveAnchor`, `inSpeedRange`, `speedRangeLabel`).
+- Tests 536 → 572: new `speed-range.test.ts` (13), speed-scale range mode (10), filter-sheet three filters (11), spots-sort-search 'Filter (3)' / '3 active' badge + 'Reset filters' clears a speed range.
+- Verified: each step's cases pass; mutations (drop explicit-undefined keys in the sheet) fail 2 tests, reverted; `check.sh` green (572), `jest --ci` 0 console.error. Opus review: 0 Critical/Important; applied Minor 1 (`?: never` so modes cannot mix, checked with tsc) and 3 (description line labelled 'Natural speed: …'); skipped the hint full stops (strings pinned by the plan).
+- Next (M5-03): list row + callout; `<SpeedScale readonly value={…} />` still works unchanged. Questions for Michael: none.
+
 ### 2026-10-21 18:10 · M5-01 · passes
 
 - New plan `docs/plans/2026-10-20-m5-filters-list.md`: sheet layout (What's here chips · Skate stopped segmented Any/Not stopped/Stopped · Natural speed range), SpeedScale range API (`rangeValue`/`onRangeChange`, tap table in a pure `nextSpeedRange`, a11y), SpotListItem props, callout `' · '` rule (`featureTypesList`), test list.

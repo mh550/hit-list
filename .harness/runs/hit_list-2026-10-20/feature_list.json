@@ -369,7 +369,7 @@
         "The Filter button badge on the Spots tab shows '3' with all three set (existing badge test in spots-sort-search or spots-view-mode updated).",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M5-03",

@@ -5,7 +5,6 @@ import {
   ScrollView,
   View,
   Text,
-  TextInput,
   Pressable,
   Alert,
   AccessibilityInfo,
@@ -20,6 +19,7 @@ import { getSpotDisplayName } from '@/src/utils/spot-name';
 import { importPhotoFromAsset } from '@/src/utils/exif';
 import { newId } from '@/src/utils/id';
 import { Button } from '@/src/components/Button';
+import { FormInput } from '@/src/components/FormField';
 import { PhotoGrid } from '@/src/components/PhotoGrid';
 import { SpotTagFields, type SpotTags } from '@/src/components/SpotTagFields';
 import { palette, spacing, radius } from '@/src/constants/theme';
@@ -33,15 +33,6 @@ type StagedPhoto = NewPhoto & { key: string };
 
 /** Drafts render through the grid like saved photos: `resolvePhotoUri` passes the picker's file:// uri through. */
 const draftMedia = ({ sourceUri, key: _key, ...fields }: StagedPhoto): Media => ({ ...fields, file_path: sourceUri });
-
-/** Visible only: the input carries the same accessibilityLabel, so VoiceOver skips this Text. */
-function FieldLabel({ label }: { label: string }) {
-  return (
-    <Text style={styles.fieldLabel} accessibilityElementsHidden importantForAccessibility="no">
-      {label}
-    </Text>
-  );
-}
 
 export default function EditSpotScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -290,30 +281,21 @@ export default function EditSpotScreen() {
         </View>
       ) : null}
 
-      <TextInput
-        style={styles.input}
-        value={name}
-        onChangeText={setName}
-        placeholder="Name (optional)"
-        placeholderTextColor={palette.gray[400]}
-        accessibilityLabel="Name"
-      />
+      <FormInput value={name} onChangeText={setName} placeholder="Name (optional)" accessibilityLabel="Name" />
 
       <SpotTagFields value={tags} onChange={setTags} />
 
-      <View style={styles.field}>
-        <FieldLabel label="Notes" />
-        <TextInput
-          style={[styles.input, styles.notes]}
-          value={notes}
-          onChangeText={setNotes}
-          placeholder="Anything else"
-          placeholderTextColor={palette.gray[400]}
-          accessibilityLabel="Notes"
-          multiline
-          textAlignVertical="top"
-        />
-      </View>
+      <FormInput
+        label="Notes"
+        hideLabel
+        style={styles.notes}
+        value={notes}
+        onChangeText={setNotes}
+        placeholder="Anything else"
+        accessibilityLabel="Notes"
+        multiline
+        textAlignVertical="top"
+      />
 
       {/* Actions */}
       <View style={styles.actions}>
@@ -347,9 +329,6 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  field: {
-    gap: spacing.sm,
   },
   badgeRow: {
     flexDirection: 'row',
@@ -404,22 +383,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     color: palette.blue[500],
-  },
-  fieldLabel: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: palette.gray[600],
-  },
-  input: {
-    borderWidth: 1,
-    borderColor: palette.gray[300],
-    borderRadius: radius.md,
-    borderCurve: 'continuous',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    fontSize: 16,
-    color: palette.gray[900],
-    backgroundColor: palette.white,
   },
   notes: {
     minHeight: 88,

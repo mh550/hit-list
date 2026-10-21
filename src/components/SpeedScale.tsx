@@ -1,16 +1,8 @@
 import React from 'react';
 import { View, Pressable, Text, StyleSheet } from 'react-native';
 import { palette, spacing, radius, typography } from '@/src/constants/theme';
+import { SPEED_LABELS } from '@/src/constants/labels';
 import type { NaturalSpeed } from '@/src/types';
-
-/** Natural speed words and descriptions, spec §2.3 (D21). */
-export const SPEED_LABELS: Record<NaturalSpeed, { label: string; description: string }> = {
-  0: { label: 'None', description: 'Flat. You make all the speed.' },
-  1: { label: 'Little', description: 'Slight slope. Needs a lot of help.' },
-  2: { label: 'Some', description: 'Some slope. Needs a bit of help.' },
-  3: { label: 'Enough', description: 'Rolls in with speed for most tricks.' },
-  4: { label: 'Too much', description: 'Steep. You have to scrub speed.' },
-};
 
 const LEVELS: readonly NaturalSpeed[] = [0, 1, 2, 3, 4];
 

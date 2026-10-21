@@ -72,7 +72,7 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   `notes`, `natural_speed`, `primary_photo_id`. Everything the old nested model held (dimensions, material, stops,
   setup options, old scores…) was archived into
   `legacy_json` (`SpotLegacy` in `src/db/schema.ts`, read via `getSpotLegacy`; v2 test rows in `src/__tests__/fixtures/v2-spots.json`). Feature-type labels come from `FEATURE_TYPE_LABELS`
-  (`src/constants/labels.ts`) and `featureTypesLabel` (`src/utils/spot-name.ts`, "Rail +1").
+  (`src/constants/labels.ts`, next to the natural-speed words `SPEED_LABELS`) and `featureTypesLabel` (`src/utils/spot-name.ts`, "Rail +1").
 - **No location** is stored as `(0, 0)` (`NO_LOCATION`); always test with `isKnownLocation` (map,
   distance, geocoding).
 - **Ids** come from `newId()` in `src/utils/id.ts` (expo-crypto's native `randomUUID`). Never the `uuid`

@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, Switch, StyleSheet } from 'react-native';
 import { Chip, ChipGroup } from './Chip';
+import { FormField } from './FormField';
 import { SpeedScale } from './SpeedScale';
 import { FEATURE_TYPE_LABELS } from '@/src/constants/labels';
 import { palette, spacing } from '@/src/constants/theme';
@@ -27,8 +28,7 @@ export function SpotTagFields({ value, onChange }: SpotTagFieldsProps) {
 
   return (
     <View style={styles.container}>
-      <View style={styles.field}>
-        <Text style={styles.label}>What&apos;s here</Text>
+      <FormField label="What's here">
         <ChipGroup>
           {FEATURE_TYPES.map(([type, label]) => (
             <Chip
@@ -39,7 +39,7 @@ export function SpotTagFields({ value, onChange }: SpotTagFieldsProps) {
             />
           ))}
         </ChipGroup>
-      </View>
+      </FormField>
 
       <View style={styles.switchRow}>
         {/* The Switch carries the same label, so VoiceOver skips this Text. */}
@@ -53,13 +53,12 @@ export function SpotTagFields({ value, onChange }: SpotTagFieldsProps) {
         />
       </View>
 
-      <View style={styles.field}>
-        <Text style={styles.label}>Natural speed</Text>
+      <FormField label="Natural speed">
         <SpeedScale
           value={value.natural_speed}
           onChange={(natural_speed) => onChange({ ...value, natural_speed })}
         />
-      </View>
+      </FormField>
     </View>
   );
 }
@@ -67,14 +66,6 @@ export function SpotTagFields({ value, onChange }: SpotTagFieldsProps) {
 const styles = StyleSheet.create({
   container: {
     gap: spacing.lg,
-  },
-  field: {
-    gap: spacing.sm,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: palette.gray[600],
   },
   switchRow: {
     flexDirection: 'row',

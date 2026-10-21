@@ -132,7 +132,7 @@ describe('ProfileScreen', () => {
     expect(saveUserSettings).not.toHaveBeenCalled();
   });
 
-  it('shows the whole metres it stored after blur, so 165 ft reads 164 (D33)', async () => {
+  it('shows the whole metres it stored after blur, so 165 ft reads 164 (D32)', async () => {
     render(<ProfileScreen />);
     const field = screen.getByLabelText('Import radius in feet');
     fireEvent.changeText(field, '165');

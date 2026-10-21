@@ -525,7 +525,7 @@
         "CLAUDE.md Conventions gain one line: the radius is stored in metres and converted at the edges with units.ts; README.md Status mentions the radius in the user's units; APP_SPECIFICATIONS.md User section notes it.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M8-01",

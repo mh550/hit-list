@@ -9,8 +9,8 @@ Built with Expo (React Native) and runs on an iPhone through Expo Go.
 
 Works end to end in tests and bundles for iOS. The simplification (rev 2,
 `docs/specs/2026-10-16-simplification-design.md`) is being built: the model step (M1), the
-one-screen edit (M2), the detail screen (M3) the full-screen photo viewer (M4) and the
-three-filter list (M5) and the review screens (M6) are done.
+one-screen edit (M2), the detail screen (M3), the full-screen photo viewer (M4), the
+three-filter list (M5), the review screens (M6) and the import radius in your units (M7) are done.
 
 - Spot model (database v3): feature types (several per spot), skate stopped, natural speed (None to Too
   much, 0–4), notes. Migration 3 archives every older field (dimensions, material, stops, setup options,
@@ -37,6 +37,8 @@ three-filter list (M5) and the review screens (M6) are done.
   cluster into a numbered circle; spots at the same place open a list to pick from.
 - Search by name (both views) and sort by Distance, Date or Name (list).
 - Unnamed spots read `Untitled · Seattle · Oct 13, 2:22 PM` (town from Apple's geocoder, which needs internet).
+- Profile: Imperial or Metric units; the import radius is shown and typed in them (50 m reads 164 ft), and the
+  import screen says '(within 164 ft)'.
 - Offline-first SQLite storage with versioned migrations.
 
 ## Run it

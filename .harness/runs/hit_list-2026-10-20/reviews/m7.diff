@@ -1,0 +1,350 @@
+diff --git a/app/(tabs)/profile.tsx b/app/(tabs)/profile.tsx
+index 8dc60f5..752b157 100644
+--- a/app/(tabs)/profile.tsx
++++ b/app/(tabs)/profile.tsx
+@@ -5,6 +5,7 @@ import { useSettingsStore } from '@/src/stores/settings-store';
+ import { useSettingsActions } from '@/src/hooks/use-settings-actions';
+ import { palette, spacing, radius } from '@/src/constants/theme';
+ import { UnitSystem } from '@/src/types';
++import { radiusFromInput, radiusToDisplay, radiusUnitLabel } from '@/src/utils/units';
+ 
+ function SectionHeader({ title }: { title: string }) {
+   return <Text style={styles.sectionHeader}>{title}</Text>;
+@@ -15,15 +16,22 @@ export default function ProfileScreen() {
+   const batchRadius = useSettingsStore((s) => s.batch_import_radius);
+   const { setUnits, setBatchImportRadius } = useSettingsActions();
+ 
+-  const [radiusText, setRadiusText] = useState(String(batchRadius));
++  // D23: the radius is stored in metres; the field shows it in the user's unit. `draft` holds the text only while
++  // the user is typing, so a units switch or a store update re-renders the field from the stored metres.
++  const [draft, setDraft] = useState<string | null>(null);
++  const radiusText = draft ?? String(radiusToDisplay(batchRadius, units));
+ 
+-  const handleRadiusBlur = () => {
+-    const parsed = parseInt(radiusText, 10);
+-    if (!isNaN(parsed) && parsed > 0) {
+-      setBatchImportRadius(parsed);
+-    } else {
+-      setRadiusText(String(batchRadius));
+-    }
++  const commitRadius = () => {
++    if (draft === null) return;
++    setDraft(null);
++    const radiusMeters = radiusFromInput(draft, units);
++    if (radiusMeters !== null && radiusMeters !== batchRadius) setBatchImportRadius(radiusMeters);
++  };
++
++  // Taps keep the keyboard up (keyboardShouldPersistTaps), so text typed in one unit is saved before the switch.
++  const switchUnits = (next: UnitSystem) => {
++    commitRadius();
++    setUnits(next);
+   };
+ 
+   return (
+@@ -35,7 +43,7 @@ export default function ProfileScreen() {
+       <View style={styles.unitsRow}>
+         <Pressable
+           style={[styles.unitButton, units === UnitSystem.Imperial && styles.unitButtonActive]}
+-          onPress={() => setUnits(UnitSystem.Imperial)}
++          onPress={() => switchUnits(UnitSystem.Imperial)}
+           accessibilityRole="button"
+           accessibilityState={{ selected: units === UnitSystem.Imperial }}>
+           <Text
+@@ -45,7 +53,7 @@ export default function ProfileScreen() {
+         </Pressable>
+         <Pressable
+           style={[styles.unitButton, units === UnitSystem.Metric && styles.unitButtonActive]}
+-          onPress={() => setUnits(UnitSystem.Metric)}
++          onPress={() => switchUnits(UnitSystem.Metric)}
+           accessibilityRole="button"
+           accessibilityState={{ selected: units === UnitSystem.Metric }}>
+           <Text
+@@ -57,19 +65,19 @@ export default function ProfileScreen() {
+ 
+       <SectionHeader title="Import Settings" />
+       <View style={styles.field}>
+-        <Text style={styles.fieldLabel}>Import Radius</Text>
++        <Text style={styles.fieldLabel}>Import radius · {radiusUnitLabel(units)}</Text>
+         <Text style={styles.fieldHint}>
+           Photos this close together import as one spot, and a new spot this close to one you have offers to join it.
+         </Text>
+         <TextInput
+           style={styles.input}
+           value={radiusText}
+-          onChangeText={setRadiusText}
+-          onBlur={handleRadiusBlur}
++          onChangeText={setDraft}
++          onBlur={commitRadius}
+           keyboardType="number-pad"
+           returnKeyType="done"
+-          onSubmitEditing={handleRadiusBlur}
+-          accessibilityLabel="Import radius in meters"
++          onSubmitEditing={commitRadius}
++          accessibilityLabel={units === UnitSystem.Imperial ? 'Import radius in feet' : 'Import radius in metres'}
+         />
+       </View>
+     </ScrollView>
+diff --git a/app/import/index.tsx b/app/import/index.tsx
+index 558875d..418a722 100644
+--- a/app/import/index.tsx
++++ b/app/import/index.tsx
+@@ -6,11 +6,13 @@ import * as ImagePicker from 'expo-image-picker';
+ import { useSettingsStore } from '@/src/stores/settings-store';
+ import { importPhotoFromAsset } from '@/src/utils/exif';
+ import { groupPhotosByProximity } from '@/src/utils/import-clustering';
++import { radiusToDisplay, radiusUnitLabel } from '@/src/utils/units';
+ import { palette, spacing, radius } from '@/src/constants/theme';
+ 
+ export default function ImportScreen() {
+   const router = useRouter();
+   const batchRadius = useSettingsStore((s) => s.batch_import_radius);
++  const units = useSettingsStore((s) => s.units);
+   const [loading, setLoading] = useState(false);
+ 
+   const handleSelectPhotos = useCallback(async () => {
+@@ -48,7 +50,7 @@ export default function ImportScreen() {
+       <Text style={styles.title}>Import Photos</Text>
+       <Text style={styles.subtitle}>
+         Select photos from your library. Photos taken at the same spot will be grouped together
+-        (within {batchRadius}m).
++        (within {radiusToDisplay(batchRadius, units)} {radiusUnitLabel(units)}).
+       </Text>
+ 
+       {loading ? (
+diff --git a/src/__tests__/import-screen.test.tsx b/src/__tests__/import-screen.test.tsx
+new file mode 100644
+index 0000000..c2710f7
+--- /dev/null
++++ b/src/__tests__/import-screen.test.tsx
+@@ -0,0 +1,52 @@
++import { act, render, screen, fireEvent } from '@testing-library/react-native';
++import * as ImagePicker from 'expo-image-picker';
++import type { ImagePickerAsset, ImagePickerResult } from 'expo-image-picker';
++import { useSettingsStore } from '@/src/stores/settings-store';
++import { groupPhotosByProximity } from '@/src/utils/import-clustering';
++import { UnitSystem } from '@/src/types';
++
++// Member names from node_modules/expo-image-picker/build/ImagePicker.d.ts.
++jest.mock('expo-image-picker', () => ({
++  launchImageLibraryAsync: jest.fn(),
++}));
++
++jest.mock('@/src/utils/import-clustering', () => {
++  const actual = jest.requireActual('@/src/utils/import-clustering');
++  return { ...actual, groupPhotosByProximity: jest.fn(actual.groupPhotosByProximity) };
++});
++
++import ImportScreen from '@/app/import';
++
++const ASSET: ImagePickerAsset = {
++  uri: 'file:///picked/a.jpg',
++  width: 4032,
++  height: 3024,
++  exif: { GPSLatitude: 47.6, GPSLatitudeRef: 'N', GPSLongitude: 122.3, GPSLongitudeRef: 'W' },
++};
++
++describe('ImportScreen radius text (D23)', () => {
++  beforeEach(() => {
++    useSettingsStore.setState({ units: UnitSystem.Imperial, batch_import_radius: 50 });
++  });
++
++  it('shows the 50 m default in feet for Imperial', () => {
++    render(<ImportScreen />);
++    expect(screen.getByText(/\(within 164 ft\)/)).toBeTruthy();
++  });
++
++  it('shows it in metres for Metric', () => {
++    useSettingsStore.setState({ units: UnitSystem.Metric });
++    render(<ImportScreen />);
++    expect(screen.getByText(/\(within 50 m\)/)).toBeTruthy();
++  });
++
++  it('still groups the picked photos by the radius in metres', async () => {
++    const picked: ImagePickerResult = { canceled: false, assets: [ASSET] };
++    jest.mocked(ImagePicker.launchImageLibraryAsync).mockResolvedValue(picked);
++    render(<ImportScreen />);
++    await act(async () => {
++      fireEvent.press(screen.getByRole('button'));
++    });
++    expect(groupPhotosByProximity).toHaveBeenCalledWith(expect.any(Array), 50);
++  });
++});
+diff --git a/src/__tests__/profile.test.tsx b/src/__tests__/profile.test.tsx
+index 7b1631d..dc626b2 100644
+--- a/src/__tests__/profile.test.tsx
++++ b/src/__tests__/profile.test.tsx
+@@ -1,8 +1,9 @@
+ import React from 'react';
+-import { render, screen, fireEvent } from '@testing-library/react-native';
++import { act, render, screen, fireEvent } from '@testing-library/react-native';
+ import ProfileScreen from '@/app/(tabs)/profile';
+ import { useSettingsStore } from '@/src/stores/settings-store';
+ import { UnitSystem } from '@/src/types';
++import { saveUserSettings } from '@/src/db';
+ 
+ jest.mock('expo-sqlite', () => ({
+   useSQLiteContext: () => ({
+@@ -54,9 +55,67 @@ describe('ProfileScreen', () => {
+     expect(useSettingsStore.getState().units).toBe(UnitSystem.Metric);
+   });
+ 
+-  it('renders batch import radius field', () => {
++  it('shows the 50 m default radius in feet for Imperial (D23)', () => {
+     render(<ProfileScreen />);
+-    expect(screen.getByText('Import Radius')).toBeTruthy();
++    expect(screen.getByText('Import radius · ft')).toBeTruthy();
++    expect(screen.getByLabelText('Import radius in feet').props.value).toBe('164');
++  });
++
++  it('re-renders the radius in metres after switching to Metric', () => {
++    render(<ProfileScreen />);
++    fireEvent.press(screen.getByText('Metric'));
++    expect(screen.getByText('Import radius · m')).toBeTruthy();
++    expect(screen.queryByText('Import radius · ft')).toBeNull();
++    expect(screen.getByLabelText('Import radius in metres').props.value).toBe('50');
++  });
++
++  it('stores typed feet as metres on blur', async () => {
++    render(<ProfileScreen />);
++    const field = screen.getByLabelText('Import radius in feet');
++    fireEvent.changeText(field, '328');
++    await act(async () => {
++      fireEvent(field, 'blur');
++    });
++    expect(useSettingsStore.getState().batch_import_radius).toBe(100);
++    expect(saveUserSettings).toHaveBeenLastCalledWith(expect.anything(), {
++      units: UnitSystem.Imperial,
++      batch_import_radius: 100,
++    });
++    expect(screen.getByLabelText('Import radius in feet').props.value).toBe('328');
++  });
++
++  it('restores the previous value on blur after invalid text', async () => {
++    jest.mocked(saveUserSettings).mockClear();
++    render(<ProfileScreen />);
++    const field = screen.getByLabelText('Import radius in feet');
++    fireEvent.changeText(field, 'abc');
++    await act(async () => {
++      fireEvent(field, 'blur');
++    });
++    expect(screen.getByLabelText('Import radius in feet').props.value).toBe('164');
++    expect(useSettingsStore.getState().batch_import_radius).toBe(50);
++    expect(saveUserSettings).not.toHaveBeenCalled();
++  });
++
++  it('saves feet typed before a switch to Metric as feet', async () => {
++    render(<ProfileScreen />);
++    fireEvent.changeText(screen.getByLabelText('Import radius in feet'), '328');
++    await act(async () => {
++      fireEvent.press(screen.getByText('Metric'));
++    });
++    expect(useSettingsStore.getState().batch_import_radius).toBe(100);
++    expect(screen.getByLabelText('Import radius in metres').props.value).toBe('100');
++  });
++
++  it('leaves the stored metres alone when the field is blurred unchanged', async () => {
++    jest.mocked(saveUserSettings).mockClear();
++    render(<ProfileScreen />);
++    const field = screen.getByLabelText('Import radius in feet');
++    await act(async () => {
++      fireEvent(field, 'blur');
++    });
++    expect(useSettingsStore.getState().batch_import_radius).toBe(50);
++    expect(saveUserSettings).not.toHaveBeenCalled();
+   });
+ 
+   it('explains that the radius also drives the nearby-spot offer (D25)', () => {
+diff --git a/src/__tests__/utils.test.ts b/src/__tests__/utils.test.ts
+index 98cd2fc..a4cae87 100644
+--- a/src/__tests__/utils.test.ts
++++ b/src/__tests__/utils.test.ts
+@@ -1,5 +1,5 @@
+ import { distanceMeters, haversineDistance, formatDistance } from '@/src/utils/geo';
+-import { displayLength } from '@/src/utils/units';
++import { displayLength, radiusFromInput, radiusToDisplay, radiusUnitLabel } from '@/src/utils/units';
+ import { getSpotDisplayName } from '@/src/utils/spot-name';
+ import { UnitSystem } from '@/src/types';
+ import { createTestSpot } from './factories';
+@@ -59,6 +59,44 @@ describe('units', () => {
+   });
+ });
+ 
++describe('import radius in the user\'s unit (D23)', () => {
++  it('shows the stored metres as whole feet or metres', () => {
++    expect(radiusToDisplay(50, UnitSystem.Imperial)).toBe(164);
++    expect(radiusToDisplay(50, UnitSystem.Metric)).toBe(50);
++    expect(radiusToDisplay(30, UnitSystem.Imperial)).toBe(98);
++  });
++
++  it('reads typed feet or metres back as whole metres', () => {
++    expect(radiusFromInput('164', UnitSystem.Imperial)).toBe(50);
++    expect(radiusFromInput('100', UnitSystem.Imperial)).toBe(30);
++    expect(radiusFromInput('30', UnitSystem.Metric)).toBe(30);
++  });
++
++  it('rejects empty, zero, negative and non-numeric input', () => {
++    for (const units of [UnitSystem.Imperial, UnitSystem.Metric]) {
++      expect(radiusFromInput('', units)).toBeNull();
++      expect(radiusFromInput('0', units)).toBeNull();
++      expect(radiusFromInput('-5', units)).toBeNull();
++      expect(radiusFromInput('abc', units)).toBeNull();
++    }
++  });
++
++  it('round-trips every whole-metre radius through its feet display', () => {
++    for (let m = 1; m <= 500; m++) {
++      expect(radiusFromInput(String(radiusToDisplay(m, UnitSystem.Imperial)), UnitSystem.Imperial)).toBe(m);
++    }
++  });
++
++  it('never reads a positive input as a zero radius', () => {
++    expect(radiusFromInput('1', UnitSystem.Imperial)).toBe(1);
++  });
++
++  it('names the unit', () => {
++    expect(radiusUnitLabel(UnitSystem.Imperial)).toBe('ft');
++    expect(radiusUnitLabel(UnitSystem.Metric)).toBe('m');
++  });
++});
++
+ describe('getSpotDisplayName', () => {
+   it('returns user name when set', () => {
+     const spot = createTestSpot({ name: 'Downtown Rail' });
+diff --git a/src/utils/units.ts b/src/utils/units.ts
+index 5f559c4..0b29171 100644
+--- a/src/utils/units.ts
++++ b/src/utils/units.ts
+@@ -2,10 +2,32 @@ import { UnitSystem } from '@/src/types';
+ 
+ // All lengths stored in meters internally
+ 
++const FEET_PER_METER = 3.28084;
++
+ export function displayLength(meters: number, units: UnitSystem): string {
+   if (units === UnitSystem.Imperial) {
+-    const feet = meters * 3.28084;
++    const feet = meters * FEET_PER_METER;
+     return `${feet.toFixed(1)} ft`;
+   }
+   return `${meters.toFixed(1)} m`;
+ }
++
++// D23: the import radius is stored in whole metres and shown and typed in the user's unit.
++
++/** The stored radius as a whole number of feet (Imperial) or metres (Metric). */
++export function radiusToDisplay(meters: number, units: UnitSystem): number {
++  return Math.round(units === UnitSystem.Imperial ? meters * FEET_PER_METER : meters);
++}
++
++/** Typed feet or metres as whole metres (at least 1), or null when the text is not a positive number. */
++export function radiusFromInput(text: string, units: UnitSystem): number | null {
++  const trimmed = text.trim();
++  const value = trimmed === '' ? NaN : Number(trimmed);
++  if (!Number.isFinite(value) || value <= 0) return null;
++  const meters = units === UnitSystem.Imperial ? value / FEET_PER_METER : value;
++  return Math.max(1, Math.round(meters));
++}
++
++export function radiusUnitLabel(units: UnitSystem): 'ft' | 'm' {
++  return units === UnitSystem.Imperial ? 'ft' : 'm';
++}

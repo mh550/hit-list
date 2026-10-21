@@ -12,6 +12,16 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 15:10 · M7-02 · passes
+
+- Opus review of `reviews/m7.diff` (350 lines): 0 Critical, 2 Important, 4 Minor; table, answer and 'What Michael will see' (Imperial and Metric Profile texts from a scratch render, test deleted) in new `docs/plans/2026-10-20-m7-radius.md`.
+- Important #6 fixed: the unchanged-blur test passed even with the `draft === null` guard removed. The new test stores 50.4 m (shows 165 ft) and fails under that mutation (1 of 14). Minor #2 fixed: `radiusFromInput` reads only plain decimals ('0x10', '1e3' and 'Infinity' were accepted). RED `e9eee31` → GREEN `68fbc95`.
+- Important #1 (reviewer) left as specified: whole-metre storage snaps typed feet (165 → 164, 100 → 98, ≤ 2 ft) because D23 and M7-01's step say '100' ft → 30 m. Recorded as **D32 *default*** + §9 Q12.
+- Docs: CLAUDE.md Conventions (radius in metres, converted at the edges with units.ts), README Status (+M7, radius in your units), APP_SPECIFICATIONS User Settings note.
+- Tests 648 → 651; `check.sh` green (651); `jest --ci` 0 console.error.
+- Question for Michael (§9 Q12): keep whole metres (typed 100 ft reads 98), or store centimetres so 100 ft stays 100? And should a maximum radius refuse typos like 99999?
+- Proposed change: none.
+
 ### 2026-10-21 14:40 · M7-01 · passes
 
 - D23 built: `src/utils/units.ts` gains `radiusToDisplay` (50 m → 164 ft / 50 m, 30 → 98), `radiusFromInput` (Imperial '164' → 50, '100' → 30, '328' → 100; '', '0', '-5', 'abc' → null; a positive input never becomes 0 m, '1' ft → 1 m) and `radiusUnitLabel`.

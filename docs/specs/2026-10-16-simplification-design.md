@@ -71,6 +71,7 @@ re-hydrated per user ("add the features and fields you want"); none of that is b
 | D29 | **The viewer keeps its photo order while open** *default* | 'Set as primary' in the viewer does not move the photo to page 1 under the user: the viewer snapshots `spotPhotos()` order when it opens and only drops removed photos. The detail grid shows the new primary first as usual. Plan: `docs/plans/2026-10-20-m4-viewer.md`. | Builder (M4-01 plan): a page that jumps away right after a long-press action is disorienting (§9 Q9) |
 | D30 | **Joining an existing spot drops the review's name and tags** *default* | 'Add photos there' (Quick Add) and 'Add photos to <name>' (import group) only add photos: the existing spot's name, tags and location are untouched, and the name / tags typed on the review screen are discarded (the import group's name field hides while an existing spot is chosen). If the spot had no photos, the first added one becomes primary. Plan: `docs/plans/2026-10-20-m6-review-screens.md`. | Builder (M6-01 plan): never overwrite a spot the user already described (§9 Q10) |
 | D31 | **A partly failed import stays on screen** *default* | After Import, photos `savePhotos` did not save (it logs and leaves them out) stay on the review in their group, aimed at the spot they were going to (the new spot already exists, or the chosen existing one); an Alert "Some photos weren't imported" says so; the screen closes only when everything was saved. Nothing is rolled back. M6-06: Quick Add does the same ("Some photos weren't saved"; after Save created its spot a retry adds the rest there), and a spot the DB refused is taken back out of the store (`addSpot` rejects), so its group stays a new spot. Known limit: a spot whose first photo failed keeps a `primary_photo_id` with no row; the photo grid and list fall back to its first saved photo. | Builder (M6-04, from an Opus review: the hooks swallow errors, so a rejected group alone never caught a failure) (§9 Q11) |
+| D32 | **The radius is kept in whole metres** *default* | Typed feet are rounded to the nearest metre on save (D23), so whole feet and stored metres don't line up one to one: 165 ft is stored as 50 m and the field then reads 164; 100 ft reads 98, 50 ft reads 49 (at most 2 ft off). An untouched field is never rewritten. Only plain decimals are read ('0x10', '1e3' are refused); no upper limit. Plan: `docs/plans/2026-10-20-m7-radius.md`. | Builder (M7-02, from an Opus review that rated the snap Important) (§9 Q12) |
 
 ---
 
@@ -482,6 +483,10 @@ Stretch, in order, only if all above is green: (a) FilterSheet range mode polish
     second spot or saving a photo twice. Nothing is rolled back. Since M6-06 Quick Add behaves the same ("Some photos
     weren't saved"), and a new spot the database refused is taken back out and stays 'New spot' for the retry. Say
     "close anyway" to drop the leftovers instead.
+12. **Import radius precision (D32, added by the M7-02 review).** **Default: whole metres**, so a typed foot value
+    can come back up to 2 ft different (165 ft → 164, 100 ft → 98). Say "keep my feet" to store centimetres instead
+    (100 ft stays 100; the radius then is no longer a whole number of metres), or name a maximum radius if a typo like
+    99999 should be refused.
 
 ---
 

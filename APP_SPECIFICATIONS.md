@@ -293,6 +293,10 @@ Each media item:
 | `units` | enum | `imperial` or `metric` - toggle in Settings |
 | `batch_import_radius` | number | Proximity radius for grouping photos (default: 50m) |
 
+> `[ADDITION 2026-10-21]` The radius is stored in whole metres and shown and typed in the chosen unit (D23): Profile's
+> 'Import radius · ft' field shows the 50 m default as 164 (Metric: 'Import radius · m', 50), and the import screen
+> reads '(within 164 ft)'. Typed feet are rounded to the nearest metre on save.
+
 ---
 
 ## `[DEVIATION]` User Flows

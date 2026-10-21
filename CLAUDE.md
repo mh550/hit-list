@@ -91,6 +91,8 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   setup options, old scores…) was archived into
   `legacy_json` (`SpotLegacy` in `src/db/schema.ts`, read via `getSpotLegacy`; v2 test rows in `src/__tests__/fixtures/v2-spots.json`). Feature-type labels come from `FEATURE_TYPE_LABELS`
   (`src/constants/labels.ts`, next to the natural-speed words `SPEED_LABELS`) and `featureTypesLabel` (`src/utils/spot-name.ts`, "Rail +1").
+- **Import radius** (`batch_import_radius`) is stored in whole **metres**; convert only at the edges with `units.ts`
+  (`radiusToDisplay` / `radiusFromInput` / `radiusUnitLabel`: 50 m shows as 164 ft); grouping and `nearbySpots` take metres.
 - **No location** is stored as `(0, 0)` (`NO_LOCATION`); always test with `isKnownLocation` (map,
   distance, geocoding).
 - **Ids** come from `newId()` in `src/utils/id.ts` (expo-crypto's native `randomUUID`). Never the `uuid`

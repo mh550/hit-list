@@ -73,7 +73,7 @@ describe("Quick Add review: nearby spots offer 'Add photos there' (M6-03, D25)",
     render(<QuickAddReview />);
 
     expect(nearbyLines()).toEqual(['Near Five Rail · 16 ft', 'Near Twenty Ledge · 66 ft', 'Near Forty Five Bank · 148 ft']);
-    expect(screen.getAllByRole('button', { name: /^Add photos to / })).toHaveLength(3);
+    expect(screen.getAllByRole('button', { name: /^Add photos there, / })).toHaveLength(3);
     expect(screen.getAllByText('Add photos there')).toHaveLength(3);
     expect(screen.queryByText(/Eighty Gap/)).toBeNull();
   });
@@ -115,7 +115,7 @@ describe("Quick Add review: nearby spots offer 'Add photos there' (M6-03, D25)",
 
   it("'Add photos there' saves every photo to that spot, creates nothing, then opens it", async () => {
     render(<QuickAddReview />);
-    fireEvent.press(screen.getByRole('button', { name: 'Add photos to Twenty Ledge' }));
+    fireEvent.press(screen.getByRole('button', { name: 'Add photos there, Twenty Ledge' }));
     await waitFor(() => expect(mockPush).toHaveBeenCalled());
 
     expect(mockAddSpot).not.toHaveBeenCalled();
@@ -134,7 +134,7 @@ describe("Quick Add review: nearby spots offer 'Add photos there' (M6-03, D25)",
 
   it('leaves the primary photo alone on a spot that already has photos', async () => {
     render(<QuickAddReview />);
-    fireEvent.press(screen.getByRole('button', { name: 'Add photos to Forty Five Bank' }));
+    fireEvent.press(screen.getByRole('button', { name: 'Add photos there, Forty Five Bank' }));
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith(`/spot/${at45.id}`));
 
     expect(mockUpdateSpot).not.toHaveBeenCalled();
@@ -143,7 +143,7 @@ describe("Quick Add review: nearby spots offer 'Add photos there' (M6-03, D25)",
 
   it('runs once under a double tap', async () => {
     render(<QuickAddReview />);
-    const button = screen.getByRole('button', { name: 'Add photos to Five Rail' });
+    const button = screen.getByRole('button', { name: 'Add photos there, Five Rail' });
     fireEvent.press(button);
     fireEvent.press(button);
     fireEvent.press(screen.getByRole('button', { name: 'Save spot' }));
@@ -166,17 +166,82 @@ describe("Quick Add review: nearby spots offer 'Add photos there' (M6-03, D25)",
     expect(mockPush).not.toHaveBeenCalled();
   });
 
-  it('stays on the screen with an Alert when saving the photos throws, and can be retried', async () => {
+  it("a photo 'Add photos there' couldn't save stays on screen with an Alert, and a retry saves only it there", async () => {
     const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
-    mockSavePhotos.mockRejectedValueOnce(new Error('disk full'));
+    // savePhotos logs a failed row and resolves with the rest (it never rejects): the second photo is dropped.
+    mockSavePhotos.mockImplementationOnce(async (photos) => [
+      { ...photos[0], file_path: photos[0].sourceUri },
+    ]);
     render(<QuickAddReview />);
-    fireEvent.press(screen.getByRole('button', { name: 'Add photos to Twenty Ledge' }));
-    await waitFor(() => expect(alert).toHaveBeenCalledWith("Couldn't save the photos", expect.any(String)));
+    fireEvent.press(screen.getByRole('button', { name: 'Add photos there, Twenty Ledge' }));
+    await waitFor(() => expect(alert).toHaveBeenCalledWith("Some photos weren't saved", expect.any(String)));
 
     expect(mockDismissAll).not.toHaveBeenCalled();
     expect(mockPush).not.toHaveBeenCalled();
-    fireEvent.press(screen.getByRole('button', { name: 'Add photos to Twenty Ledge' }));
+    fireEvent.press(screen.getByRole('button', { name: 'Add photos there, Twenty Ledge' }));
     await waitFor(() => expect(mockPush).toHaveBeenCalledWith(`/spot/${at20.id}`));
+    expect(mockSavePhotos.mock.calls[1][0].map((p) => [p.sourceUri, p.spot_id])).toEqual([[URIS[1], at20.id]]);
     alert.mockRestore();
+  });
+
+  it('a Save whose photos were not saved stays on screen, and a retry adds them to the same new spot', async () => {
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockSavePhotos.mockImplementationOnce(async () => []); // every row failed (logged by the hook)
+    render(<QuickAddReview />);
+    fireEvent.press(screen.getByRole('button', { name: 'Save spot' }));
+    await waitFor(() => expect(alert).toHaveBeenCalledWith("Some photos weren't saved", expect.any(String)));
+    expect(mockDismissAll).not.toHaveBeenCalled();
+
+    fireEvent.press(screen.getByRole('button', { name: 'Save spot' }));
+    await waitFor(() => expect(mockDismissAll).toHaveBeenCalled());
+    const spot = mockAddSpot.mock.calls[0][0];
+    expect(mockAddSpot).toHaveBeenCalledTimes(1);
+    expect(mockSavePhotos.mock.calls[1][0].map((p) => [p.sourceUri, p.spot_id])).toEqual(
+      URIS.map((uri) => [uri, spot.id]),
+    );
+    expect(mockPush).not.toHaveBeenCalled();
+    alert.mockRestore();
+  });
+
+  it("a Save whose spot wasn't written alerts, saves no photo, and a retry creates the spot", async () => {
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockAddSpot.mockRejectedValueOnce(new Error('DB write failed'));
+    render(<QuickAddReview />);
+    fireEvent.press(screen.getByRole('button', { name: 'Save spot' }));
+    await waitFor(() => expect(alert).toHaveBeenCalledWith("Couldn't save the spot", expect.any(String)));
+    expect(mockSavePhotos).not.toHaveBeenCalled();
+    expect(mockDismissAll).not.toHaveBeenCalled();
+
+    fireEvent.press(screen.getByRole('button', { name: 'Save spot' }));
+    await waitFor(() => expect(mockDismissAll).toHaveBeenCalled());
+    expect(mockAddSpot).toHaveBeenCalledTimes(2);
+    expect(mockSavePhotos).toHaveBeenCalledTimes(1);
+    alert.mockRestore();
+  });
+
+  it('runs once when two presses land before a re-render', async () => {
+    render(<QuickAddReview />);
+    const addThere = screen.getByRole('button', { name: 'Add photos there, Five Rail' });
+    const save = screen.getByRole('button', { name: 'Save spot' });
+    act(() => {
+      fireEvent.press(addThere);
+      fireEvent.press(addThere);
+      fireEvent.press(save);
+    });
+    await waitFor(() => expect(mockPush).toHaveBeenCalled());
+
+    expect(mockSavePhotos).toHaveBeenCalledTimes(1);
+    expect(mockAddSpot).not.toHaveBeenCalled();
+  });
+
+  it('offers no spot when there are no photos to add', () => {
+    jest.mocked(useLocalSearchParams).mockReturnValue({
+      photoUris: '',
+      latitude: String(here.latitude),
+      longitude: String(here.longitude),
+    } as never);
+    render(<QuickAddReview />);
+    expect(screen.getByText('No photos captured')).toBeTruthy();
+    expect(nearbyLines()).toEqual([]);
   });
 });

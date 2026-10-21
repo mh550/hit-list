@@ -262,4 +262,58 @@ describe("Import review: a group near an existing spot offers 'Add photos to <na
     expect(mockUpdateSpot).toHaveBeenCalledWith(newSpot.id, { primary_photo_id: mockSavePhotos.mock.calls[1][0][0].id });
     alert.mockRestore();
   });
+
+  it("a group whose new spot wasn't written stays on screen as a new spot, and a retry creates it", async () => {
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    mockAddSpot.mockRejectedValueOnce(new Error('DB write failed')); // useSpotActions takes it out of the store and rejects
+    render(<ImportReview />);
+    fireEvent.press(choice('Add photos to Library Rail'));
+    fireEvent.press(screen.getByText('Import 1 Spot'));
+    await waitFor(() => expect(alert).toHaveBeenCalledWith("Some photos weren't imported", expect.any(String)));
+
+    // Group A went to the existing spot; group B is back as a new spot, its photos never aimed at the missing one.
+    expect(mockSavePhotos).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Import 1 Spot')).toBeTruthy();
+    expect(screen.getByPlaceholderText('Spot name (optional)')).toBeTruthy();
+
+    fireEvent.press(screen.getByText('Import 1 Spot'));
+    await waitFor(() => expect(mockDismissAll).toHaveBeenCalled());
+    expect(mockAddSpot).toHaveBeenCalledTimes(2);
+    expect(mockSavePhotos.mock.calls[1][0].map((p) => p.sourceUri)).toEqual([groupB[0].uri]);
+    alert.mockRestore();
+  });
+
+  it('imports once when two presses land before a re-render', async () => {
+    render(<ImportReview />);
+    const button = screen.getByRole('button', { name: 'Import 2 Spots' });
+    act(() => {
+      fireEvent.press(button);
+      fireEvent.press(button);
+    });
+    await waitFor(() => expect(mockDismissAll).toHaveBeenCalled());
+    expect(mockAddSpot).toHaveBeenCalledTimes(2);
+    expect(mockSavePhotos).toHaveBeenCalledTimes(2);
+  });
+
+  it('locks the choices, names and Remove while importing', async () => {
+    let finish: () => void = () => {};
+    mockSavePhotos.mockImplementation(
+      (photos) =>
+        new Promise((resolve) => {
+          finish = () => resolve(photos.map(({ sourceUri, ...fields }) => ({ ...fields, file_path: sourceUri })));
+        }),
+    );
+    setGroups([groupA]);
+    render(<ImportReview />);
+    fireEvent.press(screen.getByText('Import 1 Spot'));
+
+    expect(choice('New spot')).toBeDisabled();
+    expect(choice('Add photos to Library Rail')).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Remove' })).toBeDisabled();
+    expect(screen.getByPlaceholderText('Spot name (optional)').props.editable).toBe(false);
+    expect(screen.getByLabelText('Importing')).toBeTruthy();
+
+    await act(async () => finish());
+    await waitFor(() => expect(mockDismissAll).toHaveBeenCalled());
+  });
 });

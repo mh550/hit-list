@@ -36,6 +36,10 @@ export default function RootLayout() {
                   options={{ presentation: 'formSheet', title: 'Edit Spot' }}
                 />
                 <Stack.Screen
+                  name="spot/[id]/photos"
+                  options={{ presentation: 'fullScreenModal', headerShown: false }}
+                />
+                <Stack.Screen
                   name="add/camera"
                   options={{ headerShown: false, animation: 'slide_from_bottom' }}
                 />

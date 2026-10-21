@@ -140,6 +140,16 @@ describe('Spot detail: photos', () => {
 
     expect(push).toHaveBeenCalledWith(`/spot/${spot.id}/edit`);
   });
+
+  it('opens the full-screen viewer at the pressed photo', async () => {
+    const media = [1, 2, 3, 4, 5].map((n) => createTestMedia({ created_at: at(n) }));
+    const spot = await renderDetail({}, media);
+
+    expect(screen.getByRole('imagebutton', { name: 'Photo 4 of 5' })).toBe(screen.getByTestId('photo-tile-3'));
+    fireEvent.press(screen.getByTestId('photo-tile-3'));
+
+    expect(push).toHaveBeenCalledWith(`/spot/${spot.id}/photos?index=3`);
+  });
 });
 
 describe('Spot detail: Older details', () => {

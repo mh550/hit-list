@@ -283,7 +283,7 @@
         "src/__tests__/spot-detail.test.tsx gains: pressing photo-tile-3 on the detail screen calls router.push with pathname '/spot/<id>/photos' and params { index: '3' } (or the string '/spot/<id>/photos?index=3').",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines, and npx expo export --platform ios --output-dir /tmp/hl-export exits 0."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M4-04",

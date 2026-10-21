@@ -11,7 +11,8 @@ jest.mock('expo-router', () => {
   const { Text: MockText, View: MockView } = jest.requireActual('react-native');
   const MockStack = ({ children }: { children: React.ReactNode }) =>
     createElement(MockView, { testID: 'stack' }, children);
-  MockStack.Screen = ({ name }: { name: string }) => createElement(MockText, null, `screen:${name}`);
+  MockStack.Screen = ({ name }: { name: string; options?: object }) =>
+    createElement(MockText, null, `screen:${name}`);
   return {
     DefaultTheme: {},
     ThemeProvider: ({ children }: { children: React.ReactNode }) => createElement(Fragment, null, children),
@@ -38,6 +39,15 @@ describe('RootLayout', () => {
     expect(screen.getByTestId('stack')).toBeOnTheScreen();
     expect(screen.getByText('screen:spot/[id]/index')).toBeOnTheScreen();
     expect(roots[0].findByProps({ testID: 'stack' })).toBeTruthy();
+  });
+});
+
+describe('RootLayout: photo viewer', () => {
+  it('registers spot/[id]/photos as a full-screen modal without a header', () => {
+    render(<RootLayout />);
+
+    const viewer = screen.UNSAFE_getAllByProps({ name: 'spot/[id]/photos' })[0];
+    expect(viewer.props.options).toEqual({ presentation: 'fullScreenModal', headerShown: false });
   });
 });
 

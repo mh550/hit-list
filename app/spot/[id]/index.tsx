@@ -73,6 +73,11 @@ export default function SpotDetailScreen() {
     router.push(`/spot/${id}/edit` as `/spot/${string}/edit`);
   }, [router, id]);
 
+  const handlePressPhoto = useCallback(
+    (index: number) => router.push(`/spot/${id}/photos?index=${index}` as `/spot/${string}/photos`),
+    [router, id],
+  );
+
   if (!spot) {
     return (
       <View style={styles.centered}>
@@ -103,9 +108,8 @@ export default function SpotDetailScreen() {
         contentInsetAdjustmentBehavior="automatic">
         <PhotoGrid
           photos={photos}
-          trailing={
-photos.length === 0 ? <AddPhotosTile onPress={handleEdit} /> : undefined
-          }
+          onPressPhoto={handlePressPhoto}
+          trailing={photos.length === 0 ? <AddPhotosTile onPress={handleEdit} /> : undefined}
         />
 
         <Text style={styles.title}>{displayName}</Text>

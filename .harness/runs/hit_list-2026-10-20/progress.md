@@ -12,6 +12,16 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 13:45 · M4-03 · passes
+
+- New `app/spot/[id]/photos.tsx`: a black (`#000`) full-screen pager. It is an RN `FlatList` (horizontal, `pagingEnabled`, `getItemLayout` = window width, `initialScrollIndex` = `?index`, which is clamped and falls back to 0 when missing or NaN, `windowSize` 3). Other parts: a `'N / M'` counter, a 44×44 ✕ (`Close` → `router.back()`), `<StatusBar hidden />`, and pages that are `accessible` images labelled 'Photo N of M'. The order is fixed while open (D29); a removed photo drops out and an added one goes at the end. A missing spot shows 'Spot not found' and still has the ✕.
+- `app/_layout.tsx` registers `spot/[id]/photos` (`fullScreenModal`, `headerShown: false`). Detail tiles now push `/spot/<id>/photos?index=N` (string form, role `imagebutton`).
+- Tests went from 480 to 493: new `photo-viewer.test.tsx` (11), plus 1 in `spot-detail.test.tsx` and 1 in `root-layout.test.tsx`. Each failed first (module missing, or no route or handler).
+- Verified: `check.sh` green (493). `npx jest --ci` shows 46 suites and 0 `console.error`. `expo export --platform ios` exited 0 (I wrote it to the scratch dir, not `/tmp/hl-export`). The Hermes bundle is 4,221,065 B (+5.9 KB since M4-01).
+- Opus review: I fixed 3 Minor findings (dropped `removeClippedSubviews`, made the pages accessible images, added a D29 test). I rejected the cold-start finding, because `DBInitializer` renders screens only after the media have loaded.
+- **Next (M4-05)** must fix the Important review finding, now in the plan's Pager section: after a removal the page index is not pinned to a photo and the native offset is not moved. Track the shown photo's id and call `scrollToIndex` when the count changes. Also still to do: iPad width changes, and iOS VoiceOver page announcements (`accessibilityLiveRegion` works on Android only).
+- Questions for Michael: none new (D29 and the clampPan bounds are still open).
+
 ### 2026-10-21 13:10 · M4-02 · passes
 
 - New `src/utils/gallery-gestures.ts`: `clampScale`, `toggleZoom`, `clampPan`, `pagingEnabled`, `shouldClose` and `focalZoom`, plus the plan's constants (`MIN_SCALE` 1, `MAX_SCALE` 4, `DOUBLE_TAP_SCALE` 2.5, `ZOOMED_EPSILON` 1.05, `CLOSE_DISTANCE` 120). Every function is marked `'worklet'`, imports nothing, and returns `0` instead of `-0`.

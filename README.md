@@ -10,7 +10,7 @@ Built with Expo (React Native) and runs on an iPhone through Expo Go.
 Works end to end in tests and bundles for iOS. The simplification (rev 2,
 `docs/specs/2026-10-16-simplification-design.md`) is being built: the model step (M1), the
 one-screen edit (M2), the detail screen (M3) the full-screen photo viewer (M4) and the
-three-filter list (M5) are done.
+three-filter list (M5) and the review screens (M6) are done.
 
 - Spot model (database v3): feature types (several per spot), skate stopped, natural speed (None to Too
   much, 0–4), notes. Migration 3 archives every older field (dimensions, material, stops, setup options,
@@ -18,7 +18,12 @@ three-filter list (M5) are done.
 - Edit is one short screen: a photo grid (remove with ✕, add from the library with '+', written on Save), name,
   tagging (feature types as chips, a Skate stopped switch, natural speed on a five-word scale), notes, Delete.
 - Quick Add (camera → optional name → Save) and batch import from the photo library (grouped by
-  place from GPS; the EXIF capture time sets each spot's date).
+  place from GPS; the EXIF capture time sets each spot's date). On Quick Add the three tags sit behind an 'Add
+  details' link, so the fast path stays photo → Save.
+- Nearby-spot offer: when a new spot would land within the import radius (Profile, 50 m by default) of a spot you
+  already have, Quick Add shows up to three 'Near Library Rail · 16 ft' rows with 'Add photos there', and the import
+  review lets each such group choose between 'New spot' (the default) and 'Add photos to Library Rail'. Joining adds
+  only the photos; the existing spot's name and tags stay as they were.
 - Detail shows the photo grid (or an 'Add photos' tile), the title, the tags (a red 'Skate stopped'), the natural
   speed bar and notes. Data from before the simplification (dimensions, material, old scores, setup options…) sits
   under a collapsed 'Older details', in the units picked on Profile; spots without it show nothing extra.

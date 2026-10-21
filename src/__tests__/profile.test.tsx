@@ -58,6 +58,15 @@ describe('ProfileScreen', () => {
     render(<ProfileScreen />);
     expect(screen.getByText('Import Radius')).toBeTruthy();
   });
+
+  it('explains that the radius also drives the nearby-spot offer (D25)', () => {
+    render(<ProfileScreen />);
+    expect(
+      screen.getByText(
+        'Photos this close together import as one spot, and a new spot this close to one you have offers to join it.',
+      ),
+    ).toBeTruthy();
+  });
 });
 
 describe('Import Photos entry point', () => {
@@ -65,8 +74,8 @@ describe('Import Photos entry point', () => {
     // D12 (Michael, 2026-10-15): Import Photos moved to the Spots tab; Profile must not offer it.
     render(<ProfileScreen />);
 
-    // Case-insensitive so a relabelled "Import photos" button would also be caught. Anchored because the
-    // Import Radius help text legitimately contains the phrase "import photos from the Spots tab".
+    // Case-insensitive so a relabelled "Import photos" button would also be caught; anchored so help text that
+    // mentions importing photos does not count.
     expect(screen.queryByText(/^\s*import photos\s*$/i)).toBeNull();
     expect(screen.queryByLabelText(/import photos/i)).toBeNull();
   });

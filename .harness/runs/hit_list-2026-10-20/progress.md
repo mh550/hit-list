@@ -12,6 +12,83 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 verify M6
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| M6-01 | 1 | Read docs/plans/2026-10-20-m6-review-screens.md | Has Quick Add layout (photos, name, Add details→SpotTagFields, nearby card, Save), card contents, 'Add photos there' flow (savePhotos to spot_id, no addSpot, dismissAll then push), import per-group offer (default New spot, chips), test list | yes |
+| M6-01 | 2 | Read nearby-spots.ts and nearby-spots.test.ts; `npx jest src/__tests__/nearby-spots` | Signature matches; tests assert 10/40/60 m radius 50 → ['10 m','40 m'], NO_LOCATION spot [], deleted [], NO_LOCATION query [], exact radius included; pass | yes |
+| M6-01 | 3 | `/home/mh550/projects/agent-harness/lib/check.sh` | green (634 tests, cached) | yes |
+| M6-02 | 1 | Read quick-add-tags.test.tsx; ran it | Passes: first render no checkbox/switch/radio, 'Add details' button; press → 8 checkboxes, switch 'Skate stopped', 5 radios, link gone; saves ['rail'], true, 2; untouched saves [], false, undefined | yes |
+| M6-02 | 2 | Read test 'keeps autoFocus…' and app/add/review.tsx l.185,198,261 | autoFocus true, Save text 'Save', Add details accessibilityRole=button | yes |
+| M6-02 | 3 | check.sh | green, 0 failures | yes |
+| M6-03 | 1 | Read quick-add-nearby.test.tsx; ran it | 5/20/45/80 m, radius 50 → 3 cards nearest first 'Near Five Rail · 16 ft'…; metric '5 m'; thumbnails/placeholder; none when empty or NO_LOCATION | yes |
+| M6-03 | 2 | Read test "'Add photos there' saves every photo…" | savePhotos once, spot_id/location/created_at asserted, addSpot 0, updateSpot primary for photo-less spot, call order savePhotos,updateSpot,dismissAll,push /spot/id | yes |
+| M6-03 | 3 | Read test 'Save still creates a new spot when cards are shown' | addSpot once, photos saved to new id | yes |
+| M6-03 | 4 | Read profile.tsx:62 and profile.test.tsx:66; ran profile test | Hint text matches exactly; passes | yes |
+| M6-03 | 5 | check.sh | green | yes |
+| M6-04 | 1 | Read import-nearby.test.tsx; ran it | Offer on A only with New spot selected default; other groups never counted; Near line 'Near Library Rail · 49 ft' | yes |
+| M6-04 | 2 | Read test 'Import sends group A's photos…' | addSpot once, savePhotos twice, group A photos with existing spot_id and captured_at; name inputs drop 2→1 when chosen | yes |
+| M6-04 | 3 | Read test 'choosing the existing spot hides the name field and counts only new spots' | '1 spot from your photos' / 'Import 1 Spot' after choice, back to 2 | yes |
+| M6-04 | 4 | check.sh | green | yes |
+| M6-05 | 1 | Read docs/plans/2026-10-20-m6-what-michael-will-see.md; git ls-files for scratch tests | Lists all five renders in order (fast path, details open, 3 nearby cards, import before/after); no temp test tracked | yes |
+| M6-05 | 2 | Read verification section; ran `npx expo export --platform ios --output-dir <scratch>/export` | Doc records jest 626 and export exit 0; my export exit 0 (suite is now 634 after M6-06 fixes) | yes |
+| M6-05 | 3 | check.sh | green | yes |
+| M6-06 | 1 | Read reviews/m6.diff presence and 'Review (M6-06)' table | m6.diff exists (1429 lines); 10 findings with severity, file:line, fix commits; RED b7af80d/6787c6f precede GREEN 075e635/86be528 and tests named | yes |
+| M6-06 | 2 | Read written answers and tests (double tap, ref-guard test, units change test, failed group tests) | All three answered, with tests 'runs once under a double tap', 'follows a units change', failed-group tests; pass | yes |
+| M6-06 | 3 | git log --grep refactor; grep CLAUDE.md/README/APP_SPECIFICATIONS | refactor: 8fb2d16; CLAUDE.md l.42-43,72 mention nearby-spots and Add details; README l.23; APP_SPECIFICATIONS l.326,363 notes | yes |
+| M6-06 | 4 | check.sh | green | yes |
+
+### 2026-10-21 23:45 · M6-06 · passes
+
+- Opus review of `reviews/m6.diff` (1429 lines): 0 Critical, 2 Important (both fixed), 8 Minor (6 fixed, 2 left). Table, answers and simplification pass under 'Review (M6-06)' in `docs/plans/2026-10-20-m6-review-screens.md`.
+- Important: Quick Add's Alert could never fire because `savePhotos` never rejects, so failed photos were lost without a word. Now unsaved photos stay on screen ("Some photos weren't saved") and a retry after Save adds them to the spot it created. `addSpot` used to keep a spot the DB refused, so the import retried forever against a missing spot. It now takes the spot out of the store and rejects.
+- Minor fixes: a ref guard on Save, 'Add photos there' and Import (two presses in one frame ran the import twice: 4 calls for 2 groups); the import locks chips, name and Remove while saving; no offer without photos; label 'Add photos there, <name>'; Remove gets a role; the spinner is labelled 'Importing'; the 'Near' line names the chosen spot.
+- Commits: RED `b7af80d`/`6787c6f` → GREEN `075e635`/`86be528`, `refactor:` `8fb2d16` (import review drops `useCallback`), docs `2010f8b` (CLAUDE.md Layout, README Status, APP_SPECIFICATIONS dated notes). Removing any one guard or rollback (6 mutations) fails exactly one test.
+- Tests 626 → 634; `check.sh` green (634); `jest --ci` 0 console.error; `expo export --platform ios` exit 0.
+- D31 / §9 Q11 now cover Quick Add and a spot the DB refused. Known limit: a spot whose first photo failed keeps a dangling `primary_photo_id`; the screens fall back to its first saved photo.
+- Proposed change: import choice chips are about 35 pt tall (shared `Chip`); a 44-pt pass belongs in a polish feature. Questions for Michael: none new (§9 Q10 / Q11 still open).
+
+### 2026-10-21 23:10 · M6-05 · passes
+
+- New `docs/plans/2026-10-20-m6-what-michael-will-see.md`: render-order walkthroughs (texts, placeholders, button/switch/radio labels) of the Quick Add review (2 photos no nearby; 'Add details' open; 3 nearby cards 16/66/148 ft with labels) and the import review (2 groups, one offer; before and after choosing 'Add photos to Library Rail').
+- Rendered by a temporary test (`tmp-walk.test.tsx`, deleted, not committed); no source changes.
+- Records `npx jest --silent` 51 suites / 626 tests and `npx expo export --platform ios --output-dir /tmp/hl-export` exit 0. `check.sh` green (626).
+- Questions for Michael: none new (§9 Q10 / Q11 still open). Next: M6-06.
+
+### 2026-10-21 22:45 · M6-04 · passes
+
+- `app/import/review.tsx`: each group gets `offers = nearbySpots(first photo's location, store spots, radius)` (≤ 3; other groups of the import never count). With offers: 'Near <name> · <distance>' (units subscribed) + a one-of `Chip` row 'New spot' (default, selected) · 'Add photos to <name>'. Choosing a spot hides the name field (D30). Subtitle/button count only new spots; all to existing → 'Photos go to spots you already have.' / 'Add photos'. Group key is now the first photo's URI.
+- Import: `Promise.allSettled`; a targeted group runs `savePhotos` with `spot_id` = target (captured_at + per-photo location kept), no `addSpot`; primary set only if the spot has no photo, by the first such group (decided up front, no race).
+- Opus review (diff in scratch) found the hooks swallow errors, so failures would vanish silently. Fixed: each group returns its unsaved photos; those stay on screen aimed at the spot they were going to (a new spot's id), with an Alert "Some photos weren't imported"; a retry neither duplicates nor creates a second spot. New **D31 *default*** + §9 Q11; plan's failure bullet updated.
+- New `src/__tests__/import-nearby.test.tsx` (13 tests). RED 8/10 first, then 2/13 for the partial-save cases; mutations (no primary dedup, always primary, drop unsaved, unsaved not aimed, no chosen chip) each fail a test.
+- Tests 613 → 626; `check.sh` green (626); `jest --ci` 0 console.error.
+- Question for Michael: §9 Q11 (D31) — keep a partly failed import on screen for retry, or close anyway? (Q10 / D30 still open.)
+
+### 2026-10-21 22:15 · M6-03 · passes
+
+- `app/add/review.tsx`: a card 'Already have this spot?' above Save, up to three rows from `nearbySpots(here, spots, batch_import_radius)`: 48-pt primary thumbnail (grey placeholder when none), 'Near <display name> · <distance>' (units subscribed), 'Add photos there' (label 'Add photos to <name>'). It runs one `savePhotos` to that `spot_id`, no `addSpot`, sets `primary_photo_id` only when the spot has no photo at all (`primaryPhoto` undefined), then `dismissAll` → `push('/spot/<id>')`. It shares the `saving` guard with Save; both now `try/catch` → Alert "Couldn't save the photos" and stay on the screen.
+- New `nearbyLabel()` in `src/utils/nearby-spots.ts` (M6-04 can reuse it). Profile radius hint is now the new sentence (`profile.test.tsx` +1, stale D12 comment fixed).
+- New `src/__tests__/quick-add-nearby.test.tsx` (10 tests: 5/20/45/80 m → 3 cards '16 ft'/'66 ft'/'148 ft', metric '5 m' + a units change re-renders, thumbnails, none outside radius, none at NO_LOCATION, 20 m call order `savePhotos, updateSpot, dismissAll, push`, primary untouched when photos exist, double tap + Save → once, Save with cards → `addSpot`, a throw → Alert then a retry works). RED 7/9 first; mutations (no primary update; no guard) each fail a test.
+- Tests 601 → 613; `check.sh` green (613); `jest --ci` 0 console.error.
+- Known limit: if Save's `savePhotos` threw after `addSpot` succeeded, a retry makes a second spot (both hooks swallow per-row errors, so a throw is unlikely). Left for M6-06 to judge.
+- Questions for Michael: none new (§9 Q10 / D30 still open).
+
+### 2026-10-21 21:50 · M6-02 · passes
+
+- `app/add/review.tsx`: an 'Add details' link (`Pressable`, role button, 44-pt tall, blue text) under the name field; pressing it swaps in `SpotTagFields` (one-way, no 'Hide'). `tags` state starts `{ feature_types: [], stopped: false }` and Save spreads it into the new spot. Name keeps `autoFocus`, Save text 'Save'.
+- New `src/__tests__/quick-add-tags.test.tsx` (5 tests, hooks mocked, asserts on `addSpot`): no checkbox/switch/radio at first; press → 8 chips, 'Skate stopped', 5 segments, link gone; Rail + switch + Some → `['rail']`, `true`, `2`; untouched → `[]`, `false`, no speed; autoFocus + Save text. RED 3/5 before the change; mutation (spread → fixed `[]`/`false`) fails the tags test.
+- Tests 596 → 601; `check.sh` green (601); `jest --ci` 0 console.error.
+- Next (M6-03): Save still has no try/catch; the plan adds it with 'Add photos there' (shared `saving` guard). Questions for Michael: none new (§9 Q10 / D30 still open).
+
+### 2026-10-21 21:30 · M6-01 · passes
+
+- New `docs/plans/2026-10-20-m6-review-screens.md`: Quick Add layout (photos · name · 'Add details' link → `SpotTagFields` · location · nearby card · Save), nearby rows ('Near <display name> · 16 ft', 48-pt thumbnail, 'Add photos there', ≤ 3 nearest), what 'Add photos there' does (one `savePhotos` to that `spot_id`, no `addSpot`, primary set if none, `dismissAll` then `push('/spot/<id>')`, shared `saving` guard), import per-group chip offer (store spots only, 'New spot' default, counts only new spots), failure behaviour, test list per feature.
+- New `src/utils/nearby-spots.ts` `nearbySpots(location, spots, radiusMeters)` + `src/__tests__/nearby-spots.test.ts` (7 tests: 10/40/60 m → [10, 40]; NO_LOCATION spot; deleted; unknown query; exactly-radius inclusive; no mutation). Mutation check: `<=`→`<`, no deleted filter, no early return, no sort each fail one test.
+- Spec: new **D30 *default*** + §9 Q10 (joining an existing spot drops the review's typed name/tags).
+- Tests 589 → 596; `check.sh` green (596); `jest --ci` 0 console.error.
+- Next (M6-02/03): Quick Add Save has no try/catch today; plan adds one for both buttons. Question for Michael: §9 Q10 (D30) — OK to drop a typed name when adding photos to an existing spot, or "fill blanks"?
+
 ### 2026-10-21 21:00 · verify M5
 
 | Feature | Step | What you ran or read | What you saw | Holds |

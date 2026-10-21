@@ -155,7 +155,8 @@ describe('useSpotActions', () => {
     expect(mockSoftDeleteSpot).toHaveBeenCalledWith(expect.anything(), 'doomed-spot', expect.any(String));
   });
 
-  it('DB write errors do not crash the app', async () => {
+  it('addSpot takes the spot back out of the store and rejects when the DB write fails', async () => {
+    // A spot the DB never got would show until the next launch, and every photo saved to it would fail its foreign key.
     mockInsertSpot.mockRejectedValueOnce(new Error('DB write failed'));
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
@@ -163,11 +164,10 @@ describe('useSpotActions', () => {
     const spot = createTestSpot({ id: 'spot-with-error' });
 
     await act(async () => {
-      await result.current.addSpot(spot);
+      await expect(result.current.addSpot(spot)).rejects.toThrow('DB write failed');
     });
 
-    // Store should still have the spot (optimistic update)
-    expect(useSpotsStore.getState().spots).toHaveLength(1);
+    expect(useSpotsStore.getState().spots).toHaveLength(0);
     expect(consoleSpy).toHaveBeenCalled();
     consoleSpy.mockRestore();
   });

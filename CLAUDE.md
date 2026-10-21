@@ -39,7 +39,10 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
 ## Layout
 
 - `app/` expo-router screens: `(tabs)/index.tsx` Spots (List | Map), `(tabs)/profile.tsx`,
-  `add/` Quick Add (camera → review), `import/` batch import, `spot/[id]/` detail (photo grid or an 'Add photos' tile → edit,
+  `add/` Quick Add (camera → review: photos, name, an 'Add details' link that reveals `SpotTagFields` (one way), an
+  'Already have this spot?' card of up to three `nearbySpots` rows with 'Add photos there' (saves to that spot, D30), Save),
+  `import/` batch import (review: per group a 'New spot' / 'Add photos to <name>' chip choice when an existing spot is
+  within the import radius; photos that failed stay on screen, D31), `spot/[id]/` detail (photo grid or an 'Add photos' tile → edit,
   title, read-only `Tag` line with a red 'Skate stopped', `SpeedScale readonly`, notes, a collapsed 'Older details'
   disclosure) + edit (one screen: photo grid with staged removes and adds, name, tags, notes; nothing is written until Save)
   + `photos.tsx`, the full-screen photo viewer (`fullScreenModal`, `?index=N` from a detail tile; black `FlatList` pager
@@ -66,7 +69,8 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
 - `src/hooks/` `useDbInit` (migrate, then load spots/media/settings even if the migration threw, background town backfill),
   `useSpotActions`, `useMediaActions` (photo save and remove, also used for adding photos from edit: `savePhotos` resolves the `Media[]` it actually saved; removal deletes the row only, D3), `useCurrentLocation`.
 - `src/utils/` pure logic: geo (`NO_LOCATION`, `isKnownLocation`, haversine), exif,
-  photo-storage, reverse-geocode, spot-name (D4 label), map-region, import-clustering, gallery-gestures (the viewer's
+  photo-storage, reverse-geocode, spot-name (D4 label), map-region, import-clustering, nearby-spots (`nearbySpots`:
+  live known-location spots within a radius, nearest first; `nearbyLabel` 'Near <name> · 16 ft'), gallery-gestures (the viewer's
   pure maths: `clampScale`, `toggleZoom`, `clampPan`, `pagingEnabled`, `shouldClose`, `focalZoom`, `pinchPan`, `doubleTapZoom`,
   `dragDown`), legacy-details (`formatLegacyDetails(legacy, units)` →
   labelled 'Older details' rows: fixed key order, lengths in the user's units, unknown keys humanised, never throws).

@@ -59,7 +59,7 @@ export default function ProfileScreen() {
       <View style={styles.field}>
         <Text style={styles.fieldLabel}>Import Radius</Text>
         <Text style={styles.fieldHint}>
-          Photos within this distance (meters) will be grouped as one spot when you import photos from the Spots tab.
+          Photos this close together import as one spot, and a new spot this close to one you have offers to join it.
         </Text>
         <TextInput
           style={styles.input}

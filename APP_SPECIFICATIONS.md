@@ -322,6 +322,11 @@ Each media item:
 └─────────────────────────────────────────────────────────┘
 ```
 
+> `[ADDITION 2026-10-21]` The review screen (step 4) keeps the three tags (what's here, skate stopped, natural speed)
+> behind an 'Add details' link. When the location is within the import radius of spots you already have, it also
+> shows up to three 'Near <name> · <distance>' rows, nearest first, each with 'Add photos there': the photos join that
+> spot (its name and tags are kept, the typed ones dropped; D30) and the spot opens. Save still creates a new spot.
+
 ### Batch Import Flow
 
 > **Added**: For users who take photos throughout the day with native camera.
@@ -352,6 +357,12 @@ Each media item:
 │                                                         │
 └─────────────────────────────────────────────────────────┘
 ```
+
+> `[ADDITION 2026-10-21]` At step 6, a group whose first photo is within the import radius of a spot you already have
+> shows 'Near <name> · <distance>' and a choice between 'New spot' (the default) and 'Add photos to <name>' (up to
+> three nearby spots). Choosing one hides the group's name and sends its photos to that spot; the count and the
+> button only count new spots. Groups of the same import never count as nearby. Photos that fail to save stay on the
+> review for a retry (D31).
 
 ### Detail Entry Flow (Later)
 

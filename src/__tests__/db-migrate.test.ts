@@ -65,6 +65,11 @@ describe('migrateDb (PRAGMA user_version)', () => {
 
     expect(await getSchemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
     expect(await tables(db)).toEqual(['media', 'spots', 'sync_queue', 'user_settings']);
+    // A fresh install has nothing to migrate: an empty v3 spots table.
+    expect(await getSpots(db)).toEqual([]);
+    const columns = (await db.getAllAsync<{ name: string }>('PRAGMA table_info(spots)')).map((c) => c.name);
+    expect(columns).toEqual(expect.arrayContaining(['feature_types_json', 'stopped', 'natural_speed', 'notes', 'legacy_json']));
+    expect(columns).not.toContain(V2.feature);
   });
 
   it('is a no-op the second time', async () => {

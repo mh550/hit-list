@@ -28,6 +28,14 @@ jest.mock('expo-router', () => ({
   },
 }));
 
+// react-native-gesture-handler: the package's own setup swaps its native module for mocks, so
+// GestureDetector renders and react-native-gesture-handler/jest-utils can fire gestures.
+import 'react-native-gesture-handler/jestSetup';
+
+// react-native-worklets (reanimated 4's runtime) loads its native module at import, which Jest
+// does not have; its own mock stands in. Reanimated's mock below imports it.
+jest.mock('react-native-worklets', () => jest.requireActual('react-native-worklets/src/mock'));
+
 // Mock react-native-reanimated
 jest.mock('react-native-reanimated', () => {
   const Reanimated = jest.requireActual('react-native-reanimated/mock');

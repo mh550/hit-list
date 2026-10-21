@@ -77,7 +77,9 @@ export default function ImportReviewScreen() {
       groups.map((group) => {
         const near = nearbySpots(groupLocation(group), spots, importRadius).slice(0, MAX_OFFERS);
         const chosen = near.some((s) => s.id === group.target) ? undefined : spots.find((s) => s.id === group.target);
-        return { near, choices: chosen ? [...near, chosen] : near };
+        // The distance line follows the choice when the chosen spot is nearby, else names the nearest.
+        const shown = near.find((s) => s.id === group.target) ?? near[0];
+        return { shown, choices: chosen ? [...near, chosen] : near };
       }),
     [groups, spots, importRadius],
   );
@@ -225,11 +227,11 @@ export default function ImportReviewScreen() {
             {/* D25: an existing spot this close might be the same one */}
             {offers[groupIdx].choices.length > 0 && (
               <>
-                {offers[groupIdx].near.length > 0 && (
+                {offers[groupIdx].shown ? (
                   <Text style={styles.nearbyText} numberOfLines={2}>
-                    {nearbyLabel(groupLocation(group), offers[groupIdx].near[0], imperial)}
+                    {nearbyLabel(groupLocation(group), offers[groupIdx].shown, imperial)}
                   </Text>
-                )}
+                ) : null}
                 <ChipGroup>
                   <Chip
                     label="New spot"

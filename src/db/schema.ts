@@ -90,6 +90,18 @@ export interface SpotRowV2 {
   metadata_json: string;
 }
 
+/**
+ * The version 2 spot columns migration 3 archives and drops, named once here so tests that build a v2 DB
+ * (src/__tests__/db-migrate.test.ts) don't spell the old model outside the migration.
+ */
+export const SPOT_V2_COLUMNS = {
+  status: 'status',
+  feature: 'feature_json',
+  inRun: 'in_run_json',
+  landing: 'landing_json',
+  metadata: 'metadata_json',
+} as const satisfies Record<string, 'status' | keyof SpotRowV2>;
+
 /** The values migration 3 writes into a spot row's new columns. */
 export interface SpotColumnsV3 {
   feature_types_json: string;

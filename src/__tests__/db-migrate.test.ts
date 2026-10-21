@@ -7,19 +7,29 @@ import {
   LATEST_SCHEMA_VERSION,
   getSchemaVersion,
   migrateSpotRowV3,
+  SPOT_V2_COLUMNS as V2,
   type Migration,
+  type SpotRowV2,
 } from '@/src/db/schema';
 import { FeatureType, type Spot } from '@/src/types';
 import { createTestMedia, createTestSpot } from './factories';
 
-type OldColumns = Partial<
-  Record<'status' | 'feature_json' | 'in_run_json' | 'landing_json' | 'metadata_json', string>
->;
+/** A v2 spot's status and four JSON columns, keyed by SPOT_V2_COLUMNS' names. */
+type OldColumns = Partial<Record<keyof typeof V2, string>>;
+
+/** The four JSON columns of a v2 row, empty as the builds before migration 3 defaulted them. */
+const oldJsonColumns = (old: OldColumns): SpotRowV2 => ({
+  [V2.feature]: old.feature ?? '{}',
+  [V2.inRun]: old.inRun ?? '{"setup_options":[]}',
+  [V2.landing]: old.landing ?? '{}',
+  [V2.metadata]: old.metadata ?? '{}',
+});
 
 /** Inserts `spot` as builds before migration 3 stored it (status and four JSON columns); insertSpot writes v3's columns. */
 async function insertOldSpot(db: SQLiteDatabase, spot: Spot, old: OldColumns = {}): Promise<void> {
+  const json = oldJsonColumns(old);
   await db.runAsync(
-    `INSERT INTO spots (id, name, generated_name, latitude, longitude, created_at, updated_at, deleted_at, status, feature_json, in_run_json, landing_json, metadata_json, primary_photo_id)
+    `INSERT INTO spots (id, name, generated_name, latitude, longitude, created_at, updated_at, deleted_at, ${V2.status}, ${V2.feature}, ${V2.inRun}, ${V2.landing}, ${V2.metadata}, primary_photo_id)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     spot.id,
     spot.name ?? null,
@@ -30,10 +40,10 @@ async function insertOldSpot(db: SQLiteDatabase, spot: Spot, old: OldColumns = {
     spot.updated_at,
     spot.deleted_at ?? null,
     old.status ?? 'draft',
-    old.feature_json ?? '{}',
-    old.in_run_json ?? '{"setup_options":[]}',
-    old.landing_json ?? '{}',
-    old.metadata_json ?? '{}',
+    json[V2.feature],
+    json[V2.inRun],
+    json[V2.landing],
+    json[V2.metadata],
     spot.primary_photo_id ?? null,
   );
 }
@@ -215,7 +225,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
     /** Every old field set: type other + custom type, stops, two setup options, a draft. */
     const FULL: OldColumns = {
       status: 'draft',
-      feature_json: JSON.stringify({
+      feature: JSON.stringify({
         type: 'other',
         custom_type: 'curved rail',
         shape: 'kinked',
@@ -224,9 +234,9 @@ describe('migrateDb (PRAGMA user_version)', () => {
         skate_stops: { is_stopped: true, stop_type: 'knobs', stop_description: 'every 50 cm', removable: true },
         difficulty: 3,
       }),
-      in_run_json: JSON.stringify({ natural_speed: 4, setup_options: SETUP_OPTIONS }),
-      landing_json: JSON.stringify({ difficulty: 2, surface: 'snow_built' }),
-      metadata_json: JSON.stringify({
+      inRun: JSON.stringify({ natural_speed: 4, setup_options: SETUP_OPTIONS }),
+      landing: JSON.stringify({ difficulty: 2, surface: 'snow_built' }),
+      metadata: JSON.stringify({
         intensity: 5,
         bustability: 3,
         bustability_notes: 'security at 9pm',
@@ -254,15 +264,15 @@ describe('migrateDb (PRAGMA user_version)', () => {
     /** Every old field present but empty, as the edit screen wrote them. */
     const EMPTY: OldColumns = {
       status: 'complete',
-      feature_json: JSON.stringify({
+      feature: JSON.stringify({
         custom_type: '',
         shape: '',
         dimensions: {},
         skate_stops: { is_stopped: false, removable: false },
       }),
-      in_run_json: '{"setup_options":[]}',
-      landing_json: '{}',
-      metadata_json: JSON.stringify({ notes: '', bustability_notes: '' }),
+      inRun: '{"setup_options":[]}',
+      landing: '{}',
+      metadata: JSON.stringify({ notes: '', bustability_notes: '' }),
     };
 
     it('maps the full-fat v2 spot and archives every removed field (but not status, is_stopped or notes)', async () => {
@@ -289,7 +299,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
     it("a v2 rail spot with nothing else gets feature_types ['rail'] and no legacy", async () => {
       const db = await v2Db();
       const rail = createTestSpot();
-      await insertOldSpot(db, rail, { feature_json: '{"type":"rail"}' });
+      await insertOldSpot(db, rail, { feature: '{"type":"rail"}' });
 
       await migrateDb(db);
 
@@ -324,7 +334,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
     it('old natural speed 1 becomes 0, which survives getSpot as a real value', async () => {
       const db = await v2Db();
       const slow = createTestSpot();
-      await insertOldSpot(db, slow, { in_run_json: '{"natural_speed":1,"setup_options":[]}' });
+      await insertOldSpot(db, slow, { inRun: '{"natural_speed":1,"setup_options":[]}' });
 
       await migrateDb(db);
 
@@ -337,9 +347,9 @@ describe('migrateDb (PRAGMA user_version)', () => {
       const db = await v2Db();
       const odd = createTestSpot();
       await insertOldSpot(db, odd, {
-        feature_json: 'not json',
-        in_run_json: '{"natural_speed":5,"setup_options":[]}',
-        metadata_json: '{"notes":"still here"}',
+        feature: 'not json',
+        inRun: '{"natural_speed":5,"setup_options":[]}',
+        metadata: '{"notes":"still here"}',
       });
 
       await migrateDb(db);
@@ -353,7 +363,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
     it('a throw late in migration 3 (at the rebuild) leaves version 2 and the v2 spots table intact', async () => {
       const db = await v2Db();
       const spot = createTestSpot();
-      await insertOldSpot(db, spot, { feature_json: '{"type":"rail"}' });
+      await insertOldSpot(db, spot, { feature: '{"type":"rail"}' });
       await addTwoPhotos(db, spot.id);
       await db.execAsync('CREATE TABLE spots_new (x)'); // the ALTERs and backfill run, then CREATE TABLE spots_new fails
 
@@ -361,10 +371,10 @@ describe('migrateDb (PRAGMA user_version)', () => {
 
       expect(await getSchemaVersion(db)).toBe(2);
       const columns = (await db.getAllAsync<{ name: string }>('PRAGMA table_info(spots)')).map((c) => c.name);
-      expect(columns).toContain('feature_json');
+      expect(columns).toContain(V2.feature);
       expect(columns).not.toContain('feature_types_json');
-      expect(await db.getAllAsync('SELECT id, feature_json FROM spots')).toEqual([
-        { id: spot.id, feature_json: '{"type":"rail"}' },
+      expect(await db.getAllAsync(`SELECT id, ${V2.feature} AS feature FROM spots`)).toEqual([
+        { id: spot.id, feature: '{"type":"rail"}' },
       ]);
       expect(await db.getFirstAsync('SELECT COUNT(*) AS n FROM media')).toEqual({ n: 2 });
     });
@@ -372,7 +382,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
     it('migrates soft-deleted spots too', async () => {
       const db = await v2Db();
       const gone = createTestSpot({ deleted_at: '2026-10-14T01:02:03.000Z' });
-      await insertOldSpot(db, gone, { feature_json: '{"type":"ledge","shape":"long"}' });
+      await insertOldSpot(db, gone, { feature: '{"type":"ledge","shape":"long"}' });
 
       await migrateDb(db);
 
@@ -412,7 +422,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
       const spots = [createTestSpot(), createTestSpot(), createTestSpot()];
       await insertOldSpot(db, spots[0], FULL);
       await insertOldSpot(db, spots[1], EMPTY);
-      await insertOldSpot(db, spots[2], { feature_json: '{"type":"rail"}' });
+      await insertOldSpot(db, spots[2], { feature: '{"type":"rail"}' });
       await migrateDb(db);
       const before = await db.getAllAsync('SELECT * FROM spots ORDER BY id');
 
@@ -439,23 +449,18 @@ describe('migrateDb (PRAGMA user_version)', () => {
     });
 
     describe('migrateSpotRowV3 (one row, pure)', () => {
-      const row = (old: OldColumns) => ({
-        feature_json: old.feature_json ?? '{}',
-        in_run_json: old.in_run_json ?? '{"setup_options":[]}',
-        landing_json: old.landing_json ?? '{}',
-        metadata_json: old.metadata_json ?? '{}',
-      });
+      const row = oldJsonColumns;
 
       it('drops a type that is not one of the eight kept ones', () => {
-        expect(migrateSpotRowV3(row({ feature_json: '{"type":"tree"}' })).feature_types_json).toBe('[]');
-        expect(migrateSpotRowV3(row({ feature_json: '{"type":"stair_set"}' })).feature_types_json).toBe(
+        expect(migrateSpotRowV3(row({ feature: '{"type":"tree"}' })).feature_types_json).toBe('[]');
+        expect(migrateSpotRowV3(row({ feature: '{"type":"stair_set"}' })).feature_types_json).toBe(
           '["stair_set"]',
         );
       });
 
       it('maps only an integer natural speed 1–5', () => {
         const speed = (v: unknown) =>
-          migrateSpotRowV3(row({ in_run_json: JSON.stringify({ natural_speed: v, setup_options: [] }) }))
+          migrateSpotRowV3(row({ inRun: JSON.stringify({ natural_speed: v, setup_options: [] }) }))
             .natural_speed;
         expect([1, 2, 3, 4, 5].map(speed)).toEqual([0, 1, 2, 3, 4]);
         expect([0, 6, 2.5, '3', null].map(speed)).toEqual([null, null, null, null, null]);
@@ -463,20 +468,20 @@ describe('migrateDb (PRAGMA user_version)', () => {
 
       it('treats whitespace-only text as empty and keeps real notes as typed', () => {
         const r = migrateSpotRowV3(
-          row({ metadata_json: JSON.stringify({ notes: '  ', bustability_notes: ' \n' }) }),
+          row({ metadata: JSON.stringify({ notes: '  ', bustability_notes: ' \n' }) }),
         );
         expect(r).toMatchObject({ notes: null, legacy_json: null });
-        expect(migrateSpotRowV3(row({ metadata_json: '{"notes":" gap "}' })).notes).toBe(' gap ');
+        expect(migrateSpotRowV3(row({ metadata: '{"notes":" gap "}' })).notes).toBe(' gap ');
       });
 
       it('keeps JSON that is not an object verbatim', () => {
-        const r = migrateSpotRowV3(row({ landing_json: '[1]', metadata_json: 'null' }));
+        const r = migrateSpotRowV3(row({ landing: '[1]', metadata: 'null' }));
         expect(JSON.parse(r.legacy_json ?? 'null')).toEqual({ raw_landing: '[1]', raw_metadata: 'null' });
       });
 
       it('drops setup options with nothing picked (edit appended { requires: [] })', () => {
         const opts = (v: unknown) =>
-          migrateSpotRowV3(row({ in_run_json: JSON.stringify({ setup_options: v }) })).legacy_json;
+          migrateSpotRowV3(row({ inRun: JSON.stringify({ setup_options: v }) })).legacy_json;
         expect(opts([{ requires: [] }, { requires: [] }])).toBeNull();
         expect(JSON.parse(opts([{ requires: [] }, { requires: [{ item: 'winch', category: 'gear' }] }]) ?? 'null')).toEqual({
           setup_options: [{ requires: [{ item: 'winch', category: 'gear' }] }],
@@ -484,12 +489,12 @@ describe('migrateDb (PRAGMA user_version)', () => {
       });
 
       it('a blank column is empty, not archived as raw', () => {
-        expect(migrateSpotRowV3(row({ feature_json: '', landing_json: '  ' })).legacy_json).toBeNull();
+        expect(migrateSpotRowV3(row({ feature: '', landing: '  ' })).legacy_json).toBeNull();
       });
 
       it('never archives is_stopped or removable: false (edit wrote it by default)', () => {
         const r = migrateSpotRowV3(
-          row({ feature_json: '{"skate_stops":{"is_stopped":false,"removable":false,"stop_type":"caps"}}' }),
+          row({ feature: '{"skate_stops":{"is_stopped":false,"removable":false,"stop_type":"caps"}}' }),
         );
         expect(r.stopped).toBe(0);
         expect(JSON.parse(r.legacy_json ?? 'null')).toEqual({ stop_type: 'caps' });

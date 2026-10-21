@@ -12,6 +12,14 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 · M1-02 · passes
+
+- Fixed the one failing step (6) from the verify-M1 pass: `src/db/schema.ts` now exports `SPOT_V2_COLUMNS` (status + the four v2 JSON column names, typed against `SpotRowV2`), and `src/__tests__/db-migrate.test.ts` uses neutral keys (`feature`, `inRun`, `landing`, `metadata`) mapped through it in one helper (`oldJsonColumns`, shared by `insertOldSpot` and the pure `migrateSpotRowV3` cases). Migrations 1–3 are unchanged, and so is what each test asserts. Tests 366 → 366.
+- Verified: the step-6 grep prints nothing (exit 1); `git diff 782ff8d -- src/db/schema.ts` removes only the old `MIGRATIONS` line; db-migrate 28/28, the 8 step suites 109/109 (zero round-trip, null clears, getSpotLegacy ×3, store null → undefined); `check.sh` green (366); `jest --ci` 0 `console.error`.
+- Next (M1-04 step 1): its grep still hits the `SpotLegacy` keys in `src/types/index.ts`, a spot-detail test title, and archive-payload JSON in `db-migrate.test.ts` (`custom_type`, `bustability`, `skate_stops` inside the full-fat fixture/expected legacy). `in_run` no longer appears there.
+- Questions for Michael: none.
+- Proposed changes: the step greps should exclude migration-test fixtures by design, e.g. `| grep -v 'src/db/schema.ts\|db-migrate.test.ts'`, rather than make sessions route old names through schema.ts.
+
 ### 2026-10-21 · verify M1
 
 M1-01, M1-03, M1-05 hold. M1-02 step 6 and M1-04 step 1 fail as written: the greps are specified to print nothing but match `SpotLegacy` keys and v2 fixtures in `db-migrate.test.ts`, which migration tests need. The next session should either narrow the step greps or the code; behaviour itself checks out (all tests green). Both set to `passes: false`.

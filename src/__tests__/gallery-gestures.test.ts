@@ -3,6 +3,7 @@ import {
   DOUBLE_TAP_SCALE,
   MAX_SCALE,
   MIN_SCALE,
+  PAN_SLOP,
   ZOOMED_EPSILON,
   clampPan,
   clampScale,
@@ -21,6 +22,10 @@ const centre = { x: 195, y: 422 };
 describe('constants', () => {
   it('match the viewer plan', () => {
     expect([MIN_SCALE, MAX_SCALE, DOUBLE_TAP_SCALE, ZOOMED_EPSILON, CLOSE_DISTANCE]).toEqual([1, 4, 2.5, 1.05, 120]);
+  });
+
+  it('starts an unzoomed pan after 10 px of vertical movement and fails it after 10 px sideways', () => {
+    expect(PAN_SLOP).toBe(10);
   });
 });
 

@@ -12,6 +12,13 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 17:30 · M4-04 · passes
+
+- Fixes the verify-pass failure: `src/components/ZoomablePhoto.tsx` goes from 156 to **144 lines** (no styles block), under step 1's 150 limit. I reflowed the `gallery-gestures` import and the `report` callback; behaviour is unchanged. The unzoomed pan's `[-10, 10]` offsets became `PAN_SLOP` (10) in `src/utils/gallery-gestures.ts`, so the component has no number of its own. No zoom-toolkit.
+- Tests went from 529 to 530 (`PAN_SLOP` constant test, RED first). The plan's `ZoomablePhoto` note in `docs/plans/2026-10-20-m4-viewer.md` now gives the new line count.
+- Verified: `wc -l` = 144; the photo-viewer tests for scrollEnabled 1×/2×, swipe-down 150 at 1× → back, 119 → none, 150 at 2× → none all pass; plan l.44 says there is no back interception; `check.sh` green (530); `npx jest --ci` prints 0 `console.error`; `expo export --platform ios` (scratch dir) exit 0.
+- Next: M4 should be all green now. Questions for Michael: none.
+
 ### 2026-10-21 verify M4
 
 | Feature | Step | What you ran or read | What you saw | Holds |

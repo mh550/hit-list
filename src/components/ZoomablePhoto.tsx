@@ -6,17 +6,8 @@ import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-na
 import { scheduleOnRN } from 'react-native-worklets';
 
 import {
-  LONG_PRESS_MS,
-  MIN_SCALE,
-  clampPan,
-  clampScale,
-  doubleTapZoom,
-  dragDown,
-  pagingEnabled,
-  pinchPan,
-  shouldClose,
-  type PinchStart,
-  type Point,
+  LONG_PRESS_MS, MIN_SCALE, PAN_SLOP, clampPan, clampScale, doubleTapZoom, dragDown, pagingEnabled, pinchPan,
+  shouldClose, type PinchStart, type Point,
 } from '@/src/utils/gallery-gestures';
 
 const noop = () => {};
@@ -57,13 +48,10 @@ export function ZoomablePhoto(props: ZoomablePhotoProps) {
   // photo at full size (expo-image otherwise downscales it to the view, which a zoom would blow up blurry).
   const [zoomed, setZoomed] = useState(false);
 
-  const report = useCallback(
-    (next: number) => {
-      setZoomed(!pagingEnabled(next));
-      onScaleChange(next);
-    },
-    [onScaleChange],
-  );
+  const report = useCallback((next: number) => {
+    setZoomed(!pagingEnabled(next));
+    onScaleChange(next);
+  }, [onScaleChange]);
 
   const gesture = useMemo(() => {
     const viewport = { width, height };
@@ -113,7 +101,7 @@ export function ZoomablePhoto(props: ZoomablePhotoProps) {
         if (success && !panZoomed.get() && shouldClose(e.translationY, scale.get())) scheduleOnRN(onRequestClose);
         else dragY.set(withTiming(0));
       });
-    if (!zoomed) pan.activeOffsetY([-10, 10]).failOffsetX([-10, 10]);
+    if (!zoomed) pan.activeOffsetY([-PAN_SLOP, PAN_SLOP]).failOffsetX([-PAN_SLOP, PAN_SLOP]);
 
     const doubleTap = Gesture.Tap()
       .withTestId(`${testIdPrefix}-double-tap`)

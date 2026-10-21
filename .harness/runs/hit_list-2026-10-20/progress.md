@@ -12,6 +12,20 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 verify M7
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| M7-01 | 1 | `npx jest --ci src/__tests__/utils.test.ts`; read the 'import radius' describe | Pass. radiusToDisplay 50→164/50, 30→98; radiusFromInput '164'→50, '100'→30, Metric '30'→30; '', '0', '-5', 'abc'→null for both units; radiusUnitLabel 'ft'/'m' | yes |
+| M7-01 | 2 | Read `profile.test.tsx` (14 pass) | Imperial: text 'Import radius · ft', label 'Import radius in feet' value '164'. Metric press: 'Import radius · m', 'Import radius in metres' '50'. '328'+blur → store 100. 'abc'+blur → value '164', store 50, save not called | yes |
+| M7-01 | 3 | Read `import-screen.test.tsx` (3 pass) | /\(within 164 ft\)/ Imperial, /\(within 50 m\)/ Metric; groupPhotosByProximity calledWith(any Array, 50) | yes |
+| M7-01 | 4 | `grep -rn "Import radius in meters\|(meters)\|{batchRadius}m" app src --include=*.tsx` | No output | yes |
+| M7-01 | 5 | `check.sh` (green, 651 tests) + `npx jest --ci | grep -c console.error` | green; 0 console.error lines (lint/tsc inside check) | yes |
+| M7-02 | 1 | `wc -l reviews/m7.diff`; read plan 'Review' section; `git show --stat e9eee31 68fbc95`; read the 50.4 m test | m7.diff exists (350 lines); findings table has severity, file:line, fix commit; Important #6 fix has RED e9eee31 before GREEN 68fbc95; answer written; test 'writes nothing when a radius that is not whole feet is blurred unchanged' stores 50.4 and 'leaves the stored metres alone' (50 shows 164, stays 50) both assert as required | yes |
+| M7-02 | 2 | Read plan 'What Michael will see' | Imperial and Metric lists of Profile texts in order, noted as from a scratch render; no scratch test file left in src/__tests__ | yes |
+| M7-02 | 3 | `grep -n radius CLAUDE.md README.md APP_SPECIFICATIONS.md` | CLAUDE.md l.94-95 Conventions line (metres, units.ts edges); README l.13/40 radius in your units; APP_SPECIFICATIONS l.296 User settings note | yes |
+| M7-02 | 4 | `check.sh` green; 0 console.error | green | yes |
+
 ### 2026-10-21 15:10 · M7-02 · passes
 
 - Opus review of `reviews/m7.diff` (350 lines): 0 Critical, 2 Important, 4 Minor; table, answer and 'What Michael will see' (Imperial and Metric Profile texts from a scratch render, test deleted) in new `docs/plans/2026-10-20-m7-radius.md`.

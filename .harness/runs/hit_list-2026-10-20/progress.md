@@ -12,6 +12,42 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 · verify M2
+
+Re-ran everything: `check.sh` green (432); `npx jest --ci` 42 suites / 432 tests, 0 `console.error`; `expo export --platform ios` exit 0. All 7 features hold. One nit for a later session (not a fail): the walkthrough doc says the edit photo tiles are `imagebutton` (dimmed), but since M2-07 they render role `image`; labels are all correct.
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| M2-01 | 1 | Read `docs/plans/2026-10-20-m2-edit.md` headings and bodies | Has SpeedScale API (props, §2.3 table verbatim, range mode deferred to M5), PhotoGrid API (onPressPhoto, renderBadge, trailing, hero 4:3, `spacing.xs` gaps), SpotTagFields API, Edit layout in §2.2 order, Staged adds (drafts, savePhotos on Save, first add primary), per-task test lists | yes |
+| M2-01 | 2 | Read the "Staged adds" section lines 146-195 | `jest.mock('expo-image-picker', …)` with `launchImageLibraryAsync` and `requestMediaLibraryPermissionsAsync` named from ImagePicker.d.ts; `importPhotoFromAsset` gives captured_at and location | yes |
+| M2-01 | 3 | `/home/mh550/projects/agent-harness/lib/check.sh` | green, 432 tests (lint, tsc, jest) | yes |
+| M2-02 | 1 | Read `src/__tests__/speed-scale.test.tsx`, ran it in the full suite | Asserts 5 radios in one radiogroup with labels `'<label>: <description>'` (e.g. 'Enough: Rolls in with speed for most tricks.'), 'Not rated', press Enough → 3, re-press → undefined, value 4 shows 'Steep. You have to scrub speed.'; exported from index (imported via `@/src/components`) | yes |
+| M2-02 | 2 | Same file, readonly describe | `speed-cell-0..4` with `accessibilityState.selected` true for 0-3 and false for 4, 'Enough' text, zero radios, label 'Natural speed: Enough' | yes |
+| M2-02 | 3 | Same file, "fills … palette.blue[500]" tests; `SpeedScale.tsx` | flattened backgroundColor equals `palette.blue[500]` for the selected radio and filled cell; labels `numberOfLines` 1 (2 for Too much) | yes |
+| M2-02 | 4 | `npx jest --ci`, lint/tsc via check.sh | green, 0 console.error lines | yes |
+| M2-03 | 1 | Read `photo-grid.test.tsx` | 7 photos → `photo-tile-0..6`; tile 0 width '100%', aspectRatio 4/3, tiles 1-6 aspectRatio 1; press tile-4 → onPressPhoto(4); imagebutton with 'Photo N of 7' labels | yes |
+| M2-03 | 2 | Same file | 7 'X' badges rendered with (media, index); '+' ordered after photo-tile-6 in toJSON order; 0 photos → null; 0 photos + trailing → only '+' | yes |
+| M2-03 | 3 | Same file, "resolves image sources" | first Image uri ends with `file_path` and differs from it | yes |
+| M2-03 | 4 | `npx jest --ci`, check.sh | green, 0 console.error | yes |
+| M2-04 | 1 | Read `spot-tag-fields.test.tsx` | Ledge then Rail → ['ledge','rail']; Ledge again → ['rail']; switch valueChange true → stopped; no 'Feature', 'In-Run', 'Landing', 'Details', 'Status' | yes |
+| M2-04 | 2 | Read `edit-spot-tags.test.tsx` | Pre-fill (Rail checked, switch true, 'Some' checked, notes 'n'); Ledge + switch off + Enough + 'new notes' → [rail, ledge], false, 3, 'new notes'; cleared notes → null; cleared speed → null; Save enabled with all empty | yes |
+| M2-04 | 3 | Same file + scratch render of edit (walk A/B in /tmp) + `edit-remove-photo.test.tsx` in suite | None of the banned words in the tree; placeholders 'Name (optional)' / 'Anything else'; 'Remove photo N' per tile; remove-photo tests pass | yes |
+| M2-04 | 4 | `npx jest --ci`, check.sh | green, 0 console.error | yes |
+| M2-05 | 1 | Read `edit-add-photos.test.tsx` first tests | 'Add photos' → launch with allowsMultipleSelection true, exif true; 2 'new' tiles; savePhotos once with 2 drafts, spot_id 's1', captured_at '2026-10-12T14:22:05' from DateTimeOriginal, signed GPS location; patch has no `location` | yes |
+| M2-05 | 2 | Same file | Unmount → savePhotos and updateSpot not called; spot with no photos → patch.primary_photo_id = draft id; with photos → absent | yes |
+| M2-05 | 3 | Same file, "removes and adds in one Save" | removePhotos(['m2']), savePhotos once, hint '1 photo will be removed when you save.' shown with 'new' | yes |
+| M2-05 | 4 | Same file, permission denial | `Alert.alert` spy: title 'Photo access needed', launch not called, no 'new' | yes |
+| M2-05 | 5 | `npx jest --ci`, check.sh | green, 0 console.error | yes |
+| M2-06 | 1 | Read `docs/plans/2026-10-20-m2-what-michael-will-see.md`; re-rendered edit for the 5-photo spot with a scratch test (deleted; `git status` clean of walkthrough*) | Doc order and labels match my capture (tiles, Remove photo 1-5, Add photos, Name, 8 chips, switch, 5 radios, Notes, Save, Delete spot); only role wording `imagebutton` is stale (now `image`) | yes |
+| M2-06 | 2 | Same doc section B vs my scratch render of the empty spot | '+' tile, 'Name (optional)', eight chips, 'Skate stopped', five segments, 'Not rated', 'Anything else', 'Delete spot' all present; Text nodes 20 in both (my count: 20/20); control count 29/19 matches; says no pixels measurable | yes |
+| M2-06 | 3 | Doc "Commands run" vs my runs | Doc: 425 tests / export exit 0 / 4043430-byte bundle (written before M2-07 added 7 tests); my run: 432 tests, export exit 0 | yes |
+| M2-06 | 4 | check.sh | green | yes |
+| M2-07 | 1 | `ls`/`wc` `reviews/m2.diff`; read "Review (M2-07)" table in the plan; `git log` | m2.diff exists (1884 lines, base 571cffd = "M1 verified"); findings table has severity, file:line and fix commits; RED 6352672 / 9fc2f4d precede GREEN 0d9004b / 4a056e0 | yes |
+| M2-07 | 2 | Read plan "Answers" + `edit-add-photos.test.tsx` ("opens the picker once on a double tap", "stages the same library photo once"), `savingRef` in edit.tsx:60/166, "warns before closing" test, `Chip.tsx:80` `flexWrap: 'wrap'`, speed-scale radiogroup test | All five questions answered in writing and each backed by a test or code line | yes |
+| M2-07 | 3 | `git log 571cffd..HEAD` | `9c4c508 refactor:` commit present (FormField reuse, SPEED_LABELS moved) | yes |
+| M2-07 | 4 | `grep CLAUDE.md`, `grep README.md` | CLAUDE.md Layout names SpeedScale/PhotoGrid/SpotTagFields and "adding photos from edit"; README Status describes tagging (feature types, Skate stopped, natural speed) in edit | yes |
+| M2-07 | 5 | `npx jest --ci` (432 pass), check.sh, `expo export` exit 0 | green, 0 console.error | yes |
+
 ### 2026-10-21 · M2-07 · passes
 
 - Opus review of `git diff 571cffd..HEAD -- src app` (`reviews/m2.diff`); findings, answers and fix commits are under "Review" in `docs/plans/2026-10-20-m2-edit.md`. No Critical. Three Important fixed, each RED before GREEN: (1) Undo after removing + adding at the cap gave 22 tiles and a false "couldn't be added" alert, so the newest adds that don't fit are now dropped with a '20 photos per spot' alert; (2) `useSpotActions.updateSpot` swallowed DB errors (edits silently reverted on relaunch), so it now reverts its own fields in the store (`revertSpotUpdate`, keeping fields a later update changed) and rethrows, the town backfills catch it, and Edit's "Couldn't save" is now reachable; (3) ✕, Undo and Delete spot are disabled while Save runs.

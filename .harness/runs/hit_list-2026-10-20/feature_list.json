@@ -184,7 +184,7 @@
         "CLAUDE.md Layout mentions SpeedScale, PhotoGrid and SpotTagFields in src/components and 'adding photos from edit' in use-media-actions; README.md Status mentions tagging (feature types, skate stopped, natural speed) in the edit screen.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M3-01",

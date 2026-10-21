@@ -12,6 +12,15 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 · M2-07 · passes
+
+- Opus review of `git diff 571cffd..HEAD -- src app` (`reviews/m2.diff`); findings, answers and fix commits are under "Review" in `docs/plans/2026-10-20-m2-edit.md`. No Critical. Three Important fixed, each RED before GREEN: (1) Undo after removing + adding at the cap gave 22 tiles and a false "couldn't be added" alert, so the newest adds that don't fit are now dropped with a '20 photos per spot' alert; (2) `useSpotActions.updateSpot` swallowed DB errors (edits silently reverted on relaunch), so it now reverts its own fields in the store (`revertSpotUpdate`, keeping fields a later update changed) and rethrows, the town backfills catch it, and Edit's "Couldn't save" is now reachable; (3) ✕, Undo and Delete spot are disabled while Save runs.
+- Minor fixed: PhotoGrid tiles are role `image` without `onPressPhoto`; the checked speed radio hints 'Double-tap to clear the rating.' `refactor:` 9c4c508: edit and SpotTagFields reuse `FormField`/`FormInput` (optional `label`, new `hideLabel`); `SPEED_LABELS` moved to `src/constants/labels.ts`.
+- Docs: CLAUDE.md Layout names SpeedScale/PhotoGrid/SpotTagFields and adding photos from edit; README Status describes the one-screen edit with tagging.
+- Tests 425 → 432. Verified: `check.sh` green (432), `npx jest --ci` 0 console.error, `expo export --platform ios` exit 0.
+- Next session must know: `updateSpot` from `useSpotActions` now **rejects** on a DB failure, so new background callers must catch it.
+- Proposed changes (Minor, not done, see the plan's Review rows 6–9): name the speed radiogroup for VoiceOver (check on the phone first); fold 'new' into the ✕ label; treat a failed `persistPhoto` copy as a failure (affects Quick Add and import too, so it's Michael's call); dedupe against saved photos (needs an `asset_id` column).
+
 ### 2026-10-21 · M2-06 · passes
 
 - New `docs/plans/2026-10-20-m2-what-michael-will-see.md`: edit screen top to bottom for a 5-photo tagged spot and for an empty spot (every text and accessibility label, in order), captured with `screen.toJSON()` in a temporary test (deleted; `git status` clean of `walkthrough*`).

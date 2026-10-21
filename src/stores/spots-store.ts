@@ -36,7 +36,9 @@ function applySpotUpdate(
   spot: Spot,
   { name, notes, natural_speed, primary_photo_id, ...rest }: SpotUpdate,
 ): Spot {
-  const next: Spot = { ...spot, ...rest };
+  // An undefined key keeps the stored value, as updateSpot in src/db does; only null clears.
+  const defined = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined));
+  const next: Spot = { ...spot, ...defined };
   if (name !== undefined) next.name = name ?? undefined;
   if (notes !== undefined) next.notes = notes ?? undefined;
   if (natural_speed !== undefined) next.natural_speed = natural_speed ?? undefined; // 0 is kept

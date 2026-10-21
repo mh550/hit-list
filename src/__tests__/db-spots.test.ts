@@ -169,6 +169,22 @@ describe('spots against real SQLite', () => {
       expect(await getSpotLegacy(db, s.id)).toEqual({ material: 'steel', landing_surface: 'snow_built' });
       expect(await getSpot(db, s.id)).toEqual(s);
     });
+
+    it('rejects when the archive is not JSON, so the detail screen can warn and skip Older details', async () => {
+      const s = createTestSpot({ feature_types: [FeatureType.Rail] });
+      await insertSpot(db, s);
+      await db.runAsync('UPDATE spots SET legacy_json = ? WHERE id = ?', '{"material":', s.id);
+
+      await expect(getSpotLegacy(db, s.id)).rejects.toThrow(SyntaxError);
+    });
+
+    it.each(['"oops"', '[1,2]', '3', 'null'])('returns null for an archive that is JSON but not an object (%s)', async (json) => {
+      const s = createTestSpot({ feature_types: [FeatureType.Rail] });
+      await insertSpot(db, s);
+      await db.runAsync('UPDATE spots SET legacy_json = ? WHERE id = ?', json, s.id);
+
+      expect(await getSpotLegacy(db, s.id)).toBeNull();
+    });
   });
 
   describe('timestamps are ISO 8601 UTC', () => {

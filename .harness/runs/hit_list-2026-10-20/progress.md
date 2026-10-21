@@ -12,6 +12,62 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 · verify M3
+
+All 4 features hold; no `passes` changed.
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| M3-01 | 1 | Read docs/plans/2026-10-20-m3-detail.md | Layout table in §2.4 order (grid, title, tag line, speed, notes); 'Add photos' tile → router.push('/spot/<id>/edit'); Older details collapsed by default, getSpotLegacy once on mount with deps [db,id], hidden when rows empty/null; key→label table present | yes |
+| M3-01 | 2 | Read src/utils/legacy-details.ts + src/__tests__/legacy-details.test.ts; `npx jest --ci` on it | Signature matches; test asserts sample Imperial rows in exact order (Custom type, Length '12.0 ft', Material, Removable 'Yes', Bustability '3/5', Setup options '1 option: bungee'); Metric Length '3.7 m'; 'Stop description' humanised; {} → []; 9/9 pass | yes |
+| M3-01 | 3 | `/home/mh550/projects/agent-harness/lib/check.sh`; `npx jest --ci` | check green; 43 suites, 464 tests pass; zero console.error lines in output | yes |
+| M3-02 | 1 | Read spot-detail.test.tsx 'tag line and speed' tests; ran it | Asserts Rail<Ledge<Skate stopped order, tag-stopped borderColor === palette.red[500], label 'Natural speed: Enough', text 'low'; stopped false → no text; undefined speed → no label /^Natural speed/; all pass | yes |
+| M3-02 | 2 | Read 'photos' tests | 5 media → photo-tile-0..4 in primary-first URI order, no tile-5; no media → button 'Add photos' press → push('/spot/<id>/edit'); pass | yes |
+| M3-02 | 3 | Read 'Older details' tests | {material:'steel'}: collapsed (no 'Material', expanded:false), press shows 'Material'/'steel'; null → absent; getSpotLegacy called once with (useSQLiteContext(), id), still once after store update; pass | yes |
+| M3-02 | 4 | Read 'nothing from the old model' + header tests | With disclosure open, queryByText for Feature, In-Run, Landing, Details, Draft, Type all null; Edit header test present and passes | yes |
+| M3-02 | 5 | check.sh and `npx jest --ci` | lint+tsc+jest green, 464 pass, no console.error | yes |
+| M3-03 | 1 | Read docs/plans/2026-10-20-m3-what-michael-will-see.md; `git ls-files` for stray temp test | Sections A (7 photos, 2 types, stopped, Enough, notes), B (2 photos only: grid+title), C (fullLegacy, closed then open with 16 rows) list texts/labels in order; no temp test file committed | yes |
+| M3-03 | 2 | Read the doc's Commands section; ran `npx expo export --platform ios` to a scratch dir; `npx jest --ci` | Doc records 43 suites/458 tests/0 console.error and export exit 0; I re-ran: export exit 0, now 43 suites/464 tests (6 added by M3-04 after the doc), 0 console.error | yes |
+| M3-03 | 3 | check.sh | green | yes |
+| M3-04 | 1 | Read reviews/m3.diff (1070 lines, wc) and the 'Review (M3-04)' section; `git log` bad6cb6/f3b0099 | Diff exists; findings table has severity, file, fix commit; 0 Critical/Important; RED bad6cb6 precedes GREEN f3b0099 for the behaviour fixes | yes |
+| M3-04 | 2 | Read 'Answers to the M3-04 questions' and the tests they cite | Once-per-mount: spot-detail test counts 1 call after store update+rerender; bad JSON: db-spots.test + 'warns once…' (warn called 1x, no disclosure); tag: test asserts no role/state/accessible, text present; all pass | yes |
+| M3-04 | 3 | `git log` for refactor:, grep CLAUDE.md and README.md | Commit 17efca5 'refactor:' present; CLAUDE.md Layout mentions legacy-details/formatLegacyDetails and OlderDetails calling getSpotLegacy once on mount; README Status mentions collapsed 'Older details' for pre-simplification data | yes |
+| M3-04 | 4 | check.sh and `npx jest --ci` | green, 464 pass, no console.error | yes |
+
+### 2026-10-21 · M3-04 · passes
+
+- An Opus review of the M3 diff (`reviews/m3.diff`, 1070 lines) found no Critical or Important issues. Of the 4 Minor findings, 3 are fixed, each with a RED commit `bad6cb6` before GREEN `f3b0099`:
+  - `getSpotLegacy` returns `null` for an archive that is JSON but not an object.
+  - The Older details warning fires only while the screen is mounted.
+  - The Tag VoiceOver test is stronger.
+- The review, the answers to the three questions and the refactor pass are in `docs/plans/2026-10-20-m3-detail.md` under "Review (M3-04)".
+- Refactor `17efca5`: detail and edit now share a new `AddPhotosTile` component, and there is one `isObject` (`src/utils/is-object.ts`).
+- CLAUDE.md Layout now covers the detail screen, legacy-details and `OlderDetails`' on-mount `getSpotLegacy`. README Status describes 'Older details'.
+- Tests went from 458 to 464. Verified: `check.sh` green (464); `npx jest --ci` 43 suites, 0 `console.error`.
+- Question for Michael (review finding 4, open since M3-01): small legacy widths read '0.0 m' / '0.2 ft'. Should they show in cm or inches?
+
+### 2026-10-21 · M3-03 · passes
+
+- New `docs/plans/2026-10-20-m3-what-michael-will-see.md`: ordered texts/labels for (a) 7-photo tagged spot, (b) 2-photo bare spot (grid + title only), (c) `fullLegacy` spot with Older details closed then open. Scratch test deleted; no code changed.
+- Verified: `check.sh` green; `npx jest --ci` 43 suites / 458 tests, 0 `console.error`; `expo export --platform ios` exit 0.
+- Look at on phone: width 0.05 m shows '0.1 m'; `fullLegacy` has no `raw_feature` (earlier note was wrong).
+
+### 2026-10-21 · M3-02 · passes
+
+- `app/spot/[id]/index.tsx` rewritten in §2.4 order: `PhotoGrid` (no photos → dashed 'Add photos' tile → `router.push('/spot/<id>/edit')`), title, `ChipGroup` of new read-only `Tag`s (stored type order, then 'Skate stopped' red-outlined, `testID="tag-stopped"`), `SpeedScale readonly`, notes, `OlderDetails` (getSpotLegacy once per mount, deps `[db, spotId]`; reject → one `console.warn`, no disclosure; collapsed button with `expanded` state; units from settings store). `Tag` added to `src/components/Chip.tsx` + index; `chevron.down` icon mapped. Header 'Edit' now has role button.
+- Tests 441 → 458: `spot-detail.test.tsx` rewritten (20 tests: tags/stopped/speed 0 and undefined/no roles, 5-photo grid order, Add photos, disclosure open/close, null/{} absent, once per mount across store update + rerender, rejected → warn once, Imperial→Metric live, banned texts, title-only spot, header Edit). `spot-photos.test.tsx` mocks `getSpotLegacy` and awaits the effect.
+- Verified: RED `5bc1078` (11 failing) before GREEN `1e22cc2`; `check.sh` green (458); `npx jest --ci` 43 suites, 0 `console.error`; `expo export --platform ios` exit 0.
+- Next (M3-03): scratch renders must `await act(async () => {})` after render and mock `getSpotLegacy` via `jest.mock('@/src/db', …)`; the M1 full-fat fixture includes `raw_feature` → a row labelled 'Feature' inside Older details (expected; the banned-text test uses a legacy without raw columns).
+- Builder's call (spec §10, spacing): detail content now has `spacing.lg` padding, so the hero photo is inset with rounded corners (was full-bleed 240 pt). Michael: keep inset, or go edge-to-edge?
+
+### 2026-10-21 · M3-01 · passes
+
+- New `src/utils/legacy-details.ts` (`formatLegacyDetails(legacy, units)` → `{ label, value }[]`: fixed key order, lengths via `displayLength`, 1–5 scores 'n/5', `removable` Yes/No, setup options '2 options: winch; drop in platform + 2 speed humps', unknown keys humanised, `raw_*` last, empties skipped, never throws) + `src/__tests__/legacy-details.test.ts` (9 tests, incl. the M1 full-fat fixture). `SpotLegacy` in `schema.ts` is now a `type` alias (was `interface`) so `getSpotLegacy`'s result passes as `Record<string, unknown>` without a cast. Plan: `docs/plans/2026-10-20-m3-detail.md` (layout table in §2.4 order, 'Add photos' tile → edit, Older details disclosure, key→label table, M3-02 test list).
+- Tests 432 → 441. Verified: `check.sh` green (441), `npx jest --ci` 43 suites, 0 `console.error`; RED `fb8e20e` (module missing) before GREEN `1a327ac`.
+- Next session (M3-02) must know: `getSpotLegacy` rejects on bad JSON, so the screen's effect must `.catch` (→ `console.warn`, not `error`); await the effect in every render test or the act() warning lands in `console.error`; `spot-photos.test.tsx` also renders detail (mock `getSpotLegacy` there too, `spot-photo-N` → `photo-tile-N`); read-only tags need a role-less `Tag`, not `Chip` (a checkbox).
+- Proposed change: M3-02 step 4 says the Edit header test is "existing test kept"; there is no such test today, so M3-02 should add it.
+- Questions for Michael (builder defaults taken): old enum values show lower case as stored ('steel', 'snow built'); small widths in Imperial read '0.2 ft', not inches; detail keeps the small "Notes" label.
+
 ### 2026-10-21 · verify M2
 
 Re-ran everything: `check.sh` green (432); `npx jest --ci` 42 suites / 432 tests, 0 `console.error`; `expo export --platform ios` exit 0. All 7 features hold. One nit for a later session (not a fail): the walkthrough doc says the edit photo tiles are `imagebutton` (dimmed), but since M2-07 they render role `image`; labels are all correct.

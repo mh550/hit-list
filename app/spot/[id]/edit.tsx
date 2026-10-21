@@ -21,6 +21,7 @@ import { newId } from '@/src/utils/id';
 import { Button } from '@/src/components/Button';
 import { FormInput } from '@/src/components/FormField';
 import { PhotoGrid } from '@/src/components/PhotoGrid';
+import { AddPhotosTile } from '@/src/components/AddPhotosTile';
 import { SpotTagFields, type SpotTags } from '@/src/components/SpotTagFields';
 import { palette, spacing, radius } from '@/src/constants/theme';
 import type { Media, SpotUpdate } from '@/src/types';
@@ -253,16 +254,7 @@ export default function EditSpotScreen() {
         photos={gridPhotos}
         renderBadge={renderBadge}
         trailing={
-          photoCount < MAX_PHOTOS ? (
-            <Pressable
-              style={({ pressed }) => [styles.addTile, pressed && styles.addTilePressed]}
-              onPress={handleAddPhotos}
-              disabled={saving}
-              accessibilityRole="button"
-              accessibilityLabel="Add photos">
-              <IconSymbol name="plus" size={28} color={palette.gray[500]} />
-            </Pressable>
-          ) : undefined
+photoCount < MAX_PHOTOS ? <AddPhotosTile onPress={handleAddPhotos} disabled={saving} /> : undefined
         }
       />
       {removedIds.length > 0 ? (
@@ -346,19 +338,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
     color: palette.white,
-  },
-  addTile: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    borderColor: palette.gray[300],
-    borderRadius: radius.sm,
-    borderCurve: 'continuous',
-  },
-  addTilePressed: {
-    backgroundColor: palette.gray[200],
   },
   removeBadge: {
     width: 24,

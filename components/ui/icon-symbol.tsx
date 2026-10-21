@@ -18,6 +18,7 @@ const MAPPING = {
   'paperplane.fill': 'send',
   'chevron.left.forwardslash.chevron.right': 'code',
   'chevron.right': 'chevron-right',
+  'chevron.down': 'expand-more',
   'mappin.and.ellipse': 'place',
   'person.fill': 'person',
   'mappin.slash': 'location-off',

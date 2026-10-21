@@ -1,18 +1,65 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
+import { useSQLiteContext } from 'expo-sqlite';
 import { StyleSheet, ScrollView, View, Text, Pressable } from 'react-native';
-import { Image, type ImageProps } from 'expo-image';
 
-import { useSpotsStore, useMediaStore } from '@/src/stores';
+import { getSpotLegacy, type SpotLegacy } from '@/src/db';
+import { useSpotsStore, useMediaStore, useSettingsStore } from '@/src/stores';
+import { AddPhotosTile, PhotoGrid, SpeedScale, Tag, ChipGroup } from '@/src/components';
+import { IconSymbol } from '@/components/ui/icon-symbol';
+import { FEATURE_TYPE_LABELS } from '@/src/constants/labels';
 import { getSpotDisplayName } from '@/src/utils/spot-name';
-import { resolvePhotoUri } from '@/src/utils/photo-storage';
 import { spotPhotos } from '@/src/utils/spot-photos';
-import { palette, spacing, radius } from '@/src/constants/theme';
-import type { Media } from '@/src/types';
+import { formatLegacyDetails } from '@/src/utils/legacy-details';
+import { palette, spacing } from '@/src/constants/theme';
 
-function Photo({ media, style, testID }: { media: Media; style: ImageProps['style']; testID: string }) {
+/**
+ * What the old nested model held for this spot (legacy_json), read once per mount. Collapsed by default and absent
+ * when the archive is missing, empty or unreadable.
+ */
+function OlderDetails({ spotId }: { spotId: string }) {
+  const db = useSQLiteContext();
+  const units = useSettingsStore((s) => s.units);
+  const [legacy, setLegacy] = useState<SpotLegacy | null>(null);
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    let live = true;
+    getSpotLegacy(db, spotId)
+      .then((l) => {
+        if (live) setLegacy(l);
+      })
+      .catch((e: unknown) => {
+        if (live) console.warn('Older details unreadable', spotId, e);
+      });
+    return () => {
+      live = false;
+    };
+  }, [db, spotId]);
+
+  const rows = legacy ? formatLegacyDetails(legacy, units) : [];
+  if (rows.length === 0) return null;
+
   return (
-    <Image testID={testID} source={{ uri: resolvePhotoUri(media.file_path) }} style={style} contentFit="cover" />
+    <View style={styles.older}>
+      <Pressable
+        onPress={() => setOpen((o) => !o)}
+        style={styles.olderHeader}
+        hitSlop={8}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}>
+        <Text style={styles.olderTitle}>Older details</Text>
+        <IconSymbol name={open ? 'chevron.down' : 'chevron.right'} size={14} color={palette.gray[500]} />
+      </Pressable>
+      {open
+        ? rows.map((row, i) => (
+            <View key={`${i}-${row.label}`} style={styles.olderRow}>
+              <Text style={styles.olderLabel}>{row.label}</Text>
+              <Text style={styles.olderValue}>{row.value}</Text>
+            </View>
+          ))
+        : null}
+    </View>
   );
 }
 
@@ -35,7 +82,8 @@ export default function SpotDetailScreen() {
   }
 
   const displayName = getSpotDisplayName(spot);
-  const [hero, ...rest] = spotPhotos(spot, media);
+  const photos = spotPhotos(spot, media);
+  const hasTags = spot.feature_types.length > 0 || spot.stopped;
 
   return (
     <>
@@ -43,7 +91,7 @@ export default function SpotDetailScreen() {
         options={{
           title: displayName,
           headerRight: () => (
-            <Pressable onPress={handleEdit} hitSlop={8}>
+            <Pressable onPress={handleEdit} hitSlop={8} accessibilityRole="button">
               <Text style={styles.editButton}>Edit</Text>
             </Pressable>
           ),
@@ -51,19 +99,27 @@ export default function SpotDetailScreen() {
       />
       <ScrollView
         style={styles.container}
-        contentContainerStyle={styles.contentContainer}
+        contentContainerStyle={styles.content}
         contentInsetAdjustmentBehavior="automatic">
-        {/* Photo Gallery: primary photo as hero, the rest in capture order */}
-        {hero ? <Photo media={hero} style={styles.heroImage} testID="spot-photo-0" /> : null}
-        {rest.length > 0 ? (
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.galleryRow}>
-            {rest.map((m, i) => (
-              <Photo key={m.id} media={m} style={styles.galleryThumb} testID={`spot-photo-${i + 1}`} />
-            ))}
-          </ScrollView>
-        ) : null}
+        <PhotoGrid
+          photos={photos}
+          trailing={
+photos.length === 0 ? <AddPhotosTile onPress={handleEdit} /> : undefined
+          }
+        />
 
         <Text style={styles.title}>{displayName}</Text>
+
+        {hasTags ? (
+          <ChipGroup>
+            {spot.feature_types.map((type) => (
+              <Tag key={type} label={FEATURE_TYPE_LABELS[type]} />
+            ))}
+            {spot.stopped ? <Tag label="Skate stopped" tone="stopped" testID="tag-stopped" /> : null}
+          </ChipGroup>
+        ) : null}
+
+        <SpeedScale readonly value={spot.natural_speed} />
 
         {spot.notes ? (
           <View style={styles.notes}>
@@ -71,6 +127,8 @@ export default function SpotDetailScreen() {
             <Text style={styles.notesText}>{spot.notes}</Text>
           </View>
         ) : null}
+
+        <OlderDetails key={spot.id} spotId={spot.id} />
       </ScrollView>
     </>
   );
@@ -80,8 +138,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  contentContainer: {
+  content: {
+    padding: spacing.lg,
     paddingBottom: spacing['3xl'],
+    gap: spacing.md,
   },
   centered: {
     flex: 1,
@@ -92,27 +152,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: palette.gray[500],
   },
-  heroImage: {
-    width: '100%',
-    height: 240,
-  },
-  galleryRow: {
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.sm,
-  },
-  galleryThumb: {
-    width: 88,
-    height: 88,
-    borderRadius: radius.md,
-    marginRight: spacing.sm,
-  },
   title: {
     fontSize: 24,
     fontWeight: '700',
     color: palette.gray[900],
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.sm,
   },
   editButton: {
     fontSize: 17,
@@ -120,8 +163,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   notes: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
     gap: spacing.xs,
   },
   notesLabel: {
@@ -132,5 +173,33 @@ const styles = StyleSheet.create({
     fontSize: 16,
     lineHeight: 22,
     color: palette.gray[900],
+  },
+  older: {
+    gap: spacing.sm,
+  },
+  olderHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    alignSelf: 'flex-start',
+  },
+  olderTitle: {
+    fontSize: 15,
+    color: palette.gray[500],
+  },
+  olderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: spacing.md,
+  },
+  olderLabel: {
+    fontSize: 15,
+    color: palette.gray[500],
+  },
+  olderValue: {
+    flexShrink: 1,
+    fontSize: 15,
+    color: palette.gray[900],
+    textAlign: 'right',
   },
 });

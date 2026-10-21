@@ -1,10 +1,11 @@
 export { Button } from './Button';
 export { Card, CardImage, CardContent, CardBadge, CardTitle, CardSubtitle } from './Card';
 export { SegmentedControl } from './SegmentedControl';
-export { Chip, ChipGroup } from './Chip';
+export { Chip, ChipGroup, Tag } from './Chip';
 export { FormField, FormInput } from './FormField';
 export { EmptyState } from './EmptyState';
 export { SpotListItem } from './SpotListItem';
 export { SpeedScale } from './SpeedScale';
 export { PhotoGrid } from './PhotoGrid';
+export { AddPhotosTile } from './AddPhotosTile';
 export { SpotTagFields, type SpotTags } from './SpotTagFields';

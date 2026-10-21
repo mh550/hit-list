@@ -1,4 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
+import { isObject } from '@/src/utils/is-object';
 
 export const DB_NAME = 'hit_list.db';
 
@@ -113,9 +114,10 @@ export interface SpotColumnsV3 {
 
 /**
  * What migration 3 archived from the removed fields (spec §4): the `legacy_json` of a version 3 spot, read only through
- * getSpotLegacy. Lengths in metres.
+ * getSpotLegacy. Lengths in metres. A type, not an interface, so it passes as a `Record<string, unknown>`
+ * (formatLegacyDetails).
  */
-export interface SpotLegacy {
+export type SpotLegacy = {
   custom_type?: string;
   shape?: string;
   length_m?: number;
@@ -137,15 +139,13 @@ export interface SpotLegacy {
   raw_in_run?: string;
   raw_landing?: string;
   raw_metadata?: string;
-}
+};
 
 // The feature types that survive migration 3 ('other' is gone, D19). Literal on purpose: a migration must not
 // change meaning when the app's enums do.
 const KEPT_FEATURE_TYPES = ['rail', 'ledge', 'bank', 'hip', 'stair_set', 'gap', 'wall_ride', 'quarter_pipe'];
 
 type Json = Record<string, unknown>;
-
-const isObject = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);
 
 /** Empty never reaches the archive: missing, null, blank text, an empty array, a non-finite number, `false`. */
 function isEmptyValue(v: unknown): boolean {

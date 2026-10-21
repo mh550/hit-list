@@ -1,6 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import type { FeatureType, NaturalSpeed, Spot, SpotUpdate } from '@/src/types';
 import type { SpotLegacy } from './schema';
+import { isObject } from '@/src/utils/is-object';
 
 /** A spots row as the app reads it: every column but `legacy_json`, which only getSpotLegacy reads. */
 interface SpotRow {
@@ -81,7 +82,10 @@ export async function getSpotLegacy(db: SQLiteDatabase, id: string): Promise<Spo
     'SELECT legacy_json FROM spots WHERE id = ?',
     id,
   );
-  return row?.legacy_json ? (JSON.parse(row.legacy_json) as SpotLegacy) : null;
+  if (!row?.legacy_json) return null;
+  const legacy: unknown = JSON.parse(row.legacy_json);
+  // Migration 3 only writes objects; anything else would read as rows labelled '0', '1'… in Older details.
+  return isObject(legacy) ? (legacy as SpotLegacy) : null;
 }
 
 export async function updateSpot(

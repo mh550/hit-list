@@ -327,7 +327,7 @@
         "The file records npx jest --silent totals and npx expo export --platform ios --output-dir /tmp/hl-export exit 0 with the bundle size.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M4-07",

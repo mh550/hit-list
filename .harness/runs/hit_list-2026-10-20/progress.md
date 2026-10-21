@@ -12,6 +12,13 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 15:50 · M4-06 · passes
+
+- New `docs/plans/2026-10-20-m4-what-michael-will-see.md`: the viewer tree (7 photos at index 2, then after a swipe to page 6), the detail tile that opens it, a "Try on the phone" checklist (all gestures, expected results, and a note that none ran on a device), and the totals.
+- Rendered with two temporary tests (deleted before commit; `git status` clean of them). No code changed.
+- Verified: `npx jest --silent` 46 suites / 520 tests; `expo export --platform ios` (scratch dir) exit 0, bundle 4,240,251 B; `check.sh` green.
+- Next: M4 is done. Questions for Michael: none new.
+
 ### 2026-10-21 15:20 · M4-05 · passes
 
 - Long-pressing a viewer page opens an Alert: 'Set as primary', 'Remove photo' (red) or 'Cancel'. 'Remove photo' asks 'Remove this photo?' first. The photo in its place is shown next (the next one, or the previous one at the end), and it becomes the primary if the removed one was. Removing the last photo closes the viewer. Files: `ZoomablePhoto.tsx` (LongPress gesture `Exclusive` with the double tap, 149 lines), `photos.tsx`, `gallery-gestures.ts` (`LONG_PRESS_MS` 500).

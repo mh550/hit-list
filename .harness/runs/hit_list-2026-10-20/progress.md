@@ -12,6 +12,14 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 · M3-01 · passes
+
+- New `src/utils/legacy-details.ts` (`formatLegacyDetails(legacy, units)` → `{ label, value }[]`: fixed key order, lengths via `displayLength`, 1–5 scores 'n/5', `removable` Yes/No, setup options '2 options: winch; drop in platform + 2 speed humps', unknown keys humanised, `raw_*` last, empties skipped, never throws) + `src/__tests__/legacy-details.test.ts` (9 tests, incl. the M1 full-fat fixture). `SpotLegacy` in `schema.ts` is now a `type` alias (was `interface`) so `getSpotLegacy`'s result passes as `Record<string, unknown>` without a cast. Plan: `docs/plans/2026-10-20-m3-detail.md` (layout table in §2.4 order, 'Add photos' tile → edit, Older details disclosure, key→label table, M3-02 test list).
+- Tests 432 → 441. Verified: `check.sh` green (441), `npx jest --ci` 43 suites, 0 `console.error`; RED `fb8e20e` (module missing) before GREEN `1a327ac`.
+- Next session (M3-02) must know: `getSpotLegacy` rejects on bad JSON, so the screen's effect must `.catch` (→ `console.warn`, not `error`); await the effect in every render test or the act() warning lands in `console.error`; `spot-photos.test.tsx` also renders detail (mock `getSpotLegacy` there too, `spot-photo-N` → `photo-tile-N`); read-only tags need a role-less `Tag`, not `Chip` (a checkbox).
+- Proposed change: M3-02 step 4 says the Edit header test is "existing test kept"; there is no such test today, so M3-02 should add it.
+- Questions for Michael (builder defaults taken): old enum values show lower case as stored ('steel', 'snow built'); small widths in Imperial read '0.2 ft', not inches; detail keeps the small "Notes" label.
+
 ### 2026-10-21 · verify M2
 
 Re-ran everything: `check.sh` green (432); `npx jest --ci` 42 suites / 432 tests, 0 `console.error`; `expo export --platform ios` exit 0. All 7 features hold. One nit for a later session (not a fail): the walkthrough doc says the edit photo tiles are `imagebutton` (dimmed), but since M2-07 they render role `image`; labels are all correct.

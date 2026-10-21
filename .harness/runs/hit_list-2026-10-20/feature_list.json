@@ -198,7 +198,7 @@
         "src/utils/legacy-details.ts exports formatLegacyDetails(legacy: Record<string, unknown>, units: UnitSystem): { label: string; value: string }[]; src/__tests__/legacy-details.test.ts passes: { material: 'steel', length_m: 3.6576, bustability: 3, removable: true, setup_options: [{ requires: [{ item: 'bungee', category: 'gear' }] }], custom_type: 'curved rail' } with Imperial gives rows in order Custom type 'curved rail', Length '12.0 ft', Material 'steel', Removable 'Yes', Bustability '3/5', Setup options '1 option: bungee'; with Metric the length row is '3.7 m'; an unknown key is rendered with its key humanised ('stop_description' → 'Stop description'); an empty object gives [].",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M3-02",

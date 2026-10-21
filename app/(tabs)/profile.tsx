@@ -5,6 +5,7 @@ import { useSettingsStore } from '@/src/stores/settings-store';
 import { useSettingsActions } from '@/src/hooks/use-settings-actions';
 import { palette, spacing, radius } from '@/src/constants/theme';
 import { UnitSystem } from '@/src/types';
+import { radiusFromInput, radiusToDisplay, radiusUnitLabel } from '@/src/utils/units';
 
 function SectionHeader({ title }: { title: string }) {
   return <Text style={styles.sectionHeader}>{title}</Text>;
@@ -15,15 +16,22 @@ export default function ProfileScreen() {
   const batchRadius = useSettingsStore((s) => s.batch_import_radius);
   const { setUnits, setBatchImportRadius } = useSettingsActions();
 
-  const [radiusText, setRadiusText] = useState(String(batchRadius));
+  // D23: the radius is stored in metres; the field shows it in the user's unit. `draft` holds the text only while
+  // the user is typing, so a units switch or a store update re-renders the field from the stored metres.
+  const [draft, setDraft] = useState<string | null>(null);
+  const radiusText = draft ?? String(radiusToDisplay(batchRadius, units));
 
-  const handleRadiusBlur = () => {
-    const parsed = parseInt(radiusText, 10);
-    if (!isNaN(parsed) && parsed > 0) {
-      setBatchImportRadius(parsed);
-    } else {
-      setRadiusText(String(batchRadius));
-    }
+  const commitRadius = () => {
+    if (draft === null) return;
+    setDraft(null);
+    const radiusMeters = radiusFromInput(draft, units);
+    if (radiusMeters !== null && radiusMeters !== batchRadius) setBatchImportRadius(radiusMeters);
+  };
+
+  // Taps keep the keyboard up (keyboardShouldPersistTaps), so text typed in one unit is saved before the switch.
+  const switchUnits = (next: UnitSystem) => {
+    commitRadius();
+    setUnits(next);
   };
 
   return (
@@ -35,7 +43,7 @@ export default function ProfileScreen() {
       <View style={styles.unitsRow}>
         <Pressable
           style={[styles.unitButton, units === UnitSystem.Imperial && styles.unitButtonActive]}
-          onPress={() => setUnits(UnitSystem.Imperial)}
+          onPress={() => switchUnits(UnitSystem.Imperial)}
           accessibilityRole="button"
           accessibilityState={{ selected: units === UnitSystem.Imperial }}>
           <Text
@@ -45,7 +53,7 @@ export default function ProfileScreen() {
         </Pressable>
         <Pressable
           style={[styles.unitButton, units === UnitSystem.Metric && styles.unitButtonActive]}
-          onPress={() => setUnits(UnitSystem.Metric)}
+          onPress={() => switchUnits(UnitSystem.Metric)}
           accessibilityRole="button"
           accessibilityState={{ selected: units === UnitSystem.Metric }}>
           <Text
@@ -57,19 +65,19 @@ export default function ProfileScreen() {
 
       <SectionHeader title="Import Settings" />
       <View style={styles.field}>
-        <Text style={styles.fieldLabel}>Import Radius</Text>
+        <Text style={styles.fieldLabel}>Import radius · {radiusUnitLabel(units)}</Text>
         <Text style={styles.fieldHint}>
           Photos this close together import as one spot, and a new spot this close to one you have offers to join it.
         </Text>
         <TextInput
           style={styles.input}
           value={radiusText}
-          onChangeText={setRadiusText}
-          onBlur={handleRadiusBlur}
+          onChangeText={setDraft}
+          onBlur={commitRadius}
           keyboardType="number-pad"
           returnKeyType="done"
-          onSubmitEditing={handleRadiusBlur}
-          accessibilityLabel="Import radius in meters"
+          onSubmitEditing={commitRadius}
+          accessibilityLabel={units === UnitSystem.Imperial ? 'Import radius in feet' : 'Import radius in metres'}
         />
       </View>
     </ScrollView>

@@ -1,8 +1,9 @@
 import React from 'react';
-import { render, screen, fireEvent } from '@testing-library/react-native';
+import { act, render, screen, fireEvent } from '@testing-library/react-native';
 import ProfileScreen from '@/app/(tabs)/profile';
 import { useSettingsStore } from '@/src/stores/settings-store';
 import { UnitSystem } from '@/src/types';
+import { saveUserSettings } from '@/src/db';
 
 jest.mock('expo-sqlite', () => ({
   useSQLiteContext: () => ({
@@ -54,9 +55,67 @@ describe('ProfileScreen', () => {
     expect(useSettingsStore.getState().units).toBe(UnitSystem.Metric);
   });
 
-  it('renders batch import radius field', () => {
+  it('shows the 50 m default radius in feet for Imperial (D23)', () => {
     render(<ProfileScreen />);
-    expect(screen.getByText('Import Radius')).toBeTruthy();
+    expect(screen.getByText('Import radius · ft')).toBeTruthy();
+    expect(screen.getByLabelText('Import radius in feet').props.value).toBe('164');
+  });
+
+  it('re-renders the radius in metres after switching to Metric', () => {
+    render(<ProfileScreen />);
+    fireEvent.press(screen.getByText('Metric'));
+    expect(screen.getByText('Import radius · m')).toBeTruthy();
+    expect(screen.queryByText('Import radius · ft')).toBeNull();
+    expect(screen.getByLabelText('Import radius in metres').props.value).toBe('50');
+  });
+
+  it('stores typed feet as metres on blur', async () => {
+    render(<ProfileScreen />);
+    const field = screen.getByLabelText('Import radius in feet');
+    fireEvent.changeText(field, '328');
+    await act(async () => {
+      fireEvent(field, 'blur');
+    });
+    expect(useSettingsStore.getState().batch_import_radius).toBe(100);
+    expect(saveUserSettings).toHaveBeenLastCalledWith(expect.anything(), {
+      units: UnitSystem.Imperial,
+      batch_import_radius: 100,
+    });
+    expect(screen.getByLabelText('Import radius in feet').props.value).toBe('328');
+  });
+
+  it('restores the previous value on blur after invalid text', async () => {
+    jest.mocked(saveUserSettings).mockClear();
+    render(<ProfileScreen />);
+    const field = screen.getByLabelText('Import radius in feet');
+    fireEvent.changeText(field, 'abc');
+    await act(async () => {
+      fireEvent(field, 'blur');
+    });
+    expect(screen.getByLabelText('Import radius in feet').props.value).toBe('164');
+    expect(useSettingsStore.getState().batch_import_radius).toBe(50);
+    expect(saveUserSettings).not.toHaveBeenCalled();
+  });
+
+  it('saves feet typed before a switch to Metric as feet', async () => {
+    render(<ProfileScreen />);
+    fireEvent.changeText(screen.getByLabelText('Import radius in feet'), '328');
+    await act(async () => {
+      fireEvent.press(screen.getByText('Metric'));
+    });
+    expect(useSettingsStore.getState().batch_import_radius).toBe(100);
+    expect(screen.getByLabelText('Import radius in metres').props.value).toBe('100');
+  });
+
+  it('leaves the stored metres alone when the field is blurred unchanged', async () => {
+    jest.mocked(saveUserSettings).mockClear();
+    render(<ProfileScreen />);
+    const field = screen.getByLabelText('Import radius in feet');
+    await act(async () => {
+      fireEvent(field, 'blur');
+    });
+    expect(useSettingsStore.getState().batch_import_radius).toBe(50);
+    expect(saveUserSettings).not.toHaveBeenCalled();
   });
 
   it('explains that the radius also drives the nearby-spot offer (D25)', () => {

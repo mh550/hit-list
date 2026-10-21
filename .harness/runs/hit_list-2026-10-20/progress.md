@@ -12,6 +12,15 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 14:40 · M7-01 · passes
+
+- D23 built: `src/utils/units.ts` gains `radiusToDisplay` (50 m → 164 ft / 50 m, 30 → 98), `radiusFromInput` (Imperial '164' → 50, '100' → 30, '328' → 100; '', '0', '-5', 'abc' → null; a positive input never becomes 0 m, '1' ft → 1 m) and `radiusUnitLabel`.
+- Profile (`app/(tabs)/profile.tsx`): label 'Import radius · ft|m', accessibilityLabel 'Import radius in feet|metres'; the field shows the stored metres and keeps a draft only while typing, so a units switch re-renders it (164 ↔ 50). Blur unchanged or with the same metres saves nothing (no drift); invalid text restores the display; text typed before tapping Metric/Imperial is saved in the unit it was typed in.
+- Import (`app/import/index.tsx`): '(within 164 ft)' / '(within 50 m)'; `groupPhotosByProximity` still gets 50 (metres).
+- Tests 634 → 648 (`utils.test.ts` +6 incl. a 1–500 m round-trip, `profile.test.tsx` +6 net, new `import-screen.test.tsx` 3). The switch-before-blur test fails with the commit removed. `check.sh` green (648), `jest --ci` 0 console.error, the step-4 grep prints nothing.
+- Next (M7-02): `docs/plans/2026-10-20-m7-radius.md` does not exist yet; the reviewer's round-trip question is already covered by 'leaves the stored metres alone when the field is blurred unchanged' and the 1–500 m round-trip test. The profile test checks setBatchImportRadius(100) through the store and `saveUserSettings`, not a spy on the hook.
+- Questions for Michael: none new (§9 Q10 / Q11 still open).
+
 ### 2026-10-21 verify M6
 
 | Feature | Step | What you ran or read | What you saw | Holds |

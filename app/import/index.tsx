@@ -6,11 +6,13 @@ import * as ImagePicker from 'expo-image-picker';
 import { useSettingsStore } from '@/src/stores/settings-store';
 import { importPhotoFromAsset } from '@/src/utils/exif';
 import { groupPhotosByProximity } from '@/src/utils/import-clustering';
+import { radiusToDisplay, radiusUnitLabel } from '@/src/utils/units';
 import { palette, spacing, radius } from '@/src/constants/theme';
 
 export default function ImportScreen() {
   const router = useRouter();
   const batchRadius = useSettingsStore((s) => s.batch_import_radius);
+  const units = useSettingsStore((s) => s.units);
   const [loading, setLoading] = useState(false);
 
   const handleSelectPhotos = useCallback(async () => {
@@ -48,7 +50,7 @@ export default function ImportScreen() {
       <Text style={styles.title}>Import Photos</Text>
       <Text style={styles.subtitle}>
         Select photos from your library. Photos taken at the same spot will be grouped together
-        (within {batchRadius}m).
+        (within {radiusToDisplay(batchRadius, units)} {radiusUnitLabel(units)}).
       </Text>
 
       {loading ? (

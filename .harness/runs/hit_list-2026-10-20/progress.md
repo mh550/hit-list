@@ -12,6 +12,46 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 · verify M1
+
+All 5 features re-run; nothing failed. 33 steps hold.
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| M1-01 | 1 | Read docs/plans/2026-10-20-m1-model.md headings and SQL | Sections Final types, Migration 3 (5 ALTERs, JS backfill, rebuild without 5 columns, idx_spots_deleted_at recreated, DROP removes idx_spots_status), Legacy keys (16, empty/status/is_stopped rules), Two-step type change, Test file plan (20 rows counted) | yes |
+| M1-01 | 2 | Read plan 'v2 fixture' section | Full-fat spot (curved rail, 2 setup options, status draft, speed 4) and empty spot with expected values (feature_types [], stopped true, speed 3, notes hello, legacy object); media rows stated | yes |
+| M1-01 | 3 | Read plan 'FEATURE_TYPE_LABELS' section | Names src/constants/labels.ts replacing STOP_TYPE_LABELS, and removal of FilterSheet/edit private TYPE_LABELS | yes |
+| M1-01 | 4 | check.sh; `npx jest --ci` | green, 366 tests; export exit 0 | yes |
+| M1-02 | 1 | Read src/types/index.ts, factories.ts | NaturalSpeed 0..4; Spot new fields; SpotUpdate nulls; factory feature_types [] stopped false (old fields since removed in M1-04, as designed) | yes |
+| M1-02 | 2 | `grep MIGRATIONS schema.ts`; `git diff 782ff8d..HEAD -- src/db/schema.ts` | 3 migrations, LATEST=3; diff only 1 removed line (the MIGRATIONS line), rest additions | yes |
+| M1-02 | 3 | jest verbose db-migrate.test.ts | full-fat, rail, empty, v1→2→3, idempotent, media+FK check, dropped columns/index cases all pass | yes |
+| M1-02 | 4 | jest verbose db-spots.test.ts; read spots.ts SPOT_COLUMNS | round trip, natural_speed 0, null clears, getSpotLegacy null/object all pass; no legacy_json in getSpot(s) | yes |
+| M1-02 | 5 | jest stores.test.ts | 'null clears notes and natural_speed' and 'natural_speed 0 is kept' pass | yes |
+| M1-02 | 6 | grep feature_json|in_run_json|landing_json|metadata_json outside schema.ts; db-init/foreign-keys/use-spot-actions/db-settings run in full suite | grep prints nothing; suite green | yes |
+| M1-02 | 7 | `npx jest --ci | grep -c console.error`; check.sh | 0 console.error; lint/tsc/jest green | yes |
+| M1-03 | 1 | Both greps (gear/status/intensity names; 'Draft') | Both print nothing | yes |
+| M1-03 | 2 | Read src/types/index.ts | SortField 3 members; UserSettings {units,batch_import_radius}; SpotFilters final shape; DEFAULT_FILTERS {types: []}; no Requirement/SetupOption | yes |
+| M1-03 | 3 | jest db-settings.test.ts | 'drops the gear key an older build saved' and round-trip pass | yes |
+| M1-03 | 4 | jest stores.test.ts | 'counts types, stopped and the speed range: 3', 0 for defaults, stopped true/false filters pass | yes |
+| M1-03 | 5 | jest spots-sort-search.test.tsx | 'orders the chips Distance, Date, Name' passes; no Intensity case (grep clean) | yes |
+| M1-03 | 6 | jest profile.test.tsx, filter-sheet.test.tsx | 'has no My Gear section' and 'has no gear, build or drafts filter' pass | yes |
+| M1-03 | 7 | jest review-persist.test.tsx, screens.test.tsx; grep 'Save' | Quick Add button 'Save'; Quick Add and Import save untagged, not stopped, no status; pass | yes |
+| M1-03 | 8 | jest spot-list/components/spot-map tests | 'never shows a status badge', 'every pin the one spot colour', 'callout description empty' pass | yes |
+| M1-03 | 9 | check.sh, full jest | green, 0 console.error | yes |
+| M1-04 | 1 | Read types; grep removed-model words outside schema.ts | Spot is exactly spec shape, 8 FeatureTypes; grep prints nothing | yes |
+| M1-04 | 2 | ls deleted components; grep STOP_TYPE_LABELS; read labels.ts, units.ts | StarRating/RatingBadge gone, not exported; FEATURE_TYPE_LABELS 8 labels; units.ts only displayLength | yes |
+| M1-04 | 3 | Read spot-name.ts; jest spot-name.test.ts | featureTypesLabel correct; Rail, Rail +1, undefined cases pass (Stair set +2 follows the same code path) | yes |
+| M1-04 | 4 | jest stores.test.ts | 'types is any-of against feature_types'; speed range keeps unrated, treats 0 as real; pass | yes |
+| M1-04 | 5 | ls deleted tests; jest edit-spot-name, edit-remove-photo, 'Save writes only the name and updated_at' | 3 files absent; tests pass | yes |
+| M1-04 | 6 | Read spot-detail.test.tsx; jest | finds 'under the bridge'; no 'Notes' without notes; exact text list passes | yes |
+| M1-04 | 7 | jest filter-sheet ('exactly the eight chips'), spot-list, components; grep SpotListItem, tabs/index | eight chips; no difficulty/isDraft; featureType={featureTypesLabel(item)}; no RatingBadge cases | yes |
+| M1-04 | 8 | check.sh; `npx expo export --platform ios --output-dir /tmp/hl-export` | green; export exit 0; 0 console.error | yes |
+| M1-05 | 1 | ls reviews/m1.diff (190 KB); read plan '## Review (M1-05)' | diff file exists; Review has severity table with file:line and fix commits | yes |
+| M1-05 | 2 | git log/show: 95f93b4 (tests) before b99c7cd (fix); e9a4ad7 (test) before 719b747; db-migrate 'throw late in migration 3' test; stores/db-spots tests | RED precedes GREEN; rollback, speed 0 and getSpots written answers present and backed by passing tests | yes |
+| M1-05 | 3 | git show --stat 4a695a1 | 'refactor:' commit of its own; plan lists unused-style/import/TYPE_LABELS checks (lint clean, no TYPE_LABELS copies) | yes |
+| M1-05 | 4 | grep draft|gear|intensity|rating|yellow in CLAUDE.md README.md RUNNING-ON-PHONE.md; read lines 30-44 | no hits; docs describe feature_types/stopped/natural_speed/notes/legacy_json/getSpotLegacy; blue pins, no Draft badge | yes |
+| M1-05 | 5 | check.sh; full jest | green; 0 console.error | yes |
+
 ### 2026-10-21 · M1-04 · passes
 
 - Fixed the one failing step (1) from verify-M1. `SpotLegacy` moved from `src/types/index.ts` into `src/db/schema.ts`, next to migration 3, which writes it (it is exported from `src/db`, and `spots.ts` imports it from `./schema`). The v2 test rows (full-fat, empty, and two inline values) moved out of `db-migrate.test.ts` into the data file `src/__tests__/fixtures/v2-spots.json`. The spot-detail test "none of the removed sections" now asserts the exact visible text `['Pier 57', 'Notes', 'under the bridge']`, which is stricter than the old four-title check. Tests 366 → 366. Plan and CLAUDE.md now name the new locations.

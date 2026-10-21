@@ -256,7 +256,7 @@
         "npx expo export --platform ios --output-dir /tmp/hl-export exits 0 after the wiring; the plan records the bundle size before and after.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M4-02",

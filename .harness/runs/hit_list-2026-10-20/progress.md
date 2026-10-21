@@ -12,6 +12,17 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 12:40 · M4-01 · passes
+
+- `app/_layout.tsx`: the outermost element is now `GestureHandlerRootView` (flex 1), around `ThemeProvider`. `jest.setup.ts` imports `react-native-gesture-handler/jestSetup` and adds a `react-native-worklets` mock. The reanimated mock is unchanged.
+- Found while wiring: the existing reanimated mock **could not load** under reanimated 4.5. It imports worklets, whose native module throws in Jest (`loadUnpackers` of undefined). It never showed up because no test imported reanimated. The worklets mock fixes it.
+- New `src/__tests__/root-layout.test.tsx` (2 tests): RootLayout has one flex-1 root wrapping the Stack, and a Tap gesture fires through `fireGestureHandler`. Both failed without the jestSetup import. Tests went from 464 to 466.
+- New `docs/plans/2026-10-20-m4-viewer.md` covers the route, the FlatList pager and why, the `ZoomablePhoto` gesture composition, the `gallery-gestures.ts` signatures, the long-press `Alert.alert`, the 150-line fallback rule and the test table.
+- Verified: `check.sh` green (466). `npx jest --ci` shows 0 `console.error`. `expo export --platform ios` exited 0 both before and after. The bundle went from 4,060,375 B to 4,215,187 B (+151 KB, gesture-handler).
+- Next (M4-02): `focalZoom` in the plan takes a 4th `viewport` argument for the centre. Mark the pure functions `'worklet'` and normalise `-0` to `0`.
+- Question for Michael: D29 *default* (spec §9 Q9). After 'Set as primary', the viewer keeps its order while open, so the photo does not jump to page 1. OK?
+- Question for Michael: when zoomed, `clampPan` limits panning by the screen size, not the photo's, so a letterboxed photo's black bars can pan into view. Fine for now?
+
 ### 2026-10-21 · verify M3
 
 All 4 features hold; no `passes` changed.

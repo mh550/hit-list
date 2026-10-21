@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import {
   StyleSheet,
   View,
@@ -42,11 +42,13 @@ export default function ImportReviewScreen() {
   const router = useRouter();
   const { addSpot, updateSpot } = useSpotActions();
   const { savePhotos } = useMediaActions();
+  // The ref stops a second press that lands before the re-render; the state greys and locks the screen.
+  const savingRef = useRef(false);
   const [saving, setSaving] = useState(false);
   const spots = useSpotsStore((s) => s.spots);
   const mediaBySpot = useMediaStore((s) => s.mediaBySpot);
   const importRadius = useSettingsStore((s) => s.batch_import_radius);
-  const imperial = useSettingsStore((s) => s.units) === UnitSystem.Imperial;
+  const imperial = useSettingsStore((s) => s.units === UnitSystem.Imperial);
 
   const parsedGroups: ImportPhoto[][] = groupsJson ? JSON.parse(groupsJson) : [];
   const [groups, setGroups] = useState<SpotGroup[]>(() =>
@@ -146,7 +148,8 @@ export default function ImportReviewScreen() {
   );
 
   const handleImportAll = useCallback(async () => {
-    if (saving || groups.length === 0) return;
+    if (savingRef.current || groups.length === 0) return;
+    savingRef.current = true;
     setSaving(true);
 
     // Decided up front so the parallel writes never race on primary_photo_id: of the groups going to a spot with no
@@ -166,6 +169,7 @@ export default function ImportReviewScreen() {
           : addToExisting(group, group.target, primarySetBy.get(group.target) === group),
       ),
     );
+    savingRef.current = false;
     setSaving(false);
 
     // Only what was not saved stays on screen, aimed at the spot it was going to (a new spot already exists by now), so
@@ -182,7 +186,7 @@ export default function ImportReviewScreen() {
       return;
     }
     router.dismissAll();
-  }, [saving, groups, spots, mediaBySpot, createSpot, addToExisting, router]);
+  }, [groups, spots, mediaBySpot, createSpot, addToExisting, router]);
 
   if (parsedGroups.length === 0) {
     return (
@@ -239,6 +243,7 @@ export default function ImportReviewScreen() {
                     label="New spot"
                     role="button"
                     selected={group.target === undefined}
+                    disabled={saving}
                     onPress={() => setTarget(groupIdx, undefined)}
                   />
                   {offers[groupIdx].choices.map((spot) => (
@@ -247,6 +252,7 @@ export default function ImportReviewScreen() {
                       label={`Add photos to ${getSpotDisplayName(spot)}`}
                       role="button"
                       selected={group.target === spot.id}
+                      disabled={saving}
                       onPress={() => setTarget(groupIdx, spot.id)}
                     />
                   ))}
@@ -260,13 +266,19 @@ export default function ImportReviewScreen() {
                 style={styles.nameInput}
                 value={group.name}
                 onChangeText={(t) => updateName(groupIdx, t)}
+                editable={!saving}
                 placeholder="Spot name (optional)"
                 placeholderTextColor={palette.gray[400]}
                 returnKeyType="done"
               />
             )}
 
-            <Pressable onPress={() => removeGroup(groupIdx)} hitSlop={8} style={styles.removeRow}>
+            <Pressable
+              onPress={() => removeGroup(groupIdx)}
+              disabled={saving}
+              hitSlop={8}
+              style={styles.removeRow}
+              accessibilityRole="button">
               <Text style={styles.removeText}>Remove</Text>
             </Pressable>
           </View>
@@ -284,7 +296,7 @@ export default function ImportReviewScreen() {
           disabled={saving}
           accessibilityRole="button">
           {saving ? (
-            <ActivityIndicator color={palette.white} />
+            <ActivityIndicator color={palette.white} accessibilityLabel="Importing" />
           ) : (
             <Text style={styles.importButtonText}>
               {allToExisting

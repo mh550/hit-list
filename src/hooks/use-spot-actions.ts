@@ -33,7 +33,10 @@ export function useSpotActions() {
     [db, storeUpdateSpot, storeRevertSpotUpdate],
   );
 
-  /** Adds the spot, then (in the background) stores its town for the untitled label (D4). */
+  /**
+   * Adds the spot, then (in the background) stores its town for the untitled label (D4). A failed insert takes the
+   * spot back out of the store and rejects: photos saved to a spot the DB never got would all fail their foreign key.
+   */
   const addSpot = useCallback(
     async (spot: Spot) => {
       storeAddSpot(spot);
@@ -41,6 +44,8 @@ export function useSpotActions() {
         await insertSpot(db, spot);
       } catch (err) {
         console.error('[useSpotActions] insertSpot failed:', err);
+        storeRemoveSpot(spot.id);
+        throw err;
       }
       void geocodeTown(spot.location)
         .then(async (town) => {
@@ -48,7 +53,7 @@ export function useSpotActions() {
         })
         .catch(() => {}); // updateSpot logged it; the backfill retries next launch
     },
-    [db, storeAddSpot, updateSpot],
+    [db, storeAddSpot, storeRemoveSpot, updateSpot],
   );
 
   const removeSpot = useCallback(

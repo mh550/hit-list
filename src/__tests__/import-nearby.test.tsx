@@ -297,7 +297,7 @@ describe("Import review: a group near an existing spot offers 'Add photos to <na
 
   it('locks the choices, names and Remove while importing', async () => {
     let finish: () => void = () => {};
-    mockSavePhotos.mockImplementation(
+    mockSavePhotos.mockImplementationOnce(
       (photos) =>
         new Promise((resolve) => {
           finish = () => resolve(photos.map(({ sourceUri, ...fields }) => ({ ...fields, file_path: sourceUri })));
@@ -306,6 +306,7 @@ describe("Import review: a group near an existing spot offers 'Add photos to <na
     setGroups([groupA]);
     render(<ImportReview />);
     fireEvent.press(screen.getByText('Import 1 Spot'));
+    await waitFor(() => expect(mockSavePhotos).toHaveBeenCalled());
 
     expect(choice('New spot')).toBeDisabled();
     expect(choice('Add photos to Library Rail')).toBeDisabled();

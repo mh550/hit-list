@@ -1,4 +1,4 @@
-import { useCallback, useState, useMemo } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { StyleSheet, View, Text, ScrollView, TextInput, Pressable, Alert } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Image } from 'expo-image';
@@ -33,34 +33,77 @@ export default function ReviewScreen() {
   // Tags stay behind 'Add details' so the fast path is photo → Save (spec §2.7).
   const [showDetails, setShowDetails] = useState(false);
   const [tags, setTags] = useState<SpotTags>({ feature_types: [], stopped: false });
-  // Shared by Save and 'Add photos there': whichever is pressed first runs, once.
+  // Shared by Save and 'Add photos there': whichever is pressed first runs, once. The ref also stops a second press
+  // that lands before the re-render; the state greys the buttons.
+  const savingRef = useRef(false);
   const [saving, setSaving] = useState(false);
+  // Only photos not yet saved stay on screen; once Save has created its spot, a retry adds them there (as D31).
+  const [photoUris, setPhotoUris] = useState(() => (params.photoUris ? params.photoUris.split(',') : []));
+  const [createdId, setCreatedId] = useState<string>();
   const spots = useSpotsStore((s) => s.spots);
   const mediaBySpot = useMediaStore((s) => s.mediaBySpot);
   const importRadius = useSettingsStore((s) => s.batch_import_radius);
-  const imperial = useSettingsStore((s) => s.units) === UnitSystem.Imperial;
+  const imperial = useSettingsStore((s) => s.units === UnitSystem.Imperial);
 
-  const photoUris = useMemo(
-    () => (params.photoUris ? params.photoUris.split(',') : []),
-    [params.photoUris],
-  );
   const latitude = params.latitude ? parseFloat(params.latitude) : NO_LOCATION.latitude;
   const longitude = params.longitude ? parseFloat(params.longitude) : NO_LOCATION.longitude;
   const hasLocation = isKnownLocation({ latitude, longitude });
   // D25: a spot already this close might be the same one, so offer to add the photos to it instead.
   const nearby = useMemo(
-    () => nearbySpots({ latitude, longitude }, spots, importRadius).slice(0, MAX_NEARBY),
-    [latitude, longitude, spots, importRadius],
+    () =>
+      photoUris.length === 0
+        ? []
+        : nearbySpots({ latitude, longitude }, spots, importRadius)
+            .filter((s) => s.id !== createdId)
+            .slice(0, MAX_NEARBY),
+    [photoUris.length, latitude, longitude, spots, importRadius, createdId],
   );
 
-  const failed = useCallback(() => {
-    setSaving(false);
-    Alert.alert("Couldn't save the photos", 'Please try again.');
-  }, []);
-
-  const handleSave = useCallback(async () => {
-    if (saving) return;
+  const start = () => {
+    if (savingRef.current) return false;
+    savingRef.current = true;
     setSaving(true);
+    return true;
+  };
+
+  const fail = (title: string, message: string) => {
+    savingRef.current = false;
+    setSaving(false);
+    Alert.alert(title, message);
+  };
+
+  /**
+   * Saves the photos still on screen to `spotId`. savePhotos logs a failed row and leaves it out rather than
+   * throwing, so whatever it did not save stays on screen with an Alert, and `ok` is false.
+   */
+  const saveTo = async (spotId: string, firstId: string = newId()) => {
+    const now = new Date().toISOString();
+    const ids = photoUris.map((_, i) => (i === 0 ? firstId : newId()));
+    const saved = await savePhotos(
+      photoUris.map((uri, i) => ({
+        sourceUri: uri,
+        id: ids[i],
+        spot_id: spotId,
+        location: hasLocation ? { latitude, longitude } : undefined,
+        created_at: now,
+      })),
+    );
+    const savedIds = new Set(saved.map((m) => m.id));
+    const unsaved = photoUris.filter((_, i) => !savedIds.has(ids[i]));
+    if (unsaved.length > 0) {
+      setPhotoUris(unsaved);
+      fail("Some photos weren't saved", 'The photos still shown were not saved. Please try again.');
+    }
+    return { saved, ok: unsaved.length === 0 };
+  };
+
+  const handleSave = async () => {
+    if (!start()) return;
+
+    if (createdId) {
+      if ((await saveTo(createdId)).ok) router.dismissAll();
+      return;
+    }
 
     const now = new Date().toISOString();
     const spotId = newId();
@@ -78,56 +121,33 @@ export default function ReviewScreen() {
 
     try {
       await addSpot(spot);
-
-      await savePhotos(
-        photoUris.map((uri, i) => ({
-          sourceUri: uri,
-          id: i === 0 ? firstPhotoId! : newId(),
-          spot_id: spotId,
-          location: hasLocation ? { latitude, longitude } : undefined,
-          created_at: now,
-        })),
-      );
     } catch {
-      failed();
+      fail("Couldn't save the spot", 'Please try again.');
       return;
     }
 
+    if (!(await saveTo(spotId, firstPhotoId)).ok) {
+      setCreatedId(spotId);
+      return;
+    }
     router.dismissAll();
-  }, [saving, name, tags, latitude, longitude, photoUris, addSpot, savePhotos, router, hasLocation, failed]);
+  };
 
   /** Adds the photos to an existing spot and opens it; the name and tags typed here are dropped (D30). */
-  const handleAddTo = useCallback(
-    async (target: Spot) => {
-      if (saving) return;
-      setSaving(true);
+  const handleAddTo = async (target: Spot) => {
+    if (!start()) return;
 
-      const now = new Date().toISOString();
-      const hadPhoto = primaryPhoto(target, mediaBySpot[target.id]) !== undefined;
-      try {
-        const saved = await savePhotos(
-          photoUris.map((uri) => ({
-            sourceUri: uri,
-            id: newId(),
-            spot_id: target.id,
-            location: hasLocation ? { latitude, longitude } : undefined,
-            created_at: now,
-          })),
-        );
-        if (!hadPhoto && saved.length > 0) {
-          // A failed write was logged and rolled back by updateSpot; the spot still shows its first photo.
-          await updateSpot(target.id, { primary_photo_id: saved[0].id }).catch(() => {});
-        }
-      } catch {
-        failed();
-        return;
-      }
+    const hadPhoto = primaryPhoto(target, mediaBySpot[target.id]) !== undefined;
+    const { saved, ok } = await saveTo(target.id);
+    if (!hadPhoto && saved.length > 0) {
+      // A failed write was logged and rolled back by updateSpot; the spot still shows its first photo.
+      await updateSpot(target.id, { primary_photo_id: saved[0].id }).catch(() => {});
+    }
+    if (!ok) return;
 
-      router.dismissAll();
-      router.push(`/spot/${target.id}` as `/spot/${string}`);
-    },
-    [saving, mediaBySpot, photoUris, hasLocation, latitude, longitude, savePhotos, updateSpot, router, failed],
-  );
+    router.dismissAll();
+    router.push(`/spot/${target.id}` as `/spot/${string}`);
+  };
 
   return (
     <ScrollView
@@ -219,7 +239,7 @@ export default function ReviewScreen() {
                   onPress={() => handleAddTo(spot)}
                   disabled={saving}
                   accessibilityRole="button"
-                  accessibilityLabel={`Add photos to ${getSpotDisplayName(spot)}`}>
+                  accessibilityLabel={`Add photos there, ${getSpotDisplayName(spot)}`}>
                   <Text style={styles.nearbyButtonText}>Add photos there</Text>
                 </Pressable>
               </View>

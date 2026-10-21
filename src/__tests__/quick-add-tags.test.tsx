@@ -1,9 +1,13 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import type { Spot } from '@/src/types';
+import type { Media, Spot } from '@/src/types';
+import type { NewPhoto } from '@/src/hooks/use-media-actions';
 
 const mockAddSpot = jest.fn().mockResolvedValue(undefined);
-const mockSavePhotos = jest.fn().mockResolvedValue([]);
+// Like the real hook: resolves the photos it saved (here, all of them).
+const mockSavePhotos = jest.fn(async (photos: NewPhoto[]): Promise<Media[]> =>
+  photos.map(({ sourceUri, ...fields }) => ({ ...fields, file_path: sourceUri })),
+);
 const mockDismissAll = jest.fn();
 
 jest.mock('@/src/hooks/use-spot-actions', () => ({

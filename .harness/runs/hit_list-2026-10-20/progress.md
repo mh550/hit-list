@@ -12,6 +12,14 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 · M1-04 · passes
+
+- Fixed the one failing step (1) from verify-M1. `SpotLegacy` moved from `src/types/index.ts` into `src/db/schema.ts`, next to migration 3, which writes it (it is exported from `src/db`, and `spots.ts` imports it from `./schema`). The v2 test rows (full-fat, empty, and two inline values) moved out of `db-migrate.test.ts` into the data file `src/__tests__/fixtures/v2-spots.json`. The spot-detail test "none of the removed sections" now asserts the exact visible text `['Pier 57', 'Notes', 'under the bridge']`, which is stricter than the old four-title check. Tests 366 → 366. Plan and CLAUDE.md now name the new locations.
+- Verified: the step-1 grep prints nothing. Mutation checks: adding a `<Text>Details</Text>` to the detail screen fails the new test; changing `fullLegacy.intensity` or `is_stopped` in the JSON fails 3 db-migrate tests. Steps 2–7 were re-read in code (labels, units `displayLength` only, `featureTypesLabel` tests, any-of/speed filters, edit Save `{ name, updated_at }`, FilterSheet chips only, SpotListItem props). `check.sh` green (366), `jest --ci` 0 `console.error`, `expo export --platform ios` exit 0.
+- Next: M1 is all passing. The step-1 grep only covers `.ts`/`.tsx`, so the JSON fixture is outside it on purpose: it is data, not code.
+- Questions for Michael: none.
+- Proposed changes: as for M1-02, future "no old names" greps should exclude migration code and migration-test fixtures explicitly rather than rely on where they live.
+
 ### 2026-10-21 · M1-02 · passes
 
 - Fixed the one failing step (6) from the verify-M1 pass: `src/db/schema.ts` now exports `SPOT_V2_COLUMNS` (status + the four v2 JSON column names, typed against `SpotRowV2`), and `src/__tests__/db-migrate.test.ts` uses neutral keys (`feature`, `inRun`, `landing`, `metadata`) mapped through it in one helper (`oldJsonColumns`, shared by `insertOldSpot` and the pure `migrateSpotRowV3` cases). Migrations 1–3 are unchanged, and so is what each test asserts. Tests 366 → 366.

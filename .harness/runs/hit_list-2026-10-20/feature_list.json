@@ -68,7 +68,7 @@
         "src/components/FilterSheet.tsx offers only the eight What's here chips (stopped and speed controls come in M5); src/components/SpotListItem.tsx has no difficulty or isDraft prop; app/(tabs)/index.tsx passes featureType={featureTypesLabel(item)}; src/__tests__/components.test.tsx has no RatingBadge/StarRating cases.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines, and npx expo export --platform ios --output-dir /tmp/hl-export exits 0."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M1-05",

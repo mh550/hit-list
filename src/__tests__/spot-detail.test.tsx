@@ -29,9 +29,10 @@ describe('Spot detail: notes', () => {
     expect(screen.queryByText('Notes')).toBeNull();
   });
 
-  it('shows none of the removed sections (D17)', () => {
+  it('shows only the title and the notes, no section from the removed model (D17)', () => {
     renderDetail({ name: 'Pier 57', notes: 'under the bridge' });
 
-    for (const title of ['Feature', 'In-Run', 'Landing', 'Details']) expect(screen.queryByText(title)).toBeNull();
+    const texts = screen.getAllByText(/./).map((t) => t.props.children);
+    expect(texts).toEqual(['Pier 57', 'Notes', 'under the bridge']);
   });
 });

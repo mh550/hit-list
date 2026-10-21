@@ -60,31 +60,6 @@ export type SpotUpdate = Omit<Partial<Spot>, 'name' | 'notes' | 'natural_speed' 
   primary_photo_id?: string | null;
 };
 
-/** What migration 3 archived from the removed fields (spec §4); read only through getSpotLegacy. Lengths in metres. */
-export interface SpotLegacy {
-  custom_type?: string;
-  shape?: string;
-  length_m?: number;
-  height_m?: number;
-  width_m?: number;
-  material?: string;
-  stop_type?: string;
-  stop_description?: string;
-  removable?: boolean;
-  difficulty?: number;
-  setup_options?: unknown[];
-  landing_difficulty?: number;
-  landing_surface?: string;
-  intensity?: number;
-  bustability?: number;
-  bustability_notes?: string;
-  // A column that was not valid JSON, kept verbatim.
-  raw_feature?: string;
-  raw_in_run?: string;
-  raw_landing?: string;
-  raw_metadata?: string;
-}
-
 export interface Media {
   id: string;
   spot_id: string;

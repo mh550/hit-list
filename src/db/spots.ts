@@ -1,5 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
-import type { FeatureType, NaturalSpeed, Spot, SpotLegacy, SpotUpdate } from '@/src/types';
+import type { FeatureType, NaturalSpeed, Spot, SpotUpdate } from '@/src/types';
+import type { SpotLegacy } from './schema';
 
 /** A spots row as the app reads it: every column but `legacy_json`, which only getSpotLegacy reads. */
 interface SpotRow {

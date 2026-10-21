@@ -13,6 +13,8 @@ import {
 } from '@/src/db/schema';
 import { FeatureType, type Spot } from '@/src/types';
 import { createTestMedia, createTestSpot } from './factories';
+// v2 rows in the old nested model, kept as data so the removed field names stay out of TS code (M1-04 step 1).
+import V2_SPOTS from './fixtures/v2-spots.json';
 
 /** A v2 spot's status and four JSON columns, keyed by SPOT_V2_COLUMNS' names. */
 type OldColumns = Partial<Record<keyof typeof V2, string>>;
@@ -213,67 +215,20 @@ describe('migrateDb (PRAGMA user_version)', () => {
       }
     };
 
-    const SETUP_OPTIONS = [
-      { requires: [{ item: 'winch', category: 'gear' }] },
-      {
-        requires: [
-          { item: 'drop_in_platform', category: 'gear' },
-          { item: 'speed_humps', category: 'build', quantity: 2 },
-        ],
-      },
-    ];
+    /** A v2 spot as stored: status plus the four JSON columns as objects. */
+    type OldSpot = { status: string; feature: object; inRun: object; landing: object; metadata: object };
+    const oldColumns = ({ status, feature, inRun, landing, metadata }: OldSpot): OldColumns => ({
+      status,
+      feature: JSON.stringify(feature),
+      inRun: JSON.stringify(inRun),
+      landing: JSON.stringify(landing),
+      metadata: JSON.stringify(metadata),
+    });
     /** Every old field set: type other + custom type, stops, two setup options, a draft. */
-    const FULL: OldColumns = {
-      status: 'draft',
-      feature: JSON.stringify({
-        type: 'other',
-        custom_type: 'curved rail',
-        shape: 'kinked',
-        dimensions: { length: 12.5, height: 1.2, width: 0.05 },
-        material: 'steel',
-        skate_stops: { is_stopped: true, stop_type: 'knobs', stop_description: 'every 50 cm', removable: true },
-        difficulty: 3,
-      }),
-      inRun: JSON.stringify({ natural_speed: 4, setup_options: SETUP_OPTIONS }),
-      landing: JSON.stringify({ difficulty: 2, surface: 'snow_built' }),
-      metadata: JSON.stringify({
-        intensity: 5,
-        bustability: 3,
-        bustability_notes: 'security at 9pm',
-        notes: 'hello',
-      }),
-    };
-    const FULL_LEGACY = {
-      custom_type: 'curved rail',
-      shape: 'kinked',
-      length_m: 12.5,
-      height_m: 1.2,
-      width_m: 0.05,
-      material: 'steel',
-      stop_type: 'knobs',
-      stop_description: 'every 50 cm',
-      removable: true,
-      difficulty: 3,
-      setup_options: SETUP_OPTIONS,
-      landing_difficulty: 2,
-      landing_surface: 'snow_built',
-      intensity: 5,
-      bustability: 3,
-      bustability_notes: 'security at 9pm',
-    };
+    const FULL = oldColumns(V2_SPOTS.full);
+    const FULL_LEGACY = V2_SPOTS.fullLegacy;
     /** Every old field present but empty, as the edit screen wrote them. */
-    const EMPTY: OldColumns = {
-      status: 'complete',
-      feature: JSON.stringify({
-        custom_type: '',
-        shape: '',
-        dimensions: {},
-        skate_stops: { is_stopped: false, removable: false },
-      }),
-      inRun: '{"setup_options":[]}',
-      landing: '{}',
-      metadata: JSON.stringify({ notes: '', bustability_notes: '' }),
-    };
+    const EMPTY = oldColumns(V2_SPOTS.empty);
 
     it('maps the full-fat v2 spot and archives every removed field (but not status, is_stopped or notes)', async () => {
       const db = await v2Db();
@@ -468,7 +423,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
 
       it('treats whitespace-only text as empty and keeps real notes as typed', () => {
         const r = migrateSpotRowV3(
-          row({ metadata: JSON.stringify({ notes: '  ', bustability_notes: ' \n' }) }),
+          row({ metadata: JSON.stringify(V2_SPOTS.blankTextMetadata) }),
         );
         expect(r).toMatchObject({ notes: null, legacy_json: null });
         expect(migrateSpotRowV3(row({ metadata: '{"notes":" gap "}' })).notes).toBe(' gap ');
@@ -494,7 +449,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
 
       it('never archives is_stopped or removable: false (edit wrote it by default)', () => {
         const r = migrateSpotRowV3(
-          row({ feature: '{"skate_stops":{"is_stopped":false,"removable":false,"stop_type":"caps"}}' }),
+          row({ feature: JSON.stringify(V2_SPOTS.notStoppedCapsFeature) }),
         );
         expect(r.stopped).toBe(0);
         expect(JSON.parse(r.legacy_json ?? 'null')).toEqual({ stop_type: 'caps' });

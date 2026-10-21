@@ -453,7 +453,7 @@
         "The Profile radius hint now reads 'Photos this close together import as one spot, and a new spot this close to one you have offers to join it.' (profile.test.tsx updated).",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M6-04",

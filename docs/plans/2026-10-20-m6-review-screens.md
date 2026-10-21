@@ -61,10 +61,12 @@ Data: `spots = useSpotsStore(s => s.spots)`, `radius = useSettingsStore(s => s.b
 1. `savePhotos(photoUris.map(uri => ({ sourceUri: uri, id: newId(), spot_id: spot.id, location: hasLocation ? here :
    undefined, created_at: now })))`, **once**; `addSpot` is **not** called. The spot's location, name and tags are
    not touched (D30: what was typed or tagged on the review screen is dropped; it describes a new spot).
-2. If `spot.primary_photo_id === undefined` and `saved.length > 0`: `updateSpot(spot.id, { primary_photo_id: saved[0].id })`
-   (uses the resolved `Media[]`, so a skipped copy never becomes primary).
+2. If the spot has no photo (`primaryPhoto(spot, mediaBySpot[spot.id]) === undefined`; M6-03: a spot with photos but no
+   `primary_photo_id` already shows its first one, so it is left alone) and `saved.length > 0`:
+   `updateSpot(spot.id, { primary_photo_id: saved[0].id })` (uses the resolved `Media[]`, so a skipped copy never becomes
+   primary; a failed `updateSpot` is logged and rolled back by the hook and does not stop the navigation).
 3. `router.dismissAll()` then `router.push(`/spot/${spot.id}`)`.
-4. On a throw: `setSaving(false)`, `Alert.alert("Couldn't add the photos", …)`, stay on the screen. Save gets the same
+4. On a throw: `setSaving(false)`, `Alert.alert("Couldn't save the photos", …)`, stay on the screen. Save gets the same
    `try/catch` so both paths behave alike.
 
 ## Import review per-group offer (M6-04)

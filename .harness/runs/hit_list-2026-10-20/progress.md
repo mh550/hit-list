@@ -12,6 +12,15 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 22:15 · M6-03 · passes
+
+- `app/add/review.tsx`: a card 'Already have this spot?' above Save, up to three rows from `nearbySpots(here, spots, batch_import_radius)`: 48-pt primary thumbnail (grey placeholder when none), 'Near <display name> · <distance>' (units subscribed), 'Add photos there' (label 'Add photos to <name>'). It runs one `savePhotos` to that `spot_id`, no `addSpot`, sets `primary_photo_id` only when the spot has no photo at all (`primaryPhoto` undefined), then `dismissAll` → `push('/spot/<id>')`. It shares the `saving` guard with Save; both now `try/catch` → Alert "Couldn't save the photos" and stay on the screen.
+- New `nearbyLabel()` in `src/utils/nearby-spots.ts` (M6-04 can reuse it). Profile radius hint is now the new sentence (`profile.test.tsx` +1, stale D12 comment fixed).
+- New `src/__tests__/quick-add-nearby.test.tsx` (10 tests: 5/20/45/80 m → 3 cards '16 ft'/'66 ft'/'148 ft', metric '5 m' + a units change re-renders, thumbnails, none outside radius, none at NO_LOCATION, 20 m call order `savePhotos, updateSpot, dismissAll, push`, primary untouched when photos exist, double tap + Save → once, Save with cards → `addSpot`, a throw → Alert then a retry works). RED 7/9 first; mutations (no primary update; no guard) each fail a test.
+- Tests 601 → 613; `check.sh` green (613); `jest --ci` 0 console.error.
+- Known limit: if Save's `savePhotos` threw after `addSpot` succeeded, a retry makes a second spot (both hooks swallow per-row errors, so a throw is unlikely). Left for M6-06 to judge.
+- Questions for Michael: none new (§9 Q10 / D30 still open).
+
 ### 2026-10-21 21:50 · M6-02 · passes
 
 - `app/add/review.tsx`: an 'Add details' link (`Pressable`, role button, 44-pt tall, blue text) under the name field; pressing it swaps in `SpotTagFields` (one-way, no 'Hide'). `tags` state starts `{ feature_types: [], stopped: false }` and Save spreads it into the new spot. Name keeps `autoFocus`, Save text 'Save'.

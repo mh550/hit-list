@@ -1,4 +1,4 @@
-import { nearbySpots } from '@/src/utils/nearby-spots';
+import { nearbyLabel, nearbySpots } from '@/src/utils/nearby-spots';
 import { distanceMeters, NO_LOCATION } from '@/src/utils/geo';
 import type { GeoPoint } from '@/src/types';
 import { CITIES, createTestSpot } from './factories';
@@ -53,5 +53,13 @@ describe('nearbySpots', () => {
     const spots = [far, near];
     nearbySpots(here, spots, 50);
     expect(spots).toEqual([far, near]);
+  });
+});
+
+describe('nearbyLabel', () => {
+  it("names the spot and gives the distance in the user's units", () => {
+    const spot = createTestSpot({ name: 'Downtown Rail', location: north(5) });
+    expect(nearbyLabel(here, spot, true)).toBe('Near Downtown Rail · 16 ft');
+    expect(nearbyLabel(here, spot, false)).toBe('Near Downtown Rail · 5 m');
   });
 });

@@ -98,7 +98,7 @@ async function save() {
   return (mockUpdateSpot.mock.calls[0] as unknown as [string, SpotUpdate])[1];
 }
 
-const savedDrafts = () => mockSavePhotos.mock.calls[0][0];
+const savedStaged = () => mockSavePhotos.mock.calls[0][0];
 
 describe('Edit spot: add photos', () => {
   beforeEach(() => {
@@ -133,9 +133,9 @@ describe('Edit spot: add photos', () => {
     const patch = await save();
 
     expect(mockSavePhotos).toHaveBeenCalledTimes(1);
-    const drafts = savedDrafts();
-    expect(drafts).toHaveLength(2);
-    expect(drafts[0]).toEqual(
+    const staged = savedStaged();
+    expect(staged).toHaveLength(2);
+    expect(staged[0]).toEqual(
       expect.objectContaining({
         spot_id: 's1',
         sourceUri: 'file:///picked/a1.jpg',
@@ -143,7 +143,7 @@ describe('Edit spot: add photos', () => {
         location: { latitude: 40.7, longitude: -74 },
       }),
     );
-    expect(drafts[1]).toEqual(
+    expect(staged[1]).toEqual(
       expect.objectContaining({
         spot_id: 's1',
         sourceUri: 'file:///picked/a2.jpg',
@@ -151,14 +151,14 @@ describe('Edit spot: add photos', () => {
         location: { latitude: -33.9, longitude: 151.2 },
       }),
     );
-    expect(drafts[0].id).not.toBe(drafts[1].id);
-    expect(drafts[0]).not.toHaveProperty('key');
+    expect(staged[0].id).not.toBe(staged[1].id);
+    expect(staged[0]).not.toHaveProperty('key');
     expect(patch).not.toHaveProperty('location');
     expect(mockBack).toHaveBeenCalledTimes(1);
   });
 
   it('writes nothing when the sheet is dismissed without Save', async () => {
-    // Drafts are screen state only: leaving drops them.
+    // Staged photos are screen state only: leaving drops them.
     const { unmount } = renderEdit(createTestSpot({ id: 's1' }), makeMedia('s1', 1));
 
     await addPhotos(A1);
@@ -174,7 +174,7 @@ describe('Edit spot: add photos', () => {
     await addPhotos(A1);
     const patch = await save();
 
-    expect(patch.primary_photo_id).toBe(savedDrafts()[0].id);
+    expect(patch.primary_photo_id).toBe(savedStaged()[0].id);
   });
 
   it('leaves primary_photo_id out of the patch when the spot already has photos', async () => {
@@ -198,7 +198,7 @@ describe('Edit spot: add photos', () => {
 
     expect(mockRemovePhotos).toHaveBeenCalledWith(['m2']);
     expect(mockSavePhotos).toHaveBeenCalledTimes(1);
-    expect(savedDrafts()).toEqual([expect.objectContaining({ sourceUri: 'file:///picked/a1.jpg' })]);
+    expect(savedStaged()).toEqual([expect.objectContaining({ sourceUri: 'file:///picked/a1.jpg' })]);
   });
 
   it('makes the first added photo primary when every existing photo was removed', async () => {
@@ -209,7 +209,7 @@ describe('Edit spot: add photos', () => {
     await addPhotos(A1);
     const patch = await save();
 
-    expect(patch.primary_photo_id).toBe(savedDrafts()[0].id);
+    expect(patch.primary_photo_id).toBe(savedStaged()[0].id);
   });
 
   it("asks for photo access and adds nothing when it's denied", async () => {
@@ -246,7 +246,7 @@ describe('Edit spot: add photos', () => {
     await waitFor(() => expect(screen.getAllByText('new')).toHaveLength(2));
     await save();
 
-    expect(savedDrafts().map((d) => d.sourceUri)).toEqual(['file:///picked/a1.jpg', 'file:///picked/a2.jpg']);
+    expect(savedStaged().map((d) => d.sourceUri)).toEqual(['file:///picked/a1.jpg', 'file:///picked/a2.jpg']);
   });
 
   it('opens the picker once on a double tap', async () => {
@@ -266,7 +266,7 @@ describe('Edit spot: add photos', () => {
     await addPhotos(A1);
     fireEvent.press(screen.getByLabelText('Remove photo 2'));
     expect(screen.queryByText('new')).toBeNull();
-    // Unstaging a draft is not a pending removal of a saved photo.
+    // Unstaging a photo is not a pending removal of a saved photo.
     expect(screen.queryByText(/will be removed when you save/)).toBeNull();
     await save();
 
@@ -312,7 +312,7 @@ describe('Edit spot: add photos', () => {
   });
 
   it('shows each saved photo once while the partial-failure alert is up', async () => {
-    // savePhotos puts the saved rows in the store before the sheet closes; their drafts must leave the grid.
+    // savePhotos puts the saved rows in the store before the sheet closes; their staged copies must leave the grid.
     const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
     mockSavePhotos.mockImplementation(async (photos: NewPhoto[]) => {
       const saved = photos.slice(1).map(toMedia);
@@ -350,7 +350,7 @@ describe('Edit spot: add photos', () => {
     await waitFor(() => expect(mockBack).toHaveBeenCalledTimes(1));
 
     expect(mockSavePhotos).toHaveBeenCalledTimes(1);
-    // Only the failed update is logged: no duplicate-key warning from a photo shown as saved and as a draft.
+    // Only the failed update is logged: no duplicate-key warning from a photo shown as saved and as staged.
     expect(consoleSpy).toHaveBeenCalledTimes(1);
     consoleSpy.mockRestore();
     alertSpy.mockRestore();

@@ -541,7 +541,7 @@
         "npx expo export --platform ios --output-dir /tmp/hl-export exits 0; npx expo-doctor exits 0 (or, if the sandbox has no network, the doctor output is pasted and the failing checks are only network ones, stated in the sweep doc).",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines; the sweep doc records the final test and suite counts."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M8-02",

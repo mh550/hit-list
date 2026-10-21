@@ -32,8 +32,8 @@ const MAX_PHOTOS = 20;
 /** A picked photo waiting for Save; `key` (the library asset) keeps a photo from being staged twice. */
 type StagedPhoto = NewPhoto & { key: string };
 
-/** Drafts render through the grid like saved photos: `resolvePhotoUri` passes the picker's file:// uri through. */
-const draftMedia = ({ sourceUri, key: _key, ...fields }: StagedPhoto): Media => ({ ...fields, file_path: sourceUri });
+/** Staged photos render through the grid like saved photos: `resolvePhotoUri` passes the picker's file:// uri through. */
+const stagedMedia = ({ sourceUri, key: _key, ...fields }: StagedPhoto): Media => ({ ...fields, file_path: sourceUri });
 
 export default function EditSpotScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -63,10 +63,10 @@ export default function EditSpotScreen() {
 
   const photos = spot ? spotPhotos(spot, media) : [];
   const visiblePhotos = photos.filter((p) => !removedIds.includes(p.id));
-  // savePhotos puts saved rows in the store before Save clears their drafts; never show one photo twice.
+  // savePhotos puts saved rows in the store before Save unstages them; never show one photo twice.
   const gridPhotos = [
     ...visiblePhotos,
-    ...staged.filter((d) => !photos.some((p) => p.id === d.id)).map(draftMedia),
+    ...staged.filter((d) => !photos.some((p) => p.id === d.id)).map(stagedMedia),
   ];
   const stagedIds = useMemo(() => new Set(staged.map((p) => p.id)), [staged]);
   const photoCount = gridPhotos.length;
@@ -87,7 +87,7 @@ export default function EditSpotScreen() {
     }
   }, [photos.length, staged]);
 
-  // ✕ on a draft just unstages it: it was never saved, so there is nothing to remove on Save.
+  // ✕ on a staged photo just unstages it: it was never saved, so there is nothing to remove on Save.
   const unstagePhoto = useCallback((photoId: string) => {
     setStaged((prev) => prev.filter((p) => p.id !== photoId));
     AccessibilityInfo.announceForAccessibility('New photo removed');
@@ -138,7 +138,7 @@ export default function EditSpotScreen() {
       if (result.canceled || result.assets.length === 0) return;
 
       const now = new Date().toISOString();
-      const drafts = result.assets.map((asset): StagedPhoto => {
+      const picked = result.assets.map((asset): StagedPhoto => {
         const photo = importPhotoFromAsset(asset, now);
         return {
           key: asset.assetId ?? asset.uri,
@@ -153,7 +153,7 @@ export default function EditSpotScreen() {
       setStaged((prev) => {
         // The same library photo picked again (or twice in one pick) is staged once.
         const next = [...prev];
-        for (const d of drafts) if (!next.some((p) => p.key === d.key)) next.push(d);
+        for (const d of picked) if (!next.some((p) => p.key === d.key)) next.push(d);
         return next.slice(0, MAX_PHOTOS - visiblePhotos.length);
       });
     } catch (err) {

@@ -12,6 +12,16 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 16:00 · M8-01 · passes
+
+- Sweep (spec §6) written up in new `docs/plans/2026-10-20-m8-sweep.md`. It has the full grep-loop output and a table giving the reason for every kept hit. No app code uses a removed type, component, label table, setting or filter. The hits that remain fall into four groups: shipped migrations (`schema.ts`, never edited), the D26 `legacy_json` keys and their 'Older details' labels (Material, Intensity, Bustability…), tests that assert something removed stays absent (D20/D22), and non-model `status` (permissions, `expo-status-bar`, `Promise.allSettled`).
+- Renamed incidental "Draft" words: `profile.tsx` `draft` → `typed`, `edit.tsx` `draftMedia` → `stagedMedia`, `edit-add-photos.test.tsx` `savedDrafts` → `savedStaged`.
+- expo-doctor first exited 1 on patch mismatches; `npx expo install --fix` → expo 57.0.31, expo-location 57.0.22, expo-router 57.0.29 (separate `chore:` commit, expo-modules-core still at the root only); CLAUDE.md Stack updated. Doctor now exits 0 (21/21). `expo export --platform ios` exits 0 before and after (4.3 MB hbc).
+- Docs grep (README, CLAUDE.md, RUNNING-ON-PHONE) prints nothing. Every `units.ts` export has a caller outside tests (`displayLength` → legacy-details; the three radius helpers → profile/import). Every `components/index.ts` export exists.
+- Tests 651 → 651 (52 suites); `check.sh` green; `jest --ci` 0 console.error.
+- Proposed change: M8-01 step 1 says each pattern "prints nothing", but it only names `status` as an exception. In practice it cannot hold for migration 1/3 code (CLAUDE.md: never edit a shipped migration), the D26 archive and its labels, or the regression tests that assert something removed stays absent. Suggest the step allow those categories when they are listed, as the sweep doc does.
+- Next (M8-02): the docs grep is already clean; APP_SPECIFICATIONS still needs the 'Simplified model' section and the [SUPERSEDED] marks.
+
 ### 2026-10-21 verify M7
 
 | Feature | Step | What you ran or read | What you saw | Holds |

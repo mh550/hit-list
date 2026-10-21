@@ -6,6 +6,7 @@ import Animated, { useAnimatedStyle, useSharedValue, withTiming } from 'react-na
 import { scheduleOnRN } from 'react-native-worklets';
 
 import {
+  LONG_PRESS_MS,
   MIN_SCALE,
   clampPan,
   clampScale,
@@ -26,23 +27,24 @@ type ZoomablePhotoProps = {
   onScaleChange?: (scale: number) => void;
   /** A swipe down past the close distance at 1×. */
   onRequestClose?: () => void;
-  /** Gesture test ids: `<prefix>-pinch`, `<prefix>-pan`, `<prefix>-double-tap`. */
+  /** A one-finger press held for LONG_PRESS_MS (not during a pinch, not on a double tap). */
+  onLongPress?: () => void;
+  /** Gesture test ids: `<prefix>-pinch`, `<prefix>-pan`, `<prefix>-double-tap`, `<prefix>-long-press`. */
   testIdPrefix?: string;
 };
 
 /**
- * One viewer page: pinch 1×–4× about the fingers, pan while zoomed, double tap 1× ↔ 2.5×, swipe down at 1× to close.
- * Every number comes from `gallery-gestures`; the worklets read only shared values and the captured size.
- * At 1× the pan is vertical only (it fails on horizontal movement), so the pager keeps horizontal swipes.
+ * One viewer page: pinch 1×–4× about the fingers, pan while zoomed, double tap 1× ↔ 2.5×, swipe down at 1× to close,
+ * long press for options. Every number comes from `gallery-gestures`; the worklets read only shared values and the
+ * captured size. At 1× the pan is vertical only (it fails on sideways movement), so the pager keeps sideways swipes.
  */
 export function ZoomablePhoto(props: ZoomablePhotoProps) {
-  const { uri, recyclingKey, width, height, onScaleChange, onRequestClose, testIdPrefix = 'photo' } = props;
+  const { uri, recyclingKey, width, height, onScaleChange, onRequestClose, onLongPress, testIdPrefix = 'photo' } = props;
   const scale = useSharedValue(MIN_SCALE);
   const tx = useSharedValue(0);
   const ty = useSharedValue(0);
   const startScale = useSharedValue(MIN_SCALE);
-  const startTx = useSharedValue(0);
-  const startTy = useSharedValue(0);
+  const startT = useSharedValue<Point>({ x: 0, y: 0 });
   const dragY = useSharedValue(0);
   const pinching = useSharedValue(false);
   const panZoomed = useSharedValue(false); // the pan began zoomed: it moves the photo and never closes
@@ -57,6 +59,7 @@ export function ZoomablePhoto(props: ZoomablePhotoProps) {
     [onScaleChange],
   );
   const close = useCallback(() => onRequestClose?.(), [onRequestClose]);
+  const longPressed = useCallback(() => onLongPress?.(), [onLongPress]);
 
   const gesture = useMemo(() => {
     const viewport = { width, height };
@@ -73,13 +76,11 @@ export function ZoomablePhoto(props: ZoomablePhotoProps) {
       .onStart(() => {
         pinching.set(true);
         startScale.set(scale.get());
-        startTx.set(tx.get());
-        startTy.set(ty.get());
+        startT.set({ x: tx.get(), y: ty.get() });
       })
       .onUpdate((e) => {
         const next = clampScale(startScale.get() * e.scale);
-        const from = { x: startTx.get(), y: startTy.get() };
-        const t = focalZoom({ x: e.focalX, y: e.focalY }, startScale.get(), next, viewport, from);
+        const t = focalZoom({ x: e.focalX, y: e.focalY }, startScale.get(), next, viewport, startT.get());
         const clamped = clampPan(t, next, viewport);
         scale.set(next);
         tx.set(clamped.x);
@@ -122,8 +123,13 @@ export function ZoomablePhoto(props: ZoomablePhotoProps) {
         settle(next, clampPan(focalZoom({ x: e.x, y: e.y }, scale.get(), next, viewport, from), next, viewport));
       });
 
-    return Gesture.Simultaneous(pinch, pan, doubleTap);
-  }, [width, height, zoomed, testIdPrefix, report, close, scale, tx, ty, startScale, startTx, startTy, dragY,
+    const longPress = Gesture.LongPress()
+      .withTestId(`${testIdPrefix}-long-press`)
+      .minDuration(LONG_PRESS_MS)
+      .onStart(() => !pinching.get() && scheduleOnRN(longPressed));
+
+    return Gesture.Simultaneous(pinch, pan, Gesture.Exclusive(doubleTap, longPress));
+  }, [width, height, zoomed, testIdPrefix, report, close, longPressed, scale, tx, ty, startScale, startT, dragY,
     pinching, panZoomed]);
 
   const transform = useAnimatedStyle(() => ({

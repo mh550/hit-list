@@ -12,6 +12,25 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 15:20 · M4-05 · passes
+
+- Long-pressing a viewer page opens an Alert: 'Set as primary', 'Remove photo' (red) or 'Cancel'. 'Remove photo' asks 'Remove this photo?' first. The photo in its place is shown next (the next one, or the previous one at the end), and it becomes the primary if the removed one was. Removing the last photo closes the viewer. Files: `ZoomablePhoto.tsx` (LongPress gesture `Exclusive` with the double tap, 149 lines), `photos.tsx`, `gallery-gestures.ts` (`LONG_PRESS_MS` 500).
+- Fixed the M4-03 Important finding: the shown photo is pinned by id, and after a removal `scrollToIndex` moves the native offset to it (in a layout effect).
+- Tests went from 504 to 520 (15 in the viewer, 1 for ZoomablePhoto). Each failed first. Two mutations (scroll sync, zoom reset) turned their tests red.
+- Verified: `check.sh` green (520), `npx jest --ci` prints 0 `console.error`, and `expo export --platform ios` (to the scratch dir) exited 0 with a 4,240,251 B bundle (+5 KB).
+- Opus review (no Critical). Fixed:
+  - the `exhaustive-deps` warning;
+  - stale closures: the actions now read the stores when pressed. A RED test caught this: removing a photo just set as primary didn't update the primary;
+  - a long press during a pinch is ignored;
+  - TalkBack and VoiceOver reach the options through `accessibilityActions`;
+  - the 450 ms hold had no effect, so it is now 500;
+  - `pos` is updated on removal, and photos are compared by id;
+  - the viewer closes before the primary write;
+  - the scroll sync uses a layout effect.
+
+  Left as is: a quick double press on an option runs it twice.
+- Next (M4-06): the plan's "Built in M4-05" section lists the gestures to check on the phone (a pinch after a still two-finger hold, double tap vs long press, VoiceOver). Questions for Michael: none new.
+
 ### 2026-10-21 14:30 · M4-04 · passes
 
 - New `src/components/ZoomablePhoto.tsx` (143 lines, no fallback library installed): pinch 1×–4× about the fingers, a pan that moves the photo while zoomed, double tap 1× ↔ 2.5×, and swipe down at 1× (the photo follows the finger). It uses `Gesture.Simultaneous(Pinch, Pan, Tap×2)` and reanimated `.get()/.set()` (the React Compiler lint rejects `.value =`). Every number comes from `gallery-gestures`, which gains `dragDown`.

@@ -312,7 +312,7 @@
         "The long-press target has accessibilityHint 'Double-tap and hold for options'.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M4-06",

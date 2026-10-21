@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { Dimensions, FlatList, Image, StyleSheet } from 'react-native';
+import { Alert, Dimensions, FlatList, Image, StyleSheet, type AlertButton } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -10,6 +10,23 @@ import { State } from 'react-native-gesture-handler';
 import { fireGestureHandler, getByGestureTestId } from 'react-native-gesture-handler/jest-utils';
 import { ZoomablePhoto } from '@/src/components';
 import { createTestMedia, createTestSpot } from './factories';
+
+// The real hooks update the stores; these do the same without a db (removePhotos resolves the ids it removed).
+const mockUpdateSpot = jest.fn(async (id: string, updates: object) => {
+  const { useSpotsStore: spots } = jest.requireActual('@/src/stores');
+  spots.getState().updateSpot(id, updates);
+});
+const mockRemovePhotos = jest.fn(async (ids: string[]) => {
+  const { useMediaStore: media } = jest.requireActual('@/src/stores');
+  media.getState().removeMany(ids);
+  return ids;
+});
+jest.mock('@/src/hooks/use-spot-actions', () => ({
+  useSpotActions: () => ({ updateSpot: mockUpdateSpot, addSpot: jest.fn(), removeSpot: jest.fn() }),
+}));
+jest.mock('@/src/hooks/use-media-actions', () => ({
+  useMediaActions: () => ({ removePhotos: mockRemovePhotos, savePhotos: jest.fn() }),
+}));
 
 import PhotoViewerScreen from '@/app/spot/[id]/photos';
 
@@ -321,5 +338,219 @@ describe('ZoomablePhoto', () => {
     await flush();
 
     expect(onRequestClose).not.toHaveBeenCalled();
+  });
+});
+
+describe('Photo viewer: long-press options', () => {
+  const flush = () => act(async () => {});
+  let alert: jest.SpyInstance;
+  beforeEach(() => {
+    mockUpdateSpot.mockClear();
+    mockRemovePhotos.mockClear();
+    alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  });
+  afterEach(() => alert.mockRestore());
+
+  const longPress = async (page: number) => {
+    fireGestureHandler(getByGestureTestId(`viewer-${page}-long-press`), [
+      { state: State.BEGAN },
+      { state: State.ACTIVE },
+      { state: State.END },
+    ]);
+    await flush();
+  };
+  const buttons = (call: number) => alert.mock.calls[call][2] as AlertButton[];
+  // A Cancel button has no onPress: the alert just closes.
+  const press = async (call: number, text: string) => {
+    await act(async () => {
+      buttons(call).find((b) => b.text === text)!.onPress?.();
+    });
+  };
+  /** Long-press `page`, choose Remove photo, then confirm. */
+  const removePage = async (page: number) => {
+    await longPress(page);
+    await press(0, 'Remove photo');
+    await press(1, 'Remove');
+  };
+
+  it('offers Set as primary, Remove photo (destructive) and Cancel on a long press', async () => {
+    renderViewer(7, '2');
+
+    await longPress(2);
+
+    expect(alert).toHaveBeenCalledTimes(1);
+    expect(buttons(0).map((b) => b.text)).toEqual(['Set as primary', 'Remove photo', 'Cancel']);
+    expect(buttons(0)[1].style).toBe('destructive');
+    expect(buttons(0)[2].style).toBe('cancel');
+  });
+
+  it('tells VoiceOver users each page has options', () => {
+    renderViewer(7, '2');
+
+    expect(screen.getByLabelText('Photo 3 of 7').props.accessibilityHint).toBe('Double-tap and hold for options');
+  });
+
+  it('offers the same options through the long-press accessibility action', () => {
+    renderViewer(7, '2');
+    const page = screen.getByLabelText('Photo 3 of 7');
+    expect(page.props.accessibilityActions).toEqual([{ name: 'longpress', label: 'Photo options' }]);
+
+    fireEvent(page, 'accessibilityAction', { nativeEvent: { actionName: 'longpress' } });
+
+    expect(alert).toHaveBeenCalledTimes(1);
+    expect(buttons(0).map((b) => b.text)).toEqual(['Set as primary', 'Remove photo', 'Cancel']);
+  });
+
+  it('says so when setting the primary fails', async () => {
+    renderViewer(7, '2');
+    mockUpdateSpot.mockRejectedValueOnce(new Error('disk full'));
+
+    await longPress(2);
+    await press(0, 'Set as primary');
+
+    expect(alert).toHaveBeenCalledTimes(2);
+    expect(alert.mock.calls[1][0]).toBe("This photo couldn't be set as primary");
+  });
+
+  it('sets the pressed photo as primary and stays on the same page', async () => {
+    const { spot, media } = renderViewer(7, '2');
+    const before = (list().props.data as Media[]).map((m) => m.id);
+
+    await longPress(2);
+    await press(0, 'Set as primary');
+
+    expect(mockUpdateSpot).toHaveBeenCalledTimes(1);
+    expect(mockUpdateSpot).toHaveBeenCalledWith(spot.id, { primary_photo_id: media[1].id });
+    expect(screen.getByText('3 / 7')).toBeOnTheScreen();
+    expect((list().props.data as Media[]).map((m) => m.id)).toEqual(before);
+  });
+
+  it('asks before removing, then removes the photo once and shows the next one in its place', async () => {
+    const { media } = renderViewer(7, '2');
+
+    await longPress(2);
+    await press(0, 'Remove photo');
+    expect(alert).toHaveBeenCalledTimes(2);
+    expect(alert.mock.calls[1][0]).toBe('Remove this photo?');
+    expect(buttons(1).find((b) => b.text === 'Remove')!.style).toBe('destructive');
+    expect(mockRemovePhotos).not.toHaveBeenCalled();
+
+    await press(1, 'Remove');
+
+    expect(mockRemovePhotos).toHaveBeenCalledTimes(1);
+    expect(mockRemovePhotos).toHaveBeenCalledWith([media[1].id]);
+    expect(screen.getByText('3 / 6')).toBeOnTheScreen();
+    const uri = screen.getByLabelText('Photo 3 of 6').findByType(ZoomablePhoto).props.uri as string;
+    expect(uri).toBe(resolvePhotoUri(media[2].file_path));
+    // Not the primary, so the spot is left alone.
+    expect(mockUpdateSpot).not.toHaveBeenCalled();
+    expect(back).not.toHaveBeenCalled();
+  });
+
+  it('keeps the photo when the removal is cancelled', async () => {
+    renderViewer(7, '2');
+
+    await longPress(2);
+    await press(0, 'Remove photo');
+    await press(1, 'Cancel');
+
+    expect(mockRemovePhotos).not.toHaveBeenCalled();
+    expect(screen.getByText('3 / 7')).toBeOnTheScreen();
+  });
+
+  it('moves to the new last page after removing the last photo', async () => {
+    const scrollToIndex = jest.spyOn(FlatList.prototype, 'scrollToIndex').mockImplementation(() => {});
+    renderViewer(7, '6');
+
+    await removePage(6);
+
+    expect(screen.getByText('6 / 6')).toBeOnTheScreen();
+    expect(scrollToIndex).toHaveBeenCalledWith({ index: 5, animated: false });
+    scrollToIndex.mockRestore();
+  });
+
+  it('keeps showing the same photo when an earlier one is removed', async () => {
+    const scrollToIndex = jest.spyOn(FlatList.prototype, 'scrollToIndex').mockImplementation(() => {});
+    const { media } = renderViewer(7, '4'); // page 4 is media[4]; page 1 is media[0]
+
+    act(() => useMediaStore.getState().removeMany([media[0].id]));
+
+    expect(screen.getByText('4 / 6')).toBeOnTheScreen();
+    expect(scrollToIndex).toHaveBeenCalledWith({ index: 3, animated: false });
+    expect((list().props.data as Media[])[3].id).toBe(media[4].id);
+    scrollToIndex.mockRestore();
+  });
+
+  it('makes the next photo primary when the primary is removed', async () => {
+    const { spot, media } = renderViewer(7, '0');
+
+    await removePage(0);
+
+    expect(mockRemovePhotos).toHaveBeenCalledWith([media[3].id]);
+    expect(mockUpdateSpot).toHaveBeenCalledWith(spot.id, { primary_photo_id: media[0].id });
+    expect(screen.getByText('1 / 6')).toBeOnTheScreen();
+  });
+
+  it('makes the previous photo primary when the primary on the last page is removed', async () => {
+    const { spot, media } = renderViewer(7, '6');
+    act(() => useSpotsStore.setState({ spots: [{ ...spot, primary_photo_id: media[6].id }] }));
+
+    await removePage(6);
+
+    expect(mockUpdateSpot).toHaveBeenCalledWith(spot.id, { primary_photo_id: media[5].id });
+    expect(screen.getByText('6 / 6')).toBeOnTheScreen();
+  });
+
+  it('still closes when clearing the primary of the only photo fails', async () => {
+    renderViewer(1, '0');
+    mockUpdateSpot.mockRejectedValueOnce(new Error('disk full'));
+
+    await removePage(0);
+
+    expect(back).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears the primary and closes the viewer when the only photo is removed', async () => {
+    const { spot, media } = renderViewer(1, '0');
+
+    await removePage(0);
+
+    expect(mockRemovePhotos).toHaveBeenCalledWith([media[0].id]);
+    expect(mockUpdateSpot).toHaveBeenCalledWith(spot.id, { primary_photo_id: null });
+    expect(back).toHaveBeenCalledTimes(1);
+  });
+
+  it('unlocks paging after removing a zoomed photo', async () => {
+    renderViewer(7, '2');
+    act(() => screen.getByLabelText('Photo 3 of 7').findByType(ZoomablePhoto).props.onScaleChange(2));
+    expect(list().props.scrollEnabled).toBe(false);
+
+    await removePage(2);
+
+    expect(list().props.scrollEnabled).toBe(true);
+  });
+
+  it('keeps the photo and says so when the removal fails', async () => {
+    renderViewer(7, '2');
+    mockRemovePhotos.mockResolvedValueOnce([]);
+
+    await removePage(2);
+
+    expect(screen.getByText('3 / 7')).toBeOnTheScreen();
+    expect(mockUpdateSpot).not.toHaveBeenCalled();
+    expect(alert).toHaveBeenCalledTimes(3);
+    expect(alert.mock.calls[2][0]).toBe("This photo couldn't be removed");
+  });
+});
+
+describe('ZoomablePhoto: long press', () => {
+  it('calls onLongPress when held', async () => {
+    const onLongPress = jest.fn();
+    render(<ZoomablePhoto uri="file:///p.jpg" recyclingKey="m1" width={390} height={844} onLongPress={onLongPress} testIdPrefix="zp" />);
+
+    fireGestureHandler(getByGestureTestId('zp-long-press'), [{ state: State.BEGAN }, { state: State.ACTIVE }, { state: State.END }]);
+    await act(async () => {});
+
+    expect(onLongPress).toHaveBeenCalledTimes(1);
   });
 });

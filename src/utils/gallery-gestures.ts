@@ -10,6 +10,7 @@ export const MAX_SCALE = 4;
 export const DOUBLE_TAP_SCALE = 2.5;
 export const ZOOMED_EPSILON = 1.05; // at or below this the photo counts as unzoomed
 export const CLOSE_DISTANCE = 120; // swipe-down distance that closes the viewer at 1×
+export const LONG_PRESS_MS = 500; // a page's options; the double tap it waits for fails only after its 500 ms maxDuration
 
 /** `+ 0` turns -0 into 0, so callers (and `toEqual`) never see a signed zero. */
 function point(x: number, y: number): Point {

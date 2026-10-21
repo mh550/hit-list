@@ -1,7 +1,8 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import {
+  Alert,
   FlatList,
   Pressable,
   StyleSheet,
@@ -14,25 +15,37 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useMediaStore, useSpotsStore } from '@/src/stores';
+import { useSpotActions } from '@/src/hooks/use-spot-actions';
+import { useMediaActions } from '@/src/hooks/use-media-actions';
 import { ZoomablePhoto } from '@/src/components';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { resolvePhotoUri } from '@/src/utils/photo-storage';
-import { spotPhotos } from '@/src/utils/spot-photos';
+import { primaryPhoto, spotPhotos } from '@/src/utils/spot-photos';
 import { MIN_SCALE, pagingEnabled } from '@/src/utils/gallery-gestures';
 import { spacing } from '@/src/constants/theme';
 import type { Media } from '@/src/types';
 
 const clampIndex = (i: number, count: number) => Math.max(0, Math.min(i, count - 1));
+const OPTIONS_ACTIONS = [{ name: 'longpress', label: 'Photo options' }];
+
+/** D29: the order snapshotted on open, without removed photos, then photos added since. */
+function inViewerOrder(order: string[], current: Media[]): Media[] {
+  const byId = new Map(current.map((m) => [m.id, m]));
+  return [...order.flatMap((mid) => byId.get(mid) ?? []), ...current.filter((m) => !order.includes(m.id))];
+}
 
 /**
  * Full-screen photo pager (fullScreenModal, no header): one window-wide page per photo, opened at `?index=N`
  * (clamped; missing or not a number → 0), a 'N / M' counter and a ✕ that goes back. Each page is a ZoomablePhoto;
  * paging is locked while the shown photo is zoomed past 1.05×, and a swipe down at 1× goes back too. The Stack's own
- * back handling (Android back, edge swipe) also closes it; nothing is intercepted.
+ * back handling (Android back, edge swipe) also closes it; nothing is intercepted. A long press offers Set as primary
+ * and Remove photo (confirmed); removing the last photo closes the viewer.
  */
 export default function PhotoViewerScreen() {
   const { id, index } = useLocalSearchParams<{ id: string; index?: string }>();
   const router = useRouter();
+  const { updateSpot } = useSpotActions();
+  const { removePhotos } = useMediaActions();
   const insets = useSafeAreaInsets();
   const { width, height } = useWindowDimensions();
   const spot = useSpotsStore((s) => s.spots.find((sp) => sp.id === id));
@@ -42,25 +55,91 @@ export default function PhotoViewerScreen() {
   // D29: the order is fixed while the viewer is open (a new primary does not jump to page 1). Removed photos
   // drop out; photos added meanwhile go at the end.
   const [order] = useState(() => current.map((m) => m.id));
-  const byId = new Map(current.map((m) => [m.id, m]));
-  const photos = [
-    ...order.flatMap((mid) => byId.get(mid) ?? []),
-    ...current.filter((m) => !order.includes(m.id)),
-  ];
+  const photos = inViewerOrder(order, current);
   const count = photos.length;
 
-  const [page, setPage] = useState(() => clampIndex(Number.parseInt(index ?? '', 10) || 0, current.length));
-  const shown = clampIndex(page, count);
+  // The shown photo is pinned by id, so it stays shown when the list changes around it. When it is the one removed,
+  // its old index (clamped) shows the photo that took its place: the next one, or the previous one at the end.
+  const [pos, setPos] = useState(() => {
+    const i = clampIndex(Number.parseInt(index ?? '', 10) || 0, current.length);
+    return { id: current[i]?.id, index: i };
+  });
+  const found = photos.findIndex((m) => m.id === pos.id);
+  const shown = found >= 0 ? found : clampIndex(pos.index, count);
   // The settled scale of the shown page (only that page gets gestures); paging follows it.
   const [zoom, setZoom] = useState(MIN_SCALE);
+
+  // A removal changes the pages under the native scroll offset, so move the offset to the shown photo (before paint).
+  const listRef = useRef<FlatList<Media>>(null);
+  const syncedCount = useRef(count);
+  useLayoutEffect(() => {
+    if (count === syncedCount.current) return;
+    syncedCount.current = count;
+    if (count > 0) listRef.current?.scrollToIndex({ index: shown, animated: false });
+  }, [count, shown]);
 
   const close = useCallback(() => router.back(), [router]);
   const onMomentumScrollEnd = useCallback(
     (e: NativeSyntheticEvent<NativeScrollEvent>) => {
-      setPage(Math.round(e.nativeEvent.contentOffset.x / width));
+      const i = Math.round(e.nativeEvent.contentOffset.x / width);
+      setPos({ id: photos[i]?.id, index: i });
       setZoom(MIN_SCALE);
     },
-    [width],
+    [width, photos, setPos],
+  );
+
+  // The options act on the stores as they are when a button is pressed, not as they were when the page rendered.
+  const setPrimary = useCallback(
+    (photoId: string) => {
+      if (!id) return;
+      updateSpot(id, { primary_photo_id: photoId }).catch(() => {
+        // updateSpot logged it and put the old primary back.
+        Alert.alert("This photo couldn't be set as primary", 'Try again later.');
+      });
+    },
+    [id, updateSpot],
+  );
+  const remove = useCallback(
+    async (photoId: string) => {
+      const now = useSpotsStore.getState().spots.find((sp) => sp.id === id);
+      if (!now) return;
+      const nowMedia = useMediaStore.getState().mediaBySpot[now.id];
+      const pages = inViewerOrder(order, spotPhotos(now, nowMedia));
+      const wasPrimary = primaryPhoto(now, nowMedia)?.id === photoId;
+      const i = pages.findIndex((m) => m.id === photoId);
+      const remaining = pages.filter((m) => m.id !== photoId);
+      const removed = await removePhotos([photoId]);
+      if (!removed.includes(photoId)) {
+        Alert.alert("This photo couldn't be removed", "It's still on this spot. Try again later.");
+        return;
+      }
+      // The photo now in its place (the next one, else the previous one) is shown, at 1×.
+      const next = remaining[i] ?? remaining[i - 1];
+      setPos({ id: next?.id, index: clampIndex(i, remaining.length) });
+      setZoom(MIN_SCALE);
+      if (remaining.length === 0) router.back();
+      // It also becomes the primary; null clears it when none remain. updateSpot logs a failure, and the primary
+      // then falls back to the first photo (primaryPhoto).
+      if (wasPrimary) updateSpot(now.id, { primary_photo_id: next?.id ?? null }).catch(() => {});
+    },
+    [id, order, removePhotos, updateSpot, router, setPos],
+  );
+  const showOptions = useCallback(
+    (photoId: string) =>
+      Alert.alert('Photo', undefined, [
+        { text: 'Set as primary', onPress: () => setPrimary(photoId) },
+        {
+          text: 'Remove photo',
+          style: 'destructive',
+          onPress: () =>
+            Alert.alert('Remove this photo?', 'It is taken off this spot.', [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Remove', style: 'destructive', onPress: () => void remove(photoId) },
+            ]),
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]),
+    [setPrimary, remove],
   );
   const getItemLayout = useCallback(
     (_: ArrayLike<Media> | null | undefined, i: number) => ({ length: width, offset: width * i, index: i }),
@@ -72,7 +151,12 @@ export default function PhotoViewerScreen() {
         style={{ width, height }}
         accessible
         accessibilityRole="image"
-        accessibilityLabel={`Photo ${i + 1} of ${count}`}>
+        accessibilityLabel={`Photo ${i + 1} of ${count}`}
+        accessibilityHint="Double-tap and hold for options"
+        accessibilityActions={OPTIONS_ACTIONS}
+        onAccessibilityAction={(e) => {
+          if (e.nativeEvent.actionName === 'longpress') showOptions(item.id);
+        }}>
         <ZoomablePhoto
           uri={resolvePhotoUri(item.file_path)}
           recyclingKey={item.id}
@@ -80,11 +164,12 @@ export default function PhotoViewerScreen() {
           height={height}
           onScaleChange={setZoom}
           onRequestClose={close}
+          onLongPress={() => showOptions(item.id)}
           testIdPrefix={`viewer-${i}`}
         />
       </View>
     ),
-    [width, height, count, close],
+    [width, height, count, close, showOptions],
   );
 
   return (
@@ -92,6 +177,7 @@ export default function PhotoViewerScreen() {
       <StatusBar hidden />
       {spot ? (
         <FlatList
+          ref={listRef}
           data={photos}
           keyExtractor={(m) => m.id}
           renderItem={renderItem}

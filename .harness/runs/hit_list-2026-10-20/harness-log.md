@@ -39,3 +39,4 @@
 - 2026-10-21 13:11 · merged main into harness/hit_list-2026-10-20
 - 2026-10-21 13:12 · verify M4: M4-04 failed the re-check, back in the queue (one more attempt)
 - 2026-10-21 13:16 · M4-04 · claude-opus-5-5 · passes=true · 3 min · 23/39 passing
+- 2026-10-21 13:17 · M4 verified and tagged run/hit_list-2026-10-20/M4

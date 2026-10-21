@@ -83,6 +83,51 @@ describe('useSpotActions', () => {
     );
   });
 
+  it('updateSpot puts the changed fields back in the store and rejects when the DB write fails', async () => {
+    // Otherwise the edit shows as saved and silently reverts on the next launch; the caller must hear of it.
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const spot = createTestSpot({ id: 's1', name: 'Old Name', notes: undefined, generated_name: 'Seattle' });
+    useSpotsStore.setState({ spots: [spot] });
+    mockUpdateSpot.mockRejectedValueOnce(new Error('disk I/O error'));
+    const { result } = renderHook(() => useSpotActions());
+
+    await act(async () => {
+      await expect(
+        result.current.updateSpot('s1', { name: 'New Name', notes: 'n', stopped: !spot.stopped }),
+      ).rejects.toThrow('disk I/O error');
+    });
+
+    expect(useSpotsStore.getState().spots[0]).toEqual(spot);
+    expect(consoleSpy).toHaveBeenCalledTimes(1);
+    consoleSpy.mockRestore();
+  });
+
+  it('a failed rollback keeps fields another update changed meanwhile', async () => {
+    // A town backfill can land while the edit's write is in flight; undoing the edit must not undo the town.
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    useSpotsStore.setState({ spots: [createTestSpot({ id: 's1', name: 'Old Name', generated_name: undefined })] });
+    let fail = (_e: Error) => {};
+    mockUpdateSpot.mockImplementationOnce(() => new Promise((_resolve, reject) => (fail = reject)));
+    const { result } = renderHook(() => useSpotActions());
+
+    let pending: Promise<void> = Promise.resolve();
+    act(() => {
+      pending = result.current.updateSpot('s1', { name: 'New Name' });
+    });
+    await act(async () => {
+      await result.current.updateSpot('s1', { generated_name: 'Seattle' });
+    });
+    await act(async () => {
+      fail(new Error('disk I/O error'));
+      await pending.catch(() => {});
+    });
+
+    const after = useSpotsStore.getState().spots[0];
+    expect(after.name).toBe('Old Name');
+    expect(after.generated_name).toBe('Seattle');
+    consoleSpy.mockRestore();
+  });
+
   it('removeSpot removes from store immediately', () => {
     const spot = createTestSpot({ id: 'doomed-spot' });
     useSpotsStore.setState({ spots: [spot] });

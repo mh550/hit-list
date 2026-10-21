@@ -81,6 +81,17 @@ describe('backfillTowns', () => {
     expect(update).toHaveBeenCalledWith(spots[0].id, { generated_name: 'Seattle' });
   });
 
+  it('keeps naming the other spots when one update fails', async () => {
+    // updateSpot rejects on a failed write (and has logged it); that spot is retried next launch.
+    jest.mocked(reverseGeocodeAsync).mockResolvedValue([{ city: 'Seattle' }] as never);
+    const update = jest.fn(async () => {});
+    update.mockRejectedValueOnce(new Error('disk I/O error'));
+
+    await expect(backfillTowns([createTestSpot(), createTestSpot()], update)).resolves.toBeUndefined();
+
+    expect(update).toHaveBeenCalledTimes(2);
+  });
+
   it('skips spots with no location and spends no budget on them', async () => {
     jest.mocked(reverseGeocodeAsync).mockResolvedValue([{ city: 'Seattle' }] as never);
     const lost = createTestSpot({ location: NO_LOCATION });

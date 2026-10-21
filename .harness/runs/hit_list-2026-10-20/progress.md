@@ -12,6 +12,13 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 23:10 · M6-05 · passes
+
+- New `docs/plans/2026-10-20-m6-what-michael-will-see.md`: render-order walkthroughs (texts, placeholders, button/switch/radio labels) of the Quick Add review (2 photos no nearby; 'Add details' open; 3 nearby cards 16/66/148 ft with labels) and the import review (2 groups, one offer; before and after choosing 'Add photos to Library Rail').
+- Rendered by a temporary test (`tmp-walk.test.tsx`, deleted, not committed); no source changes.
+- Records `npx jest --silent` 51 suites / 626 tests and `npx expo export --platform ios --output-dir /tmp/hl-export` exit 0. `check.sh` green (626).
+- Questions for Michael: none new (§9 Q10 / Q11 still open). Next: M6-06.
+
 ### 2026-10-21 22:45 · M6-04 · passes
 
 - `app/import/review.tsx`: each group gets `offers = nearbySpots(first photo's location, store spots, radius)` (≤ 3; other groups of the import never count). With offers: 'Near <name> · <distance>' (units subscribed) + a one-of `Chip` row 'New spot' (default, selected) · 'Add photos to <name>'. Choosing a spot hides the name field (D30). Subtitle/button count only new spots; all to existing → 'Photos go to spots you already have.' / 'Add photos'. Group key is now the first photo's URI.

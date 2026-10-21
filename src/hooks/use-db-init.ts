@@ -6,43 +6,54 @@ import { useSpotActions } from '@/src/hooks/use-spot-actions';
 import { useSpotsStore } from '@/src/stores';
 import { useSettingsStore } from '@/src/stores/settings-store';
 import { useMediaStore } from '@/src/stores/media-store';
+import type { Spot } from '@/src/types';
 import { backfillTowns } from '@/src/utils/reverse-geocode';
 
-export function useDbInit(): { isReady: boolean } {
+export function useDbInit(): { isReady: boolean; upgradeFailed: boolean } {
   const db = useSQLiteContext();
   const setSpots = useSpotsStore((s) => s.setSpots);
   const { updateSpot } = useSpotActions();
   const loadSettings = useSettingsStore((s) => s.loadSettings);
   const setAllMedia = useMediaStore((s) => s.setAll);
   const [isReady, setIsReady] = useState(false);
+  const [upgradeFailed, setUpgradeFailed] = useState(false);
 
   useEffect(() => {
     (async () => {
-      // A failed upgrade leaves the DB at its last good version and the load still goes ahead: skipping it would
-      // look like every spot had vanished. Below version 3 this build's spot columns are missing, so getSpots
-      // throws and the list stays empty until a later launch's retry succeeds; nothing on disk is lost.
+      // A failed upgrade leaves the DB at its last good version, where this build's writes fail, so DBInitializer
+      // blocks the app (D28); nothing on disk is lost and the next launch retries. The load still goes ahead, each
+      // part on its own: below version 3 getSpots throws, but media and the user's settings still load.
       try {
         await migrateDb(db);
       } catch (err) {
         console.error('[useDbInit] Database migration failed:', err);
+        setUpgradeFailed(true);
+      }
+      let spots: Spot[] = [];
+      try {
+        spots = await getSpots(db);
+        setSpots(spots);
+      } catch (err) {
+        console.error('[useDbInit] Failed to initialize database (spots):', err);
       }
       try {
-        const spots = await getSpots(db);
-        setSpots(spots);
         setAllMedia(await getAllMedia(db));
+      } catch (err) {
+        console.error('[useDbInit] Failed to initialize database (media):', err);
+      }
+      try {
         const settings = await getUserSettings(db);
         if (settings) {
           loadSettings(settings);
         }
-        setIsReady(true);
-        // In the background, after the app is usable: towns for untitled spots (D4).
-        void backfillTowns(spots, updateSpot);
       } catch (err) {
-        console.error('[useDbInit] Failed to initialize database:', err);
-        setIsReady(true); // Allow app to proceed even on DB error
+        console.error('[useDbInit] Failed to initialize database (settings):', err);
       }
+      setIsReady(true); // even after an error, so the splash screen never strands the app
+      // In the background, after the app is usable: towns for untitled spots (D4).
+      void backfillTowns(spots, updateSpot);
     })();
   }, [db, setSpots, updateSpot, setAllMedia, loadSettings]); // all stable, so this still runs once
 
-  return { isReady };
+  return { isReady, upgradeFailed };
 }

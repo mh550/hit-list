@@ -133,8 +133,8 @@ describe('useDbInit', () => {
   });
 
   it('still loads spots, media and settings when migrateDb throws', async () => {
-    // A failed upgrade leaves the DB at the last good version, which this build can still read;
-    // skipping the load would look like every spot vanished.
+    // A failed upgrade leaves the DB at the last good version; whatever still loads is loaded (DBInitializer then
+    // blocks the app, D28).
     mockMigrateDb.mockRejectedValueOnce(new Error('migration 2 failed'));
     const spot = createTestSpot({ name: 'still here' });
     const m = createTestMedia({ spot_id: spot.id });

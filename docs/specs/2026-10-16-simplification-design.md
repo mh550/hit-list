@@ -67,6 +67,7 @@ re-hydrated per user ("add the features and fields you want"); none of that is b
 | D25 | **Nearby-spot grouping on save** | When a new spot (Quick Add or import group) is saved within the import radius of an existing spot, the review screen offers **"Add photos to *<existing name>*"** beside "Save as new spot". Picking it adds the photos to the existing spot instead of creating one. No automatic merge, ever. Details §5. | Michael **[F3]**: posed as a question; building the offer is *my call* (§9 Q3) |
 | D26 | **Old data is archived, not deleted** | Migration 3 copies each spot's removed fields into one `legacy_json` column on the row (and maps `feature.type` → `feature_types`, `skate_stops.is_stopped` → `stopped`, `metadata.notes` → `notes`). Nothing reads `legacy_json` except a one-line "Older details" disclosure on the detail screen when it is non-empty. Details §4. | *my call* (§9 Q4) |
 | D27 | **Groups / sharing deferred** | §7 is direction, not scope. Nothing in §7 is built this run. | Michael: "consider deferring #5 until after the simplification has been done and tested" |
+| D28 | **A failed upgrade blocks the app** *default* | If `migrateDb` throws at launch (e.g. migration 3), the app shows "Couldn't upgrade your spots — Nothing was lost… Close HitList and open it again to retry" instead of the tabs; the next launch retries. Media and settings still load, each on its own. | Builder (M1-05 review): this build's writes fail on an older schema, so a usable-looking empty app would let a Quick Add copy photos and then lose the spot, and saving Units would write default settings over the stored ones (§9 Q8) |
 
 ---
 
@@ -459,6 +460,10 @@ Stretch, in order, only if all above is green: (a) FilterSheet range mode polish
    (D7). `spec/2026-10-16` = `main` + this document; the loop branches from it and opens its PR
    against `main`.
 7. Still open from before: **D15** (town in list search) and **D16** (untitled import label date).
+8. **Failed upgrade (D28, added by the M1-05 review).** **Default: block the app** with a "Couldn't
+   upgrade your spots · Nothing was lost · close and reopen to retry" screen when a migration throws
+   at launch. Say "let me in anyway" for the old behaviour (the list loads what it can and writes
+   may fail).
 
 ---
 

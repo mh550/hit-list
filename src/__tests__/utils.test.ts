@@ -1,5 +1,5 @@
 import { distanceMeters, haversineDistance, formatDistance } from '@/src/utils/geo';
-import { displayLength } from '@/src/utils/units';
+import { displayLength, radiusFromInput, radiusToDisplay, radiusUnitLabel } from '@/src/utils/units';
 import { getSpotDisplayName } from '@/src/utils/spot-name';
 import { UnitSystem } from '@/src/types';
 import { createTestSpot } from './factories';
@@ -56,6 +56,52 @@ describe('units', () => {
 
   it('displays length in meters for metric', () => {
     expect(displayLength(1, UnitSystem.Metric)).toBe('1.0 m');
+  });
+});
+
+describe('import radius in the user\'s unit (D23)', () => {
+  it('shows the stored metres as whole feet or metres', () => {
+    expect(radiusToDisplay(50, UnitSystem.Imperial)).toBe(164);
+    expect(radiusToDisplay(50, UnitSystem.Metric)).toBe(50);
+    expect(radiusToDisplay(30, UnitSystem.Imperial)).toBe(98);
+  });
+
+  it('reads typed feet or metres back as whole metres', () => {
+    expect(radiusFromInput('164', UnitSystem.Imperial)).toBe(50);
+    expect(radiusFromInput('100', UnitSystem.Imperial)).toBe(30);
+    expect(radiusFromInput('30', UnitSystem.Metric)).toBe(30);
+  });
+
+  it('rejects empty, zero, negative and non-numeric input', () => {
+    for (const units of [UnitSystem.Imperial, UnitSystem.Metric]) {
+      expect(radiusFromInput('', units)).toBeNull();
+      expect(radiusFromInput('0', units)).toBeNull();
+      expect(radiusFromInput('-5', units)).toBeNull();
+      expect(radiusFromInput('abc', units)).toBeNull();
+    }
+  });
+
+  it('round-trips every whole-metre radius through its feet display', () => {
+    for (let m = 1; m <= 500; m++) {
+      expect(radiusFromInput(String(radiusToDisplay(m, UnitSystem.Imperial)), UnitSystem.Imperial)).toBe(m);
+    }
+  });
+
+  it('reads only plain decimal numbers (M7-02)', () => {
+    expect(radiusFromInput(' 164 ', UnitSystem.Imperial)).toBe(50);
+    expect(radiusFromInput('12.5', UnitSystem.Metric)).toBe(13);
+    for (const text of ['0x10', '1e3', '164ft', '0,5', '.', '+5', 'Infinity']) {
+      expect(radiusFromInput(text, UnitSystem.Imperial)).toBeNull();
+    }
+  });
+
+  it('never reads a positive input as a zero radius', () => {
+    expect(radiusFromInput('1', UnitSystem.Imperial)).toBe(1);
+  });
+
+  it('names the unit', () => {
+    expect(radiusUnitLabel(UnitSystem.Imperial)).toBe('ft');
+    expect(radiusUnitLabel(UnitSystem.Metric)).toBe('m');
   });
 });
 

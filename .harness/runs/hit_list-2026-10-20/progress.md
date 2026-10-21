@@ -12,6 +12,39 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 verify M7
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| M7-01 | 1 | `npx jest --ci src/__tests__/utils.test.ts`; read the 'import radius' describe | Pass. radiusToDisplay 50→164/50, 30→98; radiusFromInput '164'→50, '100'→30, Metric '30'→30; '', '0', '-5', 'abc'→null for both units; radiusUnitLabel 'ft'/'m' | yes |
+| M7-01 | 2 | Read `profile.test.tsx` (14 pass) | Imperial: text 'Import radius · ft', label 'Import radius in feet' value '164'. Metric press: 'Import radius · m', 'Import radius in metres' '50'. '328'+blur → store 100. 'abc'+blur → value '164', store 50, save not called | yes |
+| M7-01 | 3 | Read `import-screen.test.tsx` (3 pass) | /\(within 164 ft\)/ Imperial, /\(within 50 m\)/ Metric; groupPhotosByProximity calledWith(any Array, 50) | yes |
+| M7-01 | 4 | `grep -rn "Import radius in meters\|(meters)\|{batchRadius}m" app src --include=*.tsx` | No output | yes |
+| M7-01 | 5 | `check.sh` (green, 651 tests) + `npx jest --ci | grep -c console.error` | green; 0 console.error lines (lint/tsc inside check) | yes |
+| M7-02 | 1 | `wc -l reviews/m7.diff`; read plan 'Review' section; `git show --stat e9eee31 68fbc95`; read the 50.4 m test | m7.diff exists (350 lines); findings table has severity, file:line, fix commit; Important #6 fix has RED e9eee31 before GREEN 68fbc95; answer written; test 'writes nothing when a radius that is not whole feet is blurred unchanged' stores 50.4 and 'leaves the stored metres alone' (50 shows 164, stays 50) both assert as required | yes |
+| M7-02 | 2 | Read plan 'What Michael will see' | Imperial and Metric lists of Profile texts in order, noted as from a scratch render; no scratch test file left in src/__tests__ | yes |
+| M7-02 | 3 | `grep -n radius CLAUDE.md README.md APP_SPECIFICATIONS.md` | CLAUDE.md l.94-95 Conventions line (metres, units.ts edges); README l.13/40 radius in your units; APP_SPECIFICATIONS l.296 User settings note | yes |
+| M7-02 | 4 | `check.sh` green; 0 console.error | green | yes |
+
+### 2026-10-21 15:10 · M7-02 · passes
+
+- Opus review of `reviews/m7.diff` (350 lines): 0 Critical, 2 Important, 4 Minor; table, answer and 'What Michael will see' (Imperial and Metric Profile texts from a scratch render, test deleted) in new `docs/plans/2026-10-20-m7-radius.md`.
+- Important #6 fixed: the unchanged-blur test passed even with the `draft === null` guard removed. The new test stores 50.4 m (shows 165 ft) and fails under that mutation (1 of 14). Minor #2 fixed: `radiusFromInput` reads only plain decimals ('0x10', '1e3' and 'Infinity' were accepted). RED `e9eee31` → GREEN `68fbc95`.
+- Important #1 (reviewer) left as specified: whole-metre storage snaps typed feet (165 → 164, 100 → 98, ≤ 2 ft) because D23 and M7-01's step say '100' ft → 30 m. Recorded as **D32 *default*** + §9 Q12.
+- Docs: CLAUDE.md Conventions (radius in metres, converted at the edges with units.ts), README Status (+M7, radius in your units), APP_SPECIFICATIONS User Settings note.
+- Tests 648 → 651; `check.sh` green (651); `jest --ci` 0 console.error.
+- Question for Michael (§9 Q12): keep whole metres (typed 100 ft reads 98), or store centimetres so 100 ft stays 100? And should a maximum radius refuse typos like 99999?
+- Proposed change: none.
+
+### 2026-10-21 14:40 · M7-01 · passes
+
+- D23 built: `src/utils/units.ts` gains `radiusToDisplay` (50 m → 164 ft / 50 m, 30 → 98), `radiusFromInput` (Imperial '164' → 50, '100' → 30, '328' → 100; '', '0', '-5', 'abc' → null; a positive input never becomes 0 m, '1' ft → 1 m) and `radiusUnitLabel`.
+- Profile (`app/(tabs)/profile.tsx`): label 'Import radius · ft|m', accessibilityLabel 'Import radius in feet|metres'; the field shows the stored metres and keeps a draft only while typing, so a units switch re-renders it (164 ↔ 50). Blur unchanged or with the same metres saves nothing (no drift); invalid text restores the display; text typed before tapping Metric/Imperial is saved in the unit it was typed in.
+- Import (`app/import/index.tsx`): '(within 164 ft)' / '(within 50 m)'; `groupPhotosByProximity` still gets 50 (metres).
+- Tests 634 → 648 (`utils.test.ts` +6 incl. a 1–500 m round-trip, `profile.test.tsx` +6 net, new `import-screen.test.tsx` 3). The switch-before-blur test fails with the commit removed. `check.sh` green (648), `jest --ci` 0 console.error, the step-4 grep prints nothing.
+- Next (M7-02): `docs/plans/2026-10-20-m7-radius.md` does not exist yet; the reviewer's round-trip question is already covered by 'leaves the stored metres alone when the field is blurred unchanged' and the 1–500 m round-trip test. The profile test checks setBatchImportRadius(100) through the store and `saveUserSettings`, not a spy on the hook.
+- Questions for Michael: none new (§9 Q10 / Q11 still open).
+
 ### 2026-10-21 verify M6
 
 | Feature | Step | What you ran or read | What you saw | Holds |

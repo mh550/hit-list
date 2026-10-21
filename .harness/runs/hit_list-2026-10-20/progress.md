@@ -12,6 +12,12 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 19:50 · M5-04 · passes
+
+- New `docs/plans/2026-10-20-m5-what-michael-will-see.md`: three list rows (three types + Stopped + Too much; untagged; one type, no photo), sort chips in order Distance · Date · Name (with/without location), Filter sheet empty and all-three-set, Marker props for two spots, a phone checklist. Rendered from a temporary test (deleted); no code changed.
+- Verified: `npx jest --silent` 47 suites, 584 tests (unchanged); `npx expo export --platform ios` exit 0; `check.sh` green. Git diff is docs + `passes` only.
+- Next (M5-05): row VoiceOver label still just the name (noted in the doc's Known gaps). Questions for Michael: none.
+
 ### 2026-10-21 19:20 · M5-03 · passes
 
 - `SpotListItem` props now `{ id, displayName, thumbnailUri?, featureType?, stopped, naturalSpeed?, distance?, onPress }` (still `memo`); badge row (wrap, centred): type badge 'Rail +2' · `Tag size="small" tone="stopped"` 'Stopped' · `SpeedScale readonly compact` bar; distance stays on its own line. `Tag` gains `size`, the readonly bar gains `compact` (12-pt word). `app/(tabs)/index.tsx` passes `stopped`/`natural_speed`. Map callout description = new `featureTypesList` ('Rail · Ledge', `[]` → undefined) in `src/utils/spot-name.ts`.

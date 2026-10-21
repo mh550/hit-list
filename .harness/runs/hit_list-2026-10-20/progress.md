@@ -12,6 +12,39 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 · verify M4
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| M4-01 | 1 | read docs/plans/2026-10-20-m4-viewer.md | has route, FlatList pager + why, Simultaneous/Exclusive composition, gallery-gestures signatures, Alert (no ActionSheetIOS), ~150-line zoom-toolkit fallback, test list | yes |
+| M4-01 | 2 | read app/_layout.tsx, jest.setup.ts; ran root-layout.test.tsx | GestureHandlerRootView style flex 1 wraps tree; jestSetup imported, file exists, reanimated mock kept; 3/3 root-layout tests pass | yes |
+| M4-01 | 3 | `npx expo export --platform ios` to scratch dir; read plan l.26 | exit 0; plan records 4,060,375 B → 4,215,187 B | yes |
+| M4-01 | 4 | `check.sh`; `npx jest --ci` on M4 suites | green (530 tests); no console.error lines | yes |
+| M4-02 | 1 | read src/utils/gallery-gestures.ts exports | clampScale, toggleZoom, clampPan, pagingEnabled, shouldClose, focalZoom all exported with the stated signatures | yes |
+| M4-02 | 2 | gallery-gestures.test.ts, read assertions | clampScale 0.5→1, 6→4, 2.2; toggleZoom 1→2.5, 2.5→1, 1.04→2.5; clampPan scale 1 → 0,0; ({500,-900},2) = {195,-422}; pagingEnabled 1/1.06; shouldClose 121/119/(300,2) | yes |
+| M4-02 | 3 | check.sh | green, 0 console.error | yes |
+| M4-03 | 1 | read _layout.tsx l.39, photos.tsx l.150-200, tests | Stack.Screen spot/[id]/photos registered; FlatList with initialScrollIndex + getItemLayout; labels 'Photo N of M'; black root; StatusBar hidden; tests pass | yes |
+| M4-03 | 2 | photo-viewer.test.tsx verbose | '3 / 7' at index 2; Close button role/label → router.back; page 5 → '6 / 7'; index 99 → last; 'Spot not found' — all pass | yes |
+| M4-03 | 3 | spot-detail.test.tsx -t viewer | 'opens the full-screen viewer at the pressed photo' passes (push to /spot/<id>/photos index 3) | yes |
+| M4-03 | 4 | check.sh + expo export | green; export exit 0 | yes |
+| M4-04 | 1 | wc -l ZoomablePhoto.tsx; grep StyleSheet | 144 lines, no styles block; Pinch+Pan+Tap+gallery-gestures; no toolkit installed (<150) | yes |
+| M4-04 | 2 | photo-viewer.test.tsx l.208-215 | scrollEnabled true at 1×, false after onScaleChange(2), true after 1 | yes |
+| M4-04 | 3 | photo-viewer.test.tsx swipe-down tests | 150 at 1× → back; 119 → none; 150 at 2× → pans, no back; use fireGestureHandler | yes |
+| M4-04 | 4 | read plan l.44, l.134 | states no back interception; Stack pops | yes |
+| M4-04 | 5 | check.sh + export | green; export exit 0 | yes |
+| M4-05 | 1 | photo-viewer.test.tsx l.470-500 | Alert buttons Set as primary / Remove photo (destructive) / Cancel; updateSpot(id,{primary_photo_id}); 'Remove this photo?' → removePhotos once; counter N / 6 | yes |
+| M4-05 | 2 | tests l.540-580 | last photo → back; primary removed → next id or null (both tested) | yes |
+| M4-05 | 3 | grep photos.tsx:161, test l.448 | accessibilityHint 'Double-tap and hold for options' present and asserted | yes |
+| M4-05 | 4 | check.sh | green | yes |
+| M4-06 | 1 | read docs/plans/2026-10-20-m4-what-michael-will-see.md; git status clean | has 7-photo index-2 tree (counter, Close, page labels), after-swipe render, detail tile; no leftover temp test | yes |
+| M4-06 | 2 | read 'Try on the phone' | all listed gestures with expected results, plus note none ran on a device | yes |
+| M4-06 | 3 | read 'Verification numbers' | records jest totals (520, stale vs 530 now), export exit 0, bundle 4,240,251 B | yes |
+| M4-06 | 4 | check.sh | green | yes |
+| M4-07 | 1 | ls reviews/m4.diff; read plan Review; git log | diff exists; findings table with severity/location/fix; RED 0b1dfe8 precedes GREEN d2b3e46 for Important fixes | yes |
+| M4-07 | 2 | read written answers; grep photos.tsx, ZoomablePhoto.tsx | windowSize 3, contentFit contain, recyclingKey, StatusBar hidden only while mounted, ✕ 44×44; worklets use shared values/pure utils | yes |
+| M4-07 | 3 | git log; grep CLAUDE.md, README.md, RUNNING-ON-PHONE.md | refactor: f89bb03; docs all mention viewer, gallery-gestures, gesture jest setup | yes |
+| M4-07 | 4 | check.sh | green | yes |
+
 ### 2026-10-21 17:30 · M4-04 · passes
 
 - Fixes the verify-pass failure: `src/components/ZoomablePhoto.tsx` goes from 156 to **144 lines** (no styles block), under step 1's 150 limit. I reflowed the `gallery-gestures` import and the `report` callback; behaviour is unchanged. The unzoomed pan's `[-10, 10]` offsets became `PAN_SLOP` (10) in `src/utils/gallery-gestures.ts`, so the component has no number of its own. No zoom-toolkit.

@@ -12,6 +12,14 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 21:30 · M6-01 · passes
+
+- New `docs/plans/2026-10-20-m6-review-screens.md`: Quick Add layout (photos · name · 'Add details' link → `SpotTagFields` · location · nearby card · Save), nearby rows ('Near <display name> · 16 ft', 48-pt thumbnail, 'Add photos there', ≤ 3 nearest), what 'Add photos there' does (one `savePhotos` to that `spot_id`, no `addSpot`, primary set if none, `dismissAll` then `push('/spot/<id>')`, shared `saving` guard), import per-group chip offer (store spots only, 'New spot' default, counts only new spots), failure behaviour, test list per feature.
+- New `src/utils/nearby-spots.ts` `nearbySpots(location, spots, radiusMeters)` + `src/__tests__/nearby-spots.test.ts` (7 tests: 10/40/60 m → [10, 40]; NO_LOCATION spot; deleted; unknown query; exactly-radius inclusive; no mutation). Mutation check: `<=`→`<`, no deleted filter, no early return, no sort each fail one test.
+- Spec: new **D30 *default*** + §9 Q10 (joining an existing spot drops the review's typed name/tags).
+- Tests 589 → 596; `check.sh` green (596); `jest --ci` 0 console.error.
+- Next (M6-02/03): Quick Add Save has no try/catch today; plan adds one for both buttons. Question for Michael: §9 Q10 (D30) — OK to drop a typed name when adding photos to an existing spot, or "fill blanks"?
+
 ### 2026-10-21 21:00 · verify M5
 
 | Feature | Step | What you ran or read | What you saw | Holds |

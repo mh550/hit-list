@@ -425,7 +425,7 @@
         "src/utils/nearby-spots.ts exports nearbySpots(location: GeoPoint, spots: Spot[], radiusMeters: number): Spot[]; src/__tests__/nearby-spots.test.ts passes: spots at 10 m, 40 m and 60 m from the location with radius 50 returns the 10 m and 40 m spots in that order; a spot at NO_LOCATION is never returned; a spot with deleted_at set is never returned; an unknown query location (NO_LOCATION) returns []; a spot at exactly the radius is included.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M6-02",

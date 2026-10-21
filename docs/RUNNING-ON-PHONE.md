@@ -31,15 +31,20 @@ takes a little while; later loads are quick.
 ## What to expect
 
 - **Spots tab, List** (default): every spot with a thumbnail (its main photo, or "No Photo"), what's
-  there (e.g. "Rail +1") once tagged, and a distance once you allow location. Unnamed spots read
+  there (e.g. "Rail +1") once tagged, a small red "Stopped" tag when skate stopped, the natural speed bar once rated,
+  and a distance once you allow location. Unnamed spots read
   `Untitled · Seattle · Oct 13, 2:22 PM` (the town arrives a moment after saving, from Apple's
   geocoder: it needs internet, and the spot's coordinates are sent to Apple to look it up) or `Untitled · Oct 13, 2:22 PM` without a town.
 - **Search and sort** (Spots tab): the search field under List | Map finds spots by name or town, in
   both views. In List, the chips sort by Distance, Date or Name. Tap the active chip again
   to reverse it. Distance works once you allow location. Spots without a location or name
   stay at the bottom, whichever way the sort runs.
-- **Spots tab, Map**: the List | Map switch under the header. Apple Maps, one blue pin per spot. Tap a pin, then its
-  bubble, to open the spot. Spots saved without GPS appear in the list but not on the map. Nearby
+- **Filter** (Spots tab, top right of the header): a sheet with three filters: What's here (chips, any of them),
+  Skate stopped (Any / Not stopped / Stopped) and Natural speed (tap a low and a high word for a range; tap one word
+  twice for just that one; tap again to clear). Apply; the button shows how many are set. Spots never rated for speed
+  stay in. Reset (in the sheet) or 'Reset filters' (under "No matching spots") clears all three.
+- **Spots tab, Map**: the List | Map switch under the header. Apple Maps, one blue pin per spot. Tap a pin (its bubble lists the
+  feature types, e.g. "Rail · Ledge"), then the bubble, to open the spot. Spots saved without GPS appear in the list but not on the map. Nearby
   spots show as one numbered blue circle. Tap it to zoom in. If the spots are at the same place,
   tapping it lists them by name instead. Pick one to open it.
 - **+ button**: camera → take photos → name it or leave it blank → Save. The photos are

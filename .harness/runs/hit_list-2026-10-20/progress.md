@@ -12,6 +12,31 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 21:00 · verify M5
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| M5-01 | 1 | Read docs/plans/2026-10-20-m5-filters-list.md | Has FilterSheet layout (chips · segmented Any/Not stopped/Stopped · range), SpeedScale range API (rangeValue/onRangeChange, tap table incl. third tap clears), SpotListItem props, callout ' · ' rule, test list | yes |
+| M5-01 | 2 | `npx jest --ci` stores.test.ts (115 pass across the 5 M5 files); read assertions at l.76-96, 207-250 | stopped undefined/true/false cases; 'min 1 and max 3 keep speeds 1,2,3 and unrated, drop 0 and 4'; count 1/1/1/3/0 asserted | yes |
+| M5-01 | 3 | `check.sh` (lint+tsc+jest --silent) | green, 589 tests; jest --ci no console.error | yes |
+| M5-02 | 1 | Read speed-scale.test.tsx l.138-190 | undefined → none selected + 'Any'; Little,Enough → [1,3] + 'Little to Enough'; Some×2 → [2,2] + 'Some'; Enough,Little → [1,3]; [2,2]+Some → undefined | yes |
+| M5-02 | 2 | Read filter-sheet.test.tsx l.113-216 | headers = Filters + 3 section labels only; tabs Any/Not stopped/Stopped; Apply gives exactly {types:['rail'],stopped:true,min:1,max:3}; Reset → DEFAULT_FILTERS; stored filters pre-selected | yes |
+| M5-02 | 3 | Read spots-sort-search.test.tsx l.192-205 | 'counts all three filters: 3 active': label 'Filter spots, 3 active', text 'Filter (3)' | yes |
+| M5-02 | 4 | `check.sh` | green, 589 tests | yes |
+| M5-03 | 1 | Read spot-list.test.tsx l.62-128 | 'Rail +2'; Stopped only when stopped; label 'Natural speed: Too much'; none when undefined; numberOfLines 2; distance shown | yes |
+| M5-03 | 2 | Read spot-map.test.tsx l.72-122 | description 'Rail · Ledge'; [] → undefined; all pins SPOT_PIN; title = getSpotDisplayName | yes |
+| M5-03 | 3 | Read src/components/SpotListItem.tsx | Props id, displayName, thumbnailUri?, featureType?, stopped, naturalSpeed?, distance?, onPress; wrapped in memo | yes |
+| M5-03 | 4 | `check.sh` | green, 589 tests | yes |
+| M5-04 | 1 | Read docs/plans/2026-10-20-m5-what-michael-will-see.md; `git ls-files` for stray render test | Three rows, sort chips in order, sheet empty and all-three, Marker props for two spots; no temp test tracked | yes |
+| M5-04 | 2 | Read Verification numbers; ran `npx expo export --platform ios --output-dir /tmp/harness/.../exp` | File records jest totals (584 then) and export exit 0; my export exit 0 | yes |
+| M5-04 | 3 | `check.sh` | green, 589 tests | yes |
+| M5-05 | 1 | Read reviews/m5.diff (1243 lines) and 'Review (M5-05)' in the plan; `git log` of filter-sheet test | Findings table with severity, file, fix commit; Important fix RED ea1e9a2 before GREEN 6571829 | yes |
+| M5-05 | 2 | Read 'Answers to the M5-05 questions' | Range a11y (selected per in-range segment, test named); badgeRow flexWrap: wrap with distance on own line; Reset filters clears all three, three tests named | yes |
+| M5-05 | 3 | `git log`; read CLAUDE.md l.63, README Status l.29-45, RUNNING-ON-PHONE | refactor commit 595e53a; CLAUDE.md stores line has three filters; README feature type/skate stopped/natural speed, sort Distance, Date, Name; phone doc has Filter text | yes |
+| M5-05 | 4 | `check.sh` | green, 589 tests | yes |
+
+Result: 18 hold, 0 fail.
+
 ### 2026-10-21 20:30 · M5-05 · passes
 
 - Opus review of `reviews/m5.diff` (1243 lines): 0 Critical, 1 Important (fixed), 5 Minor (4 fixed, 1 left), recorded under 'Review (M5-05)' in `docs/plans/2026-10-20-m5-filters-list.md` with the three written answers (range a11y: every in-range segment `selected`; row `flexWrap: 'wrap'`, distance on its own line; 'Reset filters' clears all three, tests named).

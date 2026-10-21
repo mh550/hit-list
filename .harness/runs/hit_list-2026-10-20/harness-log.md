@@ -68,3 +68,6 @@
 - 2026-10-21 14:37 · M8-03 · claude-opus-5-5 · passes=true · 8 min · 39/39 passing
 - 2026-10-21 14:37 · merged main into harness/hit_list-2026-10-20
 - 2026-10-21 14:38 · M8 verified and tagged run/hit_list-2026-10-20/M8
+- 2026-10-21 14:39 · M8 merged into main · https://github.com/mh550/hit-list/pull/8
+- 2026-10-21 14:39 · every feature passes
+- 2026-10-21 14:39 · run ended (done): 39/39 passing · 54 sessions (54 real) · 39 features passed · $78.65 · 3.9 h · by kind: init 1 ($5.63), coding 42 ($69.82), retro 1 ($0.11), verify 10 ($3.09) · by model: claude-fable-5-1 1 ($5.63), claude-opus-5-5 36 ($68.23), claude-sonnet-5-5 17 ($4.79)

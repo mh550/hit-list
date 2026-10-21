@@ -1,11 +1,54 @@
 # Spot Finder - Refined Application Specification
 
+## Simplified model (2026-10-20)
+
+This section wins over everything below it. The full design, with the reasons, is
+[`docs/specs/2026-10-16-simplification-design.md`](docs/specs/2026-10-16-simplification-design.md) (rev 2).
+Headings marked `[SUPERSEDED]` below describe the model before it; their text is kept for history only.
+
+A spot is a place, photos, and three optional tags:
+
+```ts
+export interface Spot {
+  id: string;
+  name?: string;
+  generated_name?: string;        // town
+  location: GeoPoint;             // NO_LOCATION (0, 0) when unknown
+  created_at: string;
+  updated_at: string;
+  deleted_at?: string;
+  feature_types: FeatureType[];   // [] = untagged; order = tap order
+  stopped: boolean;               // skate stoppers on it; default false
+  natural_speed?: NaturalSpeed;   // 0 None · 1 Little · 2 Some · 3 Enough · 4 Too much; undefined = not rated
+  notes?: string;
+  primary_photo_id?: string;
+}
+// FeatureType: rail, ledge, bank, hip, stair_set, gap, wall_ride, quarter_pipe
+```
+
+- **Filters (three):** What's here (any-of match on `feature_types`), Skate stopped (Any / Not stopped /
+  Stopped), Natural speed (an inclusive range of 0–4; spots never rated are kept). The Filter button shows
+  how many of the three are set.
+- **Sort:** Distance, Date, Name (tap the active chip to reverse). Search by name or town, in both views.
+- **Photos:** the detail screen shows a grid (main photo large, the rest in rows of three). Tapping a photo opens
+  a full-screen viewer: swipe between photos, pinch to 4×, double-tap 2.5×, swipe down to close, long-press to
+  set as main photo or remove it. Edit stages photo adds and removes until Save.
+- **Nearby offer:** when a new spot would land within the import radius of a spot you already have, Quick Add and
+  the import review offer to add the photos there instead; saving still creates a new spot by default.
+- **Import radius:** stored in whole metres (`batch_import_radius`, 50 m by default), shown and typed in the
+  user's units (50 m reads 164 ft).
+- **Older details:** everything the previous model held (dimensions, material, stops, setup options, old scores)
+  was archived in `legacy_json` by migration 3 and shows read-only under a collapsed 'Older details' on detail.
+
+---
+
 > **Document Purpose**: This is a refined version of `spot_finder_app_spec.md`. Sections that deviate from or extend the original spec are marked with:
 > - `[DEVIATION]` - Changed from original spec
 > - `[ADDITION]` - New content not in original spec
 > - `[CLARIFICATION]` - Ambiguity resolved through discussion
 
 ---
+
 
 ## Project Overview
 
@@ -58,7 +101,7 @@ When a user skips naming a spot (e.g., Quick Add), the display name falls back:
 
 ---
 
-#### Feature Details
+#### [SUPERSEDED] Feature Details
 
 What the rideable feature is. All fields optional for draft spots.
 
@@ -104,7 +147,7 @@ What the rideable feature is. All fields optional for draft spots.
 
 ---
 
-#### In-Run (Speed System)
+#### [SUPERSEDED] In-Run (Speed System)
 
 ##### `[CLARIFICATION]` Natural Speed Rating
 
@@ -173,7 +216,7 @@ spot.setup_options: [
 - `quantity`: optional integer (defaults to 1). For `shovel_pull`: number of shovels/people. For `speed_humps`: number needed.
 - An empty `requires: []` means hittable with no equipment (natural speed only)
 
-##### `[CLARIFICATION]` Two-Stage Filtering
+##### [SUPERSEDED] `[CLARIFICATION]` Two-Stage Filtering
 
 Filtering uses the `category` field to apply two stages:
 
@@ -211,7 +254,7 @@ spot.setup_options: [
 
 ---
 
-#### Landing
+#### [SUPERSEDED] Landing
 
 ##### `[DEVIATION]` Landing Difficulty Rating
 
@@ -230,7 +273,7 @@ spot.setup_options: [
 
 ---
 
-#### Spot Metadata
+#### [SUPERSEDED] Spot Metadata
 
 ##### `[DEVIATION]` Unified Rating System
 
@@ -468,6 +511,8 @@ Editing uses the same UI as Detail Entry, pre-populated with existing data.
 
 ### Filters
 
+> **[SUPERSEDED]** Only three filters remain: What's here, Skate stopped and Natural speed (0–4). See "Simplified model (2026-10-20)" at the top. The table below is the old set.
+
 | Filter | Type | Notes |
 |--------|------|-------|
 | Natural Speed | Range (1-5) | |
@@ -479,7 +524,7 @@ Editing uses the same UI as Detail Entry, pre-populated with existing data.
 | Status | Toggle | Show/hide draft spots |
 | `[FUTURE]` Folder | Single-select | |
 
-#### `[CLARIFICATION]` Gear + Build Filter Interaction
+#### [SUPERSEDED] `[CLARIFICATION]` Gear + Build Filter Interaction
 
 The gear and build filters work together as a two-stage pipeline over the unified `requires` array:
 

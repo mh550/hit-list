@@ -557,7 +557,7 @@
         "docs/RUNNING-ON-PHONE.md 'what you will see' paragraphs match the M2–M7 walkthrough files (no Draft, pins one colour, viewer, filters).",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M8-03",

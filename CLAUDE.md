@@ -84,7 +84,7 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
 - **Photos**: copied into `Paths.document/photos/<spotId>/<mediaId>.jpg`; `media.file_path` stores
   the **relative** path; resolve with `resolvePhotoUri` at display time. Never write to the camera
   roll; files are not deleted on soft delete.
-- **Spot model (v3, migration 3)**: a spot is `feature_types` (ordered `FeatureType[]`, `[]` = untagged,
+- **Spot model (v3, migration 3)**: a spot is `feature_types` (`FeatureType[]` in tap order, `[]` = untagged,
   column `feature_types_json`), `stopped` (boolean, skate stoppers on it), `natural_speed` (0–4, **0 = None is a
   real value**, undefined = not rated; never test it with `!`), `notes`. In a `SpotUpdate`, `null` clears `name`,
   `notes`, `natural_speed`, `primary_photo_id`. Everything the old nested model held (dimensions, material, stops,

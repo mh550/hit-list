@@ -12,6 +12,13 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 16:30 · M8-02 · passes
+
+- `APP_SPECIFICATIONS.md`: new '## Simplified model (2026-10-20)' directly under the title (Spot interface, three filters, sorts, viewer, nearby offer, metre radius shown in user units, Older details, pointer to the design doc). Six headings now start '[SUPERSEDED]' (Feature Details, In-Run, Two-Stage Filtering, Landing, Spot Metadata, Gear + Build Filter Interaction), text kept; a note sits under the old Filters table.
+- `README.md` Status header dated 2026-10-20 (its list already had every required item); `CLAUDE.md` says feature_types are in tap order (everything else already there); `docs/RUNNING-ON-PHONE.md` gains Add details / nearby card and Edit / Older details bullets.
+- Verified: `grep -n SUPERSEDED APP_SPECIFICATIONS.md` (6 hits); `check.sh` green, 651 tests (docs only).
+- Questions for Michael: none. Proposed changes: none.
+
 ### 2026-10-21 16:00 · M8-01 · passes
 
 - Sweep (spec §6) written up in new `docs/plans/2026-10-20-m8-sweep.md`. It has the full grep-loop output and a table giving the reason for every kept hit. No app code uses a removed type, component, label table, setting or filter. The hits that remain fall into four groups: shipped migrations (`schema.ts`, never edited), the D26 `legacy_json` keys and their 'Older details' labels (Material, Intensity, Bustability…), tests that assert something removed stays absent (D20/D22), and non-model `status` (permissions, `expo-status-bar`, `Promise.allSettled`).

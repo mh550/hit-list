@@ -23,19 +23,17 @@ interface Props {
   onClose: () => void;
 }
 
-type StoppedChoice = 'any' | 'not-stopped' | 'stopped';
-
+// One table for the segments and both directions of the stopped filter.
 const STOPPED_SEGMENTS = [
-  { label: 'Any', value: 'any' },
-  { label: 'Not stopped', value: 'not-stopped' },
-  { label: 'Stopped', value: 'stopped' },
+  { label: 'Any', value: 'any', stopped: undefined },
+  { label: 'Not stopped', value: 'not-stopped', stopped: false },
+  { label: 'Stopped', value: 'stopped', stopped: true },
 ] as const;
 
-const STOPPED_CHOICE = { any: undefined, 'not-stopped': false, stopped: true } as const;
+type StoppedChoice = (typeof STOPPED_SEGMENTS)[number]['value'];
 
 function stoppedChoice(stopped: boolean | undefined): StoppedChoice {
-  if (stopped === undefined) return 'any';
-  return stopped ? 'stopped' : 'not-stopped';
+  return STOPPED_SEGMENTS.find((s) => s.stopped === stopped)?.value ?? 'any';
 }
 
 /** A stored range may have one open end; the scale shows it running to that end of the scale. */
@@ -77,7 +75,7 @@ function FilterSheetContent({ onClose }: Omit<Props, 'visible'>) {
 
   // Every key is written, even as undefined, so Apply's merge clears an old stopped value or range.
   const setStopped = (choice: StoppedChoice) => {
-    setPending((prev) => ({ ...prev, stopped: STOPPED_CHOICE[choice] }));
+    setPending((prev) => ({ ...prev, stopped: STOPPED_SEGMENTS.find((s) => s.value === choice)?.stopped }));
   };
 
   const setSpeedRange = (range: SpeedRange | undefined) => {

@@ -66,11 +66,7 @@ export const SpotListItem = memo(function SpotListItem({
         </Text>
 
         <View style={styles.badgeRow}>
-          {featureType ? (
-            <View style={styles.typeBadge}>
-              <Text style={styles.typeText}>{featureType}</Text>
-            </View>
-          ) : null}
+          {featureType ? <Tag label={featureType} size="small" /> : null}
           {stopped ? <Tag label="Stopped" tone="stopped" size="small" /> : null}
           <SpeedScale readonly compact value={naturalSpeed} />
         </View>
@@ -127,18 +123,6 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     alignItems: 'center',
     gap: spacing.sm,
-  },
-  typeBadge: {
-    backgroundColor: palette.gray[100],
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderRadius: radius.sm,
-    borderCurve: 'continuous',
-  },
-  typeText: {
-    fontSize: 12,
-    fontWeight: '500',
-    color: palette.gray[600],
   },
   distance: {
     fontSize: 13,

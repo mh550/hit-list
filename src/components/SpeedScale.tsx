@@ -114,10 +114,12 @@ function SpeedRangePicker({ rangeValue, onRangeChange }: RangeProps) {
   const anchor = liveAnchor(rangeValue, anchorState);
 
   const press = (level: NaturalSpeed) => {
-    const next = nextSpeedRange(rangeValue, anchor, level);
+    const next = nextSpeedRange(rangeValue, anchorState, level);
     setAnchor(next.anchor);
     onRangeChange(next.range);
   };
+
+  const summary = speedRangeLabel(rangeValue);
 
   return (
     <View>
@@ -139,8 +141,8 @@ function SpeedRangePicker({ rangeValue, onRangeChange }: RangeProps) {
           );
         })}
       </View>
-      <Text style={styles.description} accessibilityLabel={`Natural speed: ${speedRangeLabel(rangeValue)}`}>
-        {speedRangeLabel(rangeValue)}
+      <Text style={styles.description} accessibilityLabel={`Natural speed: ${summary}`}>
+        {summary}
       </Text>
     </View>
   );

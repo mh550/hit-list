@@ -20,6 +20,8 @@ interface SpotsState {
   setSpots: (spots: Spot[]) => void;
   addSpot: (spot: Spot) => void;
   updateSpot: (id: string, updates: SpotUpdate) => void;
+  /** Undoes an update whose DB write failed: `before`/`applied` are the spot just before and after it. */
+  revertSpotUpdate: (id: string, before: Spot, applied: Spot) => void;
   removeSpot: (id: string) => void;
   setFilters: (filters: Partial<SpotFilters>) => void;
   resetFilters: () => void;
@@ -46,6 +48,18 @@ function applySpotUpdate(
   return next;
 }
 
+/** Puts back each field the update changed, unless a later update has changed it again since. */
+function revertFields(spot: Spot, before: Spot, applied: Spot): Spot {
+  const next: Record<string, unknown> = { ...spot };
+  const keys = new Set([...Object.keys(before), ...Object.keys(applied)]) as Set<keyof Spot>;
+  for (const key of keys) {
+    if (before[key] === applied[key] || spot[key] !== applied[key]) continue;
+    if (before[key] === undefined) delete next[key];
+    else next[key] = before[key];
+  }
+  return next as unknown as Spot;
+}
+
 export const useSpotsStore = create<SpotsState>((set) => ({
   spots: [],
   viewMode: 'list',
@@ -63,6 +77,11 @@ export const useSpotsStore = create<SpotsState>((set) => ({
   updateSpot: (id, updates) =>
     set((state) => ({
       spots: state.spots.map((s) => (s.id === id ? applySpotUpdate(s, updates) : s)),
+    })),
+
+  revertSpotUpdate: (id, before, applied) =>
+    set((state) => ({
+      spots: state.spots.map((s) => (s.id === id ? revertFields(s, before, applied) : s)),
     })),
 
   removeSpot: (id) =>

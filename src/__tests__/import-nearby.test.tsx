@@ -317,4 +317,15 @@ describe("Import review: a group near an existing spot offers 'Add photos to <na
     await act(async () => finish());
     await waitFor(() => expect(mockDismissAll).toHaveBeenCalled());
   });
+
+  it('names the chosen spot and its distance in the line above the choice', () => {
+    const bench = createTestSpot({ name: 'Bench Ledge', location: north(30) });
+    useSpotsStore.setState({ spots: [existing, bench] });
+    setGroups([groupA]);
+    render(<ImportReview />);
+    expect(screen.getByText(/^Near /).props.children).toBe('Near Library Rail · 49 ft');
+
+    fireEvent.press(choice('Add photos to Bench Ledge'));
+    expect(screen.getByText(/^Near /).props.children).toBe('Near Bench Ledge · 98 ft');
+  });
 });

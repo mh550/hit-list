@@ -3,6 +3,7 @@ import { Pressable, View, Text, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
 import { palette, spacing, radius } from '@/src/constants/theme';
 import type { NaturalSpeed } from '@/src/types';
+import { SPEED_LABELS } from '@/src/constants/labels';
 import { Tag } from '@/src/components/Chip';
 import { SpeedScale } from '@/src/components/SpeedScale';
 
@@ -27,12 +28,23 @@ export const SpotListItem = memo(function SpotListItem({
   distance,
   onPress,
 }: SpotListItemProps) {
+  // VoiceOver reads only the row's label, not the badges inside it, so the label says what they show.
+  const label = [
+    displayName,
+    featureType,
+    stopped ? 'Skate stopped' : undefined,
+    naturalSpeed === undefined ? undefined : `Natural speed: ${SPEED_LABELS[naturalSpeed].label}`,
+    distance,
+  ]
+    .filter(Boolean)
+    .join(', ');
+
   return (
     <Pressable
       onPress={() => onPress(id)}
       style={({ pressed }) => [styles.container, pressed && styles.pressed]}
       accessibilityRole="button"
-      accessibilityLabel={displayName}>
+      accessibilityLabel={label}>
       <View style={styles.thumbnailContainer}>
         {thumbnailUri ? (
           <Image

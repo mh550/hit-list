@@ -106,7 +106,7 @@ function FilterSheetContent({ onClose }: Omit<Props, 'visible'>) {
           <Text style={styles.title} accessibilityRole="header">
             Filters
           </Text>
-          <Pressable onPress={handleReset} hitSlop={8}>
+          <Pressable onPress={handleReset} hitSlop={8} accessibilityRole="button">
             <Text style={styles.resetText}>Reset</Text>
           </Pressable>
         </View>

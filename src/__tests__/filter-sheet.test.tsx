@@ -35,6 +35,12 @@ describe('FilterSheet', () => {
     expect(screen.getByText('Apply')).toBeTruthy();
   });
 
+  it('announces Reset and Apply as buttons (M5-05 review 3)', () => {
+    render(<FilterSheet visible onClose={onClose} />);
+    expect(screen.getByRole('button', { name: 'Reset' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Apply' })).toBeTruthy();
+  });
+
   it('toggling a type chip updates filter state on Apply', () => {
     render(<FilterSheet visible onClose={onClose} />);
     fireEvent.press(screen.getByText('Rail'));

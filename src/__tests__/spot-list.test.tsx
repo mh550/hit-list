@@ -126,6 +126,29 @@ describe('SpotListItem tags (M5-03)', () => {
     expect(screen.getByText('Untitled · San Francisco · Oct 13, 2:22 PM').props.numberOfLines).toBe(2);
     expect(screen.getByText('2.3 mi')).toBeTruthy();
   });
+
+  it('reads every tag in the row label, since VoiceOver hides what the row contains (M5-05 review 1)', () => {
+    const spot = createTestSpot({
+      name: 'Downtown Rail',
+      feature_types: [FeatureType.Rail, FeatureType.Ledge, FeatureType.Bank],
+      stopped: true,
+      natural_speed: 4,
+    });
+    renderRow(spot, '2.3 mi');
+
+    expect(screen.getByRole('button').props.accessibilityLabel).toBe(
+      'Downtown Rail, Rail +2, Skate stopped, Natural speed: Too much, 2.3 mi',
+    );
+  });
+
+  it('labels the row with the name alone when it has no tags, and keeps a None (0) speed', () => {
+    const { unmount } = renderRow(createTestSpot({ name: 'Bare', feature_types: [], stopped: false }));
+    expect(screen.getByRole('button').props.accessibilityLabel).toBe('Bare');
+    unmount();
+
+    renderRow(createTestSpot({ name: 'Flat', feature_types: [], stopped: false, natural_speed: 0 }));
+    expect(screen.getByRole('button').props.accessibilityLabel).toBe('Flat, Natural speed: None');
+  });
 });
 
 describe('Name fallback chain', () => {

@@ -1,4 +1,5 @@
 import React from 'react';
+import { StyleSheet } from 'react-native';
 import { render, screen, fireEvent } from '@testing-library/react-native';
 
 import { Button } from '@/src/components/Button';
@@ -41,6 +42,15 @@ describe('SegmentedControl', () => {
     );
     expect(screen.getByText('Map')).toBeTruthy();
     expect(screen.getByText('List')).toBeTruthy();
+  });
+
+  it('gives every segment a 44-pt touch target (M5-05 review 4)', () => {
+    render(
+      <SegmentedControl segments={segments} selectedValue="map" onValueChange={() => {}} />,
+    );
+    for (const tab of screen.getAllByRole('tab')) {
+      expect(StyleSheet.flatten(tab.props.style).minHeight).toBe(44);
+    }
   });
 
   it('calls onValueChange when tapped', () => {

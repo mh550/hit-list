@@ -544,6 +544,17 @@ describe('Spots tab no-match state', () => {
       expect(screen.getByText('Open rail')).toBeTruthy();
     });
 
+    it('"Reset filters" also clears a What\'s here filter', () => {
+      useSpotsStore.setState({ filters: { ...DEFAULT_FILTERS, types: [FeatureType.Ledge] } });
+      render(<SpotsScreen />);
+
+      expect(screen.getByText('No matching spots')).toBeTruthy();
+      fireEvent.press(screen.getByText('Reset filters'));
+
+      expect(useSpotsStore.getState().filters).toEqual(DEFAULT_FILTERS);
+      expect(screen.getByText('Open rail')).toBeTruthy();
+    });
+
     it('with a search active the action is "Clear search"', () => {
       // A search with no match is cleared by clearing it, not by touching filters.
       useSpotsStore.setState({ filters: { ...DEFAULT_FILTERS }, searchQuery: 'zzz-nothing' });

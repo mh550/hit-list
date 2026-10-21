@@ -1,17 +1,19 @@
 ## Outcome
-Not delivered. The run lasted 0.27 h (16 min) and was stopped by Michael at 13:10. Only 1 of 39 features passed (M1-01, the plan for migration 3, opus, 3 min, $1.44). Nothing was verified or merged, and tests stayed at 387. Cost was $7.07: init $5.63 (Fable, 0.18 h) and plan $1.44. The main reason is the manual stop. The log shows no failure: M1-02 through M8-03 (38 features) are all "not reached: run ended: stopped by Michael". I can't tell from the artifacts why Michael stopped it. The init session took 80% of the cost and 75% of the time for a feature list and brief, which is expensive for a run that stopped one session later.
+Delivered. All 39 features (M1–M8) passed, were verified and were merged (PRs #1–#8). Tests went from 387 to 656. The run cost $78.65 ($2.02 per passing feature) over 4.09 h wall, in 54 sessions, none refused or environmental. There was one continuation: the first attempt was "stopped by Michael" after M1-01 ($7.07, 0.27 h), and init's $5.63 is part of the total. Nothing was left undone.
 
 ## Non-passing features by cause
-There are no "not done" features, so none of the causes in the list apply. All 38 non-passing features are "not reached" (M1-02…M8-03, 38 of them), counted under the stop. No session ran on any of them.
+No feature has cause "not done". Three verify failures were recovered on the second attempt:
+- M1-02 and M1-04: spec or feature-list problem. The verify note says "the greps are specified to print nothing but match `SpotLegacy` keys and v2 fixtures in `db-migrate.test.ts`, which migration tests need."
+- M4-04: failed the re-check at 13:12 and passed at 13:16 (3 min). I did not read its verify note, so I can't assign a cause.
 
 ## Harness behaviour
-- All guards were at 0: repairs, red_unpass, verify_failed, limit_waits, verify_escalations, merges. Nothing needed to fire, so there is nothing to judge.
-- Verify: none ran (verified 0). I can't compare evidence rows with steps from this run.
-- Possible waste: init cost $5.63 for 39 features across 8 milestones, and the plan session M1-01 took 3-4 min at $1.44. This is only a cost note. The one plan that ran did pass, so it was not wasted.
-- Minor: `summary.json` records the stop as `end_reason` with no reason from Michael, so the retro can't separate a wanted stop from a surprise.
-- Before this run, earlier retros in the ledger covered the failure patterns I could look for here, and none of them applies to this run. Other runs: rane-one-mixxx-2026-10-19 also ended "stopped by Michael" with 17 features not reached, and its retro may show a repeat. I did not read it.
+- **Guards:** `verify_failed` fired 3 times (M1-02, M1-04, M4-04). All three were requeued and passed on the next try. `red_unpass`, repairs, limit waits and escalations were all 0. I can't call the M4-04 requeue correct without its note.
+- **Verify re-ran steps.** M1 verify says "I re-ran all 33 steps", and the progress table has one evidence row per step. M2 reports 29 hold, 0 fail, and M1's first pass reports 31 hold and 2 fail. Verify is cheap: 10 sessions, $3.09, run by Sonnet.
+- **Review cost.** Review cost $24.43 (31% of the run) against $36.37 for build. I did not check whether it caught anything.
+- **Wasted work.** The first, stopped attempt cost about $7 and the work was redone: the run restarted from M1 (init $5.63 is counted once in the total). The driver itself used only 0.14 h.
+- **Message mismatch.** The M1 verify commit message ("31 hold, 2 fail") counts steps. The harness log says "failed the re-check" per feature. This is a minor reporting mismatch.
 
 ## Proposed harness changes
-1. **Make the stop reason recordable.** In the driver's stop handling, read an optional note from `INBOX.md` (e.g. a `## Stop reason` line) and write it into `harness-log.md`, `summary.json` and the ledger. Evidence: this run and rane-one-mixxx-2026-10-19 both ended "stopped by Michael" with no recorded reason. I found no earlier retro proposing it, but I did not read them in full.
-2. **Cap or flag init cost.** In the init prompt/config, report the init session's cost and time in `summary.json` against the planned feature count, and warn if init is over about 50% of run cost. Evidence: $5.63 of $7.07 here. Other runs' init cost ($3.47–$6.51) is a similar order but a smaller share of cost. No earlier retro proposed it that I found.
-3. **Retro for zero-failure early stops.** Give a stopped run with no "not done" features a shortened retro prompt. This retro had no causes to assign and gave little for the harness to learn from. Not proposed before that I know of.
+1. **Spec-lint the "prints nothing" greps** (init/plan prompt). Have the planning session run each grep-style step against the current tree, or make steps name the files they exclude. Evidence: M1-02 and M1-04 failed verify because the greps matched files that legitimately contain the strings. This cost two requeues and two extra build sessions. No earlier retro proposed it that I found. I only read the first 1500 characters of the voice-concierge-2026-10-21 retro, so I can't rule out an earlier proposal.
+2. **Include a one-line failure reason in the `verify_failed` log line** (driver, `harness-log.md`). Evidence: the log reads "M4-04 failed the re-check" with no cause, so this retro had to dig through `progress.md` for it. This is new to my knowledge.
+3. **Keep and reuse init output when a run is stopped and continued.** Evidence: the stopped first attempt ($7.18 in the ledger) was thrown away and the run restarted from M1. I did not check whether the continuation reused the init or plan output, so this is weaker than 1 and 2. This is not a known repeat.

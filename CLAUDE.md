@@ -39,7 +39,11 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
 ## Layout
 
 - `app/` expo-router screens: `(tabs)/index.tsx` Spots (List | Map), `(tabs)/profile.tsx`,
-  `add/` Quick Add (camera → review), `import/` batch import, `spot/[id]/` detail + edit.
+  `add/` Quick Add (camera → review), `import/` batch import, `spot/[id]/` detail + edit (one screen: photo grid with
+  staged removes and adds, name, tags, notes; nothing is written until Save).
+- `src/components/` shared UI, exported from `index.ts`. The M2 edit pieces: `SpeedScale` (five-word natural-speed
+  radiogroup, re-tap clears; `readonly` bar form), `PhotoGrid` (hero 4:3 + rows of three square tiles, per-tile badges,
+  trailing '+' tile, taps by index), `SpotTagFields` (controlled What's here chips + 'Skate stopped' switch + SpeedScale).
 - `src/db/` SQLite access. `schema.ts` holds `MIGRATIONS` (versioned by `PRAGMA user_version`):
   **append a migration, never edit a shipped one**; per-connection pragmas (e.g. `foreign_keys`) go
   next to the WAL line in `migrateDb`, not in a migration. Foreign keys are OFF while migrations run and ON for the app
@@ -49,7 +53,7 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   the only reader of the archive.
 - `src/stores/` zustand: spots (+ Filter-sheet filters, a separate `searchQuery`, sort, `viewMode`; filtering and sorting live in its selectors), media (`mediaBySpot`), settings, location.
 - `src/hooks/` `useDbInit` (migrate, then load spots/media/settings even if the migration threw, background town backfill),
-  `useSpotActions`, `useMediaActions` (photo save and remove; removal deletes the row only, D3), `useCurrentLocation`.
+  `useSpotActions`, `useMediaActions` (photo save and remove, also used for adding photos from edit: `savePhotos` resolves the `Media[]` it actually saved; removal deletes the row only, D3), `useCurrentLocation`.
 - `src/utils/` pure logic: geo (`NO_LOCATION`, `isKnownLocation`, haversine), exif,
   photo-storage, reverse-geocode, spot-name (D4 label), map-region, import-clustering.
 

@@ -241,7 +241,7 @@
         "A 'refactor:' commit applies the simplification pass; CLAUDE.md Layout mentions legacy-details and getSpotLegacy's on-mount use; README.md Status mentions 'Older details' for data from before the simplification.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M4-01",

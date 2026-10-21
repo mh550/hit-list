@@ -44,14 +44,14 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   disclosure) + edit (one screen: photo grid with staged removes and adds, name, tags, notes; nothing is written until Save).
 - `src/components/` shared UI, exported from `index.ts`. The M2 edit pieces: `SpeedScale` (five-word natural-speed
   radiogroup, re-tap clears; `readonly` bar form), `PhotoGrid` (hero 4:3 + rows of three square tiles, per-tile badges,
-  trailing '+' tile, taps by index), `SpotTagFields` (controlled What's here chips + 'Skate stopped' switch + SpeedScale).
+  trailing '+' tile (`AddPhotosTile`, shared by detail and edit), taps by index), `SpotTagFields` (controlled What's here chips + 'Skate stopped' switch + SpeedScale).
 - `src/db/` SQLite access. `schema.ts` holds `MIGRATIONS` (versioned by `PRAGMA user_version`):
   **append a migration, never edit a shipped one**; per-connection pragmas (e.g. `foreign_keys`) go
   next to the WAL line in `migrateDb`, not in a migration. Foreign keys are OFF while migrations run and ON for the app
   afterwards, so a table rebuild is safe; only the `SQLiteProvider` connection has them on (a second connection, e.g.
   `withExclusiveTransactionAsync`, would start with them off).
   `spots.ts`: `getSpots`/`getSpot` select the explicit `SPOT_COLUMNS` (never `legacy_json`); `getSpotLegacy(db, id)` is
-  the only reader of the archive (rejects on unreadable JSON); detail's `OlderDetails` calls it once on mount (effect
+  the only reader of the archive (rejects on unreadable JSON, `null` for JSON that is not an object); detail's `OlderDetails` calls it once on mount (effect
   keyed on `[db, spotId]`, not on store updates), `.catch` → `console.warn`, and hides the disclosure when it has no rows.
 - `src/stores/` zustand: spots (+ Filter-sheet filters, a separate `searchQuery`, sort, `viewMode`; filtering and sorting live in its selectors), media (`mediaBySpot`), settings, location.
 - `src/hooks/` `useDbInit` (migrate, then load spots/media/settings even if the migration threw, background town backfill),

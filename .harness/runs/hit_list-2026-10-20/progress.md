@@ -12,6 +12,18 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 · M3-04 · passes
+
+- An Opus review of the M3 diff (`reviews/m3.diff`, 1070 lines) found no Critical or Important issues. Of the 4 Minor findings, 3 are fixed, each with a RED commit `bad6cb6` before GREEN `f3b0099`:
+  - `getSpotLegacy` returns `null` for an archive that is JSON but not an object.
+  - The Older details warning fires only while the screen is mounted.
+  - The Tag VoiceOver test is stronger.
+- The review, the answers to the three questions and the refactor pass are in `docs/plans/2026-10-20-m3-detail.md` under "Review (M3-04)".
+- Refactor `17efca5`: detail and edit now share a new `AddPhotosTile` component, and there is one `isObject` (`src/utils/is-object.ts`).
+- CLAUDE.md Layout now covers the detail screen, legacy-details and `OlderDetails`' on-mount `getSpotLegacy`. README Status describes 'Older details'.
+- Tests went from 458 to 464. Verified: `check.sh` green (464); `npx jest --ci` 43 suites, 0 `console.error`.
+- Question for Michael (review finding 4, open since M3-01): small legacy widths read '0.0 m' / '0.2 ft'. Should they show in cm or inches?
+
 ### 2026-10-21 · M3-03 · passes
 
 - New `docs/plans/2026-10-20-m3-what-michael-will-see.md`: ordered texts/labels for (a) 7-photo tagged spot, (b) 2-photo bare spot (grid + title only), (c) `fullLegacy` spot with Older details closed then open. Scratch test deleted; no code changed.

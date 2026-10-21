@@ -1,0 +1,1070 @@
+diff --git a/app/spot/[id]/index.tsx b/app/spot/[id]/index.tsx
+index 74f63ce..5d93ed7 100644
+--- a/app/spot/[id]/index.tsx
++++ b/app/spot/[id]/index.tsx
+@@ -1,18 +1,63 @@
+-import { useCallback } from 'react';
++import { useCallback, useEffect, useState } from 'react';
+ import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
++import { useSQLiteContext } from 'expo-sqlite';
+ import { StyleSheet, ScrollView, View, Text, Pressable } from 'react-native';
+-import { Image, type ImageProps } from 'expo-image';
+ 
+-import { useSpotsStore, useMediaStore } from '@/src/stores';
++import { getSpotLegacy, type SpotLegacy } from '@/src/db';
++import { useSpotsStore, useMediaStore, useSettingsStore } from '@/src/stores';
++import { PhotoGrid, SpeedScale, Tag, ChipGroup } from '@/src/components';
++import { IconSymbol } from '@/components/ui/icon-symbol';
++import { FEATURE_TYPE_LABELS } from '@/src/constants/labels';
+ import { getSpotDisplayName } from '@/src/utils/spot-name';
+-import { resolvePhotoUri } from '@/src/utils/photo-storage';
+ import { spotPhotos } from '@/src/utils/spot-photos';
++import { formatLegacyDetails } from '@/src/utils/legacy-details';
+ import { palette, spacing, radius } from '@/src/constants/theme';
+-import type { Media } from '@/src/types';
+ 
+-function Photo({ media, style, testID }: { media: Media; style: ImageProps['style']; testID: string }) {
++/**
++ * What the old nested model held for this spot (legacy_json), read once per mount. Collapsed by default and absent
++ * when the archive is missing, empty or unreadable.
++ */
++function OlderDetails({ spotId }: { spotId: string }) {
++  const db = useSQLiteContext();
++  const units = useSettingsStore((s) => s.units);
++  const [legacy, setLegacy] = useState<SpotLegacy | null>(null);
++  const [open, setOpen] = useState(false);
++
++  useEffect(() => {
++    let live = true;
++    getSpotLegacy(db, spotId)
++      .then((l) => {
++        if (live) setLegacy(l);
++      })
++      .catch((e: unknown) => console.warn('Older details unreadable', spotId, e));
++    return () => {
++      live = false;
++    };
++  }, [db, spotId]);
++
++  const rows = legacy ? formatLegacyDetails(legacy, units) : [];
++  if (rows.length === 0) return null;
++
+   return (
+-    <Image testID={testID} source={{ uri: resolvePhotoUri(media.file_path) }} style={style} contentFit="cover" />
++    <View style={styles.older}>
++      <Pressable
++        onPress={() => setOpen((o) => !o)}
++        style={styles.olderHeader}
++        hitSlop={8}
++        accessibilityRole="button"
++        accessibilityState={{ expanded: open }}>
++        <Text style={styles.olderTitle}>Older details</Text>
++        <IconSymbol name={open ? 'chevron.down' : 'chevron.right'} size={14} color={palette.gray[500]} />
++      </Pressable>
++      {open
++        ? rows.map((row, i) => (
++            <View key={`${i}-${row.label}`} style={styles.olderRow}>
++              <Text style={styles.olderLabel}>{row.label}</Text>
++              <Text style={styles.olderValue}>{row.value}</Text>
++            </View>
++          ))
++        : null}
++    </View>
+   );
+ }
+ 
+@@ -35,7 +80,8 @@ export default function SpotDetailScreen() {
+   }
+ 
+   const displayName = getSpotDisplayName(spot);
+-  const [hero, ...rest] = spotPhotos(spot, media);
++  const photos = spotPhotos(spot, media);
++  const hasTags = spot.feature_types.length > 0 || spot.stopped;
+ 
+   return (
+     <>
+@@ -43,7 +89,7 @@ export default function SpotDetailScreen() {
+         options={{
+           title: displayName,
+           headerRight: () => (
+-            <Pressable onPress={handleEdit} hitSlop={8}>
++            <Pressable onPress={handleEdit} hitSlop={8} accessibilityRole="button">
+               <Text style={styles.editButton}>Edit</Text>
+             </Pressable>
+           ),
+@@ -51,19 +97,35 @@ export default function SpotDetailScreen() {
+       />
+       <ScrollView
+         style={styles.container}
+-        contentContainerStyle={styles.contentContainer}
++        contentContainerStyle={styles.content}
+         contentInsetAdjustmentBehavior="automatic">
+-        {/* Photo Gallery: primary photo as hero, the rest in capture order */}
+-        {hero ? <Photo media={hero} style={styles.heroImage} testID="spot-photo-0" /> : null}
+-        {rest.length > 0 ? (
+-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.galleryRow}>
+-            {rest.map((m, i) => (
+-              <Photo key={m.id} media={m} style={styles.galleryThumb} testID={`spot-photo-${i + 1}`} />
++        <PhotoGrid
++          photos={photos}
++          trailing={
++            photos.length === 0 ? (
++              <Pressable
++                style={({ pressed }) => [styles.addTile, pressed && styles.addTilePressed]}
++                onPress={handleEdit}
++                accessibilityRole="button"
++                accessibilityLabel="Add photos">
++                <IconSymbol name="plus" size={28} color={palette.gray[500]} />
++              </Pressable>
++            ) : undefined
++          }
++        />
++
++        <Text style={styles.title}>{displayName}</Text>
++
++        {hasTags ? (
++          <ChipGroup>
++            {spot.feature_types.map((type) => (
++              <Tag key={type} label={FEATURE_TYPE_LABELS[type]} />
+             ))}
+-          </ScrollView>
++            {spot.stopped ? <Tag label="Skate stopped" tone="stopped" testID="tag-stopped" /> : null}
++          </ChipGroup>
+         ) : null}
+ 
+-        <Text style={styles.title}>{displayName}</Text>
++        <SpeedScale readonly value={spot.natural_speed} />
+ 
+         {spot.notes ? (
+           <View style={styles.notes}>
+@@ -71,6 +133,8 @@ export default function SpotDetailScreen() {
+             <Text style={styles.notesText}>{spot.notes}</Text>
+           </View>
+         ) : null}
++
++        <OlderDetails key={spot.id} spotId={spot.id} />
+       </ScrollView>
+     </>
+   );
+@@ -80,8 +144,10 @@ const styles = StyleSheet.create({
+   container: {
+     flex: 1,
+   },
+-  contentContainer: {
++  content: {
++    padding: spacing.lg,
+     paddingBottom: spacing['3xl'],
++    gap: spacing.md,
+   },
+   centered: {
+     flex: 1,
+@@ -92,27 +158,23 @@ const styles = StyleSheet.create({
+     fontSize: 16,
+     color: palette.gray[500],
+   },
+-  heroImage: {
+-    width: '100%',
+-    height: 240,
+-  },
+-  galleryRow: {
+-    paddingHorizontal: spacing.md,
+-    paddingTop: spacing.sm,
++  addTile: {
++    flex: 1,
++    alignItems: 'center',
++    justifyContent: 'center',
++    borderWidth: 1,
++    borderStyle: 'dashed',
++    borderColor: palette.gray[300],
++    borderRadius: radius.sm,
++    borderCurve: 'continuous',
+   },
+-  galleryThumb: {
+-    width: 88,
+-    height: 88,
+-    borderRadius: radius.md,
+-    marginRight: spacing.sm,
++  addTilePressed: {
++    backgroundColor: palette.gray[200],
+   },
+   title: {
+     fontSize: 24,
+     fontWeight: '700',
+     color: palette.gray[900],
+-    paddingHorizontal: spacing.lg,
+-    paddingTop: spacing.lg,
+-    paddingBottom: spacing.sm,
+   },
+   editButton: {
+     fontSize: 17,
+@@ -120,8 +182,6 @@ const styles = StyleSheet.create({
+     fontWeight: '600',
+   },
+   notes: {
+-    paddingHorizontal: spacing.lg,
+-    paddingTop: spacing.md,
+     gap: spacing.xs,
+   },
+   notesLabel: {
+@@ -133,4 +193,32 @@ const styles = StyleSheet.create({
+     lineHeight: 22,
+     color: palette.gray[900],
+   },
++  older: {
++    gap: spacing.sm,
++  },
++  olderHeader: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    gap: spacing.xs,
++    alignSelf: 'flex-start',
++  },
++  olderTitle: {
++    fontSize: 15,
++    color: palette.gray[500],
++  },
++  olderRow: {
++    flexDirection: 'row',
++    justifyContent: 'space-between',
++    gap: spacing.md,
++  },
++  olderLabel: {
++    fontSize: 15,
++    color: palette.gray[500],
++  },
++  olderValue: {
++    flexShrink: 1,
++    fontSize: 15,
++    color: palette.gray[900],
++    textAlign: 'right',
++  },
+ });
+diff --git a/components/ui/icon-symbol.tsx b/components/ui/icon-symbol.tsx
+index f81ebae..7bb90f2 100644
+--- a/components/ui/icon-symbol.tsx
++++ b/components/ui/icon-symbol.tsx
+@@ -18,6 +18,7 @@ const MAPPING = {
+   'paperplane.fill': 'send',
+   'chevron.left.forwardslash.chevron.right': 'code',
+   'chevron.right': 'chevron-right',
++  'chevron.down': 'expand-more',
+   'mappin.and.ellipse': 'place',
+   'person.fill': 'person',
+   'mappin.slash': 'location-off',
+diff --git a/docs/plans/2026-10-20-m3-detail.md b/docs/plans/2026-10-20-m3-detail.md
+new file mode 100644
+index 0000000..0b02dba
+--- /dev/null
++++ b/docs/plans/2026-10-20-m3-detail.md
+@@ -0,0 +1,113 @@
++# M3 plan: detail screen (grid, tag line, speed bar, notes, Older details)
++
++Spec: `docs/specs/2026-10-16-simplification-design.md` §2.4 (detail), §3.2 (grid), §4 step 4 (`getSpotLegacy` on mount),
++D26 (archive). Features: M3-01 this plan + `formatLegacyDetails` · M3-02 detail rewrite · M3-03 walkthrough ·
++M3-04 review. Each task: RED test first, then code; `check.sh` green per commit.
++
++Starting point (after M2): `app/spot/[id]/index.tsx` = 240 pt hero `Image` (`spot-photo-0`) + horizontal 88 pt strip
++(`spot-photo-1..`) + title + "Notes" label/paragraph. No tags, no speed, no legacy. Header "Edit" → edit route.
++`PhotoGrid`, `SpeedScale readonly`, `ChipGroup` exist (M2). `getSpotLegacy(db, id)` exists, never called; it
++`JSON.parse`s without a catch, so bad JSON **rejects**.
++
++## Layout (M3-02), §2.4 order, no `Section` boxes, no headers but "Notes"
++
++| # | Element | Shown when | Built from |
++|--:|---------|------------|------------|
++| 1 | Photo grid | ≥ 1 photo | `PhotoGrid photos={spotPhotos(spot, media)}` (primary first). No `onPressPhoto` in M3 (tiles role `image`); M4 adds `onPressPhoto={(i) => router.push(/spot/<id>/photos?index=i)}`. |
++| 1′ | "Add photos" tile | 0 photos | `PhotoGrid photos={[]} trailing={<AddPhotosTile/>}` (grid renders only the trailing square). Tile: `Pressable accessibilityRole="button" accessibilityLabel="Add photos"`, '+' icon; `onPress → router.push('/spot/<id>/edit')`. |
++| 2 | Title | always | `getSpotDisplayName(spot)` (D4 label when unnamed). No Draft badge (D20). |
++| 3 | Tag line | `feature_types.length > 0 \|\| stopped` | `ChipGroup` of read-only `Tag`s: one per `feature_types` entry in stored order (`FEATURE_TYPE_LABELS`), then "Skate stopped" when `stopped === true` (absent when false). |
++| 4 | Natural speed | `natural_speed !== undefined` (never `!`; 0 = None) | `<SpeedScale readonly value={spot.natural_speed} />` (label 'Natural speed: <word>'). |
++| 5 | Notes | `spot.notes` non-empty | small "Notes" label + paragraph (as today; same label as edit). |
++| 6 | Older details | `rows.length > 0` | disclosure, below. |
++
++Read-only `Tag` (new, in `src/components/Chip.tsx`, exported): `View` + `Text`, **no** `accessibilityRole`, no
++`Pressable`, so VoiceOver reads it as text, not a checkbox (M3-04). Same shape as `Chip`. Prop `tone?: 'default' |
++'stopped'`; `stopped` → `borderColor: palette.red[500]`, text `palette.red[700]`, background white (outline only).
++Spot with only location + photos → grid + title, nothing else (spec: "a complete spot").
++
++## Older details (M3-02)
++
++- State in the screen: `legacy: SpotLegacy | null` (initial `null`), `open = false`.
++- `const db = useSQLiteContext()`. `useEffect(() => { let live = true; getSpotLegacy(db, id).then((l) => live &&
++  setLegacy(l)).catch((e) => console.warn('Older details unreadable', id, e)); return () => { live = false }; },
++  [db, id])` → **called once per mount**, not on store updates (deps are `db`, `id` only; spot/media are not deps).
++  Bad JSON → one `console.warn` (not `error`: the suite must stay at zero `console.error`), `legacy` stays `null`,
++  no disclosure, no crash.
++- `rows = legacy ? formatLegacyDetails(legacy, units) : []`, `units` from `useSettingsStore((s) => s.units)`
++  (switching units on Profile re-renders the rows without a re-fetch). `rows.length === 0` (null or all-empty
++  archive) → nothing rendered, not even the header.
++- Header: `Pressable accessibilityRole="button" accessibilityState={{ expanded: open }}`, text "Older details" +
++  chevron (`chevron-forward` / `chevron-down`), small gray. **Collapsed by default**; tap toggles. Open → one row
++  per entry: label (gray) left, value right, wraps. Read-only; edit/save never touch `legacy_json` (`updateSpot`
++  has no such field).
++
++## `formatLegacyDetails` (M3-01, done) — `src/utils/legacy-details.ts`
++
++`formatLegacyDetails(legacy: Record<string, unknown>, units: UnitSystem): { label: string; value: string }[]`.
++`SpotLegacy` became a `type` alias (was `interface`) so `getSpotLegacy`'s result passes without a cast.
++Rows in this table's order, then unknown keys (stored order, key humanised: `old_field_x` → 'Old field x'), then the
++`raw_*` columns. Skipped: `undefined`, `null`, blank strings, empty arrays. A value of an unexpected type falls back
++to plain text (string as is, number `String`, boolean Yes/No, object `JSON.stringify`); never throws.
++
++| Key | Label | Value |
++|-----|-------|-------|
++| `custom_type` | Custom type | as stored ('curved rail') |
++| `shape` | Shape | as stored (free text: 'kinked', 'DFD') |
++| `length_m` | Length | `displayLength(m, units)`: '12.0 ft' / '3.7 m' |
++| `height_m` | Height | same |
++| `width_m` | Width | same |
++| `material` | Material | `_` → space ('steel', 'painted steel') |
++| `stop_type` | Stop type | `_` → space ('knobs') |
++| `stop_description` | Stop description | as stored |
++| `removable` | Removable | Yes / No |
++| `difficulty` | Difficulty | 'n/5' |
++| `landing_difficulty` | Landing difficulty | 'n/5' |
++| `landing_surface` | Landing surface | `_` → space ('snow built') |
++| `intensity` | Intensity | 'n/5' |
++| `bustability` | Bustability | 'n/5' |
++| `bustability_notes` | Bustability notes | as stored |
++| `setup_options` | Setup options | '2 options: winch; drop in platform + 2 speed humps' (items `+`, options `;`, quantity > 1 prefixed; unreadable option → its JSON) |
++| `raw_feature` / `raw_in_run` / `raw_landing` / `raw_metadata` | Feature / In-run / Landing / Other (unreadable) | verbatim |
++
++Tests `src/__tests__/legacy-details.test.ts` (9): feature sample Imperial (6 rows, exact order) · Metric '3.7 m' ·
++humanised key (`stop_description`, `old_field_x`) · `{}` → `[]` · full M1 fixture (`v2-spots.json` `fullLegacy`, 16
++rows) · unknown keys after known, raw last · empties skipped, odd types plain · unreadable setup option · a typed
++`SpotLegacy` accepted.
++
++## M3-02 tests (`src/__tests__/spot-detail.test.tsx`, RED first)
++
++Mock: `jest.mock('@/src/db', () => ({ ...jest.requireActual('@/src/db'), getSpotLegacy: jest.fn() }))`, default
++`mockResolvedValue(null)` in `beforeEach`. Every render awaits the effect (`await waitFor(() =>
++expect(getSpotLegacy).toHaveBeenCalled())`, then `findBy…`/`act`) so no act() warning reaches `console.error`.
++`spot-photos.test.tsx` also renders the detail screen: same mock there, and its `spot-photo-N` ids become
++`photo-tile-N`.
++
++1. rail+ledge, stopped, speed 3, notes 'low' → Tags 'Rail', 'Ledge', 'Skate stopped' (flattened `borderColor ===
++   palette.red[500]`), label 'Natural speed: Enough', text 'low'.
++2. `stopped: false` → no 'Skate stopped'; `natural_speed` undefined → no label starting 'Natural speed';
++   `natural_speed: 0` → 'Natural speed: None' (0 is real).
++3. 'Skate stopped' and the type tags have no `checkbox`/`button` role (`queryAllByRole('checkbox')` empty).
++4. 5 media → `photo-tile-0..4`, primary first; 0 media → 'Add photos' button, press → `router.push('/spot/<id>/edit')`.
++5. legacy `{ material: 'steel' }` → 'Older details' shown, no 'Material' until pressed, then 'Material' + 'steel';
++   `null` → no 'Older details'; `{}` → none; `getSpotLegacy` called once with `(db, id)`, still once after a store
++   update + rerender (M3-04); rejected promise → no disclosure, `console.warn` once, no throw (M3-04).
++6. Units: legacy `{ length_m: 3.6576 }` open → '12.0 ft'; `setUnits(Metric)` → '3.7 m'.
++7. Tree has no 'Feature', 'In-Run', 'Landing', 'Details', 'Draft', 'Type' texts; minimal spot (name + 1 photo) texts
++   are exactly the title.
++8. Header: render `options.headerRight()` off the mocked `Stack.Screen` (pattern in `spots-sort-search.test.tsx`
++   l.172), press 'Edit' → `router.push('/spot/<id>/edit')`. **No such test exists today** (M3-02 step 4 says
++   "existing test kept"); M3-02 adds it.
++
++## Order of commits
++
++M3-01: RED `fb8e20e`, GREEN `1a327ac`, this plan. M3-02: RED tests 1–8 → `Tag` → screen rewrite → spot-photos test ids
++→ GREEN. M3-03: scratch renders → walkthrough doc. M3-04: diff to `reviews/m3.diff`, Opus review, fixes, `refactor:`.
++
++## Unresolved questions
++
++Builder's calls (spec §10), for Michael in the progress entry:
++- Enum values shown lower case as stored ('steel', 'snow built'), not 'Steel': the feature's test fixes 'steel'.
++- Small widths in Imperial read '0.2 ft' (not inches); `displayLength` as is.
++- Keep the small "Notes" label on detail (edit has one); the spec only says "Notes, only when present".
++- M3 tiles don't open anything until the M4 viewer lands.
+diff --git a/docs/plans/2026-10-20-m3-what-michael-will-see.md b/docs/plans/2026-10-20-m3-what-michael-will-see.md
+new file mode 100644
+index 0000000..9693183
+--- /dev/null
++++ b/docs/plans/2026-10-20-m3-what-michael-will-see.md
+@@ -0,0 +1,47 @@
++# M3: what Michael will see on the detail screen
++
++Captured 2026-10-21 from `app/spot/[id]/index.tsx` rendered in Jest (`screen.toJSON()` walked in order, in a
++temporary test file deleted before the commit; units Metric). Not a pixel render: layout, spacing, fonts and
++colours are NOT covered. The nav header (title = spot name, right button "Edit", role button) is set by the router
++and is not part of this render. T = visible text, A = accessibility label/role.
++
++## A. 7 photos, name 'Bridge rail', types [rail, ledge], stopped, speed 3 (Enough), notes 'low'
++
++1. Photo grid: seven tiles (hero + 6 squares), each role `image`, A "Photo 1 of 7" … "Photo 7 of 7"
++   (testIDs `photo-tile-0` … `-6`). No '+' tile, no badges.
++2. T "Bridge rail" (title)
++3. Tag line: T "Rail" · T "Ledge" · T "Skate stopped" (red-outlined, testID `tag-stopped`). Tags have no role.
++4. Speed bar: A "Natural speed: Enough"; four of five cells filled (cells 0–3 selected, cell 4 not); T "Enough"
++5. T "Notes"; T "low"
++6. No Older details (no archive).
++
++## B. 2 photos, nothing else
++
++1. Photo grid: two tiles, A "Photo 1 of 2", "Photo 2 of 2". No '+' tile.
++2. T "Untitled · Oct 21, 4:17 PM" (generated title; the date is the spot's `created_at`)
++3. Nothing else: no tag line, no speed bar, no Notes label, no Older details.
++
++Matches the expectation (grid and title only).
++
++## C. Migrated spot, name 'Old spot', no photos, legacy = `fullLegacy` from `fixtures/v2-spots.json` (M1-01)
++
++Closed:
++1. A "Add photos" (role button, plus icon) — dashed tile, taps open the edit screen
++2. T "Old spot"
++3. Button "Older details" (role button, `expanded: false`, chevron-right); nothing below it.
++   No tag line, no speed bar, no Notes.
++
++Open (`expanded: true`, chevron-down), label / value rows in order:
++Custom type: curved rail · Shape: kinked · Length: 12.5 m · Height: 1.2 m · Width: 0.1 m · Material: steel ·
++Stop type: knobs · Stop description: every 50 cm · Removable: Yes · Difficulty: 3/5 · Landing difficulty: 2/5 ·
++Landing surface: snow built · Intensity: 5/5 · Bustability: 3/5 · Bustability notes: security at 9pm ·
++Setup options: 2 options: winch; drop in platform + 2 speed humps
++
++Things to look at on the phone: width 0.05 m reads "0.1 m" (one decimal); this fixture has no `raw_feature`, so no
++trailing raw row; values are lower case as stored.
++
++## Commands run
++
++- `npx jest --silent` / `npx jest --ci`: 43 suites, 458 tests passed, 0 `console.error` lines.
++- `npx expo export --platform ios --output-dir /tmp/hl-export`: exit 0.
++- `/home/mh550/projects/agent-harness/lib/check.sh` (lint, tsc, jest): green.
+diff --git a/src/__tests__/legacy-details.test.ts b/src/__tests__/legacy-details.test.ts
+new file mode 100644
+index 0000000..7c0cf29
+--- /dev/null
++++ b/src/__tests__/legacy-details.test.ts
+@@ -0,0 +1,112 @@
++import type { SpotLegacy } from '@/src/db';
++import { UnitSystem } from '@/src/types';
++import { formatLegacyDetails } from '@/src/utils/legacy-details';
++import v2Spots from './fixtures/v2-spots.json';
++
++const sample = {
++  material: 'steel',
++  length_m: 3.6576,
++  bustability: 3,
++  removable: true,
++  setup_options: [{ requires: [{ item: 'bungee', category: 'gear' }] }],
++  custom_type: 'curved rail',
++};
++
++describe('formatLegacyDetails', () => {
++  it('gives labelled rows in a fixed order, in Imperial units', () => {
++    expect(formatLegacyDetails(sample, UnitSystem.Imperial)).toEqual([
++      { label: 'Custom type', value: 'curved rail' },
++      { label: 'Length', value: '12.0 ft' },
++      { label: 'Material', value: 'steel' },
++      { label: 'Removable', value: 'Yes' },
++      { label: 'Bustability', value: '3/5' },
++      { label: 'Setup options', value: '1 option: bungee' },
++    ]);
++  });
++
++  it('gives the length in metres with Metric', () => {
++    const rows = formatLegacyDetails(sample, UnitSystem.Metric);
++    expect(rows.find((r) => r.label === 'Length')).toEqual({ label: 'Length', value: '3.7 m' });
++  });
++
++  it('humanises a key it has no label for', () => {
++    expect(formatLegacyDetails({ stop_description: 'every 50 cm' }, UnitSystem.Imperial)).toEqual([
++      { label: 'Stop description', value: 'every 50 cm' },
++    ]);
++    expect(formatLegacyDetails({ old_field_x: 'kept' }, UnitSystem.Imperial)).toEqual([
++      { label: 'Old field x', value: 'kept' },
++    ]);
++  });
++
++  it('gives no rows for an empty object', () => {
++    expect(formatLegacyDetails({}, UnitSystem.Imperial)).toEqual([]);
++  });
++
++  it('formats the full migrated archive (M1 fixture) with every row readable', () => {
++    expect(formatLegacyDetails(v2Spots.fullLegacy, UnitSystem.Metric)).toEqual([
++      { label: 'Custom type', value: 'curved rail' },
++      { label: 'Shape', value: 'kinked' },
++      { label: 'Length', value: '12.5 m' },
++      { label: 'Height', value: '1.2 m' },
++      { label: 'Width', value: '0.1 m' },
++      { label: 'Material', value: 'steel' },
++      { label: 'Stop type', value: 'knobs' },
++      { label: 'Stop description', value: 'every 50 cm' },
++      { label: 'Removable', value: 'Yes' },
++      { label: 'Difficulty', value: '3/5' },
++      { label: 'Landing difficulty', value: '2/5' },
++      { label: 'Landing surface', value: 'snow built' },
++      { label: 'Intensity', value: '5/5' },
++      { label: 'Bustability', value: '3/5' },
++      { label: 'Bustability notes', value: 'security at 9pm' },
++      { label: 'Setup options', value: '2 options: winch; drop in platform + 2 speed humps' },
++    ]);
++  });
++
++  it('puts unknown keys after the known ones, in their stored order, and the raw columns last', () => {
++    const rows = formatLegacyDetails(
++      { raw_feature: '{not json', zeta_field: 'z', material: 'wood', alpha_field: 'a' },
++      UnitSystem.Imperial,
++    );
++    expect(rows).toEqual([
++      { label: 'Material', value: 'wood' },
++      { label: 'Zeta field', value: 'z' },
++      { label: 'Alpha field', value: 'a' },
++      { label: 'Feature (unreadable)', value: '{not json' },
++    ]);
++  });
++
++  it('skips empty values and never throws on odd ones', () => {
++    const rows = formatLegacyDetails(
++      {
++        material: '  ',
++        shape: null,
++        setup_options: [],
++        length_m: 'long',
++        removable: false,
++        extra: { a: 1 },
++        count: 4,
++      },
++      UnitSystem.Imperial,
++    );
++    expect(rows).toEqual([
++      { label: 'Length', value: 'long' },
++      { label: 'Removable', value: 'No' },
++      { label: 'Extra', value: '{"a":1}' },
++      { label: 'Count', value: '4' },
++    ]);
++  });
++
++  it('shows a setup option it cannot read as its stored JSON', () => {
++    const rows = formatLegacyDetails({ setup_options: ['winch', { requires: [{ quantity: 2 }] }] }, UnitSystem.Imperial);
++    expect(rows).toEqual([{ label: 'Setup options', value: '2 options: "winch"; {"requires":[{"quantity":2}]}' }]);
++  });
++
++  it('takes what getSpotLegacy returns without a cast', () => {
++    const legacy: SpotLegacy = { material: 'concrete', height_m: 0.5 };
++    expect(formatLegacyDetails(legacy, UnitSystem.Metric)).toEqual([
++      { label: 'Height', value: '0.5 m' },
++      { label: 'Material', value: 'concrete' },
++    ]);
++  });
++});
+diff --git a/src/__tests__/spot-detail.test.tsx b/src/__tests__/spot-detail.test.tsx
+index 72c178b..264d350 100644
+--- a/src/__tests__/spot-detail.test.tsx
++++ b/src/__tests__/spot-detail.test.tsx
+@@ -1,38 +1,250 @@
+-import { render, screen } from '@testing-library/react-native';
+-import { useLocalSearchParams } from 'expo-router';
+-import { useMediaStore, useSpotsStore } from '@/src/stores';
+-import type { Spot } from '@/src/types';
+-import { createTestSpot } from './factories';
++import type { ReactElement } from 'react';
++import { act, fireEvent, render, screen } from '@testing-library/react-native';
++import { Image, StyleSheet } from 'react-native';
++import { useLocalSearchParams, useRouter } from 'expo-router';
++import { useSQLiteContext } from 'expo-sqlite';
++import { getSpotLegacy } from '@/src/db';
++import { useMediaStore, useSettingsStore, useSpotsStore } from '@/src/stores';
++import { palette } from '@/src/constants/theme';
++import { resolvePhotoUri } from '@/src/utils/photo-storage';
++import { FeatureType, UnitSystem, type Media, type Spot } from '@/src/types';
++import { createTestMedia, createTestSpot } from './factories';
+ 
+ import SpotDetailScreen from '@/app/spot/[id]/index';
+ 
+-function renderDetail(overrides: Partial<Spot>) {
++jest.mock('@/src/db', () => ({ ...jest.requireActual('@/src/db'), getSpotLegacy: jest.fn() }));
++const legacyMock = jest.mocked(getSpotLegacy);
++
++const push = jest.fn();
++
++beforeEach(() => {
++  legacyMock.mockReset();
++  legacyMock.mockResolvedValue(null);
++  push.mockReset();
++  jest.mocked(useRouter).mockReturnValue({ push, back: jest.fn(), replace: jest.fn() } as never);
++  useSettingsStore.getState().setUnits(UnitSystem.Imperial);
++});
++
++/** Renders the detail screen and lets the Older details lookup settle, so no act() warning reaches console.error. */
++async function renderDetail(overrides: Partial<Spot> = {}, media: Media[] = []) {
+   const spot = createTestSpot(overrides);
+   useSpotsStore.setState({ spots: [spot] });
+   useMediaStore.setState({ mediaBySpot: {} });
++  useMediaStore.getState().setAll(media.map((m) => ({ ...m, spot_id: spot.id })));
+   jest.mocked(useLocalSearchParams).mockReturnValue({ id: spot.id } as never);
+   render(<SpotDetailScreen />);
++  await act(async () => {});
++  return spot;
+ }
+ 
++const texts = () => screen.getAllByText(/./).map((t) => t.props.children);
++
+ describe('Spot detail: notes', () => {
+-  it('shows the notes paragraph when the spot has notes', () => {
+-    renderDetail({ name: 'Pier 57', notes: 'under the bridge' });
++  it('shows the notes paragraph when the spot has notes', async () => {
++    await renderDetail({ name: 'Pier 57', notes: 'under the bridge' });
+ 
+     expect(screen.getByText('Pier 57')).toBeOnTheScreen();
+     expect(screen.getByText('under the bridge')).toBeOnTheScreen();
+   });
+ 
+-  it('shows no Notes label when the spot has no notes', () => {
+-    renderDetail({ name: 'Pier 57' });
++  it('shows no Notes label when the spot has no notes', async () => {
++    await renderDetail({ name: 'Pier 57' });
+ 
+     expect(screen.getByText('Pier 57')).toBeOnTheScreen();
+     expect(screen.queryByText('Notes')).toBeNull();
+   });
+ 
+-  it('shows only the title and the notes, no section from the removed model (D17)', () => {
+-    renderDetail({ name: 'Pier 57', notes: 'under the bridge' });
++  it('shows only the title and the notes, no section from the removed model (D17)', async () => {
++    await renderDetail({ name: 'Pier 57', notes: 'under the bridge' });
++
++    expect(texts()).toEqual(['Pier 57', 'Notes', 'under the bridge']);
++  });
++});
++
++describe('Spot detail: tag line and speed', () => {
++  const tagged: Partial<Spot> = {
++    feature_types: [FeatureType.Rail, FeatureType.Ledge],
++    stopped: true,
++    natural_speed: 3,
++    notes: 'low',
++  };
++
++  it('shows the feature types in stored order, a red-outlined Skate stopped tag, the speed bar and the notes', async () => {
++    await renderDetail(tagged);
++
++    const order = texts();
++    expect(order.indexOf('Rail')).toBeGreaterThan(-1);
++    expect(order.indexOf('Rail')).toBeLessThan(order.indexOf('Ledge'));
++    expect(order.indexOf('Ledge')).toBeLessThan(order.indexOf('Skate stopped'));
++    expect(StyleSheet.flatten(screen.getByTestId('tag-stopped').props.style).borderColor).toBe(palette.red[500]);
++    expect(screen.getByLabelText('Natural speed: Enough')).toBeOnTheScreen();
++    expect(screen.getByText('low')).toBeOnTheScreen();
++  });
++
++  it('reads the tags as text, not as checkboxes or buttons', async () => {
++    await renderDetail(tagged, [createTestMedia()]);
++
++    expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
++    expect(screen.queryAllByRole('button')).toHaveLength(0);
++  });
++
++  it('shows no Skate stopped tag when the spot is not stopped', async () => {
++    await renderDetail({ feature_types: [FeatureType.Rail], stopped: false });
++
++    expect(screen.getByText('Rail')).toBeOnTheScreen();
++    expect(screen.queryByText('Skate stopped')).toBeNull();
++  });
++
++  it('shows Skate stopped alone when the spot has no feature types', async () => {
++    await renderDetail({ name: 'Bank', stopped: true });
++
++    expect(texts()).toEqual(['Bank', 'Skate stopped']);
++  });
++
++  it('shows no speed bar when the speed is not rated', async () => {
++    await renderDetail({ feature_types: [FeatureType.Rail] });
++
++    expect(screen.queryByLabelText(/^Natural speed/)).toBeNull();
++  });
++
++  it('shows None for a speed of 0, which is a real rating', async () => {
++    await renderDetail({ natural_speed: 0 });
++
++    expect(screen.getByLabelText('Natural speed: None')).toBeOnTheScreen();
++  });
++});
++
++describe('Spot detail: photos', () => {
++  const at = (min: number) => `2026-10-13T14:${String(min).padStart(2, '0')}:00.000Z`;
++
++  it('shows five photos in the grid with the primary first', async () => {
++    const media = [1, 2, 3, 4, 5].map((n) => createTestMedia({ created_at: at(n), file_path: `photos/s/${n}.jpg` }));
++    await renderDetail({ primary_photo_id: media[2].id }, media);
++
++    [0, 1, 2, 3, 4].forEach((i) => expect(screen.getByTestId(`photo-tile-${i}`)).toBeOnTheScreen());
++    expect(screen.queryByTestId('photo-tile-5')).toBeNull();
++    const uris = screen.UNSAFE_queryAllByType(Image).map((i) => (i.props.source as { uri: string }).uri);
++    expect(uris).toEqual([media[2], media[0], media[1], media[3], media[4]].map((m) => resolvePhotoUri(m.file_path)));
++    expect(screen.queryByLabelText('Add photos')).toBeNull();
++  });
++
++  it('shows an Add photos tile for a spot without photos that opens edit', async () => {
++    const spot = await renderDetail();
++
++    fireEvent.press(screen.getByRole('button', { name: 'Add photos' }));
++
++    expect(push).toHaveBeenCalledWith(`/spot/${spot.id}/edit`);
++  });
++});
++
++describe('Spot detail: Older details', () => {
++  it('is collapsed until pressed, then shows the archived rows', async () => {
++    legacyMock.mockResolvedValue({ material: 'steel' });
++    await renderDetail({ name: 'Pier 57' });
++
++    const header = screen.getByRole('button', { name: 'Older details' });
++    expect(header.props.accessibilityState).toMatchObject({ expanded: false });
++    expect(screen.queryByText('Material')).toBeNull();
++
++    fireEvent.press(header);
++
++    expect(screen.getByText('Material')).toBeOnTheScreen();
++    expect(screen.getByText('steel')).toBeOnTheScreen();
++    expect(screen.getByRole('button', { name: 'Older details' }).props.accessibilityState).toMatchObject({
++      expanded: true,
++    });
++
++    fireEvent.press(screen.getByRole('button', { name: 'Older details' }));
++    expect(screen.queryByText('Material')).toBeNull();
++  });
++
++  it('is absent when the spot has no archive', async () => {
++    await renderDetail({ name: 'Pier 57' });
++
++    expect(screen.queryByText('Older details')).toBeNull();
++  });
++
++  it('is absent when the archive has nothing to show', async () => {
++    legacyMock.mockResolvedValue({});
++    await renderDetail({ name: 'Pier 57' });
++
++    expect(screen.queryByText('Older details')).toBeNull();
++  });
++
++  it('reads the archive once per mount with the db and the id, not on store updates', async () => {
++    const spot = await renderDetail({ name: 'Pier 57' });
++
++    expect(legacyMock).toHaveBeenCalledTimes(1);
++    expect(legacyMock).toHaveBeenCalledWith(useSQLiteContext(), spot.id);
++
++    await act(async () => {
++      useSpotsStore.setState({ spots: [{ ...spot, notes: 'changed' }] });
++    });
++    screen.rerender(<SpotDetailScreen />);
++    await act(async () => {});
++
++    expect(screen.getByText('changed')).toBeOnTheScreen();
++    expect(legacyMock).toHaveBeenCalledTimes(1);
++  });
++
++  it('warns once and shows no disclosure when the archive cannot be read', async () => {
++    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
++    legacyMock.mockRejectedValue(new SyntaxError('Unexpected token'));
++
++    await renderDetail({ name: 'Pier 57' });
++
++    expect(screen.getByText('Pier 57')).toBeOnTheScreen();
++    expect(screen.queryByText('Older details')).toBeNull();
++    expect(warn).toHaveBeenCalledTimes(1);
++    warn.mockRestore();
++  });
++
++  it('shows lengths in the units picked on Profile', async () => {
++    legacyMock.mockResolvedValue({ length_m: 3.6576 });
++    await renderDetail({ name: 'Pier 57' });
++
++    fireEvent.press(screen.getByRole('button', { name: 'Older details' }));
++    expect(screen.getByText('12.0 ft')).toBeOnTheScreen();
++
++    act(() => useSettingsStore.getState().setUnits(UnitSystem.Metric));
++
++    expect(screen.getByText('3.7 m')).toBeOnTheScreen();
++    expect(legacyMock).toHaveBeenCalledTimes(1);
++  });
++});
++
++describe('Spot detail: nothing from the old model', () => {
++  it('has no old section headers, Draft badge or Type label', async () => {
++    legacyMock.mockResolvedValue({ material: 'steel' });
++    await renderDetail(
++      { feature_types: [FeatureType.Rail, FeatureType.StairSet], stopped: true, natural_speed: 2, notes: 'n' },
++      [createTestMedia(), createTestMedia()],
++    );
++    fireEvent.press(screen.getByRole('button', { name: 'Older details' }));
++
++    for (const banned of ['Feature', 'In-Run', 'Landing', 'Details', 'Draft', 'Type']) {
++      expect(screen.queryByText(banned)).toBeNull();
++    }
++  });
++
++  it('shows only the title for a spot with a name and one photo', async () => {
++    await renderDetail({ name: 'Pier 57' }, [createTestMedia()]);
++
++    expect(texts()).toEqual(['Pier 57']);
++  });
++});
++
++describe('Spot detail: header', () => {
++  it('Edit opens the edit route', async () => {
++    const spot = await renderDetail({ name: 'Pier 57' });
++    const { options } = screen.UNSAFE_getByType('Stack.Screen' as never).props as {
++      options: { headerRight: () => ReactElement };
++    };
++
++    const header = render(options.headerRight());
++    fireEvent.press(header.getByText('Edit'));
++    header.unmount();
+ 
+-    const texts = screen.getAllByText(/./).map((t) => t.props.children);
+-    expect(texts).toEqual(['Pier 57', 'Notes', 'under the bridge']);
++    expect(push).toHaveBeenCalledWith(`/spot/${spot.id}/edit`);
+   });
+ });
+diff --git a/src/__tests__/spot-photos.test.tsx b/src/__tests__/spot-photos.test.tsx
+index 7f1d82f..9c0e274 100644
+--- a/src/__tests__/spot-photos.test.tsx
++++ b/src/__tests__/spot-photos.test.tsx
+@@ -1,4 +1,4 @@
+-import { render, screen } from '@testing-library/react-native';
++import { act, render, screen } from '@testing-library/react-native';
+ import { useLocalSearchParams } from 'expo-router';
+ import { Image } from 'react-native';
+ import { fakeFs as fs } from './helpers/fake-fs';
+@@ -7,6 +7,9 @@ import { spotPhotos } from '@/src/utils/spot-photos';
+ import { resolvePhotoUri } from '@/src/utils/photo-storage';
+ import { createTestMedia, createTestSpot } from './factories';
+ 
++// The detail screen reads the Older details archive on mount; these tests are about photos only.
++jest.mock('@/src/db', () => ({ ...jest.requireActual('@/src/db'), getSpotLegacy: jest.fn(async () => null) }));
++
+ const showSpot = (id: string) => jest.mocked(useLocalSearchParams).mockReturnValue({ id } as never);
+ 
+ import SpotsScreen from '@/app/(tabs)/index';
+@@ -59,7 +62,7 @@ describe('Spots list thumbnails', () => {
+ });
+ 
+ describe('Spot detail gallery', () => {
+-  it('shows every photo with the primary first', () => {
++  it('shows every photo with the primary first', async () => {
+     const spot = createTestSpot();
+     const media = [1, 2, 3].map((n) =>
+       createTestMedia({ spot_id: spot.id, created_at: at(n), file_path: `photos/${spot.id}/${n}.jpg` }),
+@@ -69,23 +72,25 @@ describe('Spot detail gallery', () => {
+     showSpot(spot.id);
+ 
+     render(<SpotDetailScreen />);
++    await act(async () => {});
+ 
+     expect(imageUris()).toEqual(
+       [media[1], media[0], media[2]].map((m) => resolvePhotoUri(m.file_path)),
+     );
+   });
+ 
+-  it('shows no image (and never the photo id as a URI) for a spot without media', () => {
++  it('shows no image (and never the photo id as a URI) for a spot without media', async () => {
+     const spot = createTestSpot({ primary_photo_id: 'b3c1f7a2-uuid-not-a-uri' });
+     useSpotsStore.setState({ spots: [spot] });
+     showSpot(spot.id);
+ 
+     render(<SpotDetailScreen />);
++    await act(async () => {});
+ 
+     expect(imageUris()).toEqual([]);
+   });
+ 
+-  it('shows all 20 photos of a full spot', () => {
++  it('shows all 20 photos of a full spot', async () => {
+     const spot = createTestSpot();
+     const media = Array.from({ length: 20 }, (_, n) =>
+       createTestMedia({ spot_id: spot.id, created_at: at(n), file_path: `photos/${spot.id}/${n}.jpg` }),
+@@ -95,6 +100,7 @@ describe('Spot detail gallery', () => {
+     showSpot(spot.id);
+ 
+     render(<SpotDetailScreen />);
++    await act(async () => {});
+ 
+     expect(imageUris()).toHaveLength(20);
+   });
+diff --git a/src/components/Chip.tsx b/src/components/Chip.tsx
+index 9654b09..9d598ee 100644
+--- a/src/components/Chip.tsx
++++ b/src/components/Chip.tsx
+@@ -40,6 +40,24 @@ export function Chip({
+   );
+ }
+ 
++// ── Tag ─────────────────────────────────────────────────
++
++interface TagProps {
++  label: string;
++  /** 'stopped' draws the red outline of the 'Skate stopped' tag. */
++  tone?: 'default' | 'stopped';
++  testID?: string;
++}
++
++/** A read-only chip: no role and nothing to press, so VoiceOver reads it as text rather than a checkbox. */
++export function Tag({ label, tone = 'default', testID }: TagProps) {
++  return (
++    <View testID={testID} style={[styles.chip, tone === 'stopped' && styles.tagStopped]}>
++      <Text style={[styles.chipText, tone === 'stopped' && styles.tagStoppedText]}>{label}</Text>
++    </View>
++  );
++}
++
+ // ── ChipGroup ───────────────────────────────────────────
+ 
+ interface ChipGroupProps {
+@@ -75,6 +93,13 @@ const styles = StyleSheet.create({
+   chipTextSelected: {
+     color: palette.white,
+   },
++  tagStopped: {
++    backgroundColor: palette.white,
++    borderColor: palette.red[500],
++  },
++  tagStoppedText: {
++    color: palette.red[700],
++  },
+   group: {
+     flexDirection: 'row',
+     flexWrap: 'wrap',
+diff --git a/src/components/index.ts b/src/components/index.ts
+index cbe6a85..5f036fa 100644
+--- a/src/components/index.ts
++++ b/src/components/index.ts
+@@ -1,7 +1,7 @@
+ export { Button } from './Button';
+ export { Card, CardImage, CardContent, CardBadge, CardTitle, CardSubtitle } from './Card';
+ export { SegmentedControl } from './SegmentedControl';
+-export { Chip, ChipGroup } from './Chip';
++export { Chip, ChipGroup, Tag } from './Chip';
+ export { FormField, FormInput } from './FormField';
+ export { EmptyState } from './EmptyState';
+ export { SpotListItem } from './SpotListItem';
+diff --git a/src/db/schema.ts b/src/db/schema.ts
+index ddb4607..a827701 100644
+--- a/src/db/schema.ts
++++ b/src/db/schema.ts
+@@ -113,9 +113,10 @@ export interface SpotColumnsV3 {
+ 
+ /**
+  * What migration 3 archived from the removed fields (spec §4): the `legacy_json` of a version 3 spot, read only through
+- * getSpotLegacy. Lengths in metres.
++ * getSpotLegacy. Lengths in metres. A type, not an interface, so it passes as a `Record<string, unknown>`
++ * (formatLegacyDetails).
+  */
+-export interface SpotLegacy {
++export type SpotLegacy = {
+   custom_type?: string;
+   shape?: string;
+   length_m?: number;
+@@ -137,7 +138,7 @@ export interface SpotLegacy {
+   raw_in_run?: string;
+   raw_landing?: string;
+   raw_metadata?: string;
+-}
++};
+ 
+ // The feature types that survive migration 3 ('other' is gone, D19). Literal on purpose: a migration must not
+ // change meaning when the app's enums do.
+diff --git a/src/utils/legacy-details.ts b/src/utils/legacy-details.ts
+new file mode 100644
+index 0000000..5356e66
+--- /dev/null
++++ b/src/utils/legacy-details.ts
+@@ -0,0 +1,105 @@
++import type { UnitSystem } from '@/src/types';
++import { displayLength } from '@/src/utils/units';
++
++export interface LegacyDetailRow {
++  label: string;
++  value: string;
++}
++
++type Format = (value: unknown, units: UnitSystem) => string | undefined;
++
++const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
++
++/** Old enum values ('snow_built', 'painted_steel') read as words. */
++const words = (text: string) => text.replace(/_/g, ' ');
++
++/** 'stop_description' → 'Stop description'. */
++const humanise = (key: string) => {
++  const text = words(key).trim();
++  return text.charAt(0).toUpperCase() + text.slice(1);
++};
++
++function plain(value: unknown): string {
++  if (typeof value === 'string') return value;
++  if (typeof value === 'boolean') return value ? 'Yes' : 'No';
++  if (typeof value === 'number') return String(value);
++  return JSON.stringify(value);
++}
++
++const enumText: Format = (v) => (typeof v === 'string' ? words(v) : undefined);
++const length: Format = (v, units) => (typeof v === 'number' && Number.isFinite(v) ? displayLength(v, units) : undefined);
++const outOfFive: Format = (v) => (typeof v === 'number' && Number.isFinite(v) ? `${v}/5` : undefined);
++
++/** One requirement of an old setup option: `{ item: 'speed_humps', category: 'build', quantity: 2 }` → '2 speed humps'. */
++function requirement(r: unknown): string | undefined {
++  if (!isObject(r) || typeof r.item !== 'string') return undefined;
++  return typeof r.quantity === 'number' && r.quantity > 1 ? `${r.quantity} ${words(r.item)}` : words(r.item);
++}
++
++/** '2 options: winch; drop in platform + 2 speed humps'. An option it cannot read is shown as its stored JSON. */
++const setupOptions: Format = (v) => {
++  if (!Array.isArray(v)) return undefined;
++  const options = v.map((option) => {
++    const items = isObject(option) && Array.isArray(option.requires) ? option.requires.map(requirement) : [];
++    return items.length > 0 && items.every((i) => i !== undefined) ? items.join(' + ') : JSON.stringify(option);
++  });
++  return `${options.length} ${options.length === 1 ? 'option' : 'options'}: ${options.join('; ')}`;
++};
++
++/**
++ * The archived keys migration 3 writes (`SpotLegacy`), in display order. Setup options go last among them: they are
++ * the longest row. The `raw_*` columns (an old column that was not JSON, kept verbatim) come after any unknown key.
++ */
++const KNOWN: [key: string, label: string, format?: Format][] = [
++  ['custom_type', 'Custom type'],
++  ['shape', 'Shape'],
++  ['length_m', 'Length', length],
++  ['height_m', 'Height', length],
++  ['width_m', 'Width', length],
++  ['material', 'Material', enumText],
++  ['stop_type', 'Stop type', enumText],
++  ['stop_description', 'Stop description'],
++  ['removable', 'Removable'],
++  ['difficulty', 'Difficulty', outOfFive],
++  ['landing_difficulty', 'Landing difficulty', outOfFive],
++  ['landing_surface', 'Landing surface', enumText],
++  ['intensity', 'Intensity', outOfFive],
++  ['bustability', 'Bustability', outOfFive],
++  ['bustability_notes', 'Bustability notes'],
++  ['setup_options', 'Setup options', setupOptions],
++];
++
++const RAW: [key: string, label: string][] = [
++  ['raw_feature', 'Feature (unreadable)'],
++  ['raw_in_run', 'In-run (unreadable)'],
++  ['raw_landing', 'Landing (unreadable)'],
++  ['raw_metadata', 'Other (unreadable)'],
++];
++
++function isEmpty(v: unknown): boolean {
++  if (v === undefined || v === null) return true;
++  if (typeof v === 'string') return v.trim() === '';
++  if (Array.isArray(v)) return v.length === 0;
++  return false;
++}
++
++/**
++ * The "Older details" rows for a spot's `legacy_json` (spec §2.4, D26): a label and a display string per archived
++ * value, lengths in the user's units (the archive stores metres). Empty values are skipped; a key it does not know is
++ * shown with its key humanised; a value of an unexpected type is shown as plain text, so this never throws.
++ */
++export function formatLegacyDetails(legacy: Record<string, unknown>, units: UnitSystem): LegacyDetailRow[] {
++  const row = (key: string, label: string, format?: Format): LegacyDetailRow[] => {
++    const value = legacy[key];
++    if (isEmpty(value)) return [];
++    return [{ label, value: format?.(value, units) ?? plain(value) }];
++  };
++  const listed = new Set([...KNOWN, ...RAW].map(([key]) => key));
++  return [
++    ...KNOWN.flatMap(([key, label, format]) => row(key, label, format)),
++    ...Object.keys(legacy)
++      .filter((key) => !listed.has(key))
++      .flatMap((key) => row(key, humanise(key))),
++    ...RAW.flatMap(([key, label]) => row(key, label)),
++  ];
++}

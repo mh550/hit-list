@@ -355,7 +355,7 @@
         "src/__tests__/stores.test.ts passes with the final filter semantics: stopped undefined keeps all, true keeps stopped only, false keeps not-stopped only; types any-of; natural_speed_min 1 and max 3 keeps speeds 1,2,3 and undefined and drops 0 and 4; selectActiveFilterCount returns 1 for { types: ['rail'] }, 1 for { stopped: false }, 1 for { natural_speed_min: 0, natural_speed_max: 2 }, 3 for all three, 0 for DEFAULT_FILTERS.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M5-02",
@@ -369,7 +369,7 @@
         "The Filter button badge on the Spots tab shows '3' with all three set (existing badge test in spots-sort-search or spots-view-mode updated).",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M5-03",
@@ -383,7 +383,7 @@
         "src/components/SpotListItem.tsx props are { id, displayName, thumbnailUri?, featureType?, stopped, naturalSpeed?, distance?, onPress } and the component is still wrapped in memo.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M5-04",
@@ -397,7 +397,7 @@
         "The file records npx jest --silent totals and npx expo export --platform ios --output-dir /tmp/hl-export exit 0.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M5-05",
@@ -411,7 +411,7 @@
         "A 'refactor:' commit applies the simplification pass; CLAUDE.md Layout's stores line describes the three filters; README.md Status describes filters as feature type, skate stopped and natural speed, and sort as Distance, Date, Name; docs/RUNNING-ON-PHONE.md Spots tab text matches.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M6-01",

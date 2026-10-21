@@ -9,7 +9,8 @@ Built with Expo (React Native) and runs on an iPhone through Expo Go.
 
 Works end to end in tests and bundles for iOS. The simplification (rev 2,
 `docs/specs/2026-10-16-simplification-design.md`) is being built: the model step (M1), the
-one-screen edit (M2), the detail screen (M3) and the full-screen photo viewer (M4) are done.
+one-screen edit (M2), the detail screen (M3) the full-screen photo viewer (M4) and the
+three-filter list (M5) are done.
 
 - Spot model (database v3): feature types (several per spot), skate stopped, natural speed (None to Too
   much, 0–4), notes. Migration 3 archives every older field (dimensions, material, stops, setup options,
@@ -25,10 +26,11 @@ one-screen edit (M2), the detail screen (M3) and the full-screen photo viewer (M
   Swipe between photos, pinch up to 4×, double-tap for 2.5×, swipe down at 1× to close; long-press a photo to set it
   as the main photo or remove it from the spot (with a confirm).
 - Photos are kept in the app's own storage and shown as list thumbnails, the detail grid and the viewer.
-- Spots list with filters (what's here, skate stopped, natural speed) and distance from where you are.
-- Apple Maps view (List | Map), one pin colour, tap through to the spot. Nearby spots
+- Spots list with three filters (feature type, skate stopped, natural speed range) and distance from where you are.
+  Each row shows what's there ('Rail +2'), a small red 'Stopped' tag and the natural speed bar once rated.
+- Apple Maps view (List | Map), one pin colour; a pin's bubble lists the spot's feature types ('Rail · Ledge'), tap through to the spot. Nearby spots
   cluster into a numbered circle; spots at the same place open a list to pick from.
-- Search by name (both views) and sort by Date, Name or Distance (list).
+- Search by name (both views) and sort by Distance, Date or Name (list).
 - Unnamed spots read `Untitled · Seattle · Oct 13, 2:22 PM` (town from Apple's geocoder, which needs internet).
 - Offline-first SQLite storage with versioned migrations.
 

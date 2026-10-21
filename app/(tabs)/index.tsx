@@ -104,6 +104,8 @@ export default function SpotsScreen() {
           displayName={getSpotDisplayName(item)}
           thumbnailUri={thumbnail ? resolvePhotoUri(thumbnail.file_path) : undefined}
           featureType={featureTypesLabel(item)}
+          stopped={item.stopped}
+          naturalSpeed={item.natural_speed}
           distance={getDistance(item)}
           onPress={handleSpotPress}
         />

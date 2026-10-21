@@ -24,6 +24,21 @@ describe('Spots tab Map | List toggle', () => {
     expect(screen.getByText('Pier 57 rail')).toBeTruthy();
   });
 
+  it('shows each row with its Stopped tag and speed bar', () => {
+    useSpotsStore.setState({
+      spots: [
+        createTestSpot({ name: 'Library ledge', stopped: true, natural_speed: 3, location: CITIES.portland }),
+        createTestSpot({ name: 'Pier 57 rail', location: CITIES.seattle }),
+      ],
+    });
+    render(<SpotsScreen />);
+
+    expect(screen.getAllByText('Stopped')).toHaveLength(1);
+    expect(screen.getAllByLabelText(/^Natural speed: /).map((e) => e.props.accessibilityLabel)).toEqual([
+      'Natural speed: Enough',
+    ]);
+  });
+
   it('switches to the map and back, keeping the choice in the store', () => {
     render(<SpotsScreen />);
 

@@ -205,6 +205,6 @@ export function selectActiveFilterCount(filters: SpotFilters): number {
   let count = 0;
   if (filters.types.length > 0) count++;
   if (filters.stopped !== undefined) count++;
-  if (filters.natural_speed_min != null || filters.natural_speed_max != null) count++;
+  if (filters.natural_speed_min !== undefined || filters.natural_speed_max !== undefined) count++;
   return count;
 }

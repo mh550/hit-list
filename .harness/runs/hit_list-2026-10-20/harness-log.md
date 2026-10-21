@@ -39,3 +39,11 @@
 - 2026-10-21 13:11 · merged main into harness/hit_list-2026-10-20
 - 2026-10-21 13:12 · verify M4: M4-04 failed the re-check, back in the queue (one more attempt)
 - 2026-10-21 13:16 · M4-04 · claude-opus-5-5 · passes=true · 3 min · 23/39 passing
+- 2026-10-21 13:17 · M4 verified and tagged run/hit_list-2026-10-20/M4
+- 2026-10-21 13:17 · M4 merged into main · https://github.com/mh550/hit-list/pull/4
+- 2026-10-21 13:20 · M5-01 · claude-opus-5-5 · passes=true · 3 min · 24/39 passing
+- 2026-10-21 13:28 · M5-02 · claude-opus-5-5 · passes=true · 7 min · 25/39 passing
+- 2026-10-21 13:32 · M5-03 · claude-opus-5-5 · passes=true · 3 min · 26/39 passing
+- 2026-10-21 13:33 · M5-04 · claude-sonnet-5-5 · passes=true · 1 min · 27/39 passing
+- 2026-10-21 13:39 · M5-05 · claude-opus-5-5 · passes=true · 5 min · 28/39 passing
+- 2026-10-21 13:39 · merged main into harness/hit_list-2026-10-20

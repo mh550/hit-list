@@ -1,4 +1,4 @@
-import { getSpotDisplayName, formatSpotTime, featureTypesLabel } from '@/src/utils/spot-name';
+import { getSpotDisplayName, formatSpotTime, featureTypesLabel, featureTypesList } from '@/src/utils/spot-name';
 import { FeatureType } from '@/src/types';
 import type { Spot } from '@/src/types';
 import { createTestSpot } from './factories';
@@ -59,5 +59,22 @@ describe('featureTypesLabel', () => {
 
   it('is undefined for an untagged spot', () => {
     expect(label([])).toBeUndefined();
+  });
+});
+
+describe('featureTypesList', () => {
+  const list = (feature_types: FeatureType[]) => featureTypesList(createTestSpot({ feature_types }));
+
+  it('joins every type label with a middle dot, in the stored order', () => {
+    expect(list([FeatureType.Rail, FeatureType.Ledge])).toBe('Rail · Ledge');
+    expect(list([FeatureType.StairSet, FeatureType.Rail, FeatureType.Gap])).toBe('Stair set · Rail · Gap');
+  });
+
+  it('shows a single type by its label', () => {
+    expect(list([FeatureType.Bank])).toBe('Bank');
+  });
+
+  it('is undefined for an untagged spot', () => {
+    expect(list([])).toBeUndefined();
   });
 });

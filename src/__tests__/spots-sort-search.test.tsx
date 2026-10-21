@@ -189,6 +189,21 @@ describe('Spots tab search', () => {
       expect(headerFilterLabel()).toBe('Filter spots, 1 active');
     });
 
+    it('counts all three filters: 3 active', () => {
+      useSpotsStore.setState({
+        filters: { types: [FeatureType.Rail], stopped: true, natural_speed_min: 1, natural_speed_max: 3 },
+      });
+
+      render(<SpotsScreen />);
+      const { options } = screen.UNSAFE_getByType('Stack.Screen' as never).props as {
+        options: { headerRight: () => ReactElement };
+      };
+      const header = render(options.headerRight());
+
+      expect(header.getByRole('button').props.accessibilityLabel).toBe('Filter spots, 3 active');
+      expect(header.getByText('Filter (3)')).toBeTruthy();
+    });
+
     it('does not gain a badge while searching', () => {
       // Search has its own visible field, so counting it in "Filter (n)" would be confusing.
       // Set via the store so this test depends only on the badge, not on the search field existing.
@@ -511,6 +526,32 @@ describe('Spots tab no-match state', () => {
 
       expect(useSpotsStore.getState().filters).toEqual(DEFAULT_FILTERS);
       expect(screen.queryByText('No matching spots')).toBeNull();
+      expect(screen.getByText('Open rail')).toBeTruthy();
+    });
+
+    it('"Reset filters" also clears a speed range', () => {
+      // Unrated spots pass a speed filter, so the spot needs a speed outside the range.
+      useSpotsStore.setState({
+        spots: [{ ...notStopped, natural_speed: 3 }],
+        filters: { ...DEFAULT_FILTERS, natural_speed_min: 0, natural_speed_max: 0 },
+      });
+      render(<SpotsScreen />);
+
+      expect(screen.getByText('No matching spots')).toBeTruthy();
+      fireEvent.press(screen.getByText('Reset filters'));
+
+      expect(useSpotsStore.getState().filters).toEqual(DEFAULT_FILTERS);
+      expect(screen.getByText('Open rail')).toBeTruthy();
+    });
+
+    it('"Reset filters" also clears a What\'s here filter', () => {
+      useSpotsStore.setState({ filters: { ...DEFAULT_FILTERS, types: [FeatureType.Ledge] } });
+      render(<SpotsScreen />);
+
+      expect(screen.getByText('No matching spots')).toBeTruthy();
+      fireEvent.press(screen.getByText('Reset filters'));
+
+      expect(useSpotsStore.getState().filters).toEqual(DEFAULT_FILTERS);
       expect(screen.getByText('Open rail')).toBeTruthy();
     });
 

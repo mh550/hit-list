@@ -1,15 +1,19 @@
 import React from 'react';
+import { StyleSheet } from 'react-native';
 import { render, screen, fireEvent } from '@testing-library/react-native';
 
 import { SpotListItem } from '@/src/components/SpotListItem';
-import { getSpotDisplayName } from '@/src/utils/spot-name';
+import { featureTypesLabel, getSpotDisplayName } from '@/src/utils/spot-name';
 import { createTestSpot } from './factories';
+import { palette } from '@/src/constants/theme';
 import { FeatureType } from '@/src/types';
+import type { Spot } from '@/src/types';
 
 describe('SpotListItem', () => {
   const defaultProps = {
     id: 'test-id',
     displayName: 'Downtown Rail',
+    stopped: false,
     onPress: jest.fn(),
   };
 
@@ -55,6 +59,98 @@ describe('SpotListItem', () => {
   });
 });
 
+describe('SpotListItem tags (M5-03)', () => {
+  // Mirrors the Spots tab's renderItem: the row gets the spot's label, stopped flag and speed.
+  const renderRow = (spot: Spot, distance?: string) =>
+    render(
+      <SpotListItem
+        id={spot.id}
+        displayName={getSpotDisplayName(spot)}
+        featureType={featureTypesLabel(spot)}
+        stopped={spot.stopped}
+        naturalSpeed={spot.natural_speed}
+        distance={distance}
+        onPress={jest.fn()}
+      />,
+    );
+
+  it('shows the first feature type with +N for the rest', () => {
+    renderRow(createTestSpot({ feature_types: [FeatureType.Rail, FeatureType.Ledge, FeatureType.Bank] }));
+    expect(screen.getByText('Rail +2')).toBeTruthy();
+  });
+
+  it('shows a Stopped tag only on a stopped spot', () => {
+    const { unmount } = renderRow(createTestSpot({ stopped: true }));
+    expect(screen.getByText('Stopped')).toBeTruthy();
+    unmount();
+
+    renderRow(createTestSpot({ stopped: false }));
+    expect(screen.queryByText('Stopped')).toBeNull();
+  });
+
+  it('shows the read-only speed bar for a rated spot', () => {
+    renderRow(createTestSpot({ natural_speed: 4 }));
+    expect(screen.getByLabelText('Natural speed: Too much')).toBeTruthy();
+  });
+
+  it('shows the speed bar for a spot rated None (0 is a real value)', () => {
+    renderRow(createTestSpot({ natural_speed: 0 }));
+    expect(screen.getByLabelText('Natural speed: None')).toBeTruthy();
+  });
+
+  it('shows no speed bar for an unrated spot', () => {
+    renderRow(createTestSpot({ natural_speed: undefined }));
+    expect(screen.queryAllByLabelText(/^Natural speed/)).toHaveLength(0);
+  });
+
+  it('draws Stopped and the speed word at the type badge size (12), Stopped in red', () => {
+    renderRow(createTestSpot({ feature_types: [FeatureType.Rail], stopped: true, natural_speed: 4 }));
+
+    const style = (text: string) => StyleSheet.flatten(screen.getByText(text).props.style);
+    expect(style('Rail').fontSize).toBe(12);
+    expect(style('Stopped')).toMatchObject({ fontSize: 12, color: palette.red[700] });
+    expect(style('Too much').fontSize).toBe(12);
+  });
+
+  it('keeps the two-line name and still shows the distance with every tag present', () => {
+    const spot = createTestSpot({
+      name: undefined,
+      generated_name: 'San Francisco',
+      created_at: '2025-10-13T14:22:00Z',
+      feature_types: [FeatureType.Rail, FeatureType.Ledge, FeatureType.Bank],
+      stopped: true,
+      natural_speed: 4,
+    });
+    renderRow(spot, '2.3 mi');
+
+    expect(screen.getByText('Untitled · San Francisco · Oct 13, 2:22 PM').props.numberOfLines).toBe(2);
+    expect(screen.getByText('2.3 mi')).toBeTruthy();
+  });
+
+  it('reads every tag in the row label, since VoiceOver hides what the row contains (M5-05 review 1)', () => {
+    const spot = createTestSpot({
+      name: 'Downtown Rail',
+      feature_types: [FeatureType.Rail, FeatureType.Ledge, FeatureType.Bank],
+      stopped: true,
+      natural_speed: 4,
+    });
+    renderRow(spot, '2.3 mi');
+
+    expect(screen.getByRole('button').props.accessibilityLabel).toBe(
+      'Downtown Rail, Rail +2, Skate stopped, Natural speed: Too much, 2.3 mi',
+    );
+  });
+
+  it('labels the row with the name alone when it has no tags, and keeps a None (0) speed', () => {
+    const { unmount } = renderRow(createTestSpot({ name: 'Bare', feature_types: [], stopped: false }));
+    expect(screen.getByRole('button').props.accessibilityLabel).toBe('Bare');
+    unmount();
+
+    renderRow(createTestSpot({ name: 'Flat', feature_types: [], stopped: false, natural_speed: 0 }));
+    expect(screen.getByRole('button').props.accessibilityLabel).toBe('Flat, Natural speed: None');
+  });
+});
+
 describe('Name fallback chain', () => {
   it('level 1: user-provided name', () => {
     const spot = createTestSpot({ name: 'My Rail', generated_name: 'NE 45th St' });
@@ -79,6 +175,8 @@ describe('SpotListItem memo behavior', () => {
         id="test"
         displayName="Test Spot"
         featureType="Rail +1"
+        stopped
+        naturalSpeed={2}
         distance="1.2 mi"
         onPress={() => {}}
       />,

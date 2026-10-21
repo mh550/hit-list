@@ -44,8 +44,10 @@ const styles = StyleSheet.create({
   },
   segment: {
     flex: 1,
+    minHeight: 44,
     paddingVertical: spacing.sm,
     alignItems: 'center',
+    justifyContent: 'center',
     borderRadius: radius.md - 2,
     borderCurve: 'continuous',
   },

@@ -60,7 +60,9 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   `spots.ts`: `getSpots`/`getSpot` select the explicit `SPOT_COLUMNS` (never `legacy_json`); `getSpotLegacy(db, id)` is
   the only reader of the archive (rejects on unreadable JSON, `null` for JSON that is not an object); detail's `OlderDetails` calls it once on mount (effect
   keyed on `[db, spotId]`, not on store updates), `.catch` → `console.warn`, and hides the disclosure when it has no rows.
-- `src/stores/` zustand: spots (+ Filter-sheet filters, a separate `searchQuery`, sort, `viewMode`; filtering and sorting live in its selectors), media (`mediaBySpot`), settings, location.
+- `src/stores/` zustand: spots (+ the Filter sheet's three filters: What's here `types` (any of), Skate stopped
+  `stopped` (undefined = Any, true, false), Natural speed `natural_speed_min`/`_max` (inclusive range, unrated spots kept;
+  `selectActiveFilterCount` counts each set filter once, 0–3), a separate `searchQuery`, sort, `viewMode`; filtering and sorting live in its selectors), media (`mediaBySpot`), settings, location.
 - `src/hooks/` `useDbInit` (migrate, then load spots/media/settings even if the migration threw, background town backfill),
   `useSpotActions`, `useMediaActions` (photo save and remove, also used for adding photos from edit: `savePhotos` resolves the `Media[]` it actually saved; removal deletes the row only, D3), `useCurrentLocation`.
 - `src/utils/` pure logic: geo (`NO_LOCATION`, `isKnownLocation`, haversine), exif,

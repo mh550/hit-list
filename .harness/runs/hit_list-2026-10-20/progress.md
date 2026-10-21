@@ -12,6 +12,67 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 21:00 · verify M5
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| M5-01 | 1 | Read docs/plans/2026-10-20-m5-filters-list.md | Has FilterSheet layout (chips · segmented Any/Not stopped/Stopped · range), SpeedScale range API (rangeValue/onRangeChange, tap table incl. third tap clears), SpotListItem props, callout ' · ' rule, test list | yes |
+| M5-01 | 2 | `npx jest --ci` stores.test.ts (115 pass across the 5 M5 files); read assertions at l.76-96, 207-250 | stopped undefined/true/false cases; 'min 1 and max 3 keep speeds 1,2,3 and unrated, drop 0 and 4'; count 1/1/1/3/0 asserted | yes |
+| M5-01 | 3 | `check.sh` (lint+tsc+jest --silent) | green, 589 tests; jest --ci no console.error | yes |
+| M5-02 | 1 | Read speed-scale.test.tsx l.138-190 | undefined → none selected + 'Any'; Little,Enough → [1,3] + 'Little to Enough'; Some×2 → [2,2] + 'Some'; Enough,Little → [1,3]; [2,2]+Some → undefined | yes |
+| M5-02 | 2 | Read filter-sheet.test.tsx l.113-216 | headers = Filters + 3 section labels only; tabs Any/Not stopped/Stopped; Apply gives exactly {types:['rail'],stopped:true,min:1,max:3}; Reset → DEFAULT_FILTERS; stored filters pre-selected | yes |
+| M5-02 | 3 | Read spots-sort-search.test.tsx l.192-205 | 'counts all three filters: 3 active': label 'Filter spots, 3 active', text 'Filter (3)' | yes |
+| M5-02 | 4 | `check.sh` | green, 589 tests | yes |
+| M5-03 | 1 | Read spot-list.test.tsx l.62-128 | 'Rail +2'; Stopped only when stopped; label 'Natural speed: Too much'; none when undefined; numberOfLines 2; distance shown | yes |
+| M5-03 | 2 | Read spot-map.test.tsx l.72-122 | description 'Rail · Ledge'; [] → undefined; all pins SPOT_PIN; title = getSpotDisplayName | yes |
+| M5-03 | 3 | Read src/components/SpotListItem.tsx | Props id, displayName, thumbnailUri?, featureType?, stopped, naturalSpeed?, distance?, onPress; wrapped in memo | yes |
+| M5-03 | 4 | `check.sh` | green, 589 tests | yes |
+| M5-04 | 1 | Read docs/plans/2026-10-20-m5-what-michael-will-see.md; `git ls-files` for stray render test | Three rows, sort chips in order, sheet empty and all-three, Marker props for two spots; no temp test tracked | yes |
+| M5-04 | 2 | Read Verification numbers; ran `npx expo export --platform ios --output-dir /tmp/harness/.../exp` | File records jest totals (584 then) and export exit 0; my export exit 0 | yes |
+| M5-04 | 3 | `check.sh` | green, 589 tests | yes |
+| M5-05 | 1 | Read reviews/m5.diff (1243 lines) and 'Review (M5-05)' in the plan; `git log` of filter-sheet test | Findings table with severity, file, fix commit; Important fix RED ea1e9a2 before GREEN 6571829 | yes |
+| M5-05 | 2 | Read 'Answers to the M5-05 questions' | Range a11y (selected per in-range segment, test named); badgeRow flexWrap: wrap with distance on own line; Reset filters clears all three, three tests named | yes |
+| M5-05 | 3 | `git log`; read CLAUDE.md l.63, README Status l.29-45, RUNNING-ON-PHONE | refactor commit 595e53a; CLAUDE.md stores line has three filters; README feature type/skate stopped/natural speed, sort Distance, Date, Name; phone doc has Filter text | yes |
+| M5-05 | 4 | `check.sh` | green, 589 tests | yes |
+
+Result: 18 hold, 0 fail.
+
+### 2026-10-21 20:30 · M5-05 · passes
+
+- Opus review of `reviews/m5.diff` (1243 lines): 0 Critical, 1 Important (fixed), 5 Minor (4 fixed, 1 left), recorded under 'Review (M5-05)' in `docs/plans/2026-10-20-m5-filters-list.md` with the three written answers (range a11y: every in-range segment `selected`; row `flexWrap: 'wrap'`, distance on its own line; 'Reset filters' clears all three, tests named).
+- Important: the list row's VoiceOver label was the name only; now 'Downtown Rail, Rail +2, Skate stopped, Natural speed: Too much, 2.3 mi' (RED `ea1e9a2` → GREEN `6571829`). Also: sheet Reset has role button, `SegmentedControl` segments 44 pt (List / Map too), types reset test.
+- `refactor:` `595e53a`: type badge = small `Tag` (pill, like Stopped), one `STOPPED_SEGMENTS` table, range summary once. Docs `22cf902`: CLAUDE.md stores line (three filters), README Status (feature type / skate stopped / natural speed; sort Distance, Date, Name), RUNNING-ON-PHONE Filter + row + callout.
+- Tests 584 → 589; `check.sh` green (589), `jest --ci` 0 console.error.
+- Next: M5 verify. Phone checks: the taller List / Map switch and the pill type badge look. Questions for Michael: none.
+
+### 2026-10-21 19:50 · M5-04 · passes
+
+- New `docs/plans/2026-10-20-m5-what-michael-will-see.md`: three list rows (three types + Stopped + Too much; untagged; one type, no photo), sort chips in order Distance · Date · Name (with/without location), Filter sheet empty and all-three-set, Marker props for two spots, a phone checklist. Rendered from a temporary test (deleted); no code changed.
+- Verified: `npx jest --silent` 47 suites, 584 tests (unchanged); `npx expo export --platform ios` exit 0; `check.sh` green. Git diff is docs + `passes` only.
+- Next (M5-05): row VoiceOver label still just the name (noted in the doc's Known gaps). Questions for Michael: none.
+
+### 2026-10-21 19:20 · M5-03 · passes
+
+- `SpotListItem` props now `{ id, displayName, thumbnailUri?, featureType?, stopped, naturalSpeed?, distance?, onPress }` (still `memo`); badge row (wrap, centred): type badge 'Rail +2' · `Tag size="small" tone="stopped"` 'Stopped' · `SpeedScale readonly compact` bar; distance stays on its own line. `Tag` gains `size`, the readonly bar gains `compact` (12-pt word). `app/(tabs)/index.tsx` passes `stopped`/`natural_speed`. Map callout description = new `featureTypesList` ('Rail · Ledge', `[]` → undefined) in `src/utils/spot-name.ts`.
+- Tests 572 → 584: spot-list (+7: 'Rail +2', Stopped only when stopped, 'Natural speed: Too much', None (0) shown, unrated none, 12-pt/red sizes, two-line name + distance), spot-map ('Rail · Ledge', titles = display name), spot-name `featureTypesList` (+3), spots-view-mode (screen passes stopped + speed).
+- Verified: every step's test passes; mutation `stopped={false}` in renderItem fails the screen test (reverted); `check.sh` green (584); `jest --ci` 0 console.error. Opus review: 0 Critical; applied Important 1–2 (oversized Tag/bar in the row) and fixture reuse; skipped the pre-existing 'memo behavior' test naming.
+- Next (M5-04/05): the row's VoiceOver label is still `displayName`, so Stopped/speed are not announced (the Pressable hides its children); M5-05 should decide on appending them. Questions for Michael: none.
+
+### 2026-10-21 18:45 · M5-02 · passes
+
+- `src/components/FilterSheet.tsx`: three sections (What's here chips · Skate stopped `SegmentedControl` Any/Not stopped/Stopped · Natural speed `SpeedScale` range); section titles and 'Filters' are `accessibilityRole="header"`; stopped/range keys always written (explicit undefined) so Apply clears old values. `SpeedScale.tsx` is now a dispatcher (`SpeedBar` / `SpeedPicker` / `SpeedRangePicker`); tap rules in new pure `src/utils/speed-range.ts` (`nextSpeedRange`, `liveAnchor`, `inSpeedRange`, `speedRangeLabel`).
+- Tests 536 → 572: new `speed-range.test.ts` (13), speed-scale range mode (10), filter-sheet three filters (11), spots-sort-search 'Filter (3)' / '3 active' badge + 'Reset filters' clears a speed range.
+- Verified: each step's cases pass; mutations (drop explicit-undefined keys in the sheet) fail 2 tests, reverted; `check.sh` green (572), `jest --ci` 0 console.error. Opus review: 0 Critical/Important; applied Minor 1 (`?: never` so modes cannot mix, checked with tsc) and 3 (description line labelled 'Natural speed: …'); skipped the hint full stops (strings pinned by the plan).
+- Next (M5-03): list row + callout; `<SpeedScale readonly value={…} />` still works unchanged. Questions for Michael: none.
+
+### 2026-10-21 18:10 · M5-01 · passes
+
+- New plan `docs/plans/2026-10-20-m5-filters-list.md`: sheet layout (What's here chips · Skate stopped segmented Any/Not stopped/Stopped · Natural speed range), SpeedScale range API (`rangeValue`/`onRangeChange`, tap table in a pure `nextSpeedRange`, a11y), SpotListItem props, callout `' · '` rule (`featureTypesList`), test list.
+- Store: the filter semantics were already built in M1/M2. `selectActiveFilterCount` now checks `!== undefined` instead of `!= null`. `stores.test.ts` gains 6 tests (speeds 0–4 with min 1/max 3, stopped undefined, count `{min:0,max:2}`/`{max:0}`, `setFilters` all three, explicit undefined clears, reset copy). Tests 530 → 536.
+- Verified: if the count tested truthiness, the `{min:0,max:2}` test would fail (mutation tried, then reverted). `check.sh` green (536), `jest --ci` 0 console.error.
+- Next (M5-02): build the sheet and range mode per the plan. Keys must always be present (explicit undefined) so Apply's merge clears an old range or stopped value.
+- My calls on the plan (§10, no question for Michael): the first tap emits `[t,t]`, a tap outside a complete range starts a new range, `[0,4]` is kept as chosen. Questions for Michael: none.
+
 ### 2026-10-21 · verify M4
 
 | Feature | Step | What you ran or read | What you saw | Holds |

@@ -72,6 +72,17 @@ describe('selectFilteredSpots', () => {
     it('min 4 keeps only the fastest and unrated', () => {
       expect(ids({ ...DEFAULT_FILTERS, natural_speed_min: 4 })).toEqual(['fast', 'unrated']);
     });
+
+    it('min 1 and max 3 keep speeds 1, 2, 3 and unrated, and drop 0 and 4', () => {
+      const all = ([0, 1, 2, 3, 4] as const).map((v) => createTestSpot({ id: `speed-${v}`, natural_speed: v }));
+      const result = selectFilteredSpots([...all, unrated], { ...DEFAULT_FILTERS, natural_speed_min: 1, natural_speed_max: 3 });
+      expect(result.map((s) => s.id)).toEqual(['speed-1', 'speed-2', 'speed-3', 'unrated']);
+    });
+  });
+
+  it('stopped: undefined keeps every spot, stopped or not', () => {
+    const result = selectFilteredSpots(allSpots, { ...DEFAULT_FILTERS, stopped: undefined });
+    expect(result.map((s) => s.id)).toEqual(['rail-spot', 'ledge-spot', 'untagged-spot']);
   });
 
   it('stopped: true keeps only stopped spots', () => {
@@ -207,6 +218,11 @@ describe('selectActiveFilterCount', () => {
     expect(selectActiveFilterCount({ ...DEFAULT_FILTERS, stopped: false })).toBe(1);
   });
 
+  it('counts a speed range that starts at 0 (None is a real value) as 1', () => {
+    expect(selectActiveFilterCount({ ...DEFAULT_FILTERS, natural_speed_min: 0, natural_speed_max: 2 })).toBe(1);
+    expect(selectActiveFilterCount({ ...DEFAULT_FILTERS, natural_speed_max: 0 })).toBe(1);
+  });
+
   it('counts types, stopped and the speed range: 3', () => {
     expect(
       selectActiveFilterCount({
@@ -216,6 +232,37 @@ describe('selectActiveFilterCount', () => {
         natural_speed_max: 3,
       }),
     ).toBe(3);
+  });
+});
+
+describe('useSpotsStore.setFilters: what the Filter sheet writes on Apply', () => {
+  beforeEach(() => useSpotsStore.getState().resetFilters());
+
+  it('writes all three filters, counted as 3', () => {
+    useSpotsStore.getState().setFilters({
+      types: [FeatureType.Rail],
+      stopped: false,
+      natural_speed_min: 1,
+      natural_speed_max: 3,
+    });
+    const { filters } = useSpotsStore.getState();
+    expect(filters).toEqual({ types: [FeatureType.Rail], stopped: false, natural_speed_min: 1, natural_speed_max: 3 });
+    expect(selectActiveFilterCount(filters)).toBe(3);
+  });
+
+  it('an explicit undefined clears stopped and the speed range (Any), unlike a SpotUpdate', () => {
+    useSpotsStore.getState().setFilters({ stopped: true, natural_speed_min: 1, natural_speed_max: 3 });
+    useSpotsStore.getState().setFilters({ stopped: undefined, natural_speed_min: undefined, natural_speed_max: undefined });
+    const { filters } = useSpotsStore.getState();
+    expect(filters).toEqual(DEFAULT_FILTERS);
+    expect(selectActiveFilterCount(filters)).toBe(0);
+  });
+
+  it('resetFilters leaves DEFAULT_FILTERS untouched (a copy, not the shared object)', () => {
+    useSpotsStore.getState().setFilters({ types: [FeatureType.Ledge] });
+    useSpotsStore.getState().resetFilters();
+    expect(useSpotsStore.getState().filters).not.toBe(DEFAULT_FILTERS);
+    expect(DEFAULT_FILTERS).toEqual({ types: [] });
   });
 });
 

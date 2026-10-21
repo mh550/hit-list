@@ -41,8 +41,13 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
 - `app/` expo-router screens: `(tabs)/index.tsx` Spots (List | Map), `(tabs)/profile.tsx`,
   `add/` Quick Add (camera → review), `import/` batch import, `spot/[id]/` detail (photo grid or an 'Add photos' tile → edit,
   title, read-only `Tag` line with a red 'Skate stopped', `SpeedScale readonly`, notes, a collapsed 'Older details'
-  disclosure) + edit (one screen: photo grid with staged removes and adds, name, tags, notes; nothing is written until Save).
-- `src/components/` shared UI, exported from `index.ts`. The M2 edit pieces: `SpeedScale` (five-word natural-speed
+  disclosure) + edit (one screen: photo grid with staged removes and adds, name, tags, notes; nothing is written until Save)
+  + `photos.tsx`, the full-screen photo viewer (`fullScreenModal`, `?index=N` from a detail tile; black `FlatList` pager
+  of `ZoomablePhoto` pages, 'N / M' counter, ✕ Close, long-press Alert: Set as primary / Remove photo).
+  `_layout.tsx` wraps the tree in `GestureHandlerRootView`.
+- `src/components/` shared UI, exported from `index.ts`. `ZoomablePhoto` (M4): one viewer page, pinch 1–4×, zoomed pan,
+  double tap 1× ↔ 2.5×, swipe down at 1× to close, long press; gesture-handler `Gesture.*` + reanimated shared values
+  (`.get()/.set()`, the React Compiler lint rejects `.value =`), every number from `gallery-gestures`. The M2 edit pieces: `SpeedScale` (five-word natural-speed
   radiogroup, re-tap clears; `readonly` bar form), `PhotoGrid` (hero 4:3 + rows of three square tiles, per-tile badges,
   trailing '+' tile (`AddPhotosTile`, shared by detail and edit), taps by index), `SpotTagFields` (controlled What's here chips + 'Skate stopped' switch + SpeedScale).
 - `src/db/` SQLite access. `schema.ts` holds `MIGRATIONS` (versioned by `PRAGMA user_version`):
@@ -57,7 +62,8 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
 - `src/hooks/` `useDbInit` (migrate, then load spots/media/settings even if the migration threw, background town backfill),
   `useSpotActions`, `useMediaActions` (photo save and remove, also used for adding photos from edit: `savePhotos` resolves the `Media[]` it actually saved; removal deletes the row only, D3), `useCurrentLocation`.
 - `src/utils/` pure logic: geo (`NO_LOCATION`, `isKnownLocation`, haversine), exif,
-  photo-storage, reverse-geocode, spot-name (D4 label), map-region, import-clustering, legacy-details (`formatLegacyDetails(legacy, units)` →
+  photo-storage, reverse-geocode, spot-name (D4 label), map-region, import-clustering, gallery-gestures (the viewer's
+  pure maths: `clampScale`, `toggleZoom`, `clampPan`, `pagingEnabled`, `shouldClose`, `focalZoom`, `dragDown`), legacy-details (`formatLegacyDetails(legacy, units)` →
   labelled 'Older details' rows: fixed key order, lengths in the user's units, unknown keys humanised, never throws).
 
 ## Conventions that are easy to get wrong
@@ -106,6 +112,10 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   `jest.setup.ts` (expo-router with overridable `useRouter`/`useLocalSearchParams`, expo-sqlite's `useSQLiteContext`
   defaulting to an empty object so screens that need a db can render; real queries need the node:sqlite harness, expo-location,
   expo-image, FlashList, icons).
+- Gestures: `jest.setup.ts` loads `react-native-gesture-handler/jestSetup`, mocks `react-native-worklets` with its own
+  `src/mock` (reanimated 4's mock needs it) and wraps reanimated's mock `useSharedValue` in `useState` so a shared value
+  survives re-renders like the real hook. Drive gestures with `fireGestureHandler`/`getByGestureTestId` from
+  `react-native-gesture-handler/jest-utils` (pages expose `viewer-<i>-pinch|pan|double-tap|long-press`).
 - `supercluster` and `kdbush` (ES modules used by react-native-map-clustering) are in Jest's
   `transformIgnorePatterns` so they get transformed.
 - Only `*.test.ts(x)` files are tests.

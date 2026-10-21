@@ -1,4 +1,4 @@
-import { useCallback, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import {
@@ -31,7 +31,8 @@ const OPTIONS_ACTIONS = [{ name: 'longpress', label: 'Photo options' }];
 /** D29: the order snapshotted on open, without removed photos, then photos added since. */
 function inViewerOrder(order: string[], current: Media[]): Media[] {
   const byId = new Map(current.map((m) => [m.id, m]));
-  return [...order.flatMap((mid) => byId.get(mid) ?? []), ...current.filter((m) => !order.includes(m.id))];
+  const known = new Set(order);
+  return [...order.flatMap((mid) => byId.get(mid) ?? []), ...current.filter((m) => !known.has(m.id))];
 }
 
 /**
@@ -51,12 +52,12 @@ export default function PhotoViewerScreen() {
   const { width, height } = useWindowDimensions();
   const spot = useSpotsStore((s) => s.spots.find((sp) => sp.id === id));
   const media = useMediaStore((s) => (id ? s.mediaBySpot[id] : undefined));
-  const current = spot ? spotPhotos(spot, media) : [];
+  const current = useMemo(() => (spot ? spotPhotos(spot, media) : []), [spot, media]);
 
   // D29: the order is fixed while the viewer is open (a new primary does not jump to page 1). Removed photos
   // drop out; photos added meanwhile go at the end.
   const [order] = useState(() => current.map((m) => m.id));
-  const photos = inViewerOrder(order, current);
+  const photos = useMemo(() => inViewerOrder(order, current), [order, current]);
   const count = photos.length;
 
   // The shown photo is pinned by id, so it stays shown when the list changes around it. When it is the one removed,
@@ -88,7 +89,7 @@ export default function PhotoViewerScreen() {
       setPos({ id: photos[i]?.id, index: i });
       setZoom(MIN_SCALE);
     },
-    [width, photos, setPos],
+    [width, photos],
   );
 
   // The options act on the stores as they are when a button is pressed, not as they were when the page rendered.
@@ -127,7 +128,7 @@ export default function PhotoViewerScreen() {
       // then falls back to the first photo (primaryPhoto).
       if (wasPrimary) updateSpot(now.id, { primary_photo_id: next?.id ?? null }).catch(() => {});
     },
-    [id, order, removePhotos, updateSpot, router, setPos],
+    [id, order, removePhotos, updateSpot, router],
   );
   const showOptions = useCallback(
     (photoId: string) =>
@@ -205,7 +206,7 @@ export default function PhotoViewerScreen() {
       )}
       <View style={[styles.chrome, { top: insets.top }]} pointerEvents="box-none">
         {count > 0 ? (
-          <Text style={styles.counter} accessibilityRole="text" accessibilityLiveRegion="polite">
+          <Text style={styles.counter} accessibilityLiveRegion="polite">
             {`${shown + 1} / ${count}`}
           </Text>
         ) : null}

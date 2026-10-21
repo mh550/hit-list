@@ -4,6 +4,8 @@
 
 export type Point = { x: number; y: number };
 export type Size = { width: number; height: number };
+/** Where a pinch began: the scale, the translation and the fingers' focal point. */
+export type PinchStart = { scale: number; t: Point; focal: Point };
 
 export const MIN_SCALE = 1;
 export const MAX_SCALE = 4;
@@ -74,4 +76,21 @@ export function focalZoom(
   const dy = focal.y - viewport.height / 2;
   const ratio = nextScale / scale;
   return point(dx - ratio * (dx - translation.x), dy - ratio * (dy - translation.y));
+}
+
+/**
+ * A pinch's translation at `nextScale`: zoom about where the fingers started, then follow them, so the image point
+ * that was under the fingers stays under them while they drag.
+ */
+export function pinchPan(start: PinchStart, focal: Point, nextScale: number, viewport: Size): Point {
+  'worklet';
+  const t = focalZoom(start.focal, start.scale, nextScale, viewport, start.t);
+  return point(t.x + focal.x - start.focal.x, t.y + focal.y - start.focal.y);
+}
+
+/** A double tap at `tap` (view coordinates): toggleZoom about the tapped point, clamped so no gap shows. */
+export function doubleTapZoom(scale: number, t: Point, tap: Point, viewport: Size): { scale: number; t: Point } {
+  'worklet';
+  const next = toggleZoom(scale);
+  return { scale: next, t: clampPan(focalZoom(tap, scale, next, viewport, t), next, viewport) };
 }

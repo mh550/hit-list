@@ -6,9 +6,11 @@ import {
   ZOOMED_EPSILON,
   clampPan,
   clampScale,
+  doubleTapZoom,
   dragDown,
   focalZoom,
   pagingEnabled,
+  pinchPan,
   shouldClose,
   toggleZoom,
 } from '@/src/utils/gallery-gestures';
@@ -118,3 +120,30 @@ describe('dragDown', () => {
   });
 });
 
+
+describe('pinchPan', () => {
+  it('is focalZoom about the start point while the fingers stay put', () => {
+    const start = { scale: 1.5, t: { x: 20, y: -10 }, focal: { x: 100, y: 600 } };
+    expect(pinchPan(start, start.focal, 3, phone)).toEqual(focalZoom(start.focal, 1.5, 3, phone, start.t));
+  });
+
+  it('follows fingers that drag while pinching', () => {
+    const start = { scale: 1, t: { x: 0, y: 0 }, focal: centre };
+    expect(pinchPan(start, { x: centre.x + 50, y: centre.y + 30 }, 2, phone)).toEqual({ x: 50, y: 30 });
+    // At an unchanged scale it is a plain two-finger pan.
+    expect(pinchPan({ ...start, scale: 2 }, { x: centre.x - 40, y: centre.y }, 2, phone)).toEqual({ x: -40, y: 0 });
+  });
+});
+
+describe('doubleTapZoom', () => {
+  it('zooms to 2.5x about the tapped point, clamped, and back to 1x with no translation', () => {
+    const tap = { x: 0, y: 0 };
+    const { width: w, height: h } = phone;
+    expect(doubleTapZoom(1, { x: 0, y: 0 }, tap, phone)).toEqual({
+      scale: 2.5,
+      t: clampPan(focalZoom(tap, 1, 2.5, phone), 2.5, phone),
+    });
+    expect(doubleTapZoom(1, { x: 0, y: 0 }, tap, phone).t).toEqual({ x: (w * 1.5) / 2, y: (h * 1.5) / 2 });
+    expect(doubleTapZoom(2.5, { x: 120, y: -80 }, centre, phone)).toEqual({ scale: 1, t: { x: 0, y: 0 } });
+  });
+});

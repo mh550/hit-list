@@ -10,13 +10,16 @@ import {
   MIN_SCALE,
   clampPan,
   clampScale,
+  doubleTapZoom,
   dragDown,
-  focalZoom,
   pagingEnabled,
+  pinchPan,
   shouldClose,
-  toggleZoom,
+  type PinchStart,
   type Point,
 } from '@/src/utils/gallery-gestures';
+
+const noop = () => {};
 
 type ZoomablePhotoProps = {
   uri: string;
@@ -41,14 +44,12 @@ type ZoomablePhotoProps = {
  * captured size. At 1× the pan is vertical only (it fails on sideways movement), so the pager keeps sideways swipes.
  */
 export function ZoomablePhoto(props: ZoomablePhotoProps) {
-  const { uri, recyclingKey, width, height, onScaleChange, onRequestClose, onPinchChange, onLongPress } = props;
-  const testIdPrefix = props.testIdPrefix ?? 'photo';
+  const { uri, recyclingKey, width, height, testIdPrefix = 'photo' } = props;
+  const { onScaleChange = noop, onRequestClose = noop, onPinchChange = noop, onLongPress = noop } = props;
   const scale = useSharedValue(MIN_SCALE);
   const tx = useSharedValue(0);
   const ty = useSharedValue(0);
-  const startScale = useSharedValue(MIN_SCALE);
-  const startT = useSharedValue<Point>({ x: 0, y: 0 });
-  const startFocal = useSharedValue<Point>({ x: 0, y: 0 });
+  const start = useSharedValue<PinchStart>({ scale: MIN_SCALE, t: { x: 0, y: 0 }, focal: { x: 0, y: 0 } });
   const dragY = useSharedValue(0);
   const pinching = useSharedValue(false);
   const panZoomed = useSharedValue(false); // the pan began zoomed: it moves the photo and never closes
@@ -59,13 +60,10 @@ export function ZoomablePhoto(props: ZoomablePhotoProps) {
   const report = useCallback(
     (next: number) => {
       setZoomed(!pagingEnabled(next));
-      onScaleChange?.(next);
+      onScaleChange(next);
     },
     [onScaleChange],
   );
-  const close = useCallback(() => onRequestClose?.(), [onRequestClose]);
-  const longPressed = useCallback(() => onLongPress?.(), [onLongPress]);
-  const pinchChanged = useCallback((active: boolean) => onPinchChange?.(active), [onPinchChange]);
 
   const gesture = useMemo(() => {
     const viewport = { width, height };
@@ -81,24 +79,19 @@ export function ZoomablePhoto(props: ZoomablePhotoProps) {
       .withTestId(`${testIdPrefix}-pinch`)
       .onStart((e) => {
         pinching.set(true);
-        startScale.set(scale.get());
-        startT.set({ x: tx.get(), y: ty.get() });
-        startFocal.set({ x: e.focalX, y: e.focalY });
-        scheduleOnRN(pinchChanged, true);
+        start.set({ scale: scale.get(), t: { x: tx.get(), y: ty.get() }, focal: { x: e.focalX, y: e.focalY } });
+        scheduleOnRN(onPinchChange, true);
       })
       .onUpdate((e) => {
-        // Zoom about where the fingers started, then follow them: the image point under them stays under them.
-        const next = clampScale(startScale.get() * e.scale);
-        const f0 = startFocal.get();
-        const t = focalZoom(f0, startScale.get(), next, viewport, startT.get());
-        const clamped = clampPan({ x: t.x + e.focalX - f0.x, y: t.y + e.focalY - f0.y }, next, viewport);
+        const next = clampScale(start.get().scale * e.scale);
+        const t = clampPan(pinchPan(start.get(), { x: e.focalX, y: e.focalY }, next, viewport), next, viewport);
         scale.set(next);
-        tx.set(clamped.x);
-        ty.set(clamped.y);
+        tx.set(t.x);
+        ty.set(t.y);
       })
       .onEnd(() => {
         pinching.set(false);
-        scheduleOnRN(pinchChanged, false);
+        scheduleOnRN(onPinchChange, false);
         const next = pagingEnabled(scale.get()) ? MIN_SCALE : scale.get();
         settle(next, clampPan({ x: tx.get(), y: ty.get() }, next, viewport));
       });
@@ -108,18 +101,16 @@ export function ZoomablePhoto(props: ZoomablePhotoProps) {
       .maxPointers(1)
       .onStart(() => panZoomed.set(!pagingEnabled(scale.get())))
       .onChange((e) => {
-        if (!panZoomed.get()) {
-          dragY.set(dragDown(e.translationY));
-          return;
-        }
+        if (!panZoomed.get()) dragY.set(dragDown(e.translationY));
         // Per-frame deltas, so a pinch that starts or ends mid-pan (and owns tx/ty meanwhile) causes no jump.
-        if (pinching.get()) return;
-        const t = clampPan({ x: tx.get() + e.changeX, y: ty.get() + e.changeY }, scale.get(), viewport);
-        tx.set(t.x);
-        ty.set(t.y);
+        else if (!pinching.get()) {
+          const t = clampPan({ x: tx.get() + e.changeX, y: ty.get() + e.changeY }, scale.get(), viewport);
+          tx.set(t.x);
+          ty.set(t.y);
+        }
       })
       .onEnd((e, success) => {
-        if (success && !panZoomed.get() && shouldClose(e.translationY, scale.get())) scheduleOnRN(close);
+        if (success && !panZoomed.get() && shouldClose(e.translationY, scale.get())) scheduleOnRN(onRequestClose);
         else dragY.set(withTiming(0));
       });
     if (!zoomed) pan.activeOffsetY([-10, 10]).failOffsetX([-10, 10]);
@@ -129,19 +120,18 @@ export function ZoomablePhoto(props: ZoomablePhotoProps) {
       .numberOfTaps(2)
       .onEnd((e, success) => {
         if (!success) return;
-        const next = toggleZoom(scale.get());
-        const from = { x: tx.get(), y: ty.get() };
-        settle(next, clampPan(focalZoom({ x: e.x, y: e.y }, scale.get(), next, viewport, from), next, viewport));
+        const z = doubleTapZoom(scale.get(), { x: tx.get(), y: ty.get() }, { x: e.x, y: e.y }, viewport);
+        settle(z.scale, z.t);
       });
 
     const longPress = Gesture.LongPress()
       .withTestId(`${testIdPrefix}-long-press`)
       .minDuration(LONG_PRESS_MS)
-      .onStart(() => !pinching.get() && scheduleOnRN(longPressed));
+      .onStart(() => !pinching.get() && scheduleOnRN(onLongPress));
 
     return Gesture.Simultaneous(pinch, pan, Gesture.Exclusive(doubleTap, longPress));
-  }, [width, height, zoomed, testIdPrefix, report, close, longPressed, pinchChanged, scale, tx, ty, startScale, startT,
-    startFocal, dragY, pinching, panZoomed]);
+  }, [width, height, zoomed, testIdPrefix, report, onRequestClose, onPinchChange, onLongPress, scale, tx, ty, start,
+    dragY, pinching, panZoomed]);
 
   const transform = useAnimatedStyle(() => ({
     transform: [{ translateX: tx.get() }, { translateY: ty.get() + dragY.get() }, { scale: scale.get() }],

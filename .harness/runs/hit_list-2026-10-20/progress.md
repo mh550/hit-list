@@ -12,6 +12,33 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 verify M6
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| M6-01 | 1 | Read docs/plans/2026-10-20-m6-review-screens.md | Has Quick Add layout (photos, name, Add details→SpotTagFields, nearby card, Save), card contents, 'Add photos there' flow (savePhotos to spot_id, no addSpot, dismissAll then push), import per-group offer (default New spot, chips), test list | yes |
+| M6-01 | 2 | Read nearby-spots.ts and nearby-spots.test.ts; `npx jest src/__tests__/nearby-spots` | Signature matches; tests assert 10/40/60 m radius 50 → ['10 m','40 m'], NO_LOCATION spot [], deleted [], NO_LOCATION query [], exact radius included; pass | yes |
+| M6-01 | 3 | `/home/mh550/projects/agent-harness/lib/check.sh` | green (634 tests, cached) | yes |
+| M6-02 | 1 | Read quick-add-tags.test.tsx; ran it | Passes: first render no checkbox/switch/radio, 'Add details' button; press → 8 checkboxes, switch 'Skate stopped', 5 radios, link gone; saves ['rail'], true, 2; untouched saves [], false, undefined | yes |
+| M6-02 | 2 | Read test 'keeps autoFocus…' and app/add/review.tsx l.185,198,261 | autoFocus true, Save text 'Save', Add details accessibilityRole=button | yes |
+| M6-02 | 3 | check.sh | green, 0 failures | yes |
+| M6-03 | 1 | Read quick-add-nearby.test.tsx; ran it | 5/20/45/80 m, radius 50 → 3 cards nearest first 'Near Five Rail · 16 ft'…; metric '5 m'; thumbnails/placeholder; none when empty or NO_LOCATION | yes |
+| M6-03 | 2 | Read test "'Add photos there' saves every photo…" | savePhotos once, spot_id/location/created_at asserted, addSpot 0, updateSpot primary for photo-less spot, call order savePhotos,updateSpot,dismissAll,push /spot/id | yes |
+| M6-03 | 3 | Read test 'Save still creates a new spot when cards are shown' | addSpot once, photos saved to new id | yes |
+| M6-03 | 4 | Read profile.tsx:62 and profile.test.tsx:66; ran profile test | Hint text matches exactly; passes | yes |
+| M6-03 | 5 | check.sh | green | yes |
+| M6-04 | 1 | Read import-nearby.test.tsx; ran it | Offer on A only with New spot selected default; other groups never counted; Near line 'Near Library Rail · 49 ft' | yes |
+| M6-04 | 2 | Read test 'Import sends group A's photos…' | addSpot once, savePhotos twice, group A photos with existing spot_id and captured_at; name inputs drop 2→1 when chosen | yes |
+| M6-04 | 3 | Read test 'choosing the existing spot hides the name field and counts only new spots' | '1 spot from your photos' / 'Import 1 Spot' after choice, back to 2 | yes |
+| M6-04 | 4 | check.sh | green | yes |
+| M6-05 | 1 | Read docs/plans/2026-10-20-m6-what-michael-will-see.md; git ls-files for scratch tests | Lists all five renders in order (fast path, details open, 3 nearby cards, import before/after); no temp test tracked | yes |
+| M6-05 | 2 | Read verification section; ran `npx expo export --platform ios --output-dir <scratch>/export` | Doc records jest 626 and export exit 0; my export exit 0 (suite is now 634 after M6-06 fixes) | yes |
+| M6-05 | 3 | check.sh | green | yes |
+| M6-06 | 1 | Read reviews/m6.diff presence and 'Review (M6-06)' table | m6.diff exists (1429 lines); 10 findings with severity, file:line, fix commits; RED b7af80d/6787c6f precede GREEN 075e635/86be528 and tests named | yes |
+| M6-06 | 2 | Read written answers and tests (double tap, ref-guard test, units change test, failed group tests) | All three answered, with tests 'runs once under a double tap', 'follows a units change', failed-group tests; pass | yes |
+| M6-06 | 3 | git log --grep refactor; grep CLAUDE.md/README/APP_SPECIFICATIONS | refactor: 8fb2d16; CLAUDE.md l.42-43,72 mention nearby-spots and Add details; README l.23; APP_SPECIFICATIONS l.326,363 notes | yes |
+| M6-06 | 4 | check.sh | green | yes |
+
 ### 2026-10-21 23:45 · M6-06 · passes
 
 - Opus review of `reviews/m6.diff` (1429 lines): 0 Critical, 2 Important (both fixed), 8 Minor (6 fixed, 2 left). Table, answers and simplification pass under 'Review (M6-06)' in `docs/plans/2026-10-20-m6-review-screens.md`.

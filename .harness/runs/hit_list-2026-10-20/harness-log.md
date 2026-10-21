@@ -55,3 +55,4 @@
 - 2026-10-21 13:55 · M6-04 · claude-opus-5-5 · passes=true · 6 min · 32/39 passing
 - 2026-10-21 13:57 · M6-05 · claude-sonnet-5-5 · passes=true · 1 min · 33/39 passing
 - 2026-10-21 14:14 · M6-06 · claude-opus-5-5 · passes=true · 16 min · 34/39 passing
+- 2026-10-21 14:14 · merged main into harness/hit_list-2026-10-20

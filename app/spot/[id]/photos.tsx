@@ -11,13 +11,14 @@ import {
   type NativeScrollEvent,
   type NativeSyntheticEvent,
 } from 'react-native';
-import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useMediaStore, useSpotsStore } from '@/src/stores';
+import { ZoomablePhoto } from '@/src/components';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { resolvePhotoUri } from '@/src/utils/photo-storage';
 import { spotPhotos } from '@/src/utils/spot-photos';
+import { MIN_SCALE, pagingEnabled } from '@/src/utils/gallery-gestures';
 import { spacing } from '@/src/constants/theme';
 import type { Media } from '@/src/types';
 
@@ -25,8 +26,9 @@ const clampIndex = (i: number, count: number) => Math.max(0, Math.min(i, count -
 
 /**
  * Full-screen photo pager (fullScreenModal, no header): one window-wide page per photo, opened at `?index=N`
- * (clamped; missing or not a number → 0), a 'N / M' counter and a ✕ that goes back. Only the Stack's own back
- * handling closes it otherwise; nothing is intercepted.
+ * (clamped; missing or not a number → 0), a 'N / M' counter and a ✕ that goes back. Each page is a ZoomablePhoto;
+ * paging is locked while the shown photo is zoomed past 1.05×, and a swipe down at 1× goes back too. The Stack's own
+ * back handling (Android back, edge swipe) also closes it; nothing is intercepted.
  */
 export default function PhotoViewerScreen() {
   const { id, index } = useLocalSearchParams<{ id: string; index?: string }>();
@@ -49,10 +51,15 @@ export default function PhotoViewerScreen() {
 
   const [page, setPage] = useState(() => clampIndex(Number.parseInt(index ?? '', 10) || 0, current.length));
   const shown = clampIndex(page, count);
+  // The settled scale of the shown page (only that page gets gestures); paging follows it.
+  const [zoom, setZoom] = useState(MIN_SCALE);
 
   const close = useCallback(() => router.back(), [router]);
   const onMomentumScrollEnd = useCallback(
-    (e: NativeSyntheticEvent<NativeScrollEvent>) => setPage(Math.round(e.nativeEvent.contentOffset.x / width)),
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      setPage(Math.round(e.nativeEvent.contentOffset.x / width));
+      setZoom(MIN_SCALE);
+    },
     [width],
   );
   const getItemLayout = useCallback(
@@ -66,15 +73,18 @@ export default function PhotoViewerScreen() {
         accessible
         accessibilityRole="image"
         accessibilityLabel={`Photo ${i + 1} of ${count}`}>
-        <Image
-          source={{ uri: resolvePhotoUri(item.file_path) }}
+        <ZoomablePhoto
+          uri={resolvePhotoUri(item.file_path)}
           recyclingKey={item.id}
-          contentFit="contain"
-          style={StyleSheet.absoluteFill}
+          width={width}
+          height={height}
+          onScaleChange={setZoom}
+          onRequestClose={close}
+          testIdPrefix={`viewer-${i}`}
         />
       </View>
     ),
-    [width, height, count],
+    [width, height, count, close],
   );
 
   return (
@@ -87,6 +97,7 @@ export default function PhotoViewerScreen() {
           renderItem={renderItem}
           horizontal
           pagingEnabled
+          scrollEnabled={pagingEnabled(zoom)}
           showsHorizontalScrollIndicator={false}
           initialScrollIndex={count > 0 ? shown : undefined}
           getItemLayout={getItemLayout}

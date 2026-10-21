@@ -36,9 +36,13 @@ import 'react-native-gesture-handler/jestSetup';
 // does not have; its own mock stands in. Reanimated's mock below imports it.
 jest.mock('react-native-worklets', () => jest.requireActual('react-native-worklets/src/mock'));
 
-// Mock react-native-reanimated
+// Mock react-native-reanimated. Its mock's useSharedValue makes a new value on every render; the real one
+// keeps the same value for the component's lifetime, so gestures that span re-renders see what they wrote.
 jest.mock('react-native-reanimated', () => {
   const Reanimated = jest.requireActual('react-native-reanimated/mock');
+  const { useState } = jest.requireActual('react');
+  const makeSharedValue = Reanimated.useSharedValue;
+  Reanimated.useSharedValue = (init: unknown) => useState(() => makeSharedValue(init))[0];
   Reanimated.default.call = () => {};
   return Reanimated;
 });

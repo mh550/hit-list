@@ -6,6 +6,7 @@ import {
   ZOOMED_EPSILON,
   clampPan,
   clampScale,
+  dragDown,
   focalZoom,
   pagingEnabled,
   shouldClose,
@@ -108,3 +109,12 @@ describe('focalZoom', () => {
     expect(focalZoom(centre, 2.5, 1, phone)).toEqual({ x: 0, y: 0 });
   });
 });
+
+describe('dragDown', () => {
+  it('follows a downward drag and ignores an upward one', () => {
+    expect(dragDown(150)).toBe(150);
+    expect(dragDown(0)).toBe(0);
+    expect(Object.is(dragDown(-40), 0)).toBe(true);
+  });
+});
+

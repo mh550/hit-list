@@ -6,6 +6,9 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMediaStore, useSpotsStore } from '@/src/stores';
 import { resolvePhotoUri } from '@/src/utils/photo-storage';
 import type { Media } from '@/src/types';
+import { State } from 'react-native-gesture-handler';
+import { fireGestureHandler, getByGestureTestId } from 'react-native-gesture-handler/jest-utils';
+import { ZoomablePhoto } from '@/src/components';
 import { createTestMedia, createTestSpot } from './factories';
 
 import PhotoViewerScreen from '@/app/spot/[id]/photos';
@@ -150,5 +153,173 @@ describe('Photo viewer', () => {
     // Still closable.
     fireEvent.press(screen.getByRole('button', { name: 'Close' }));
     expect(back).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Photo viewer: zoom, pan and swipe-down close', () => {
+  const { height } = Dimensions.get('window');
+  // Gesture callbacks hand results to React through scheduleOnRN, which the worklets mock queues as a microtask.
+  // The first ACTIVE event only starts a gesture (onStart); onUpdate runs from the second one on.
+  const flush = () => act(async () => {});
+  const pinchTo = (page: number, scale: number) =>
+    fireGestureHandler(getByGestureTestId(`viewer-${page}-pinch`), [
+      { state: State.BEGAN, scale: 1, focalX: width / 2, focalY: height / 2 },
+      { state: State.ACTIVE, scale: 1, focalX: width / 2, focalY: height / 2 },
+      { state: State.ACTIVE, scale, focalX: width / 2, focalY: height / 2 },
+      { state: State.END, scale, focalX: width / 2, focalY: height / 2 },
+    ]);
+  const swipeDown = (page: number, dy: number) =>
+    fireGestureHandler(getByGestureTestId(`viewer-${page}-pan`), [
+      { state: State.BEGAN, translationX: 0, translationY: 0 },
+      { state: State.ACTIVE, translationX: 0, translationY: 0 },
+      { state: State.ACTIVE, translationX: 0, translationY: dy },
+      { state: State.END, translationX: 0, translationY: dy },
+    ]);
+
+  it('gives every page a ZoomablePhoto of the window size showing that photo', () => {
+    const { media } = renderViewer(7, '2');
+
+    const zoomable = screen.getByLabelText('Photo 3 of 7').findByType(ZoomablePhoto);
+    expect(zoomable.props.width).toBe(width);
+    expect(zoomable.props.height).toBe(height);
+    expect(zoomable.props.uri).toBe(resolvePhotoUri(media[1].file_path));
+    expect(zoomable.props.recyclingKey).toBe(media[1].id);
+  });
+
+  it('pages at 1× and locks paging once the page reports a zoom past 1.05×', () => {
+    renderViewer(7, '2');
+    expect(list().props.scrollEnabled).toBe(true);
+
+    const zoomable = screen.getByLabelText('Photo 3 of 7').findByType(ZoomablePhoto);
+    act(() => zoomable.props.onScaleChange(2));
+    expect(list().props.scrollEnabled).toBe(false);
+
+    act(() => zoomable.props.onScaleChange(1));
+    expect(list().props.scrollEnabled).toBe(true);
+  });
+
+  it('locks paging after a pinch to 2× and unlocks after a pinch back to 1×', async () => {
+    renderViewer(7, '2');
+
+    pinchTo(2, 2);
+    await flush();
+    expect(list().props.scrollEnabled).toBe(false);
+
+    pinchTo(2, 0.5);
+    await flush();
+    expect(list().props.scrollEnabled).toBe(true);
+  });
+
+  it('snaps a pinch that ends at or below 1.05× back to 1×', async () => {
+    renderViewer(7, '2');
+
+    pinchTo(2, 1.04);
+    await flush();
+    expect(list().props.scrollEnabled).toBe(true);
+    // Unzoomed, so a swipe down still closes.
+    swipeDown(2, 150);
+    await flush();
+    expect(back).toHaveBeenCalledTimes(1);
+  });
+
+  it('toggles between 1× and 2.5× on a double tap', async () => {
+    renderViewer(7, '2');
+    const doubleTap = () =>
+      fireGestureHandler(getByGestureTestId('viewer-2-double-tap'), [
+        { state: State.BEGAN, x: width / 2, y: height / 2 },
+        { state: State.ACTIVE, x: width / 2, y: height / 2 },
+        { state: State.END, x: width / 2, y: height / 2 },
+      ]);
+
+    doubleTap();
+    await flush();
+    expect(list().props.scrollEnabled).toBe(false);
+
+    doubleTap();
+    await flush();
+    expect(list().props.scrollEnabled).toBe(true);
+  });
+
+  it('closes on a swipe down of 150 at 1×', async () => {
+    renderViewer(7, '2');
+
+    swipeDown(2, 150);
+    await flush();
+
+    expect(back).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not close on a swipe down of 119 at 1×', async () => {
+    renderViewer(7, '2');
+
+    swipeDown(2, 119);
+    await flush();
+
+    expect(back).not.toHaveBeenCalled();
+  });
+
+  it('pans instead of closing on a swipe down of 150 at 2×', async () => {
+    renderViewer(7, '2');
+    pinchTo(2, 2);
+    await flush();
+
+    swipeDown(2, 150);
+    await flush();
+
+    expect(back).not.toHaveBeenCalled();
+  });
+});
+
+describe('ZoomablePhoto', () => {
+  const size = { width: 390, height: 844 };
+  const centre = { focalX: 195, focalY: 422 };
+  const flush = () => act(async () => {});
+  function renderPhoto() {
+    const onScaleChange = jest.fn();
+    const onRequestClose = jest.fn();
+    render(
+      <ZoomablePhoto
+        uri="file:///p.jpg"
+        recyclingKey="m1"
+        {...size}
+        onScaleChange={onScaleChange}
+        onRequestClose={onRequestClose}
+        testIdPrefix="zp"
+      />,
+    );
+    return { onScaleChange, onRequestClose };
+  }
+  const pinch = (scale: number) =>
+    fireGestureHandler(getByGestureTestId('zp-pinch'), [
+      { state: State.BEGAN, scale: 1, ...centre },
+      { state: State.ACTIVE, scale: 1, ...centre },
+      { state: State.ACTIVE, scale, ...centre },
+      { state: State.END, scale, ...centre },
+    ]);
+
+  it('reports the settled scale: clamped to 4, and 1 after a pinch that ends at 1.04', async () => {
+    const { onScaleChange } = renderPhoto();
+
+    pinch(6);
+    await flush();
+    expect(onScaleChange).toHaveBeenLastCalledWith(4);
+
+    pinch(1.04 / 4);
+    await flush();
+    expect(onScaleChange).toHaveBeenLastCalledWith(1);
+  });
+
+  it('does not close when a long swipe down is cancelled instead of ending', async () => {
+    const { onRequestClose } = renderPhoto();
+
+    fireGestureHandler(getByGestureTestId('zp-pan'), [
+      { state: State.BEGAN, translationX: 0, translationY: 0 },
+      { state: State.ACTIVE, translationX: 0, translationY: 0 },
+      { state: State.ACTIVE, translationX: 0, translationY: 200 },
+      { state: State.CANCELLED, translationX: 0, translationY: 200 },
+    ]);
+    await flush();
+
+    expect(onRequestClose).not.toHaveBeenCalled();
   });
 });

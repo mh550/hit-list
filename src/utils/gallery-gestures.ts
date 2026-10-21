@@ -51,6 +51,12 @@ export function shouldClose(dy: number, scale: number): boolean {
   return scale <= ZOOMED_EPSILON && dy > CLOSE_DISTANCE;
 }
 
+/** How far the photo follows a swipe-down at 1×: downward only, an upward drag stays at 0. */
+export function dragDown(dy: number): number {
+  'worklet';
+  return Math.max(0, dy) + 0;
+}
+
 /**
  * The translation at `nextScale` that keeps `focal` (view coordinates, e.g. a gesture's x/y) over the same
  * image point it covers at `scale` with `translation`.

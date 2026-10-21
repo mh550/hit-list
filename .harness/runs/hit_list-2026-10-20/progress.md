@@ -12,6 +12,19 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 14:30 · M4-04 · passes
+
+- New `src/components/ZoomablePhoto.tsx` (143 lines, no fallback library installed): pinch 1×–4× about the fingers, a pan that moves the photo while zoomed, double tap 1× ↔ 2.5×, and swipe down at 1× (the photo follows the finger). It uses `Gesture.Simultaneous(Pinch, Pan, Tap×2)` and reanimated `.get()/.set()` (the React Compiler lint rejects `.value =`). Every number comes from `gallery-gestures`, which gains `dragDown`.
+- `photos.tsx`: every page is a `ZoomablePhoto` (test ids `viewer-<i>-pinch|pan|double-tap`). `scrollEnabled={pagingEnabled(zoom)}`, a swipe down calls `router.back()`, and the back gesture is not intercepted.
+- `jest.setup.ts`: reanimated's mock `useSharedValue` gave a new value on every render, so a zoom was forgotten after a re-render. It is now wrapped in `useState`, which keeps the value like the real hook does.
+- Tests went from 493 to 504 (10 in `photo-viewer.test.tsx`, 1 in `gallery-gestures.test.ts`). Each failed first.
+- Verified: `check.sh` green (504). `npx jest --ci` prints 0 `console.error` lines. `expo export --platform ios` (to the scratch dir) exited 0, and the bundle is 4,235,237 B (+14 KB).
+- Opus review:
+  - Fixed the Important finding: pinch and pan shared start values, so a pinch starting mid-pan made the photo jump. The zoomed pan now applies per-frame deltas and pauses while a pinch runs.
+  - Fixed Minor: a cancelled pan no longer closes the viewer, and a pan that started zoomed never closes it.
+  - The rest (pinch vs pager at 1×, activation offsets) can't be checked in Jest and is listed in the plan's "Built in M4-04" for M4-06's phone checklist.
+- Next (M4-05): add a LongPress gesture to `ZoomablePhoto` (`Gesture.Exclusive(doubleTap, longPress)`). Still to do from M4-03: pin the page to the shown photo after a removal. M4-07: CLAUDE.md should mention the stable `useSharedValue` mock and the `.get()/.set()` rule. Questions for Michael: none new.
+
 ### 2026-10-21 13:45 · M4-03 · passes
 
 - New `app/spot/[id]/photos.tsx`: a black (`#000`) full-screen pager. It is an RN `FlatList` (horizontal, `pagingEnabled`, `getItemLayout` = window width, `initialScrollIndex` = `?index`, which is clamped and falls back to 0 when missing or NaN, `windowSize` 3). Other parts: a `'N / M'` counter, a 44×44 ✕ (`Close` → `router.back()`), `<StatusBar hidden />`, and pages that are `accessible` images labelled 'Photo N of M'. The order is fixed while open (D29); a removed photo drops out and an added one goes at the end. A missing spot shows 'Spot not found' and still has the ✕.

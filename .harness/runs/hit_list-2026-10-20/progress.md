@@ -12,6 +12,25 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 18:00 · verify M8
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| M8-01 | 1 | Re-ran the grep loop over all 30 patterns on app src jest.setup.ts; read the sweep doc's kept-hits table | 0 hits for 20 patterns. Remaining hits (status, Draft, gear, Material, Intensity, bustability, in_run, skate_stops, custom_type, 'Save as Draft') are all in schema.ts migrations, legacy-details labels, or absence-asserting tests; each is listed with a reason in the sweep doc, which holds the loop output | yes |
+| M8-01 | 2 | `grep -n -E 'Draft\|draft\|gear\|Intensity\|bustab\|Save as Draft\|My Gear' README.md CLAUDE.md docs/RUNNING-ON-PHONE.md` | no output | yes |
+| M8-01 | 3 | `grep export src/utils/units.ts`; grep callers outside tests; read components/index.ts vs ls src/components | displayLength→legacy-details.ts; radiusToDisplay/FromInput/UnitLabel→profile.tsx, import/index.tsx; all 12 index exports have files; sweep doc section lists them | yes |
+| M8-01 | 4 | `npx expo export --platform ios` to scratch dir; `npx expo-doctor` | export exit 0; doctor 21/21 checks passed, exit 0 | yes |
+| M8-01 | 5 | check.sh; `npx jest --ci` counted console.error | check green; 54 suites, 656 tests pass, 0 console.error; sweep doc records 54 suites/656 | yes |
+| M8-02 | 1 | Read APP_SPECIFICATIONS.md top and `grep SUPERSEDED` | '## Simplified model (2026-10-20)' directly after the title with Spot interface, filters, sorts, viewer, nearby offer, radius, pointer to design doc; SUPERSEDED on Feature Details, In-Run, Landing, Spot Metadata, Filters note, Gear+Build filter; text kept | yes |
+| M8-02 | 2 | Read README.md | Status dated 2026-10-20; lists Quick Add, tags, grid and viewer, three filters, sorts, nearby offer, radius in user units, Older details; intro has no gear/build/ratings | yes |
+| M8-02 | 3 | Read CLAUDE.md intro, Layout, Conventions | no gear/ratings; Layout names SpeedScale, PhotoGrid, SpotTagFields, ZoomablePhoto, legacy-details, nearby-spots, gallery-gestures, photos.tsx; Conventions give natural_speed 0-4 with undefined unrated, tap order, getSpotLegacy | yes |
+| M8-02 | 4 | Read RUNNING-ON-PHONE.md 'What to expect' against M2-M7 and edit.tsx | no Draft, one pin colour, viewer, three filters; Undo note matches edit.tsx:275-283. Stale 'git switch overnight/2026-10-14' is outside the step | yes |
+| M8-02 | 5 | check.sh and `npx jest --ci` | green, 656 tests | yes |
+| M8-03 | 1 | `ls reviews/`, `git diff 782ff8d..HEAD --stat`, read sweep doc 'Final review' | reviews/run.diff exists (499 KB); table has id/severity/file/fix; U1 RED c5f2547→GREEN 7fcd615, F2 RED 52ec88d→GREEN 96d8e1a, all four commits in git log | yes |
+| M8-03 | 2 | Read written answers; `npx jest --ci db-init db-migrate` | answers cover v2 full-fat/empty/v1/v3/media count, fresh install, load-after-throw; 41 tests pass | yes |
+| M8-03 | 3 | Read progress.md 'For Michael' | steps in order (npm ci, start:tailscale, Expo Go, first-launch effect, per-milestone lists), rollback with 'DB cannot be rolled back' said plainly, 12 §9 questions with defaults | yes |
+| M8-03 | 4 | `check.sh`; `npx jest --ci`; `npx expo export --platform ios` | lint+tsc+jest green, 0 console.error, export exit 0 | yes |
+
 ### 2026-10-21 17:30 · M8-03 · passes
 
 - Whole-run Opus review (two reviewers, data + UI) of `reviews/run.diff` (782ff8d..HEAD, 12,228 lines): 0 Critical, 1 Important, 7 Minor; table and written answers in `docs/plans/2026-10-20-m8-sweep.md` 'Final review'.

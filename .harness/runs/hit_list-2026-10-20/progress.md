@@ -12,6 +12,15 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 22:45 · M6-04 · passes
+
+- `app/import/review.tsx`: each group gets `offers = nearbySpots(first photo's location, store spots, radius)` (≤ 3; other groups of the import never count). With offers: 'Near <name> · <distance>' (units subscribed) + a one-of `Chip` row 'New spot' (default, selected) · 'Add photos to <name>'. Choosing a spot hides the name field (D30). Subtitle/button count only new spots; all to existing → 'Photos go to spots you already have.' / 'Add photos'. Group key is now the first photo's URI.
+- Import: `Promise.allSettled`; a targeted group runs `savePhotos` with `spot_id` = target (captured_at + per-photo location kept), no `addSpot`; primary set only if the spot has no photo, by the first such group (decided up front, no race).
+- Opus review (diff in scratch) found the hooks swallow errors, so failures would vanish silently. Fixed: each group returns its unsaved photos; those stay on screen aimed at the spot they were going to (a new spot's id), with an Alert "Some photos weren't imported"; a retry neither duplicates nor creates a second spot. New **D31 *default*** + §9 Q11; plan's failure bullet updated.
+- New `src/__tests__/import-nearby.test.tsx` (13 tests). RED 8/10 first, then 2/13 for the partial-save cases; mutations (no primary dedup, always primary, drop unsaved, unsaved not aimed, no chosen chip) each fail a test.
+- Tests 613 → 626; `check.sh` green (626); `jest --ci` 0 console.error.
+- Question for Michael: §9 Q11 (D31) — keep a partly failed import on screen for retry, or close anyway? (Q10 / D30 still open.)
+
 ### 2026-10-21 22:15 · M6-03 · passes
 
 - `app/add/review.tsx`: a card 'Already have this spot?' above Save, up to three rows from `nearbySpots(here, spots, batch_import_radius)`: 48-pt primary thumbnail (grey placeholder when none), 'Near <display name> · <distance>' (units subscribed), 'Add photos there' (label 'Add photos to <name>'). It runs one `savePhotos` to that `spot_id`, no `addSpot`, sets `primary_photo_id` only when the spot has no photo at all (`primaryPhoto` undefined), then `dismissAll` → `push('/spot/<id>')`. It shares the `saving` guard with Save; both now `try/catch` → Alert "Couldn't save the photos" and stay on the screen.

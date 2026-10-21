@@ -467,7 +467,7 @@
         "The subtitle count ('N spots from your photos') reflects only groups that will become new spots after the choice.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M6-05",

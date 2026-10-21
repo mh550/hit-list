@@ -85,9 +85,12 @@ Data: `spots = useSpotsStore(s => s.spots)`, `radius = useSettingsStore(s => s.b
   `captured_at` and its own `location`) and no `addSpot`; then the primary rule of Quick Add step 2. Two groups may
   target the same spot: compute up front which group (first in order) may set its primary, so the parallel writes
   never race on `primary_photo_id`.
-- Failure (behaviour today, kept; M6-06 states and tests it): `Promise.all` rejects on the first failed group, the
-  others keep running to completion (their writes land), `saving` resets, the screen stays; no Alert today. M6-04 adds
-  an Alert "Some photos weren't imported" so it is not silent; it does not retry or roll back (known limit → §9).
+- Failure (as built in M6-04, D31): `Promise.allSettled` over the groups. `savePhotos` logs a failed row and leaves it
+  out (and `addSpot` logs a failed insert), so each group resolves with its unsaved photos rather than rejecting. Every
+  group that has unsaved photos (or rejected) stays on screen with only those photos, aimed at the spot they were going
+  to (`target` = the new spot's id when it was a new spot), and an Alert "Some photos weren't imported" shows; the
+  screen closes only when all were saved. A chosen spot stays in the chip row even when it is not nearby (a new spot
+  from a group with no location), so 'New spot' stays reachable. No rollback (§9 Q11).
 
 ## Profile hint (M6-03)
 

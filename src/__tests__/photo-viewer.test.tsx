@@ -215,6 +215,17 @@ describe('Photo viewer: zoom, pan and swipe-down close', () => {
     expect(list().props.scrollEnabled).toBe(true);
   });
 
+  it('stops the pager while a pinch runs, even one that starts at 1×', () => {
+    renderViewer(7, '2');
+    const zoomable = screen.getByLabelText('Photo 3 of 7').findByType(ZoomablePhoto);
+
+    act(() => zoomable.props.onPinchChange(true));
+    expect(list().props.scrollEnabled).toBe(false);
+
+    act(() => zoomable.props.onPinchChange(false));
+    expect(list().props.scrollEnabled).toBe(true);
+  });
+
   it('locks paging after a pinch to 2× and unlocks after a pinch back to 1×', async () => {
     renderViewer(7, '2');
 
@@ -294,6 +305,7 @@ describe('ZoomablePhoto', () => {
   function renderPhoto() {
     const onScaleChange = jest.fn();
     const onRequestClose = jest.fn();
+    const onPinchChange = jest.fn();
     render(
       <ZoomablePhoto
         uri="file:///p.jpg"
@@ -301,11 +313,18 @@ describe('ZoomablePhoto', () => {
         {...size}
         onScaleChange={onScaleChange}
         onRequestClose={onRequestClose}
+        onPinchChange={onPinchChange}
         testIdPrefix="zp"
       />,
     );
-    return { onScaleChange, onRequestClose };
+    return { onScaleChange, onRequestClose, onPinchChange };
   }
+  /** The page's current transform, from the view that wraps the image. */
+  const transform = () => {
+    let node = screen.UNSAFE_getByType(Image).parent;
+    while (node && !StyleSheet.flatten(node.props.style)?.transform) node = node.parent;
+    return Object.assign({}, ...(StyleSheet.flatten(node!.props.style).transform as object[]));
+  };
   const pinch = (scale: number) =>
     fireGestureHandler(getByGestureTestId('zp-pinch'), [
       { state: State.BEGAN, scale: 1, ...centre },
@@ -324,6 +343,45 @@ describe('ZoomablePhoto', () => {
     pinch(1.04 / 4);
     await flush();
     expect(onScaleChange).toHaveBeenLastCalledWith(1);
+  });
+
+  it('reports a pinch as it starts and as it ends, so the pager can stop scrolling under it', async () => {
+    const { onPinchChange } = renderPhoto();
+
+    pinch(2);
+    await flush();
+
+    expect(onPinchChange.mock.calls).toEqual([[true], [false]]);
+  });
+
+  it('decodes the photo at full resolution only while zoomed, so a zoom stays sharp', async () => {
+    renderPhoto();
+    const image = () => screen.UNSAFE_getByType(Image);
+    expect(image().props.allowDownscaling).toBe(true);
+
+    pinch(2);
+    await flush();
+    expect(image().props.allowDownscaling).toBe(false);
+
+    pinch(0.5);
+    await flush();
+    expect(image().props.allowDownscaling).toBe(true);
+  });
+
+  it('moves the photo with the fingers when they drag during a pinch', async () => {
+    renderPhoto();
+
+    // Zoom 1× → 2× about the centre while both fingers move 50 right and 30 down: the image point that was under
+    // the fingers stays under them, so the photo moves by the same 50, 30.
+    fireGestureHandler(getByGestureTestId('zp-pinch'), [
+      { state: State.BEGAN, scale: 1, ...centre },
+      { state: State.ACTIVE, scale: 1, ...centre },
+      { state: State.ACTIVE, scale: 2, focalX: centre.focalX + 50, focalY: centre.focalY + 30 },
+      { state: State.END, scale: 2, focalX: centre.focalX + 50, focalY: centre.focalY + 30 },
+    ]);
+    await flush();
+
+    expect(transform()).toEqual({ translateX: 50, translateY: 30, scale: 2 });
   });
 
   it('does not close when a long swipe down is cancelled instead of ending', async () => {
@@ -528,6 +586,43 @@ describe('Photo viewer: long-press options', () => {
     await removePage(2);
 
     expect(list().props.scrollEnabled).toBe(true);
+  });
+
+  it('stays on the page swiped to while a removal finishes', async () => {
+    const { media } = renderViewer(7, '2');
+    let finish = () => {};
+    mockRemovePhotos.mockImplementationOnce(
+      (ids) =>
+        new Promise((resolve) => {
+          finish = () => {
+            useMediaStore.getState().removeMany(ids);
+            resolve(ids);
+          };
+        }),
+    );
+
+    await removePage(2);
+    act(() => {
+      fireEvent(list(), 'momentumScrollEnd', { nativeEvent: { contentOffset: { x: 5 * width, y: 0 } } });
+    });
+    expect(screen.getByText('6 / 7')).toBeOnTheScreen();
+    await act(async () => finish());
+
+    // Page 2 (media[1]) is gone, so the photo swiped to (media[5]) is now page 5 of 6.
+    expect(screen.getByText('5 / 6')).toBeOnTheScreen();
+    expect((list().props.data as Media[])[4].id).toBe(media[5].id);
+  });
+
+  it('removes nothing when the photo left the spot before Remove was confirmed', async () => {
+    const { media } = renderViewer(7, '2');
+
+    await longPress(2);
+    await press(0, 'Remove photo');
+    act(() => useMediaStore.getState().removeMany([media[1].id]));
+    await press(1, 'Remove');
+
+    expect(mockRemovePhotos).not.toHaveBeenCalled();
+    expect(screen.getByText('3 / 6')).toBeOnTheScreen();
   });
 
   it('keeps the photo and says so when the removal fails', async () => {

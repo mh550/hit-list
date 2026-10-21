@@ -31,7 +31,7 @@
         "db-init, db-foreign-keys, use-spot-actions and db-settings tests pass against schema v3 (rewritten where they inserted old columns); grep -rn \"feature_json\\|in_run_json\\|landing_json\\|metadata_json\" src app --include=*.ts --include=*.tsx | grep -v 'src/db/schema.ts' prints nothing.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": true
+      "passes": false
     },
     {
       "id": "M1-03",
@@ -68,7 +68,7 @@
         "src/components/FilterSheet.tsx offers only the eight What's here chips (stopped and speed controls come in M5); src/components/SpotListItem.tsx has no difficulty or isDraft prop; app/(tabs)/index.tsx passes featureType={featureTypesLabel(item)}; src/__tests__/components.test.tsx has no RatingBadge/StarRating cases.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines, and npx expo export --platform ios --output-dir /tmp/hl-export exits 0."
       ],
-      "passes": true
+      "passes": false
     },
     {
       "id": "M1-05",

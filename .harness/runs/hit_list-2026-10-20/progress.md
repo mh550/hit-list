@@ -12,6 +12,46 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 · verify M1
+
+M1-01, M1-03, M1-05 hold. M1-02 step 6 and M1-04 step 1 fail as written: the greps are specified to print nothing but match `SpotLegacy` keys and v2 fixtures in `db-migrate.test.ts`, which migration tests need. The next session should either narrow the step greps or the code; behaviour itself checks out (all tests green). Both set to `passes: false`.
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| M1-01 | 1 | `grep -n "^#" docs/plans/2026-10-20-m1-model.md`; read Legacy keys, Migration 3, Test file plan | all sections present; 16 legacy keys with empty/is_stopped/status-never-archived rule; two-step section; 5 ALTERs, rebuild, idx_spots_status dropped, idx_spots_deleted_at recreated; 20-row test table | yes |
+| M1-01 | 2 | read docs/plans/2026-10-20-m1-model.md lines 194-240 | fixture with curved rail, knobs, setup options, intensity 5, bustability 3, notes hello, status draft; expected feature_types [], stopped true, natural_speed 3, legacy object | yes |
+| M1-01 | 3 | `grep -n FEATURE_TYPE_LABELS docs/plans/2026-10-20-m1-model.md` | section says src/constants/labels.ts replaces STOP_TYPE_LABELS; FilterSheet/edit private copies replaced | yes |
+| M1-01 | 4 | `npx expo lint`, `npx tsc --noEmit`, `npx jest --ci` | lint clean, tsc ok, 366/366 pass | yes |
+| M1-02 | 1 | read src/types/index.ts, factories.ts | NaturalSpeed 0-4, Spot fields, SpotUpdate nulls, factory feature_types [] stopped false (old nested fields already removed by M1-04, superset of step) | yes |
+| M1-02 | 2 | `git diff 782ff8d..HEAD -- src/db/schema.ts`; grep LATEST_SCHEMA_VERSION | LATEST = MIGRATIONS.length (3); 158 additions, one changed line (the MIGRATIONS array); migration1/2 untouched | yes |
+| M1-02 | 3 | `jest db-migrate.test.ts --verbose`; read FULL_LEGACY and full-fat test | all 28 pass; full-fat asserts feature_types_json [], stopped 1, natural_speed 3, notes hello, legacy toEqual the 16-key object; v1→v3, re-run no-op, fk check, columns/index tests all pass | yes |
+| M1-02 | 4 | `jest db-spots.test.ts --verbose`; read SPOT_COLUMNS use | round trip, natural_speed 0, null clears, getSpotLegacy null/object all pass; getSpots omit legacy_json | yes |
+| M1-02 | 5 | `jest stores.test.ts` | "null clears notes and natural_speed (undefined in memory)" passes | yes |
+| M1-02 | 6 | `grep -rn "feature_json\|in_run_json\|landing_json\|metadata_json" src app --include=*.ts --include=*.tsx | grep -v src/db/schema.ts`; db-init, db-foreign-keys, use-spot-actions, db-settings tests | tests pass, but grep prints ~45 lines, all in src/__tests__/db-migrate.test.ts (v2 fixtures that migration tests need); step says it prints nothing | NO |
+| M1-02 | 7 | lint, tsc, `jest --ci`, `grep -c console.error` | all green, 0 console.error | yes |
+| M1-03 | 1 | both greps from the step | both print nothing | yes |
+| M1-03 | 2 | read src/types/index.ts | SortField 3 members; UserSettings 2 keys; DEFAULT_FILTERS {types:[]}; SpotFilters shape; Requirement/SetupOption gone | yes |
+| M1-03 | 3 | read db-settings.test.ts 17-33 | stored blob with gear → toStrictEqual {units metric, radius 30}; save/get round-trips two keys; passes | yes |
+| M1-03 | 4 | read stores.test.ts 195-260 | count test sets types, stopped, speed range → 3; empty → 0; stopped true/false filter tests pass; gear tests gone | yes |
+| M1-03 | 5 | read spots-sort-search.test.tsx 256; grep Intensity | chips equal [Distance, Date, Name]; no Intensity match | yes |
+| M1-03 | 6 | profile.test, filter-sheet.test verbose | "no My Gear section or gear chips" and "no gear, build or drafts filter" pass | yes |
+| M1-03 | 7 | review-persist.test; read app/add/review.tsx:132, app/import/review.tsx; grep status | Save text "Save"; tests assert untagged not-stopped no status for Quick Add and import; no status in import screen | yes |
+| M1-03 | 8 | spot-list.test, spot-map.test; read SpotMap.tsx:75 | "never shows a status badge", every Marker pinColor SPOT_PIN, description undefined for untagged: pass | yes |
+| M1-03 | 9 | lint, tsc, jest --ci | green, 0 console.error | yes |
+| M1-04 | 1 | read types/index.ts; the step grep | Spot has exactly the §2.1 fields, 8 FeatureTypes; but grep prints SpotLegacy keys in src/types/index.ts (custom_type, bustability, raw_in_run), a test title in spot-detail.test.tsx and db-migrate.test.ts lines; step says it prints nothing | NO |
+| M1-04 | 2 | ls deleted files; read labels.ts, units.ts; grep removed helpers | StarRating/RatingBadge gone, FEATURE_TYPE_LABELS exists, no STOP_TYPE_LABELS; units.ts exports only displayLength; helpers not referenced | yes |
+| M1-04 | 3 | spot-name.test.ts verbose | Rail; Rail +1; Stair set +2 (3 types); undefined for []; pass (4 expectations in 3 tests) | yes |
+| M1-04 | 4 | stores.test.ts "types is any-of", natural speed range tests | filter [rail] keeps [ledge,rail], drops [bank]; range keeps unrated, 0 real: pass | yes |
+| M1-04 | 5 | edit-spot-name, edit-remove-photo tests; ls deleted tests | pass; "Save writes only the name and updated_at"; three tests deleted | yes |
+| M1-04 | 6 | spot-detail.test.tsx; read detail index.tsx | notes text found, no Notes label without notes: pass | yes |
+| M1-04 | 7 | read FilterSheet, SpotListItem props, (tabs)/index.tsx:106; components.test | eight chips only, no stopped/speed controls; props no difficulty/isDraft; featureType={featureTypesLabel(item)}; no RatingBadge cases | yes |
+| M1-04 | 8 | `npx expo export --platform ios --output-dir /tmp/hl-export-verify` | exit 0; lint/tsc/jest green, 0 console.error | yes |
+| M1-05 | 1 | ls reviews/m1.diff; read plan "Review (M1-05)" | m1.diff exists (4861 lines; differs from current diff only by later commits); review table has severity, file:line, fix commits, required checks answered | yes |
+| M1-05 | 2 | `git log` 95f93b4/b99c7cd, e9a4ad7/719b747; db-migrate tests | RED commits precede GREEN; rollback and raw_feature tests pass; natural_speed 0 tests pass; getSpots uses SPOT_COLUMNS | yes |
+| M1-05 | 3 | `git show --stat 4a695a1`; plan Simplifications | own commit "refactor: ..." touching detail index and types; plan states no unused styles / duplicate maps remain (grep found no TYPE_LABELS copies) | yes |
+| M1-05 | 4 | grep -i draft/gear/rating/intensity in CLAUDE.md README.md RUNNING-ON-PHONE.md; read lines 30-44 | no hits; v3 model, legacy_json, getSpotLegacy described; no Draft badge / yellow pins | yes |
+| M1-05 | 5 | lint, tsc, `jest --ci` | green, 366 pass, 0 console.error | yes |
+
 ### 2026-10-21 · M1-05 · passes
 
 - Opus review of `reviews/m1.diff` (4861 lines): 1 Important, 4 Minor, recorded with commits under "Review (M1-05)" in `docs/plans/2026-10-20-m1-model.md`. **Important fixed (RED 95f93b4 → GREEN b99c7cd):** `useDbInit` loaded spots, media and settings in one `try`, so a failed migration 3 left default settings (saving Units would overwrite the stored radius) and a usable-looking app whose writes fail. Each load now has its own `try`, and `DBInitializer` shows "Couldn't upgrade your spots · Nothing was lost · close and reopen to retry" (**D28 *default***, spec §1 + §9 Q8). Minor: store `applySpotUpdate` ignores undefined keys (e9a4ad7 → 719b747); new migration-3 late-failure rollback test; plan `raw_*` key names. Not changed: archiving an unkept old type (spec maps it to `[]`).

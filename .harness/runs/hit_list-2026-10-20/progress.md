@@ -12,6 +12,72 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 17:30 · M8-03 · passes
+
+- Whole-run Opus review (two reviewers, data + UI) of `reviews/run.diff` (782ff8d..HEAD, 12,228 lines): 0 Critical, 1 Important, 7 Minor; table and written answers in `docs/plans/2026-10-20-m8-sweep.md` 'Final review'.
+- Important U1 fixed: the Edit sheet could be swiped away mid-Save, and Save's `router.back()` then popped the detail screen too. `edit.tsx` now sets `gestureEnabled: !saving` and skips `back()` after unmount (RED `c5f2547` → GREEN `7fcd615`, re-checked by the reviewer). Minor F2 fixed: one unreadable `feature_types_json` row no longer empties the whole list (RED `52ec88d` → GREEN `96d8e1a`). F1/F3: a real-SQLite test where migration 3 throws on a v2 DB (`db-init-failed-upgrade.test.ts`), and the fresh-install test now asserts an empty v3 spots table.
+- Written answers: v2 → v3 keeps every spot and photo (full-fat, empty, v1, v3, media-count tests pass); a fresh install reaches v3 empty; if migration 3 throws, media and settings load, spots can't below v3, the D28 screen blocks the app and the v2 rows stay on disk.
+- Tests 651 → 656 (52 → 54 suites); `check.sh` green; `jest --ci` 0 console.error; `expo export --platform ios` exit 0 (4.3 MB).
+- Proposed changes (later run, Minor): U3 hide the nearby card once a partly failed Save has created the spot; U4 re-point `primary_photo_id` on an edit retry; U5 enforce the 20-photo cap on 'Add photos there' and the import join; U2 skip the push after leaving Quick Add Review mid-save.
+- Questions for Michael: the §9 list below (all defaults taken, none new this session).
+
+#### For Michael
+
+**One thing first: it can't be undone on the phone.** The first launch of this build runs migration 3 on your
+phone's spots DB (v2 → v3). It cannot be undone: after it runs, an older build of the app can't read the DB.
+
+Phone steps, in order (from this repo on your Mac/box, on `main` after the harness merges this run):
+1. `git checkout main && git pull`, then `npm ci`.
+2. `npm run start:tailscale` (Metro on the tailnet address); open the QR / URL in **Expo Go** on the iPhone.
+3. First launch: migration 3 rewrites every spot in one transaction. Each spot keeps its name, location, photos,
+   town, dates and notes; its old feature type becomes one 'What's here' tag (an 'other' type becomes no tag, with
+   the text kept); 'skate stoppers: yes' becomes 'Skate stopped'; old natural speed 1–5 becomes None…Too much;
+   everything else (dimensions, material, stop type, setup options, landing, intensity, bustability…) is archived
+   and shows under a collapsed **Older details** on the spot's page. Drafts become normal spots. If the upgrade
+   throws, you see "Couldn't upgrade your spots · Nothing was lost · close and reopen to retry" (D28) and the DB
+   stays at v2.
+4. Then try, per milestone:
+   - **M2 edit**: open a spot → Edit. One screen: photo grid with ✕ on each tile and a '+' tile, Name, What's here
+     chips, Skate stopped switch, Natural speed (None · Little · Some · Enough · Too much; tap again to clear), Notes,
+     Save, Delete spot. Remove a photo and add one, then leave without saving → nothing changed; do it again and Save
+     → both applied.
+   - **M3 detail**: a spot with photos shows the grid, title, tag line (red 'Skate stopped'), speed bar, notes; a spot
+     with none shows an 'Add photos' tile that opens Edit. A migrated spot with old data shows 'Older details'
+     (closed); open it → labelled rows in your units.
+   - **M4 viewer**: tap a photo → full-screen black viewer, 'N / M'. Swipe between photos; pinch to 4× and back;
+     double-tap 2.5× ↔ 1×; pan while zoomed doesn't change page; drag down at 1× closes; ✕ closes. Long-press →
+     Set as primary / Remove photo; removing the last photo closes the viewer. Zoom a 12 MP photo → stays sharp.
+   - **M5 list/filters**: rows show tag badges (none for an untagged spot); sorts Distance · Date · Name (Distance
+     greyed without location); Filter sheet: What's here, Skate stopped (Any/Yes/No), Natural speed range (pick
+     Little then Enough → "Little to Enough"); Filter shows "(3)" with all three set. Map pins are one colour; tap a
+     pin → callout with name + "Rail · Ledge" → opens the spot.
+   - **M6 save/import**: Quick Add → photos → review shows Name, an 'Add details' link (tags), Save. Standing at a
+     spot you already have: 'Already have this spot?' lists up to three 'Near <name> · 16 ft' rows with 'Add photos
+     there' (photos only join that spot, D30); Save still makes a new spot. Batch import near an existing spot: the
+     group offers 'New spot' / 'Add photos to <name>'; the button counts only new spots.
+   - **M8 fix**: tap Save on Edit and try to swipe the sheet down at once → it holds until the save is done, then closes to the spot (not the list).
+   - **M7 radius**: Profile → 'Import radius · ft' shows 164 (= 50 m); switch to Metric → 50 m. Type 328 ft → 100 m.
+
+**Roll back the app**: `git checkout <main before the merge>` (the commit `main` pointed at before this run's merge;
+today `2d75cf2`), `npm ci`, restart Metro. **The DB cannot be rolled back after migration 3 has run on the
+phone**: the old build expects the v2 columns, which are gone. The archived values are still in `legacy_json`, but
+nothing writes them back. If you might want the old build, don't open this one until you're sure.
+
+**§9 questions (the run took the bold default; answer in INBOX.md to change one):**
+1. D18 Notes: **kept one free-text Notes field** (say "drop notes").
+2. D21 Natural-speed words: **None · Little · Some · Enough · Too much** (send better words).
+3. D25 Nearby-spot offer: **built, never auto-merges, uses the import radius** (say "skip").
+4. D26 Old fields: **archived into legacy_json, shown under 'Older details'** (say "just delete").
+5. §2.7 Tags on Quick Add review: **collapsed under 'Add details'** (say "always show" / "never show").
+6. (done before the run: main merge)
+7. D15 town in list search / D16 untitled import label date: still open, unchanged.
+8. D28 Failed upgrade: **blocks the app with "Couldn't upgrade your spots"** (say "let me in anyway").
+9. D29 Viewer after 'Set as primary': **keeps its order while open** (say "jump to first").
+10. D30 Joining an existing spot from review: **only the photos go**; a typed name/tags are dropped (say "fill blanks").
+11. D31 Partly failed import/save: **screen stays open with only the unsaved photos; retry doesn't duplicate**
+    (say "close anyway").
+12. D32 Radius precision: **whole metres** (typed 100 ft reads back 98) (say "keep my feet", or name a maximum).
+
 ### 2026-10-21 16:30 · M8-02 · passes
 
 - `APP_SPECIFICATIONS.md`: new '## Simplified model (2026-10-20)' directly under the title (Spot interface, three filters, sorts, viewer, nearby offer, metre radius shown in user units, Older details, pointer to the design doc). Six headings now start '[SUPERSEDED]' (Feature Details, In-Run, Two-Stage Filtering, Landing, Spot Metadata, Gear + Build Filter Interaction), text kept; a note sits under the old Filters table.

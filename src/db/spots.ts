@@ -23,6 +23,18 @@ interface SpotRow {
 const SPOT_COLUMNS =
   'id, name, generated_name, latitude, longitude, created_at, updated_at, deleted_at, feature_types_json, stopped, natural_speed, notes, primary_photo_id';
 
+/** Only the app writes this column, but one unreadable row must not take the whole list down with it. */
+function parseFeatureTypes(row: SpotRow): FeatureType[] {
+  try {
+    const parsed: unknown = JSON.parse(row.feature_types_json);
+    if (Array.isArray(parsed)) return parsed as FeatureType[];
+  } catch {
+    // fall through to the warning
+  }
+  console.warn(`[spots] unreadable feature_types_json on spot ${row.id}; reading it as untagged`);
+  return [];
+}
+
 function rowToSpot(row: SpotRow): Spot {
   return {
     id: row.id,
@@ -32,7 +44,7 @@ function rowToSpot(row: SpotRow): Spot {
     created_at: row.created_at,
     updated_at: row.updated_at,
     deleted_at: row.deleted_at ?? undefined,
-    feature_types: JSON.parse(row.feature_types_json) as FeatureType[],
+    feature_types: parseFeatureTypes(row),
     stopped: row.stopped === 1,
     // 0 (None) is a rating; only NULL is unset
     natural_speed: row.natural_speed === null ? undefined : (row.natural_speed as NaturalSpeed),

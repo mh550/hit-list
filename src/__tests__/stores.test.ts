@@ -20,14 +20,14 @@ describe('selectFilteredSpots', () => {
   const railSpot = createTestSpot({
     id: 'rail-spot',
     name: 'Rail Spot',
-    feature: { type: FeatureType.Rail },
+    feature_types: [FeatureType.Rail],
     stopped: true,
   });
 
   const ledgeSpot = createTestSpot({
     id: 'ledge-spot',
     name: 'Ledge Spot',
-    feature: { type: FeatureType.Ledge },
+    feature_types: [FeatureType.Ledge],
   });
 
   const untaggedSpot = createTestSpot({ id: 'untagged-spot', name: 'Untagged Spot' });
@@ -43,6 +43,35 @@ describe('selectFilteredSpots', () => {
     const filters: SpotFilters = { ...DEFAULT_FILTERS, types: [FeatureType.Rail] };
     const result = selectFilteredSpots(allSpots, filters);
     expect(result.map((s) => s.id)).toEqual(['rail-spot']);
+  });
+
+  it('types is any-of against feature_types', () => {
+    const both = createTestSpot({ id: 'both', feature_types: [FeatureType.Ledge, FeatureType.Rail] });
+    const bank = createTestSpot({ id: 'bank', feature_types: [FeatureType.Bank] });
+    const result = selectFilteredSpots([both, bank], { ...DEFAULT_FILTERS, types: [FeatureType.Rail] });
+    expect(result.map((s) => s.id)).toEqual(['both']);
+  });
+
+  describe('natural speed range (0–4)', () => {
+    const none = createTestSpot({ id: 'none', natural_speed: 0 });
+    const some = createTestSpot({ id: 'some', natural_speed: 2 });
+    const fast = createTestSpot({ id: 'fast', natural_speed: 4 });
+    const unrated = createTestSpot({ id: 'unrated' });
+    const speedSpots = [none, some, fast, unrated];
+    const ids = (filters: SpotFilters) => selectFilteredSpots(speedSpots, filters).map((s) => s.id);
+
+    it('keeps spots inside the range and unrated spots', () => {
+      expect(ids({ ...DEFAULT_FILTERS, natural_speed_min: 1, natural_speed_max: 3 })).toEqual(['some', 'unrated']);
+    });
+
+    it('treats 0 as a real value at both ends', () => {
+      expect(ids({ ...DEFAULT_FILTERS, natural_speed_max: 0 })).toEqual(['none', 'unrated']);
+      expect(ids({ ...DEFAULT_FILTERS, natural_speed_min: 0 })).toEqual(['none', 'some', 'fast', 'unrated']);
+    });
+
+    it('min 4 keeps only the fastest and unrated', () => {
+      expect(ids({ ...DEFAULT_FILTERS, natural_speed_min: 4 })).toEqual(['fast', 'unrated']);
+    });
   });
 
   it('stopped: true keeps only stopped spots', () => {

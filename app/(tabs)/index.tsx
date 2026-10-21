@@ -22,7 +22,7 @@ import { SegmentedControl } from '@/src/components/SegmentedControl';
 import { SpotMap } from '@/src/components/SpotMap';
 import { SortChips } from '@/src/components/SortChips';
 import { useCurrentLocation } from '@/src/hooks/use-current-location';
-import { featureLabel, getSpotDisplayName } from '@/src/utils/spot-name';
+import { featureTypesLabel, getSpotDisplayName } from '@/src/utils/spot-name';
 import { resolvePhotoUri } from '@/src/utils/photo-storage';
 import { primaryPhoto } from '@/src/utils/spot-photos';
 import { haversineDistance, formatDistance, isKnownLocation } from '@/src/utils/geo';
@@ -103,8 +103,7 @@ export default function SpotsScreen() {
           id={item.id}
           displayName={getSpotDisplayName(item)}
           thumbnailUri={thumbnail ? resolvePhotoUri(thumbnail.file_path) : undefined}
-          featureType={featureLabel(item)}
-          difficulty={item.feature.difficulty as 1 | 2 | 3 | 4 | 5 | undefined}
+          featureType={featureTypesLabel(item)}
           distance={getDistance(item)}
           onPress={handleSpotPress}
         />

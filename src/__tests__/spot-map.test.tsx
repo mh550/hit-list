@@ -5,6 +5,7 @@ import { useIsFocused } from 'expo-router';
 import * as ReactNativeMaps from 'react-native-maps';
 import { SpotMap, SPOT_PIN } from '@/src/components/SpotMap';
 import { initialRegion } from '@/src/utils/map-region';
+import { FeatureType } from '@/src/types';
 import type { Spot } from '@/src/types';
 import { CITIES, createTestSpot } from './factories';
 import { NO_LOCATION } from '@/src/utils/geo';
@@ -106,11 +107,11 @@ describe('SpotMap', () => {
     expect(screen.queryByTestId(`spot-marker-${lost.id}`)).toBeNull();
   });
 
-  it('shows the custom feature name for "other" in the callout', () => {
-    const custom = createTestSpot({ feature: { type: 'other' as never, custom_type: 'kinked hubba' } });
-    renderMap([custom]);
+  it('shows the feature types label in the callout', () => {
+    const tagged = createTestSpot({ feature_types: [FeatureType.Rail, FeatureType.Ledge] });
+    renderMap([tagged]);
 
-    expect(screen.getByTestId(`spot-marker-${custom.id}`).props.description).toBe('kinked hubba');
+    expect(screen.getByTestId(`spot-marker-${tagged.id}`).props.description).toBe('Rail +1');
   });
 
   it('tracks the user only while the tab is focused', () => {

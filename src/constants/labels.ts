@@ -1,10 +1,13 @@
-import { StopType } from '@/src/types';
+import { FeatureType } from '@/src/types';
 
-/** Display labels for skate-stop types, used by the edit chips and the detail screen. */
-export const STOP_TYPE_LABELS: Record<StopType, string> = {
-  [StopType.Knobs]: 'Knobs',
-  [StopType.Caps]: 'Caps',
-  [StopType.Brackets]: 'Brackets',
-  [StopType.Welds]: 'Welds',
-  [StopType.Other]: 'Other',
+/** Display labels for feature types: the filter chips, the list row and the map callout. */
+export const FEATURE_TYPE_LABELS: Record<FeatureType, string> = {
+  [FeatureType.Rail]: 'Rail',
+  [FeatureType.Ledge]: 'Ledge',
+  [FeatureType.Bank]: 'Bank',
+  [FeatureType.Hip]: 'Hip',
+  [FeatureType.StairSet]: 'Stair set',
+  [FeatureType.Gap]: 'Gap',
+  [FeatureType.WallRide]: 'Wall ride',
+  [FeatureType.QuarterPipe]: 'Quarter pipe',
 };

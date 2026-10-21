@@ -23,13 +23,8 @@ describe('SpotListItem', () => {
   });
 
   it('renders feature type badge', () => {
-    render(<SpotListItem {...defaultProps} featureType="rail" />);
-    expect(screen.getByText('rail')).toBeTruthy();
-  });
-
-  it('renders difficulty badge', () => {
-    render(<SpotListItem {...defaultProps} difficulty={4} />);
-    expect(screen.getByText('4')).toBeTruthy();
+    render(<SpotListItem {...defaultProps} featureType="Stair set +1" />);
+    expect(screen.getByText('Stair set +1')).toBeTruthy();
   });
 
   it('renders distance', () => {
@@ -83,8 +78,7 @@ describe('SpotListItem memo behavior', () => {
       <SpotListItem
         id="test"
         displayName="Test Spot"
-        featureType="rail"
-        difficulty={3}
+        featureType="Rail +1"
         distance="1.2 mi"
         onPress={() => {}}
       />,
@@ -98,7 +92,7 @@ describe('Spot list with many items', () => {
     const spots = Array.from({ length: 150 }, (_, i) =>
       createTestSpot({
         name: `Spot ${i}`,
-        feature: { type: FeatureType.Rail },
+        feature_types: [FeatureType.Rail],
         stopped: i % 3 === 0,
       }),
     );

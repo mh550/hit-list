@@ -12,10 +12,13 @@ describe('FilterSheet', () => {
     useSpotsStore.setState({ filters: { ...DEFAULT_FILTERS }, searchQuery: '' });
   });
 
-  it('renders feature type chips', () => {
+  it("offers exactly the eight What's here chips (no Other)", () => {
     render(<FilterSheet visible onClose={onClose} />);
-    expect(screen.getByText('rail')).toBeTruthy();
-    expect(screen.getByText('ledge')).toBeTruthy();
+    expect(screen.getByText("What's here")).toBeTruthy();
+    const labels = ['Rail', 'Ledge', 'Bank', 'Hip', 'Stair set', 'Gap', 'Wall ride', 'Quarter pipe'];
+    for (const label of labels) expect(screen.getByText(label)).toBeTruthy();
+    expect(screen.queryByText(/^other$/i)).toBeNull();
+    expect(screen.getAllByRole('checkbox')).toHaveLength(8);
   });
 
   it('has no gear, build or drafts filter (D20, D22)', () => {
@@ -34,7 +37,7 @@ describe('FilterSheet', () => {
 
   it('toggling a type chip updates filter state on Apply', () => {
     render(<FilterSheet visible onClose={onClose} />);
-    fireEvent.press(screen.getByText('rail'));
+    fireEvent.press(screen.getByText('Rail'));
     fireEvent.press(screen.getByText('Apply'));
     expect(useSpotsStore.getState().filters.types).toContain(FeatureType.Rail);
   });
@@ -81,7 +84,7 @@ describe('FilterSheet', () => {
 
   it('drops unsaved edits when the sheet is closed and reopened', () => {
     const { rerender } = render(<FilterSheet visible onClose={onClose} />);
-    fireEvent.press(screen.getByText('rail'));
+    fireEvent.press(screen.getByText('Rail'));
 
     rerender(<FilterSheet visible={false} onClose={onClose} />);
     rerender(<FilterSheet visible onClose={onClose} />);

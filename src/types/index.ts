@@ -9,36 +9,6 @@ export enum FeatureType {
   Gap = 'gap',
   WallRide = 'wall_ride',
   QuarterPipe = 'quarter_pipe',
-  Other = 'other',
-}
-
-export enum Material {
-  Aluminum = 'aluminum',
-  Concrete = 'concrete',
-  Steel = 'steel',
-  PaintedSteel = 'painted_steel',
-  Wood = 'wood',
-  Plastic = 'plastic',
-  Stone = 'stone',
-  Other = 'other',
-}
-
-export enum StopType {
-  Knobs = 'knobs',
-  Caps = 'caps',
-  Brackets = 'brackets',
-  Welds = 'welds',
-  Other = 'other',
-}
-
-export enum LandingSurface {
-  SnowNatural = 'snow_natural',
-  SnowBuilt = 'snow_built',
-  Concrete = 'concrete',
-  Asphalt = 'asphalt',
-  Grass = 'grass',
-  Dirt = 'dirt',
-  Other = 'other',
 }
 
 export enum UnitSystem {
@@ -67,45 +37,6 @@ export interface GeoPoint {
   longitude: number;
 }
 
-export interface SkateStopInfo {
-  is_stopped: boolean;
-  stop_type?: StopType;
-  stop_description?: string;
-  removable?: boolean;
-}
-
-export interface Dimensions {
-  length?: number;
-  height?: number;
-  width?: number;
-}
-
-export interface FeatureDetails {
-  type?: FeatureType;
-  custom_type?: string;
-  shape?: string;
-  dimensions?: Dimensions;
-  material?: Material;
-  skate_stops?: SkateStopInfo;
-  difficulty?: number; // 1-5
-}
-
-export interface InRun {
-  natural_speed?: number; // 1-5
-}
-
-export interface Landing {
-  difficulty?: number; // 1-5
-  surface?: LandingSurface;
-}
-
-export interface SpotMetadata {
-  intensity?: number; // 1-5
-  bustability?: number; // 1-5
-  bustability_notes?: string;
-  notes?: string;
-}
-
 export interface Spot {
   id: string;
   name?: string;
@@ -118,11 +49,6 @@ export interface Spot {
   stopped: boolean;
   natural_speed?: NaturalSpeed;
   notes?: string;
-  // Old nested model: no column since migration 3; read back as empty defaults until M1-04 removes them.
-  feature: FeatureDetails;
-  in_run: InRun;
-  landing: Landing;
-  metadata: SpotMetadata;
   primary_photo_id?: string;
 }
 

@@ -11,7 +11,7 @@ import { clusterPressTarget } from '@/src/utils/cluster-press';
 import type { ClusterLeaf } from '@/src/utils/cluster-press';
 import { isKnownLocation } from '@/src/utils/geo';
 import { initialRegion } from '@/src/utils/map-region';
-import { featureLabel, getSpotDisplayName } from '@/src/utils/spot-name';
+import { featureTypesLabel, getSpotDisplayName } from '@/src/utils/spot-name';
 
 export const SPOT_PIN = colors.light.primary;
 
@@ -71,7 +71,7 @@ export function SpotMap({ spots, currentLocation, onOpenSpot }: Props) {
           testID={`spot-marker-${spot.id}`}
           coordinate={spot.location}
           title={getSpotDisplayName(spot)}
-          description={featureLabel(spot)}
+          description={featureTypesLabel(spot)}
           pinColor={SPOT_PIN}
           onCalloutPress={() => onOpenSpot(spot.id)}
         />

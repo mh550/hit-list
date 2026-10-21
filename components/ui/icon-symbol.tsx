@@ -20,8 +20,6 @@ const MAPPING = {
   'chevron.right': 'chevron-right',
   'mappin.and.ellipse': 'place',
   'person.fill': 'person',
-  'star.fill': 'star',
-  'star': 'star-border',
   'mappin.slash': 'location-off',
   'photo.on.rectangle': 'photo-library',
   'magnifyingglass': 'search',

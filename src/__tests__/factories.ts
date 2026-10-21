@@ -17,10 +17,6 @@ export function createTestSpot(overrides: Partial<Spot> = {}): Spot {
     updated_at: now,
     feature_types: [],
     stopped: false,
-    feature: {},
-    in_run: {},
-    landing: {},
-    metadata: {},
     ...overrides,
   };
 }

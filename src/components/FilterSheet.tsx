@@ -11,6 +11,7 @@ import {
 import { useSpotsStore } from '@/src/stores';
 import { Chip, ChipGroup } from '@/src/components/Chip';
 import { palette, spacing, radius } from '@/src/constants/theme';
+import { FEATURE_TYPE_LABELS } from '@/src/constants/labels';
 import { FeatureType, DEFAULT_FILTERS } from '@/src/types';
 import type { SpotFilters } from '@/src/types';
 
@@ -18,18 +19,6 @@ interface Props {
   visible: boolean;
   onClose: () => void;
 }
-
-const TYPE_LABELS: Record<FeatureType, string> = {
-  [FeatureType.Rail]: 'rail',
-  [FeatureType.Ledge]: 'ledge',
-  [FeatureType.Bank]: 'bank',
-  [FeatureType.Hip]: 'hip',
-  [FeatureType.StairSet]: 'stair set',
-  [FeatureType.Gap]: 'gap',
-  [FeatureType.WallRide]: 'wall ride',
-  [FeatureType.QuarterPipe]: 'quarter pipe',
-  [FeatureType.Other]: 'other',
-};
 
 function SectionHeader({ title }: { title: string }) {
   return <Text style={styles.sectionHeader}>{title}</Text>;
@@ -87,13 +76,12 @@ function FilterSheetContent({ onClose }: Omit<Props, 'visible'>) {
           style={styles.scroll}
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled">
-          {/* Feature Type */}
-          <SectionHeader title="Feature Type" />
+          <SectionHeader title="What's here" />
           <ChipGroup>
             {Object.values(FeatureType).map((t) => (
               <Chip
                 key={t}
-                label={TYPE_LABELS[t]}
+                label={FEATURE_TYPE_LABELS[t]}
                 selected={pending.types.includes(t)}
                 onPress={() => toggleType(t)}
               />

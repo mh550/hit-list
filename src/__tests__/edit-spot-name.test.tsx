@@ -1,6 +1,7 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { useSpotsStore } from '@/src/stores';
+import { FeatureType } from '@/src/types';
 import type { SpotUpdate } from '@/src/types';
 import { createTestSpot } from './factories';
 
@@ -27,6 +28,24 @@ describe('Edit spot: clearing the name', () => {
       const [id, updates] = mockUpdateSpot.mock.calls[0] as unknown as [string, SpotUpdate];
       expect(id).toBe(spot.id);
       expect(updates).toHaveProperty('name', null);
+    });
+  });
+
+  it('Save writes only the name and updated_at (nothing from the removed model)', () => {
+    const spot = createTestSpot({ name: 'Old', feature_types: [FeatureType.Rail], stopped: true, notes: 'keep' });
+    useSpotsStore.setState({ spots: [spot] });
+    jest.mocked(useLocalSearchParams).mockReturnValue({ id: spot.id });
+    mockUpdateSpot.mockClear();
+
+    render(<EditSpotScreen />);
+    fireEvent.changeText(screen.getByDisplayValue('Old'), 'New');
+    fireEvent.press(screen.getByText('Save'));
+
+    return waitFor(() => {
+      expect(mockUpdateSpot).toHaveBeenCalledTimes(1);
+      const [, updates] = mockUpdateSpot.mock.calls[0] as unknown as [string, SpotUpdate];
+      expect(Object.keys(updates).sort()).toEqual(['name', 'updated_at']);
+      expect(updates.name).toBe('New');
     });
   });
 });

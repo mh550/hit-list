@@ -96,17 +96,13 @@ export function selectFilteredSpots(
     // whose "untitled", month and AM/PM would match every unnamed spot.
     if (query && !matchesSearch(spot, query)) return false;
 
-    // Type filter (OR)
-    if (filters.types.length > 0) {
-      if (!spot.feature.type || !filters.types.includes(spot.feature.type)) return false;
-    }
+    // What's here: any-of against the spot's types
+    if (filters.types.length > 0 && !spot.feature_types.some((t) => filters.types.includes(t))) return false;
 
-    // Natural speed range
-    if (filters.natural_speed_min != null && spot.in_run.natural_speed != null) {
-      if (spot.in_run.natural_speed < filters.natural_speed_min) return false;
-    }
-    if (filters.natural_speed_max != null && spot.in_run.natural_speed != null) {
-      if (spot.in_run.natural_speed > filters.natural_speed_max) return false;
+    // Natural speed range (0–4); an unrated spot is kept
+    if (spot.natural_speed !== undefined) {
+      if (filters.natural_speed_min !== undefined && spot.natural_speed < filters.natural_speed_min) return false;
+      if (filters.natural_speed_max !== undefined && spot.natural_speed > filters.natural_speed_max) return false;
     }
 
     // Skate stopped: undefined = any

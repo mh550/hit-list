@@ -1,7 +1,6 @@
 import React, { memo } from 'react';
 import { Pressable, View, Text, StyleSheet } from 'react-native';
 import { Image } from 'expo-image';
-import { RatingBadge } from './RatingBadge';
 import { palette, spacing, radius } from '@/src/constants/theme';
 
 interface SpotListItemProps {
@@ -9,7 +8,6 @@ interface SpotListItemProps {
   displayName: string;
   thumbnailUri?: string;
   featureType?: string;
-  difficulty?: 1 | 2 | 3 | 4 | 5;
   distance?: string;
   onPress: (id: string) => void;
 }
@@ -19,7 +17,6 @@ export const SpotListItem = memo(function SpotListItem({
   displayName,
   thumbnailUri,
   featureType,
-  difficulty,
   distance,
   onPress,
 }: SpotListItemProps) {
@@ -55,7 +52,6 @@ export const SpotListItem = memo(function SpotListItem({
               <Text style={styles.typeText}>{featureType}</Text>
             </View>
           ) : null}
-          {difficulty ? <RatingBadge rating={difficulty} /> : null}
         </View>
 
         {distance ? <Text style={styles.distance}>{distance}</Text> : null}
@@ -120,7 +116,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '500',
     color: palette.gray[600],
-    textTransform: 'capitalize',
   },
   distance: {
     fontSize: 13,

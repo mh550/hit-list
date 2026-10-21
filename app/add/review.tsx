@@ -47,10 +47,6 @@ export default function ReviewScreen() {
       updated_at: now,
       feature_types: [],
       stopped: false,
-      feature: {},
-      in_run: {},
-      landing: {},
-      metadata: {},
       primary_photo_id: firstPhotoId,
     };
 

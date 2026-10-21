@@ -47,7 +47,9 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   `_layout.tsx` wraps the tree in `GestureHandlerRootView`.
 - `src/components/` shared UI, exported from `index.ts`. `ZoomablePhoto` (M4): one viewer page, pinch 1–4×, zoomed pan,
   double tap 1× ↔ 2.5×, swipe down at 1× to close, long press; gesture-handler `Gesture.*` + reanimated shared values
-  (`.get()/.set()`, the React Compiler lint rejects `.value =`), every number from `gallery-gestures`. The M2 edit pieces: `SpeedScale` (five-word natural-speed
+  (`.get()/.set()`, the React Compiler lint rejects `.value =`), every number from `gallery-gestures`; it reports a
+  pinch as it starts (`onPinchChange`, the pager stops scrolling) and decodes at full size only while zoomed
+  (`allowDownscaling={!zoomed}`). The M2 edit pieces: `SpeedScale` (five-word natural-speed
   radiogroup, re-tap clears; `readonly` bar form), `PhotoGrid` (hero 4:3 + rows of three square tiles, per-tile badges,
   trailing '+' tile (`AddPhotosTile`, shared by detail and edit), taps by index), `SpotTagFields` (controlled What's here chips + 'Skate stopped' switch + SpeedScale).
 - `src/db/` SQLite access. `schema.ts` holds `MIGRATIONS` (versioned by `PRAGMA user_version`):
@@ -63,7 +65,8 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   `useSpotActions`, `useMediaActions` (photo save and remove, also used for adding photos from edit: `savePhotos` resolves the `Media[]` it actually saved; removal deletes the row only, D3), `useCurrentLocation`.
 - `src/utils/` pure logic: geo (`NO_LOCATION`, `isKnownLocation`, haversine), exif,
   photo-storage, reverse-geocode, spot-name (D4 label), map-region, import-clustering, gallery-gestures (the viewer's
-  pure maths: `clampScale`, `toggleZoom`, `clampPan`, `pagingEnabled`, `shouldClose`, `focalZoom`, `dragDown`), legacy-details (`formatLegacyDetails(legacy, units)` →
+  pure maths: `clampScale`, `toggleZoom`, `clampPan`, `pagingEnabled`, `shouldClose`, `focalZoom`, `pinchPan`, `doubleTapZoom`,
+  `dragDown`), legacy-details (`formatLegacyDetails(legacy, units)` →
   labelled 'Older details' rows: fixed key order, lengths in the user's units, unknown keys humanised, never throws).
 
 ## Conventions that are easy to get wrong

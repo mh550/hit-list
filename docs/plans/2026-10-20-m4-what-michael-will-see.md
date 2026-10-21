@@ -35,7 +35,10 @@ None of these gestures ran on a device in this run; Jest cannot drive real pinch
 - [ ] Double-tap → zooms to 2.5×; double-tap again → back to 1×.
 - [ ] While zoomed (>1.05×), horizontal swipe pans the photo and does NOT change page; at 1× paging works again.
 - [ ] At 1×, drag down more than ~120 px → photo follows the finger and the viewer closes; a shorter drag springs back. While zoomed, dragging down does NOT close.
-- [ ] ✕ → closes to the spot detail. Edge swipe / Android back also closes.
+- [ ] ✕ → closes to the spot detail; the status bar comes back. Android back also closes (an iOS full-screen modal has no edge swipe; swipe down instead).
+- [ ] (M4-07) Zoom a 12 MP photo to 4× → it stays sharp (it is decoded at full size once zoomed; a brief re-sharpen right after the zoom settles is expected).
+- [ ] (M4-07) Start a pinch at 1× with the fingers drifting sideways → the pager does not slide to the next photo mid-pinch. Two fingers dragging while pinching move the photo with them.
+- [ ] (M4-07) Hold a finger still on a zoomed photo for 0.5 s → the options alert opens (by design, as at 1×); moving the finger first pans instead.
 - [ ] Long-press (~0.5 s) a photo → alert "Set as primary / Remove photo (red) / Cancel". A double-tap never opens it; a pinch after a still two-finger hold shouldn't either.
 - [ ] Set as primary → the same photo stays shown; the detail grid's first tile changes afterwards.
 - [ ] Remove photo → "Remove this photo?" → confirm → counter drops by one (7 → "N / 6") and the neighbour shows; removing the last photo closes the viewer.

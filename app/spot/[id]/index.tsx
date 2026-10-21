@@ -29,7 +29,9 @@ function OlderDetails({ spotId }: { spotId: string }) {
       .then((l) => {
         if (live) setLegacy(l);
       })
-      .catch((e: unknown) => console.warn('Older details unreadable', spotId, e));
+      .catch((e: unknown) => {
+        if (live) console.warn('Older details unreadable', spotId, e);
+      });
     return () => {
       live = false;
     };

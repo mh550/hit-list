@@ -118,6 +118,31 @@ describe('ProfileScreen', () => {
     expect(saveUserSettings).not.toHaveBeenCalled();
   });
 
+  it('writes nothing when a radius that is not whole feet is blurred unchanged (M7-02)', async () => {
+    // 50.4 m shows as 165 ft, and 165 ft reads back as 50 m: only the untouched-field guard keeps 50.4.
+    useSettingsStore.setState({ batch_import_radius: 50.4 });
+    jest.mocked(saveUserSettings).mockClear();
+    render(<ProfileScreen />);
+    const field = screen.getByLabelText('Import radius in feet');
+    expect(field.props.value).toBe('165');
+    await act(async () => {
+      fireEvent(field, 'blur');
+    });
+    expect(useSettingsStore.getState().batch_import_radius).toBe(50.4);
+    expect(saveUserSettings).not.toHaveBeenCalled();
+  });
+
+  it('shows the whole metres it stored after blur, so 165 ft reads 164 (D33)', async () => {
+    render(<ProfileScreen />);
+    const field = screen.getByLabelText('Import radius in feet');
+    fireEvent.changeText(field, '165');
+    await act(async () => {
+      fireEvent(field, 'blur');
+    });
+    expect(useSettingsStore.getState().batch_import_radius).toBe(50);
+    expect(screen.getByLabelText('Import radius in feet').props.value).toBe('164');
+  });
+
   it('explains that the radius also drives the nearby-spot offer (D25)', () => {
     render(<ProfileScreen />);
     expect(

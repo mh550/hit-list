@@ -87,6 +87,14 @@ describe('import radius in the user\'s unit (D23)', () => {
     }
   });
 
+  it('reads only plain decimal numbers (M7-02)', () => {
+    expect(radiusFromInput(' 164 ', UnitSystem.Imperial)).toBe(50);
+    expect(radiusFromInput('12.5', UnitSystem.Metric)).toBe(13);
+    for (const text of ['0x10', '1e3', '164ft', '0,5', '.', '+5', 'Infinity']) {
+      expect(radiusFromInput(text, UnitSystem.Imperial)).toBeNull();
+    }
+  });
+
   it('never reads a positive input as a zero radius', () => {
     expect(radiusFromInput('1', UnitSystem.Imperial)).toBe(1);
   });

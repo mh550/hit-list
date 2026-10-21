@@ -12,6 +12,41 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 verify M4
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| M4-01 | 1 | read docs/plans/2026-10-20-m4-viewer.md | Has route (fullScreenModal, headerShown false), FlatList pager + getItemLayout rationale, Simultaneous/Exclusive composition, gallery-gestures signatures, Alert.alert sheet (no ActionSheetIOS), fallback rule to zoom-toolkit, test table | yes |
+| M4-01 | 2 | read app/_layout.tsx, jest.setup.ts; `jest root-layout.test.tsx --verbose` | GestureHandlerRootView style flex 1 wraps tree; jestSetup imported (file exists); 3/3 root-layout tests pass incl. flex-1 wrap assertion | yes |
+| M4-01 | 3 | `npx expo export --platform ios --output-dir /tmp/harness/hit_list/hit_list-2026-10-20/exp`; read plan l.26 | exit 0; plan records 4,060,375 B before → 4,215,187 B after | yes |
+| M4-01 | 4 | `check.sh`; `npx jest --ci | grep -c console.error` | green, 529 tests; 0 console.error lines | yes |
+| M4-02 | 1 | read src/utils/gallery-gestures.ts | All six functions exported with specified behaviour; clampPan scale 2, 390×844 → ±195/±422 by formula | yes |
+| M4-02 | 2 | `jest gallery-gestures.test.ts --verbose`; read assertions l.27-85 | 19 pass; asserts clampScale(0.5)=1/(6)=4/(2.2)=2.2, toggleZoom 1/2.5/1.04, clampPan({500,-900},2)={195,-422}, scale 1 → 0,0, pagingEnabled(1.06)=false, shouldClose(121/119,1), (300,2); focalZoom centre test | yes |
+| M4-02 | 3 | `check.sh`; jest console.error count | green; 0 console.error | yes |
+| M4-03 | 1 | read app/_layout.tsx, app/spot/[id]/photos.tsx | Stack.Screen spot/[id]/photos fullScreenModal headerShown false; horizontal pagingEnabled FlatList, initialScrollIndex, getItemLayout by window width; label "Photo N of M"; root #000; StatusBar hidden | yes |
+| M4-03 | 2 | `jest photo-viewer.test.tsx --verbose` | Passes: opens at ?index=2 shows "3 / 7"; Close button; swipe to page 5 → counter; index 99 → last; Spot not found | yes |
+| M4-03 | 3 | `jest spot-detail.test.tsx`; read l.144-152 | Passes; photo-tile-3 press → push(`/spot/<id>/photos?index=3`) | yes |
+| M4-03 | 4 | `check.sh`, export (see M4-01) | green; export exit 0; 0 console.error | yes |
+| M4-04 | 1 | read src/components/ZoomablePhoto.tsx; `wc -l`; grep package.json for zoom-toolkit | Pinch + Pan + Tap(numberOfTaps 2) with shared values, pure fns only. But file is 156 lines with no styles block (129 non-comment/blank); step says under 150 excl. styles or toolkit installed; toolkit not installed; plan l.277 admits 156 | NO |
+| M4-04 | 2 | `jest photo-viewer.test.tsx` "pages at 1× and locks paging once the page reports a zoom past 1.05×" | Passes; scrollEnabled prop true at 1×, false after zoom report | yes |
+| M4-04 | 3 | photo-viewer tests "closes on a swipe down of 150 at 1×", "pans instead of closing … at 2×", "does not close … 119" | Pass; fireGestureHandler drives pan; router.back called at 150/1×, not at 2× | yes |
+| M4-04 | 4 | read photos.tsx doc comment and plan l.45 | Stack pops on back, nothing intercepted; stated in plan and comment | yes |
+| M4-04 | 5 | `check.sh`; export | green; export exit 0; 0 console.error | yes |
+| M4-05 | 1 | photo-viewer tests under "long-press options" | Pass: Alert buttons Set as primary / Remove photo (destructive) / Cancel; updateSpot primary_photo_id; "Remove this photo?" confirm → removePhotos once; counter drops | yes |
+| M4-05 | 2 | tests "moves to the new last page…", "makes the next/previous photo primary…", "clears the primary and closes the viewer when the only photo is removed" | Pass; router.back on last removal; primary → next id or null (both) | yes |
+| M4-05 | 3 | read photos.tsx renderItem | accessibilityHint "Double-tap and hold for options" on page; test "tells VoiceOver users each page has options" passes | yes |
+| M4-05 | 4 | `check.sh`; console.error count | green; 0 | yes |
+| M4-06 | 1 | read docs/plans/2026-10-20-m4-what-michael-will-see.md | Viewer tree for 7 photos at index 2 (counter, Close label, page labels), after-swipe "6 / 7", detail tile render; notes temp tests deleted | yes |
+| M4-06 | 2 | same file, "Try on the phone" | Checklist covers swipe, 4× cap, double-tap, paging lock, swipe-down at 1× only, ✕, long-press, remove drops count; states no gesture ran on a device | yes |
+| M4-06 | 3 | same file, "Verification numbers" | Records jest totals (520 tests, since 529 after M4-07) and export exit 0 with 4,240,251 B bundle; my export also exit 0 | yes |
+| M4-06 | 4 | `check.sh` | green | yes |
+| M4-07 | 1 | read plan "Review (M4-07)", reviews/m4.diff (1752 lines), git log | Findings table with severity, location, fix; RED 0b1dfe8 precedes GREEN d2b3e46 | yes |
+| M4-07 | 2 | read plan "Answers"; read photos.tsx/ZoomablePhoto.tsx | All five answered and match code: windowSize 3, initialNumToRender 1, contentFit contain + recyclingKey, StatusBar hidden only in viewer, close 44×44 | yes |
+| M4-07 | 3 | git log, CLAUDE.md, README, docs/RUNNING-ON-PHONE.md | refactor commit f89bb03; CLAUDE.md lists photos route, gallery-gestures, gesture jest setup; README Status and RUNNING-ON-PHONE mention viewer | yes |
+| M4-07 | 4 | `check.sh`; console.error count | green; 0 | yes |
+
+M4-04 set to passes=false: ZoomablePhoto.tsx is 156 lines (step 1 requires under 150 excl. styles or the toolkit). Fix: trim ≥7 lines, or install react-native-zoom-toolkit as specified.
+
 ### 2026-10-21 16:40 · M4-07 · passes
 
 - Opus review of the M4 diff (`reviews/m4.diff`, 1752 lines): 0 Critical, 2 Important, both fixed. Zoomed photos were decoded at screen size and would blur at 2.5–4×; now `allowDownscaling={!zoomed}`. A pinch starting at 1× could slide the native pager; `ZoomablePhoto` now reports `onPinchChange` and the screen turns `scrollEnabled` off while a pinch runs. Three Minor fixes: a swipe during a removal is kept, a photo already gone is not removed, and a pinch follows dragging fingers. RED `0b1dfe8` → GREEN `d2b3e46`. Rejected the cold-deep-link finding again (`DBInitializer`).

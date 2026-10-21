@@ -16,15 +16,15 @@ export default function ProfileScreen() {
   const batchRadius = useSettingsStore((s) => s.batch_import_radius);
   const { setUnits, setBatchImportRadius } = useSettingsActions();
 
-  // D23: the radius is stored in metres; the field shows it in the user's unit. `draft` holds the text only while
+  // D23: the radius is stored in metres; the field shows it in the user's unit. `typed` holds the text only while
   // the user is typing, so a units switch or a store update re-renders the field from the stored metres.
-  const [draft, setDraft] = useState<string | null>(null);
-  const radiusText = draft ?? String(radiusToDisplay(batchRadius, units));
+  const [typed, setTyped] = useState<string | null>(null);
+  const radiusText = typed ?? String(radiusToDisplay(batchRadius, units));
 
   const commitRadius = () => {
-    if (draft === null) return;
-    setDraft(null);
-    const radiusMeters = radiusFromInput(draft, units);
+    if (typed === null) return;
+    setTyped(null);
+    const radiusMeters = radiusFromInput(typed, units);
     if (radiusMeters !== null && radiusMeters !== batchRadius) setBatchImportRadius(radiusMeters);
   };
 
@@ -72,7 +72,7 @@ export default function ProfileScreen() {
         <TextInput
           style={styles.input}
           value={radiusText}
-          onChangeText={setDraft}
+          onChangeText={setTyped}
           onBlur={commitRadius}
           keyboardType="number-pad"
           returnKeyType="done"

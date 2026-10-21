@@ -5,7 +5,7 @@ feature at one place (a rail, a ledge, a bank…), with photos, a map and three 
 here, whether it's skate-stopped, and how much natural speed the in-run gives.
 Built with Expo (React Native) and runs on an iPhone through Expo Go.
 
-## Status (2026-10-21)
+## Status (2026-10-20, simplified model)
 
 Works end to end in tests and bundles for iOS. The simplification (rev 2,
 `docs/specs/2026-10-16-simplification-design.md`) is being built: the model step (M1), the

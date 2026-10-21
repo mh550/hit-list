@@ -19,6 +19,23 @@ describe('spots against real SQLite', () => {
     expect(await getSpots(db)).toEqual([spot]);
   });
 
+  it('reads a spot whose feature_types_json is unreadable as untagged instead of failing the whole list', async () => {
+    // getSpots throwing would open the app writable with an empty list, as if every spot had gone.
+    const bad = createTestSpot({ name: 'bad row', feature_types: [FeatureType.Rail] });
+    const good = createTestSpot({ name: 'good row' });
+    await insertSpot(db, bad);
+    await insertSpot(db, good);
+    await db.runAsync("UPDATE spots SET feature_types_json = 'x' WHERE id = ?", bad.id);
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const spots = await getSpots(db);
+
+    expect(spots.map((s) => s.name).sort()).toEqual(['bad row', 'good row']);
+    expect(spots.find((s) => s.id === bad.id)?.feature_types).toEqual([]);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
   it('lists newest first and excludes soft-deleted spots', async () => {
     const older = createTestSpot({ created_at: '2026-10-13T10:00:00.000Z' });
     const newer = createTestSpot({ created_at: '2026-10-13T12:00:00.000Z' });

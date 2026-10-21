@@ -12,6 +12,108 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 18:00 · verify M8
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| M8-01 | 1 | Re-ran the grep loop over all 30 patterns on app src jest.setup.ts; read the sweep doc's kept-hits table | 0 hits for 20 patterns. Remaining hits (status, Draft, gear, Material, Intensity, bustability, in_run, skate_stops, custom_type, 'Save as Draft') are all in schema.ts migrations, legacy-details labels, or absence-asserting tests; each is listed with a reason in the sweep doc, which holds the loop output | yes |
+| M8-01 | 2 | `grep -n -E 'Draft\|draft\|gear\|Intensity\|bustab\|Save as Draft\|My Gear' README.md CLAUDE.md docs/RUNNING-ON-PHONE.md` | no output | yes |
+| M8-01 | 3 | `grep export src/utils/units.ts`; grep callers outside tests; read components/index.ts vs ls src/components | displayLength→legacy-details.ts; radiusToDisplay/FromInput/UnitLabel→profile.tsx, import/index.tsx; all 12 index exports have files; sweep doc section lists them | yes |
+| M8-01 | 4 | `npx expo export --platform ios` to scratch dir; `npx expo-doctor` | export exit 0; doctor 21/21 checks passed, exit 0 | yes |
+| M8-01 | 5 | check.sh; `npx jest --ci` counted console.error | check green; 54 suites, 656 tests pass, 0 console.error; sweep doc records 54 suites/656 | yes |
+| M8-02 | 1 | Read APP_SPECIFICATIONS.md top and `grep SUPERSEDED` | '## Simplified model (2026-10-20)' directly after the title with Spot interface, filters, sorts, viewer, nearby offer, radius, pointer to design doc; SUPERSEDED on Feature Details, In-Run, Landing, Spot Metadata, Filters note, Gear+Build filter; text kept | yes |
+| M8-02 | 2 | Read README.md | Status dated 2026-10-20; lists Quick Add, tags, grid and viewer, three filters, sorts, nearby offer, radius in user units, Older details; intro has no gear/build/ratings | yes |
+| M8-02 | 3 | Read CLAUDE.md intro, Layout, Conventions | no gear/ratings; Layout names SpeedScale, PhotoGrid, SpotTagFields, ZoomablePhoto, legacy-details, nearby-spots, gallery-gestures, photos.tsx; Conventions give natural_speed 0-4 with undefined unrated, tap order, getSpotLegacy | yes |
+| M8-02 | 4 | Read RUNNING-ON-PHONE.md 'What to expect' against M2-M7 and edit.tsx | no Draft, one pin colour, viewer, three filters; Undo note matches edit.tsx:275-283. Stale 'git switch overnight/2026-10-14' is outside the step | yes |
+| M8-02 | 5 | check.sh and `npx jest --ci` | green, 656 tests | yes |
+| M8-03 | 1 | `ls reviews/`, `git diff 782ff8d..HEAD --stat`, read sweep doc 'Final review' | reviews/run.diff exists (499 KB); table has id/severity/file/fix; U1 RED c5f2547→GREEN 7fcd615, F2 RED 52ec88d→GREEN 96d8e1a, all four commits in git log | yes |
+| M8-03 | 2 | Read written answers; `npx jest --ci db-init db-migrate` | answers cover v2 full-fat/empty/v1/v3/media count, fresh install, load-after-throw; 41 tests pass | yes |
+| M8-03 | 3 | Read progress.md 'For Michael' | steps in order (npm ci, start:tailscale, Expo Go, first-launch effect, per-milestone lists), rollback with 'DB cannot be rolled back' said plainly, 12 §9 questions with defaults | yes |
+| M8-03 | 4 | `check.sh`; `npx jest --ci`; `npx expo export --platform ios` | lint+tsc+jest green, 0 console.error, export exit 0 | yes |
+
+### 2026-10-21 17:30 · M8-03 · passes
+
+- Whole-run Opus review (two reviewers, data + UI) of `reviews/run.diff` (782ff8d..HEAD, 12,228 lines): 0 Critical, 1 Important, 7 Minor; table and written answers in `docs/plans/2026-10-20-m8-sweep.md` 'Final review'.
+- Important U1 fixed: the Edit sheet could be swiped away mid-Save, and Save's `router.back()` then popped the detail screen too. `edit.tsx` now sets `gestureEnabled: !saving` and skips `back()` after unmount (RED `c5f2547` → GREEN `7fcd615`, re-checked by the reviewer). Minor F2 fixed: one unreadable `feature_types_json` row no longer empties the whole list (RED `52ec88d` → GREEN `96d8e1a`). F1/F3: a real-SQLite test where migration 3 throws on a v2 DB (`db-init-failed-upgrade.test.ts`), and the fresh-install test now asserts an empty v3 spots table.
+- Written answers: v2 → v3 keeps every spot and photo (full-fat, empty, v1, v3, media-count tests pass); a fresh install reaches v3 empty; if migration 3 throws, media and settings load, spots can't below v3, the D28 screen blocks the app and the v2 rows stay on disk.
+- Tests 651 → 656 (52 → 54 suites); `check.sh` green; `jest --ci` 0 console.error; `expo export --platform ios` exit 0 (4.3 MB).
+- Proposed changes (later run, Minor): U3 hide the nearby card once a partly failed Save has created the spot; U4 re-point `primary_photo_id` on an edit retry; U5 enforce the 20-photo cap on 'Add photos there' and the import join; U2 skip the push after leaving Quick Add Review mid-save.
+- Questions for Michael: the §9 list below (all defaults taken, none new this session).
+
+#### For Michael
+
+**One thing first: it can't be undone on the phone.** The first launch of this build runs migration 3 on your
+phone's spots DB (v2 → v3). It cannot be undone: after it runs, an older build of the app can't read the DB.
+
+Phone steps, in order (from this repo on your Mac/box, on `main` after the harness merges this run):
+1. `git checkout main && git pull`, then `npm ci`.
+2. `npm run start:tailscale` (Metro on the tailnet address); open the QR / URL in **Expo Go** on the iPhone.
+3. First launch: migration 3 rewrites every spot in one transaction. Each spot keeps its name, location, photos,
+   town, dates and notes; its old feature type becomes one 'What's here' tag (an 'other' type becomes no tag, with
+   the text kept); 'skate stoppers: yes' becomes 'Skate stopped'; old natural speed 1–5 becomes None…Too much;
+   everything else (dimensions, material, stop type, setup options, landing, intensity, bustability…) is archived
+   and shows under a collapsed **Older details** on the spot's page. Drafts become normal spots. If the upgrade
+   throws, you see "Couldn't upgrade your spots · Nothing was lost · close and reopen to retry" (D28) and the DB
+   stays at v2.
+4. Then try, per milestone:
+   - **M2 edit**: open a spot → Edit. One screen: photo grid with ✕ on each tile and a '+' tile, Name, What's here
+     chips, Skate stopped switch, Natural speed (None · Little · Some · Enough · Too much; tap again to clear), Notes,
+     Save, Delete spot. Remove a photo and add one, then leave without saving → nothing changed; do it again and Save
+     → both applied.
+   - **M3 detail**: a spot with photos shows the grid, title, tag line (red 'Skate stopped'), speed bar, notes; a spot
+     with none shows an 'Add photos' tile that opens Edit. A migrated spot with old data shows 'Older details'
+     (closed); open it → labelled rows in your units.
+   - **M4 viewer**: tap a photo → full-screen black viewer, 'N / M'. Swipe between photos; pinch to 4× and back;
+     double-tap 2.5× ↔ 1×; pan while zoomed doesn't change page; drag down at 1× closes; ✕ closes. Long-press →
+     Set as primary / Remove photo; removing the last photo closes the viewer. Zoom a 12 MP photo → stays sharp.
+   - **M5 list/filters**: rows show tag badges (none for an untagged spot); sorts Distance · Date · Name (Distance
+     greyed without location); Filter sheet: What's here, Skate stopped (Any/Yes/No), Natural speed range (pick
+     Little then Enough → "Little to Enough"); Filter shows "(3)" with all three set. Map pins are one colour; tap a
+     pin → callout with name + "Rail · Ledge" → opens the spot.
+   - **M6 save/import**: Quick Add → photos → review shows Name, an 'Add details' link (tags), Save. Standing at a
+     spot you already have: 'Already have this spot?' lists up to three 'Near <name> · 16 ft' rows with 'Add photos
+     there' (photos only join that spot, D30); Save still makes a new spot. Batch import near an existing spot: the
+     group offers 'New spot' / 'Add photos to <name>'; the button counts only new spots.
+   - **M8 fix**: tap Save on Edit and try to swipe the sheet down at once → it holds until the save is done, then closes to the spot (not the list).
+   - **M7 radius**: Profile → 'Import radius · ft' shows 164 (= 50 m); switch to Metric → 50 m. Type 328 ft → 100 m.
+
+**Roll back the app**: `git checkout <main before the merge>` (the commit `main` pointed at before this run's merge;
+today `2d75cf2`), `npm ci`, restart Metro. **The DB cannot be rolled back after migration 3 has run on the
+phone**: the old build expects the v2 columns, which are gone. The archived values are still in `legacy_json`, but
+nothing writes them back. If you might want the old build, don't open this one until you're sure.
+
+**§9 questions (the run took the bold default; answer in INBOX.md to change one):**
+1. D18 Notes: **kept one free-text Notes field** (say "drop notes").
+2. D21 Natural-speed words: **None · Little · Some · Enough · Too much** (send better words).
+3. D25 Nearby-spot offer: **built, never auto-merges, uses the import radius** (say "skip").
+4. D26 Old fields: **archived into legacy_json, shown under 'Older details'** (say "just delete").
+5. §2.7 Tags on Quick Add review: **collapsed under 'Add details'** (say "always show" / "never show").
+6. (done before the run: main merge)
+7. D15 town in list search / D16 untitled import label date: still open, unchanged.
+8. D28 Failed upgrade: **blocks the app with "Couldn't upgrade your spots"** (say "let me in anyway").
+9. D29 Viewer after 'Set as primary': **keeps its order while open** (say "jump to first").
+10. D30 Joining an existing spot from review: **only the photos go**; a typed name/tags are dropped (say "fill blanks").
+11. D31 Partly failed import/save: **screen stays open with only the unsaved photos; retry doesn't duplicate**
+    (say "close anyway").
+12. D32 Radius precision: **whole metres** (typed 100 ft reads back 98) (say "keep my feet", or name a maximum).
+
+### 2026-10-21 16:30 · M8-02 · passes
+
+- `APP_SPECIFICATIONS.md`: new '## Simplified model (2026-10-20)' directly under the title (Spot interface, three filters, sorts, viewer, nearby offer, metre radius shown in user units, Older details, pointer to the design doc). Six headings now start '[SUPERSEDED]' (Feature Details, In-Run, Two-Stage Filtering, Landing, Spot Metadata, Gear + Build Filter Interaction), text kept; a note sits under the old Filters table.
+- `README.md` Status header dated 2026-10-20 (its list already had every required item); `CLAUDE.md` says feature_types are in tap order (everything else already there); `docs/RUNNING-ON-PHONE.md` gains Add details / nearby card and Edit / Older details bullets.
+- Verified: `grep -n SUPERSEDED APP_SPECIFICATIONS.md` (6 hits); `check.sh` green, 651 tests (docs only).
+- Questions for Michael: none. Proposed changes: none.
+
+### 2026-10-21 16:00 · M8-01 · passes
+
+- Sweep (spec §6) written up in new `docs/plans/2026-10-20-m8-sweep.md`. It has the full grep-loop output and a table giving the reason for every kept hit. No app code uses a removed type, component, label table, setting or filter. The hits that remain fall into four groups: shipped migrations (`schema.ts`, never edited), the D26 `legacy_json` keys and their 'Older details' labels (Material, Intensity, Bustability…), tests that assert something removed stays absent (D20/D22), and non-model `status` (permissions, `expo-status-bar`, `Promise.allSettled`).
+- Renamed incidental "Draft" words: `profile.tsx` `draft` → `typed`, `edit.tsx` `draftMedia` → `stagedMedia`, `edit-add-photos.test.tsx` `savedDrafts` → `savedStaged`.
+- expo-doctor first exited 1 on patch mismatches; `npx expo install --fix` → expo 57.0.31, expo-location 57.0.22, expo-router 57.0.29 (separate `chore:` commit, expo-modules-core still at the root only); CLAUDE.md Stack updated. Doctor now exits 0 (21/21). `expo export --platform ios` exits 0 before and after (4.3 MB hbc).
+- Docs grep (README, CLAUDE.md, RUNNING-ON-PHONE) prints nothing. Every `units.ts` export has a caller outside tests (`displayLength` → legacy-details; the three radius helpers → profile/import). Every `components/index.ts` export exists.
+- Tests 651 → 651 (52 suites); `check.sh` green; `jest --ci` 0 console.error.
+- Proposed change: M8-01 step 1 says each pattern "prints nothing", but it only names `status` as an exception. In practice it cannot hold for migration 1/3 code (CLAUDE.md: never edit a shipped migration), the D26 archive and its labels, or the regression tests that assert something removed stays absent. Suggest the step allow those categories when they are listed, as the sweep doc does.
+- Next (M8-02): the docs grep is already clean; APP_SPECIFICATIONS still needs the 'Simplified model' section and the [SUPERSEDED] marks.
+
 ### 2026-10-21 verify M7
 
 | Feature | Step | What you ran or read | What you saw | Holds |

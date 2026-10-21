@@ -541,7 +541,7 @@
         "npx expo export --platform ios --output-dir /tmp/hl-export exits 0; npx expo-doctor exits 0 (or, if the sandbox has no network, the doctor output is pasted and the failing checks are only network ones, stated in the sweep doc).",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines; the sweep doc records the final test and suite counts."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M8-02",
@@ -557,7 +557,7 @@
         "docs/RUNNING-ON-PHONE.md 'what you will see' paragraphs match the M2–M7 walkthrough files (no Draft, pins one colour, viewer, filters).",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M8-03",
@@ -572,7 +572,7 @@
         "progress.md's newest entry has a 'For Michael' section with: the exact phone steps in order (npm ci, npm run start:tailscale, open in Expo Go, what the first launch does to his data, then the per-milestone 'Try on the phone' lists from the walkthrough files), how to roll back (git checkout main before the merge; the DB cannot be rolled back after migration 3, said plainly), and the list of §9 questions with the defaults taken.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines, npx expo export --platform ios --output-dir /tmp/hl-export exits 0."
       ],
-      "passes": false
+      "passes": true
     }
   ]
 }

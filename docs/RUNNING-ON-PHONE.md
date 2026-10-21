@@ -49,6 +49,9 @@ takes a little while; later loads are quick.
   tapping it lists them by name instead. Pick one to open it.
 - **+ button**: camera → take photos → name it or leave it blank → Save. The photos are
   copied into the app's own storage, so they stay after iOS clears its caches.
+- **Add details** (on the + button's review screen): a link under the name that opens the three tags (what's
+  here, Skate stopped, natural speed); the fast path stays photo → Save. If a spot you already have is within the
+  Import Radius, an 'Already have this spot?' card lists up to three ('Near Library Rail · 16 ft') with **Add photos there**.
 - **Import Photos** (Spots tab, the small photo button above +): it opens an "Import Photos" screen;
   tap **Select Photos** to open the library picker. Photos are grouped by GPS only: photos within the
   Import Radius of each other (Profile tab, 50 m by default) become one spot. Photos without GPS get
@@ -56,6 +59,9 @@ takes a little while; later loads are quick.
 - **Spot detail**: the main photo large, the rest in rows of three underneath. In Edit, tap the × on a photo and
   Save to take it off the spot (the file stays in the app's storage). A note shows how many photos
   will be removed, with an Undo. Swipe the sheet away without Save and the photo stays.
+- **Edit** (from a spot): one screen: photo grid (✕ removes, '+' adds from the library; both are written on Save),
+  name, tags, notes, Delete. A spot with older data (dimensions, material, old scores…) shows it under a collapsed
+  **Older details** on the detail screen, in your units.
 - **Photo viewer**: tap any photo on the detail screen. It opens full screen on black at that photo, with
   "3 / 7" at the top and a ✕ to close (the status bar comes back when it closes). Swipe sideways between
   photos; pinch to zoom (up to 4×) and drag around while zoomed (sideways swipes stop changing photo until

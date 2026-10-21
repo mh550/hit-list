@@ -61,3 +61,9 @@
 - 2026-10-21 14:17 · M7-01 · claude-opus-5-5 · passes=true · 2 min · 35/39 passing
 - 2026-10-21 14:21 · M7-02 · claude-opus-5-5 · passes=true · 3 min · 36/39 passing
 - 2026-10-21 14:21 · merged main into harness/hit_list-2026-10-20
+- 2026-10-21 14:22 · M7 verified and tagged run/hit_list-2026-10-20/M7
+- 2026-10-21 14:22 · M7 merged into main · https://github.com/mh550/hit-list/pull/7
+- 2026-10-21 14:27 · M8-01 · claude-opus-5-5 · passes=true · 4 min · 37/39 passing
+- 2026-10-21 14:28 · M8-02 · claude-sonnet-5-5 · passes=true · 0 min · 38/39 passing
+- 2026-10-21 14:37 · M8-03 · claude-opus-5-5 · passes=true · 8 min · 39/39 passing
+- 2026-10-21 14:37 · merged main into harness/hit_list-2026-10-20

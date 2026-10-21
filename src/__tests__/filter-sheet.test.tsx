@@ -2,7 +2,7 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react-native';
 import { FilterSheet } from '@/src/components/FilterSheet';
 import { useSpotsStore } from '@/src/stores';
-import { DEFAULT_FILTERS, FeatureType, GearItem } from '@/src/types';
+import { DEFAULT_FILTERS, FeatureType } from '@/src/types';
 
 describe('FilterSheet', () => {
   const onClose = jest.fn();
@@ -18,14 +18,12 @@ describe('FilterSheet', () => {
     expect(screen.getByText('ledge')).toBeTruthy();
   });
 
-  it('renders gear filter chips', () => {
+  it('has no gear, build or drafts filter (D20, D22)', () => {
     render(<FilterSheet visible onClose={onClose} />);
-    expect(screen.getByText('winch')).toBeTruthy();
-  });
-
-  it('renders show drafts toggle', () => {
-    render(<FilterSheet visible onClose={onClose} />);
-    expect(screen.getByText('Show Drafts')).toBeTruthy();
+    expect(screen.queryByText(/gear i have/i)).toBeNull();
+    expect(screen.queryByText(/exclude build/i)).toBeNull();
+    expect(screen.queryByText(/show drafts/i)).toBeNull();
+    expect(screen.queryByText('winch')).toBeNull();
   });
 
   it('renders Reset and Apply buttons', () => {
@@ -41,27 +39,19 @@ describe('FilterSheet', () => {
     expect(useSpotsStore.getState().filters.types).toContain(FeatureType.Rail);
   });
 
-  it('toggling gear chip updates filter state on Apply', () => {
-    render(<FilterSheet visible onClose={onClose} />);
-    fireEvent.press(screen.getByText('winch'));
-    fireEvent.press(screen.getByText('Apply'));
-    expect(useSpotsStore.getState().filters.gear).toContain(GearItem.Winch);
-  });
-
   it('Reset clears all filters', () => {
     useSpotsStore.setState({
-      filters: { ...DEFAULT_FILTERS, types: [FeatureType.Rail], gear: [GearItem.Winch] },
+      filters: { ...DEFAULT_FILTERS, types: [FeatureType.Rail], stopped: true },
     });
     render(<FilterSheet visible onClose={onClose} />);
     fireEvent.press(screen.getByText('Reset'));
-    expect(useSpotsStore.getState().filters.types).toHaveLength(0);
-    expect(useSpotsStore.getState().filters.gear).toHaveLength(0);
+    expect(useSpotsStore.getState().filters).toEqual(DEFAULT_FILTERS);
   });
 
   it('Reset and Apply clear the filters but leave the search alone', () => {
     // Search has its own field on the Spots tab, so the filter sheet must not wipe what the user typed.
     useSpotsStore.setState({
-      filters: { ...DEFAULT_FILTERS, types: [FeatureType.Rail], show_drafts: false },
+      filters: { ...DEFAULT_FILTERS, types: [FeatureType.Rail], stopped: false },
       searchQuery: 'pier',
     });
     render(<FilterSheet visible onClose={onClose} />);

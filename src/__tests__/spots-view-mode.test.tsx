@@ -1,14 +1,14 @@
 import { render, screen, fireEvent } from '@testing-library/react-native';
 import { useMediaStore, useSpotsStore } from '@/src/stores';
-import { DEFAULT_FILTERS, SpotStatus } from '@/src/types';
+import { DEFAULT_FILTERS } from '@/src/types';
 import { CITIES, createTestSpot } from './factories';
 
 import SpotsScreen from '@/app/(tabs)/index';
 
 const spots = [
-  createTestSpot({ name: 'Pier 57 rail', status: SpotStatus.Complete, location: CITIES.seattle }),
-  createTestSpot({ name: 'Library ledge', status: SpotStatus.Draft, location: CITIES.portland }),
-  createTestSpot({ name: 'Bank to wall', status: SpotStatus.Complete, location: CITIES.spokane }),
+  createTestSpot({ name: 'Pier 57 rail', location: CITIES.seattle }),
+  createTestSpot({ name: 'Library ledge', stopped: true, location: CITIES.portland }),
+  createTestSpot({ name: 'Bank to wall', location: CITIES.spokane }),
 ];
 
 describe('Spots tab Map | List toggle', () => {
@@ -37,7 +37,7 @@ describe('Spots tab Map | List toggle', () => {
   });
 
   it('shows exactly the filtered spots on the map', () => {
-    useSpotsStore.setState({ viewMode: 'map', filters: { ...DEFAULT_FILTERS, show_drafts: false } });
+    useSpotsStore.setState({ viewMode: 'map', filters: { ...DEFAULT_FILTERS, stopped: false } });
 
     render(<SpotsScreen />);
 

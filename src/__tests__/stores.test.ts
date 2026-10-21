@@ -8,11 +8,8 @@ import { useSpotsStore } from '@/src/stores';
 import {
   DEFAULT_FILTERS,
   FeatureType,
-  GearItem,
-  BuildItem,
   SortField,
   SortDirection,
-  SpotStatus,
   UnitSystem,
 } from '@/src/types';
 import type { SpotFilters } from '@/src/types';
@@ -20,133 +17,48 @@ import { NO_LOCATION } from '@/src/utils/geo';
 import { CITIES, createTestSpot } from './factories';
 
 describe('selectFilteredSpots', () => {
-  const spotWithWinch = createTestSpot({
-    id: 'winch-spot',
-    name: 'Winch Spot',
-    feature: { type: FeatureType.Rail, difficulty: 3 },
-    in_run: {
-      natural_speed: 2,
-      setup_options: [
-        { requires: [{ item: GearItem.Winch, category: 'gear' }] },
-      ],
-    },
-    metadata: { intensity: 4, bustability: 2 },
-    status: SpotStatus.Complete,
-  });
-
-  const spotWithPlatform = createTestSpot({
-    id: 'platform-spot',
-    name: 'Platform Spot',
-    feature: { type: FeatureType.Ledge },
-    in_run: {
-      setup_options: [
-        {
-          requires: [
-            { item: GearItem.DropInPlatform, category: 'gear' },
-            { item: BuildItem.SpeedHumps, category: 'build', quantity: 3 },
-          ],
-        },
-      ],
-    },
-    status: SpotStatus.Complete,
-  });
-
-  const spotWithMultipleOptions = createTestSpot({
-    id: 'multi-spot',
-    name: 'Multi Option Spot',
+  const railSpot = createTestSpot({
+    id: 'rail-spot',
+    name: 'Rail Spot',
     feature: { type: FeatureType.Rail },
-    in_run: {
-      setup_options: [
-        { requires: [{ item: GearItem.Winch, category: 'gear' }] },
-        {
-          requires: [
-            { item: GearItem.DropInPlatform, category: 'gear' },
-            { item: BuildItem.SpeedHumps, category: 'build', quantity: 3 },
-          ],
-        },
-      ],
-    },
-    status: SpotStatus.Complete,
+    stopped: true,
   });
 
-  const draftSpot = createTestSpot({
-    id: 'draft-spot',
-    name: 'Draft Spot',
-    status: SpotStatus.Draft,
+  const ledgeSpot = createTestSpot({
+    id: 'ledge-spot',
+    name: 'Ledge Spot',
+    feature: { type: FeatureType.Ledge },
   });
 
-  const allSpots = [spotWithWinch, spotWithPlatform, spotWithMultipleOptions, draftSpot];
+  const untaggedSpot = createTestSpot({ id: 'untagged-spot', name: 'Untagged Spot' });
+
+  const allSpots = [railSpot, ledgeSpot, untaggedSpot];
 
   it('returns all spots with default filters', () => {
     const result = selectFilteredSpots(allSpots, DEFAULT_FILTERS);
-    expect(result).toHaveLength(4);
+    expect(result).toHaveLength(3);
   });
 
   it('filters by type', () => {
     const filters: SpotFilters = { ...DEFAULT_FILTERS, types: [FeatureType.Rail] };
     const result = selectFilteredSpots(allSpots, filters);
-    expect(result.every((s) => s.feature.type === FeatureType.Rail)).toBe(true);
+    expect(result.map((s) => s.id)).toEqual(['rail-spot']);
   });
 
-  it('hides draft spots when show_drafts is false', () => {
-    const filters: SpotFilters = { ...DEFAULT_FILTERS, show_drafts: false };
-    const result = selectFilteredSpots(allSpots, filters);
-    expect(result.every((s) => s.status === SpotStatus.Complete)).toBe(true);
+  it('stopped: true keeps only stopped spots', () => {
+    const result = selectFilteredSpots(allSpots, { ...DEFAULT_FILTERS, stopped: true });
+    expect(result.map((s) => s.id)).toEqual(['rail-spot']);
+  });
+
+  it('stopped: false keeps only spots that are not stopped', () => {
+    const result = selectFilteredSpots(allSpots, { ...DEFAULT_FILTERS, stopped: false });
+    expect(result.map((s) => s.id)).toEqual(['ledge-spot', 'untagged-spot']);
   });
 
   it('filters by search query (case insensitive)', () => {
-    const result = selectFilteredSpots(allSpots, DEFAULT_FILTERS, 'winch');
+    const result = selectFilteredSpots(allSpots, DEFAULT_FILTERS, 'LEDGE');
     expect(result).toHaveLength(1);
-    expect(result[0].id).toBe('winch-spot');
-  });
-
-  // Spec filter example table
-  it('gear filter: winch matches winch-only setup', () => {
-    const filters: SpotFilters = { ...DEFAULT_FILTERS, gear: [GearItem.Winch] };
-    const result = selectFilteredSpots([spotWithWinch], filters);
-    expect(result).toHaveLength(1);
-  });
-
-  it('gear filter: platform matches platform setup (build shown as info)', () => {
-    const filters: SpotFilters = { ...DEFAULT_FILTERS, gear: [GearItem.DropInPlatform] };
-    const result = selectFilteredSpots([spotWithPlatform], filters);
-    expect(result).toHaveLength(1);
-  });
-
-  it('gear filter: platform + exclude speed_humps = no match', () => {
-    const filters: SpotFilters = {
-      ...DEFAULT_FILTERS,
-      gear: [GearItem.DropInPlatform],
-      exclude_build: [BuildItem.SpeedHumps],
-    };
-    const result = selectFilteredSpots([spotWithPlatform], filters);
-    expect(result).toHaveLength(0);
-  });
-
-  it('gear filter: winch+platform + exclude speed_humps = match via winch option', () => {
-    const filters: SpotFilters = {
-      ...DEFAULT_FILTERS,
-      gear: [GearItem.Winch, GearItem.DropInPlatform],
-      exclude_build: [BuildItem.SpeedHumps],
-    };
-    const result = selectFilteredSpots([spotWithMultipleOptions], filters);
-    expect(result).toHaveLength(1);
-  });
-
-  it('gear filter: bungee = no match when no setup uses bungee', () => {
-    const filters: SpotFilters = { ...DEFAULT_FILTERS, gear: [GearItem.Bungee] };
-    const result = selectFilteredSpots([spotWithWinch], filters);
-    expect(result).toHaveLength(0);
-  });
-
-  it('spots with empty setup_options match any gear filter', () => {
-    const noRequirements = createTestSpot({
-      in_run: { setup_options: [] },
-      status: SpotStatus.Complete,
-    });
-    const filters: SpotFilters = { ...DEFAULT_FILTERS, gear: [GearItem.Winch] };
-    const result = selectFilteredSpots([noRequirements], filters);
-    expect(result).toHaveLength(1);
+    expect(result[0].id).toBe('ledge-spot');
   });
 });
 
@@ -154,14 +66,12 @@ describe('selectSortedSpots', () => {
   const spotA = createTestSpot({
     name: 'Alpha',
     created_at: '2025-01-01T00:00:00Z',
-    metadata: { intensity: 3 },
     location: CITIES.seattle,
   });
 
   const spotB = createTestSpot({
     name: 'Beta',
     created_at: '2025-02-01T00:00:00Z',
-    metadata: { intensity: 5 },
     location: CITIES.portland,
   });
 
@@ -178,11 +88,6 @@ describe('selectSortedSpots', () => {
   it('sorts by date ascending', () => {
     const result = selectSortedSpots([spotB, spotA], SortField.DateAdded, SortDirection.Asc);
     expect(result[0].name).toBe('Alpha');
-  });
-
-  it('sorts by intensity descending', () => {
-    const result = selectSortedSpots([spotA, spotB], SortField.Intensity, SortDirection.Desc);
-    expect(result[0].name).toBe('Beta');
   });
 
   it('sorts by distance from user location', () => {
@@ -229,38 +134,6 @@ describe('selectSortedSpots: missing data sorts last in both directions', () => 
     }
   });
 
-  const low = createTestSpot({ name: 'low', metadata: { intensity: 1 }, created_at: '2025-01-01T00:00:00Z' });
-  const high = createTestSpot({ name: 'high', metadata: { intensity: 5 }, created_at: '2025-01-02T00:00:00Z' });
-  const unratedOld = createTestSpot({ name: 'unrated-old', metadata: {}, created_at: '2025-01-03T00:00:00Z' });
-  const unratedNew = createTestSpot({ name: 'unrated-new', metadata: {}, created_at: '2025-01-04T00:00:00Z' });
-
-  it('Intensity descending: highest first, unrated last', () => {
-    // An unrated spot is not intensity 0.
-    const result = selectSortedSpots([unratedOld, low, high], SortField.Intensity, SortDirection.Desc);
-
-    expect(names(result)).toEqual(['high', 'low', 'unrated-old']);
-  });
-
-  it('Intensity ascending: lowest first, unrated still last', () => {
-    // Unrated is not counted as 0, which would float it to the top ascending.
-    const result = selectSortedSpots([unratedOld, high, low], SortField.Intensity, SortDirection.Asc);
-
-    expect(names(result)).toEqual(['low', 'high', 'unrated-old']);
-  });
-
-  it('Intensity: equal and unrated spots break ties by created_at newest first (both directions)', () => {
-    // Deterministic order within the missing group, and between two spots rated 3 whichever way the sort runs.
-    const older = createTestSpot({ name: 'older', metadata: { intensity: 3 }, created_at: '2025-01-01T00:00:00Z' });
-    const newer = createTestSpot({ name: 'newer', metadata: { intensity: 3 }, created_at: '2025-01-02T00:00:00Z' });
-
-    for (const direction of [SortDirection.Asc, SortDirection.Desc]) {
-      const result = selectSortedSpots([unratedOld, unratedNew, low], SortField.Intensity, direction);
-
-      expect(names(result)).toEqual(['low', 'unrated-new', 'unrated-old']);
-      expect(names(selectSortedSpots([older, newer], SortField.Intensity, direction))).toEqual(['newer', 'older']);
-    }
-  });
-
   const zulu = createTestSpot({ name: 'Zulu', created_at: '2025-01-05T00:00:00Z' });
   const alpha = createTestSpot({ name: 'Alpha', created_at: '2025-01-01T00:00:00Z' });
   const unnamedOld = createTestSpot({ generated_name: 'Aberdeen', created_at: '2025-01-03T00:00:00Z' });
@@ -301,13 +174,17 @@ describe('selectActiveFilterCount', () => {
     ).toBe(1);
   });
 
-  it('counts multiple filters', () => {
+  it('counts stopped: false as set (only undefined means any)', () => {
+    expect(selectActiveFilterCount({ ...DEFAULT_FILTERS, stopped: false })).toBe(1);
+  });
+
+  it('counts types, stopped and the speed range: 3', () => {
     expect(
       selectActiveFilterCount({
-        ...DEFAULT_FILTERS,
         types: [FeatureType.Rail],
-        gear: [GearItem.Winch],
-        show_drafts: false,
+        stopped: true,
+        natural_speed_min: 1,
+        natural_speed_max: 3,
       }),
     ).toBe(3);
   });
@@ -318,30 +195,12 @@ describe('useSettingsStore', () => {
     useSettingsStore.setState({
       units: UnitSystem.Imperial,
       batch_import_radius: 50,
-      gear: [],
     });
   });
 
   it('toggles units', () => {
     useSettingsStore.getState().setUnits(UnitSystem.Metric);
     expect(useSettingsStore.getState().units).toBe(UnitSystem.Metric);
-  });
-
-  it('adds gear', () => {
-    useSettingsStore.getState().addGear(GearItem.Winch);
-    expect(useSettingsStore.getState().gear).toContain(GearItem.Winch);
-  });
-
-  it('removes gear', () => {
-    useSettingsStore.getState().setGear([GearItem.Winch, GearItem.Bungee]);
-    useSettingsStore.getState().removeGear(GearItem.Winch);
-    expect(useSettingsStore.getState().gear).toEqual([GearItem.Bungee]);
-  });
-
-  it('does not add duplicate gear', () => {
-    useSettingsStore.getState().addGear(GearItem.Winch);
-    useSettingsStore.getState().addGear(GearItem.Winch);
-    expect(useSettingsStore.getState().gear).toHaveLength(1);
   });
 });
 

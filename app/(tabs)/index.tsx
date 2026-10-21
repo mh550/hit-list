@@ -26,7 +26,7 @@ import { featureLabel, getSpotDisplayName } from '@/src/utils/spot-name';
 import { resolvePhotoUri } from '@/src/utils/photo-storage';
 import { primaryPhoto } from '@/src/utils/spot-photos';
 import { haversineDistance, formatDistance, isKnownLocation } from '@/src/utils/geo';
-import { SortField, SpotStatus, UnitSystem } from '@/src/types';
+import { SortField, UnitSystem } from '@/src/types';
 import type { Spot } from '@/src/types';
 import type { ViewMode } from '@/src/stores/spots-store';
 import { palette, radius, spacing } from '@/src/constants/theme';
@@ -106,7 +106,6 @@ export default function SpotsScreen() {
           featureType={featureLabel(item)}
           difficulty={item.feature.difficulty as 1 | 2 | 3 | 4 | 5 | undefined}
           distance={getDistance(item)}
-          isDraft={item.status === SpotStatus.Draft}
           onPress={handleSpotPress}
         />
       );

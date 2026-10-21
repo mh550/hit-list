@@ -1,6 +1,5 @@
 import { newId } from '@/src/utils/id';
 import type { GeoPoint, Spot, Media } from '@/src/types';
-import { SpotStatus } from '@/src/types';
 
 /** Cities hundreds of km apart: their pins never merge into a map cluster, whatever zoom initialRegion picks. */
 export const CITIES = {
@@ -18,9 +17,8 @@ export function createTestSpot(overrides: Partial<Spot> = {}): Spot {
     updated_at: now,
     feature_types: [],
     stopped: false,
-    status: SpotStatus.Complete, // what rowToSpot returns until M1-03 removes status
     feature: {},
-    in_run: { setup_options: [] },
+    in_run: {},
     landing: {},
     metadata: {},
     ...overrides,

@@ -41,7 +41,7 @@ describe('review screens persist photos before saving (D3)', () => {
     fs.__putFile('file:///c/b.jpg');
 
     render(<QuickAddReview />);
-    fireEvent.press(screen.getByText('Save as Draft'));
+    fireEvent.press(screen.getByText('Save'));
     await waitFor(() => expect(mockDismissAll).toHaveBeenCalled());
 
     const media = insertedMedia();
@@ -49,6 +49,34 @@ describe('review screens persist photos before saving (D3)', () => {
     expect(media.every((m) => RELATIVE.test(m.file_path))).toBe(true);
     expect(media.every((m) => fs.__fileExists(`file:///data/Documents/${m.file_path}`))).toBe(true);
     expect(useMediaStore.getState().mediaBySpot[media[0].spot_id]).toHaveLength(2);
+  });
+
+  it('Quick Add saves an untagged, not-stopped spot with no status (D20)', async () => {
+    setParams({ photoUris: '', latitude: '47.6', longitude: '-122.3' });
+
+    render(<QuickAddReview />);
+    fireEvent.press(screen.getByText('Save'));
+    await waitFor(() => expect(mockDismissAll).toHaveBeenCalled());
+
+    const [spot] = useSpotsStore.getState().spots;
+    expect(spot).toMatchObject({ feature_types: [], stopped: false });
+    expect(spot).not.toHaveProperty('status');
+  });
+
+  it('Import saves untagged, not-stopped spots with no status (D20)', async () => {
+    const group: ImportPhoto[] = [
+      { uri: 'file:///c/i2.jpg', location: { latitude: 47.6, longitude: -122.3 }, capturedAt: '2026-10-13T14:22:01' },
+    ];
+    setParams({ groupsJson: JSON.stringify([group]) });
+    fs.__putFile('file:///c/i2.jpg');
+
+    render(<ImportReview />);
+    fireEvent.press(screen.getByText('Import 1 Spot'));
+    await waitFor(() => expect(mockDismissAll).toHaveBeenCalled());
+
+    const [spot] = useSpotsStore.getState().spots;
+    expect(spot).toMatchObject({ feature_types: [], stopped: false });
+    expect(spot).not.toHaveProperty('status');
   });
 
   it('Import stores relative photo paths and fills the media store', async () => {
@@ -93,7 +121,7 @@ describe('review screens persist photos before saving (D3)', () => {
     setParams({ photoUris: 'file:///c/gone.jpg', latitude: '0', longitude: '0' }); // never created
 
     render(<QuickAddReview />);
-    fireEvent.press(screen.getByText('Save as Draft'));
+    fireEvent.press(screen.getByText('Save'));
     await waitFor(() => expect(mockDismissAll).toHaveBeenCalled());
 
     expect(insertedMedia().map((m) => m.file_path)).toEqual(['file:///c/gone.jpg']);
@@ -106,7 +134,7 @@ describe('review screens persist photos before saving (D3)', () => {
     setParams({ photoUris: '', latitude: '47.6', longitude: '-122.3' });
 
     render(<QuickAddReview />);
-    fireEvent.press(screen.getByText('Save as Draft'));
+    fireEvent.press(screen.getByText('Save'));
 
     await waitFor(() =>
       expect(mockUpdateSpot).toHaveBeenCalledWith(expect.anything(), expect.any(String), { generated_name: 'Seattle', updated_at: expect.any(String) }),

@@ -3,9 +3,8 @@ import type { ReactTestInstance } from 'react-test-renderer';
 import { render, screen, fireEvent, act } from '@testing-library/react-native';
 import { useIsFocused } from 'expo-router';
 import * as ReactNativeMaps from 'react-native-maps';
-import { SpotMap, DRAFT_PIN, SPOT_PIN } from '@/src/components/SpotMap';
+import { SpotMap, SPOT_PIN } from '@/src/components/SpotMap';
 import { initialRegion } from '@/src/utils/map-region';
-import { SpotStatus } from '@/src/types';
 import type { Spot } from '@/src/types';
 import { CITIES, createTestSpot } from './factories';
 import { NO_LOCATION } from '@/src/utils/geo';
@@ -17,9 +16,9 @@ import { palette } from '@/src/constants/theme';
 // second, separate instance of the mock, whose spies the MapView never calls.
 const { mockMapMethods } = ReactNativeMaps as unknown as typeof import('../../__mocks__/react-native-maps');
 
-const named = createTestSpot({ name: 'Pier 57 rail', status: SpotStatus.Complete, location: CITIES.seattle });
-const draft = createTestSpot({ name: 'Library ledge', status: SpotStatus.Draft, location: CITIES.portland });
-const unnamed = createTestSpot({ status: SpotStatus.Complete, location: CITIES.spokane });
+const named = createTestSpot({ name: 'Pier 57 rail', location: CITIES.seattle });
+const stopped = createTestSpot({ name: 'Library ledge', stopped: true, location: CITIES.portland });
+const unnamed = createTestSpot({ location: CITIES.spokane });
 
 /** The background colour of the nearest ancestor that paints one (the cluster's coloured circle behind its count). */
 function backgroundBehind(element: ReactTestInstance): unknown {
@@ -55,7 +54,6 @@ const closeSpots = [
 ].map(([dLat, dLng], i) =>
   createTestSpot({
     name: `Pier 57 spot ${i}`,
-    status: SpotStatus.Complete,
     location: { latitude: CITIES.seattle.latitude + dLat, longitude: CITIES.seattle.longitude + dLng },
   }),
 );
@@ -64,18 +62,22 @@ describe('SpotMap', () => {
   beforeEach(() => mockMapMethods.fitToCoordinates.mockReset());
 
   it('renders one marker per spot, titled with the display name', () => {
-    renderMap([named, draft, unnamed]);
+    renderMap([named, stopped, unnamed]);
 
     expect(screen.getAllByTestId(/^spot-marker-/)).toHaveLength(3);
     expect(screen.getByTestId(`spot-marker-${named.id}`).props.title).toBe('Pier 57 rail');
   });
 
-  it('colours drafts differently from complete spots', () => {
-    renderMap([draft, named]);
+  it('gives every pin the one spot colour (D20: no draft colour)', () => {
+    renderMap([named, stopped, unnamed]);
 
-    expect(screen.getByTestId(`spot-marker-${draft.id}`).props.pinColor).toBe(DRAFT_PIN);
-    expect(screen.getByTestId(`spot-marker-${named.id}`).props.pinColor).toBe(SPOT_PIN);
-    expect(DRAFT_PIN).not.toBe(SPOT_PIN);
+    for (const marker of screen.getAllByTestId(/^spot-marker-/)) expect(marker.props.pinColor).toBe(SPOT_PIN);
+  });
+
+  it('leaves the callout description empty for a spot with no feature types', () => {
+    renderMap([named]);
+
+    expect(screen.getByTestId(`spot-marker-${named.id}`).props.description).toBeUndefined();
   });
 
   it('opens the spot when its callout is pressed', () => {
@@ -105,7 +107,7 @@ describe('SpotMap', () => {
   });
 
   it('shows the custom feature name for "other" in the callout', () => {
-    const custom = createTestSpot({ status: SpotStatus.Complete, feature: { type: 'other' as never, custom_type: 'kinked hubba' } });
+    const custom = createTestSpot({ feature: { type: 'other' as never, custom_type: 'kinked hubba' } });
     renderMap([custom]);
 
     expect(screen.getByTestId(`spot-marker-${custom.id}`).props.description).toBe('kinked hubba');
@@ -130,7 +132,7 @@ describe('SpotMap', () => {
 
     // Spots in different cities must stay separate pins, not be pulled into a cluster.
     it('keeps spots far apart as individual pins with no cluster', () => {
-      renderMap([named, draft]);
+      renderMap([named, stopped]);
 
       expect(screen.getAllByTestId(/^spot-marker-/)).toHaveLength(2);
       expect(screen.queryAllByText(/^\d+$/)).toHaveLength(0);
@@ -175,9 +177,9 @@ describe('SpotMap', () => {
 
       // Spots at the exact same place can never be pulled apart by zooming, so tapping their cluster must list them.
       it('lists spots that share one coordinate in an action sheet instead of zooming', () => {
-        const rail = createTestSpot({ name: 'Pier 57 rail', status: SpotStatus.Complete, location: CITIES.seattle });
-        const ledge = createTestSpot({ name: 'Pier 57 ledge', status: SpotStatus.Complete, location: CITIES.seattle });
-        const untitled = createTestSpot({ status: SpotStatus.Complete, location: CITIES.seattle });
+        const rail = createTestSpot({ name: 'Pier 57 rail', location: CITIES.seattle });
+        const ledge = createTestSpot({ name: 'Pier 57 ledge', location: CITIES.seattle });
+        const untitled = createTestSpot({ location: CITIES.seattle });
         const onOpenSpot = jest.fn();
         renderMap([rail, ledge, untitled], { onOpenSpot });
 
@@ -204,12 +206,12 @@ describe('SpotMap', () => {
       it('keeps both same-place groups tappable after zooming in on a mixed cluster', () => {
         // Two pairs, each pair sharing one exact coordinate.
         const groupA = [
-          createTestSpot({ name: 'Pier 57 rail', status: SpotStatus.Complete, location: CITIES.seattle }),
-          createTestSpot({ name: 'Pier 57 ledge', status: SpotStatus.Complete, location: CITIES.seattle }),
+          createTestSpot({ name: 'Pier 57 rail', location: CITIES.seattle }),
+          createTestSpot({ name: 'Pier 57 ledge', location: CITIES.seattle }),
         ];
         const groupB = [
-          createTestSpot({ name: 'Pier 57 stairs', status: SpotStatus.Complete, location: POINT_B }),
-          createTestSpot({ name: 'Pier 57 bank', status: SpotStatus.Complete, location: POINT_B }),
+          createTestSpot({ name: 'Pier 57 stairs', location: POINT_B }),
+          createTestSpot({ name: 'Pier 57 bank', location: POINT_B }),
         ];
         const onOpenSpot = jest.fn();
         renderMap([...groupA, ...groupB], { onOpenSpot });

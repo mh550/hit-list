@@ -18,10 +18,12 @@ export async function setSetting(db: SQLiteDatabase, key: string, value: string)
   );
 }
 
+/** The saved settings over the defaults. Keys an older build saved (e.g. `gear`, D22) are dropped. */
 export async function getUserSettings(db: SQLiteDatabase): Promise<UserSettings> {
   const raw = await getSetting(db, 'user_settings');
   try {
-    return { ...DEFAULT_USER_SETTINGS, ...JSON.parse(raw ?? 'null') } as UserSettings;
+    const { units, batch_import_radius } = { ...DEFAULT_USER_SETTINGS, ...JSON.parse(raw ?? 'null') } as UserSettings;
+    return { units, batch_import_radius };
   } catch {
     return { ...DEFAULT_USER_SETTINGS }; // corrupt blob
   }

@@ -2,7 +2,7 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react-native';
 import ProfileScreen from '@/app/(tabs)/profile';
 import { useSettingsStore } from '@/src/stores/settings-store';
-import { GearItem, UnitSystem } from '@/src/types';
+import { UnitSystem } from '@/src/types';
 
 jest.mock('expo-sqlite', () => ({
   useSQLiteContext: () => ({
@@ -25,7 +25,6 @@ describe('ProfileScreen', () => {
     useSettingsStore.setState({
       units: UnitSystem.Imperial,
       batch_import_radius: 50,
-      gear: [],
     });
   });
 
@@ -35,11 +34,11 @@ describe('ProfileScreen', () => {
     expect(screen.getByText('Metric')).toBeTruthy();
   });
 
-  it('renders all gear items', () => {
+  it('has no My Gear section or gear chips (D22)', () => {
     render(<ProfileScreen />);
-    expect(screen.getByText('winch')).toBeTruthy();
-    expect(screen.getByText('bungee')).toBeTruthy();
-    expect(screen.getByText('drop in platform')).toBeTruthy();
+    expect(screen.queryByText(/my gear/i)).toBeNull();
+    expect(screen.queryByText('winch')).toBeNull();
+    expect(screen.queryByText('bungee')).toBeNull();
   });
 
   it('shows current units as selected', () => {
@@ -53,19 +52,6 @@ describe('ProfileScreen', () => {
     render(<ProfileScreen />);
     fireEvent.press(screen.getByText('Metric'));
     expect(useSettingsStore.getState().units).toBe(UnitSystem.Metric);
-  });
-
-  it('tapping a gear item adds it to store', () => {
-    render(<ProfileScreen />);
-    fireEvent.press(screen.getByText('winch'));
-    expect(useSettingsStore.getState().gear).toContain(GearItem.Winch);
-  });
-
-  it('tapping an already-selected gear item removes it', () => {
-    useSettingsStore.setState({ gear: [GearItem.Winch], units: UnitSystem.Imperial, batch_import_radius: 50 });
-    render(<ProfileScreen />);
-    fireEvent.press(screen.getByText('winch'));
-    expect(useSettingsStore.getState().gear).not.toContain(GearItem.Winch);
   });
 
   it('renders batch import radius field', () => {

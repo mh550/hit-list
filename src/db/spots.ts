@@ -1,6 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import type { FeatureType, NaturalSpeed, Spot, SpotLegacy, SpotUpdate } from '@/src/types';
-import { SpotStatus } from '@/src/types';
 
 /** A spots row as the app reads it: every column but `legacy_json`, which only getSpotLegacy reads. */
 interface SpotRow {
@@ -36,10 +35,9 @@ function rowToSpot(row: SpotRow): Spot {
     // 0 (None) is a rating; only NULL is unset
     natural_speed: row.natural_speed === null ? undefined : (row.natural_speed as NaturalSpeed),
     notes: row.notes ?? undefined,
-    // The old nested model has no column since migration 3: empty until M1-03/M1-04 remove it from Spot.
-    status: SpotStatus.Complete,
+    // The old nested model has no column since migration 3: empty until M1-04 removes it from Spot.
     feature: {},
-    in_run: { setup_options: [] },
+    in_run: {},
     landing: {},
     metadata: {},
     primary_photo_id: row.primary_photo_id ?? undefined,

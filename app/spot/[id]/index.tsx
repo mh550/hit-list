@@ -13,8 +13,7 @@ import { RatingBadge } from '@/src/components/RatingBadge';
 import { StarRating } from '@/src/components/StarRating';
 import { palette, spacing, radius } from '@/src/constants/theme';
 import { STOP_TYPE_LABELS } from '@/src/constants/labels';
-import { SpotStatus } from '@/src/types';
-import type { Media, Spot, SetupOption } from '@/src/types';
+import type { Media, Spot } from '@/src/types';
 
 function Photo({ media, style, testID }: { media: Media; style: ImageProps['style']; testID: string }) {
   return (
@@ -38,34 +37,6 @@ function InfoRow({ label, value }: { label: string; value: string | undefined })
       <Text style={styles.infoValue}>{value}</Text>
     </View>
   ) : null;
-}
-
-function SetupOptionCard({ option, index }: { option: SetupOption; index: number }) {
-  if (option.requires.length === 0) {
-    return (
-      <View style={styles.setupCard}>
-        <Text style={styles.setupTitle}>Option {index + 1}</Text>
-        <Text style={styles.setupItem}>No equipment needed (natural speed)</Text>
-      </View>
-    );
-  }
-
-  return (
-    <View style={styles.setupCard}>
-      <Text style={styles.setupTitle}>Option {index + 1}</Text>
-      {option.requires.map((req, i) => (
-        <View key={`${req.item}-${i}`} style={styles.setupReqRow}>
-          <View style={[styles.categoryTag, req.category === 'gear' ? styles.gearTag : styles.buildTag]}>
-            <Text style={styles.categoryText}>{req.category}</Text>
-          </View>
-          <Text style={styles.setupItem}>
-            {req.item.replace(/_/g, ' ')}
-            {req.quantity && req.quantity > 1 ? ` x${req.quantity}` : ''}
-          </Text>
-        </View>
-      ))}
-    </View>
-  );
 }
 
 export default function SpotDetailScreen() {
@@ -116,14 +87,8 @@ export default function SpotDetailScreen() {
           </ScrollView>
         ) : null}
 
-        {/* Status */}
         <View style={styles.headerRow}>
           <Text style={styles.title}>{displayName}</Text>
-          {spot.status === SpotStatus.Draft ? (
-            <View style={styles.draftBadge}>
-              <Text style={styles.draftText}>Draft</Text>
-            </View>
-          ) : null}
         </View>
 
         {/* Feature Details */}
@@ -164,14 +129,6 @@ export default function SpotDetailScreen() {
               <View style={styles.infoRow}>
                 <Text style={styles.infoLabel}>Natural Speed</Text>
                 <StarRating value={spot.in_run.natural_speed} readonly size={18} />
-              </View>
-            ) : null}
-            {spot.in_run.setup_options.length > 0 ? (
-              <View style={styles.setupOptions}>
-                <Text style={styles.setupLabel}>Setup Options</Text>
-                {spot.in_run.setup_options.map((opt, i) => (
-                  <SetupOptionCard key={i} option={opt} index={i} />
-                ))}
               </View>
             ) : null}
           </Section>
@@ -219,7 +176,7 @@ function hasFeatureDetails(spot: Spot): boolean {
 }
 
 function hasInRunDetails(spot: Spot): boolean {
-  return !!(spot.in_run.natural_speed != null || spot.in_run.setup_options.length > 0);
+  return spot.in_run.natural_speed != null;
 }
 
 function hasLandingDetails(spot: Spot): boolean {
@@ -274,18 +231,6 @@ const styles = StyleSheet.create({
     color: palette.gray[900],
     flex: 1,
   },
-  draftBadge: {
-    backgroundColor: palette.yellow[100],
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: radius.sm,
-    borderCurve: 'continuous',
-  },
-  draftText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: palette.yellow[700],
-  },
   editButton: {
     fontSize: 17,
     color: palette.blue[500],
@@ -316,54 +261,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: palette.gray[900],
     fontWeight: '500',
-    textTransform: 'capitalize',
-  },
-  setupOptions: {
-    gap: spacing.sm,
-  },
-  setupLabel: {
-    fontSize: 15,
-    color: palette.gray[500],
-    marginBottom: spacing.xs,
-  },
-  setupCard: {
-    backgroundColor: palette.gray[50],
-    borderRadius: radius.md,
-    borderCurve: 'continuous',
-    padding: spacing.md,
-    gap: spacing.xs,
-  },
-  setupTitle: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: palette.gray[700],
-  },
-  setupReqRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  categoryTag: {
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 1,
-    borderRadius: radius.sm,
-    borderCurve: 'continuous',
-  },
-  gearTag: {
-    backgroundColor: palette.blue[500] + '20',
-  },
-  buildTag: {
-    backgroundColor: palette.yellow[500] + '20',
-  },
-  categoryText: {
-    fontSize: 11,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    color: palette.gray[600],
-  },
-  setupItem: {
-    fontSize: 14,
-    color: palette.gray[700],
     textTransform: 'capitalize',
   },
 });

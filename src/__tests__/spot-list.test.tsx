@@ -4,13 +4,12 @@ import { render, screen, fireEvent } from '@testing-library/react-native';
 import { SpotListItem } from '@/src/components/SpotListItem';
 import { getSpotDisplayName } from '@/src/utils/spot-name';
 import { createTestSpot } from './factories';
-import { FeatureType, SpotStatus } from '@/src/types';
+import { FeatureType } from '@/src/types';
 
 describe('SpotListItem', () => {
   const defaultProps = {
     id: 'test-id',
     displayName: 'Downtown Rail',
-    isDraft: false,
     onPress: jest.fn(),
   };
 
@@ -38,14 +37,9 @@ describe('SpotListItem', () => {
     expect(screen.getByText('2.3 mi')).toBeTruthy();
   });
 
-  it('renders draft badge for draft spots', () => {
-    render(<SpotListItem {...defaultProps} isDraft={true} />);
-    expect(screen.getByText('Draft')).toBeTruthy();
-  });
-
-  it('does not render draft badge for complete spots', () => {
-    render(<SpotListItem {...defaultProps} isDraft={false} />);
-    expect(screen.queryByText('Draft')).toBeNull();
+  it('never shows a status badge (D20: no drafts)', () => {
+    render(<SpotListItem {...defaultProps} featureType="rail" distance="2.3 mi" />);
+    expect(screen.queryByText(/draft/i)).toBeNull();
   });
 
   it('calls onPress with id when pressed', () => {
@@ -92,7 +86,6 @@ describe('SpotListItem memo behavior', () => {
         featureType="rail"
         difficulty={3}
         distance="1.2 mi"
-        isDraft={false}
         onPress={() => {}}
       />,
     );
@@ -106,7 +99,7 @@ describe('Spot list with many items', () => {
       createTestSpot({
         name: `Spot ${i}`,
         feature: { type: FeatureType.Rail },
-        status: i % 3 === 0 ? SpotStatus.Draft : SpotStatus.Complete,
+        stopped: i % 3 === 0,
       }),
     );
 

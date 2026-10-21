@@ -12,6 +12,15 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 · M1-03 · passes
+
+- Removed gear (`GearItem`/`BuildItem`, `UserSettings.gear`, settings store/actions, Profile "My Gear", FilterSheet gear + exclude build), draft (`SpotStatus`, `Spot.status`, list/detail badge, `DRAFT_PIN`, Show Drafts, edit Status section, "Save as Draft" → "Save"), `SortField.Intensity` (chip + sortKey), `Requirement`/`SetupOption`/`RequirementCategory` (setup options UI on edit and detail; `InRun` keeps only `natural_speed` until M1-04). `SpotFilters` is the final shape and the store has the `stopped` filter; `selectActiveFilterCount` counts types/stopped/speed. `getUserSettings` returns exactly `{ units, batch_import_radius }` (drops a stored `gear`). Tests 412 → 397 (gear/draft/Intensity cases deleted; added stopped filter ×2, count ×2, legacy gear blob, review-persist ×2, one pin colour, empty callout).
+- Verified: `check.sh` green (397), `jest --ci` 0 `console.error`; both step-1 greps print nothing (FilterSheet's local `draft` state renamed `pending`, since step 1 also greps `Draft`). Opus review: no bug introduced; cosmetic findings fixed.
+- **Next (M1-04) must fix, found by review, pre-existing since M1-02:** `selectFilteredSpots`' type filter still reads `spot.feature.type` and the speed range reads `spot.in_run.natural_speed`, both always empty for DB-loaded spots, so picking a type in the Filter sheet hides every spot on a real DB. The map callout (`featureLabel`) is empty for the same reason. M1-04 steps 3/4 cover it: switch to `feature_types` (any-of) and `spot.natural_speed`, and rewrite the stores "filters by type" test on `feature_types`.
+- Edit/detail still show the Intensity/Bustability stars (nested `metadata`, removed in M1-04).
+- Questions for Michael: none.
+- Proposed changes: step 1's `grep "Draft"` also matches an unrelated `setDraft` (local unsaved-filter state); it was renamed, but the step could grep `\bDraft\b\|SpotStatus` instead.
+
 ### 2026-10-21 11:05 · M1-02 · passes
 
 - Migration 3 in `src/db/schema.ts`: adds `feature_types_json`/`stopped`/`natural_speed`/`notes`/`legacy_json`, backfills via the pure exported `migrateSpotRowV3`, rebuilds `spots` without `status` and the 4 JSON columns (`idx_spots_status` gone). `src/db/spots.ts` reads/writes the new columns, uses explicit `SPOT_COLUMNS` (never `legacy_json`), new `getSpotLegacy`. `Spot` gains `feature_types`, `stopped`, `natural_speed?`, `notes?` (old fields kept, read back as empty defaults). `SpotUpdate` takes null for notes/natural_speed and the store clears on null (0 kept). The review screens write `feature_types: []`, `stopped: false`. Tests 387 → 412.

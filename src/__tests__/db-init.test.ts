@@ -4,7 +4,7 @@ import { useDbInit } from '@/src/hooks/use-db-init';
 import { useSpotsStore } from '@/src/stores';
 import { useSettingsStore } from '@/src/stores/settings-store';
 import { useMediaStore } from '@/src/stores/media-store';
-import { SpotStatus, UnitSystem } from '@/src/types';
+import { UnitSystem } from '@/src/types';
 import { createTestMedia, createTestSpot } from './factories';
 
 const mockDb = {
@@ -48,7 +48,6 @@ describe('useDbInit', () => {
     useSettingsStore.setState({
       units: UnitSystem.Imperial,
       batch_import_radius: 50,
-      gear: [],
     });
   });
 
@@ -63,7 +62,7 @@ describe('useDbInit', () => {
   });
 
   it('loads spots from DB into store', async () => {
-    const spot = createTestSpot({ id: 'db-spot-1', name: 'DB Spot', status: SpotStatus.Complete });
+    const spot = createTestSpot({ id: 'db-spot-1', name: 'DB Spot' });
     mockGetSpots.mockResolvedValue([spot]);
     mockGetUserSettings.mockResolvedValue(null);
 
@@ -79,7 +78,6 @@ describe('useDbInit', () => {
     mockGetUserSettings.mockResolvedValue({
       units: UnitSystem.Metric,
       batch_import_radius: 100,
-      gear: [],
     });
 
     renderHook(() => useDbInit());
@@ -142,7 +140,7 @@ describe('useDbInit', () => {
     const m = createTestMedia({ spot_id: spot.id });
     mockGetSpots.mockResolvedValue([spot]);
     mockGetAllMedia.mockResolvedValue([m]);
-    mockGetUserSettings.mockResolvedValue({ units: UnitSystem.Metric, batch_import_radius: 50, gear: [] });
+    mockGetUserSettings.mockResolvedValue({ units: UnitSystem.Metric, batch_import_radius: 50 });
     const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
 
     const { result } = renderHook(() => useDbInit());

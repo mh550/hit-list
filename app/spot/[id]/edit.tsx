@@ -27,16 +27,8 @@ import { Chip, ChipGroup } from '@/src/components/Chip';
 import { Button } from '@/src/components/Button';
 import { palette, spacing, radius } from '@/src/constants/theme';
 import { STOP_TYPE_LABELS } from '@/src/constants/labels';
-import {
-  SpotStatus,
-  FeatureType,
-  Material,
-  LandingSurface,
-  StopType,
-  GearItem,
-  BuildItem,
-} from '@/src/types';
-import type { SpotUpdate, SetupOption, Requirement } from '@/src/types';
+import { FeatureType, Material, LandingSurface, StopType } from '@/src/types';
+import type { SpotUpdate } from '@/src/types';
 
 function SectionHeader({ title }: { title: string }) {
   return <Text style={styles.sectionHeader}>{title}</Text>;
@@ -76,16 +68,12 @@ export default function EditSpotScreen() {
   const [removable, setRemovable] = useState(spot?.feature.skate_stops?.removable ?? false);
   const [difficulty, setDifficulty] = useState(spot?.feature.difficulty ?? 0);
   const [naturalSpeed, setNaturalSpeed] = useState(spot?.in_run.natural_speed ?? 0);
-  const [setupOptions, setSetupOptions] = useState<SetupOption[]>(
-    spot?.in_run.setup_options ?? [],
-  );
   const [landingDifficulty, setLandingDifficulty] = useState(spot?.landing.difficulty ?? 0);
   const [landingSurface, setLandingSurface] = useState(spot?.landing.surface);
   const [intensity, setIntensity] = useState(spot?.metadata.intensity ?? 0);
   const [bustability, setBustability] = useState(spot?.metadata.bustability ?? 0);
   const [bustNotes, setBustNotes] = useState(spot?.metadata.bustability_notes ?? '');
   const [notes, setNotes] = useState(spot?.metadata.notes ?? '');
-  const [status, setStatus] = useState(spot?.status ?? SpotStatus.Draft);
   // Photos staged for removal; nothing is deleted until Save (Cancel/back undoes, like the other fields).
   const [removedIds, setRemovedIds] = useState<string[]>([]);
   // Save awaits the deletes before router.back(), so a second tap must not start another run.
@@ -110,7 +98,6 @@ export default function EditSpotScreen() {
 
       const updates: SpotUpdate = {
         name: name.trim() || null, // null clears the stored name; undefined would keep the old one
-        status,
         feature: {
           type: featureType,
           custom_type: featureType === FeatureType.Other ? customType : undefined,
@@ -133,7 +120,6 @@ export default function EditSpotScreen() {
         },
         in_run: {
           natural_speed: naturalSpeed || undefined,
-          setup_options: setupOptions,
         },
         landing: {
           difficulty: landingDifficulty || undefined,
@@ -177,8 +163,8 @@ export default function EditSpotScreen() {
       Alert.alert("Couldn't save", 'Please try again.');
     }
   }, [
-    spot, name, status, featureType, customType, shape, length, height, width, initialDims,
-    material, isStopped, stopType, stopDetails, removable, difficulty, naturalSpeed, setupOptions, landingDifficulty,
+    spot, name, featureType, customType, shape, length, height, width, initialDims,
+    material, isStopped, stopType, stopDetails, removable, difficulty, naturalSpeed, landingDifficulty,
     landingSurface, intensity, bustability, bustNotes, notes, units, removedIds, media,
     updateSpot, removePhotos, router,
   ]);
@@ -201,31 +187,6 @@ export default function EditSpotScreen() {
       ],
     );
   }, [spot, removeSpot, router]);
-
-  const addSetupOption = useCallback(() => {
-    setSetupOptions((prev) => [...prev, { requires: [] }]);
-  }, []);
-
-  const removeSetupOption = useCallback((index: number) => {
-    setSetupOptions((prev) => prev.filter((_, i) => i !== index));
-  }, []);
-
-  const toggleRequirement = useCallback(
-    (optionIndex: number, item: GearItem | BuildItem, category: 'gear' | 'build') => {
-      setSetupOptions((prev) =>
-        prev.map((opt, i) => {
-          if (i !== optionIndex) return opt;
-          const exists = opt.requires.find((r) => r.item === item);
-          if (exists) {
-            return { requires: opt.requires.filter((r) => r.item !== item) };
-          }
-          const req: Requirement = { item, category };
-          return { requires: [...opt.requires, req] };
-        }),
-      );
-    },
-    [],
-  );
 
   if (!spot) {
     return (
@@ -456,43 +417,6 @@ export default function EditSpotScreen() {
         <StarRating value={naturalSpeed} onChange={setNaturalSpeed} />
       </View>
 
-      <View style={styles.field}>
-        <FieldLabel label="Setup Options" />
-        {setupOptions.map((opt, optIdx) => (
-          <View key={optIdx} style={styles.setupCard}>
-            <View style={styles.setupHeader}>
-              <Text style={styles.setupTitle}>Option {optIdx + 1}</Text>
-              <Pressable onPress={() => removeSetupOption(optIdx)} hitSlop={8}>
-                <Text style={styles.removeText}>Remove</Text>
-              </Pressable>
-            </View>
-            <Text style={styles.reqLabel}>Gear</Text>
-            <ChipGroup>
-              {Object.values(GearItem).map((g) => (
-                <Chip
-                  key={g}
-                  label={g.replace(/_/g, ' ')}
-                  selected={opt.requires.some((r) => r.item === g)}
-                  onPress={() => toggleRequirement(optIdx, g, 'gear')}
-                />
-              ))}
-            </ChipGroup>
-            <Text style={styles.reqLabel}>Build</Text>
-            <ChipGroup>
-              {Object.values(BuildItem).map((b) => (
-                <Chip
-                  key={b}
-                  label={b.replace(/_/g, ' ')}
-                  selected={opt.requires.some((r) => r.item === b)}
-                  onPress={() => toggleRequirement(optIdx, b, 'build')}
-                />
-              ))}
-            </ChipGroup>
-          </View>
-        ))}
-        <Button title="Add Setup Option" onPress={addSetupOption} variant="secondary" />
-      </View>
-
       {/* Landing */}
       <SectionHeader title="Landing" />
       <View style={styles.field}>
@@ -543,21 +467,6 @@ export default function EditSpotScreen() {
           placeholder="Additional notes..."
           placeholderTextColor={palette.gray[400]}
           multiline
-        />
-      </View>
-
-      {/* Status */}
-      <SectionHeader title="Status" />
-      <View style={styles.statusRow}>
-        <Chip
-          label="Draft"
-          selected={status === SpotStatus.Draft}
-          onPress={() => setStatus(SpotStatus.Draft)}
-        />
-        <Chip
-          label="Complete"
-          selected={status === SpotStatus.Complete}
-          onPress={() => setStatus(SpotStatus.Complete)}
         />
       </View>
 
@@ -679,39 +588,6 @@ const styles = StyleSheet.create({
   dimField: {
     flex: 1,
     gap: spacing.xs,
-  },
-  setupCard: {
-    backgroundColor: palette.gray[50],
-    borderRadius: radius.md,
-    borderCurve: 'continuous',
-    padding: spacing.md,
-    gap: spacing.sm,
-  },
-  setupHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  setupTitle: {
-    fontSize: 15,
-    fontWeight: '600',
-    color: palette.gray[700],
-  },
-  removeText: {
-    fontSize: 14,
-    color: palette.red[500],
-    fontWeight: '500',
-  },
-  reqLabel: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: palette.gray[500],
-    textTransform: 'uppercase',
-    marginTop: spacing.xs,
-  },
-  statusRow: {
-    flexDirection: 'row',
-    gap: spacing.sm,
   },
   actions: {
     gap: spacing.md,

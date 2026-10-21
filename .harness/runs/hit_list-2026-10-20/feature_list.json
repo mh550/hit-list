@@ -111,7 +111,7 @@
         "Filled segments use palette.blue[500] (the test reads the style of a filled cell and asserts backgroundColor equals palette.blue[500]); segment labels use numberOfLines={1} except 'Too much' may wrap (the test does not pin this).",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M2-03",

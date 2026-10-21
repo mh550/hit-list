@@ -12,6 +12,13 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 · M2-02 · passes
+
+- New `src/components/SpeedScale.tsx` (exported with `SPEED_LABELS` from `src/components/index.ts`): edit form = `radiogroup` of five `radio` Pressables labelled `'<label>: <description>'` (spec §2.3 words), tap selects, re-tap clears to `undefined`, description line or 'Not rated' (`=== undefined`, 0 = None is real); readonly = five cells `speed-cell-0..4` with `accessibilityState.selected` on filled, word beside, root `accessible` label 'Natural speed: <label>', `null` when unrated. Filled = `palette.blue[500]`; 'Too much' may wrap to 2 lines.
+- New `src/__tests__/speed-scale.test.tsx` (11 cases, RED 11/11 before the component). Tests 366 → 377.
+- Verified: `check.sh` green (377), `npx jest --ci` 0 console.error.
+- Next session must know: the radiogroup View is deliberately **not** `accessible` (that would merge the radios into one VoiceOver element), so RNTL `getByRole('radiogroup')` can't find it; the test finds the host View by its role prop and asserts `accessible !== true`. Reuse that pattern in M2-04/M2-07.
+
 ### 2026-10-21 · M2-01 · passes
 
 - Wrote `docs/plans/2026-10-20-m2-edit.md` (plan only, no code): SpeedScale API with the §2.3 table verbatim (diffed against the spec) and range mode deferred to M5; PhotoGrid (`photos: Media[]`, `onPressPhoto(index)`, `renderBadge(media, index)`, `trailing`, hero 4:3 + three-across squares, `spacing.xs`); SpotTagFields (controlled `{ feature_types, stopped, natural_speed }`); edit layout in §2.2 order; staged adds as `NewPhoto` drafts; a RED test list per task (≈366 → ≈402 tests over M2).

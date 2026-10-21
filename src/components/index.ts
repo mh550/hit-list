@@ -5,3 +5,6 @@ export { Chip, ChipGroup } from './Chip';
 export { FormField, FormInput } from './FormField';
 export { EmptyState } from './EmptyState';
 export { SpotListItem } from './SpotListItem';
+export { SpeedScale } from './SpeedScale';
+export { PhotoGrid } from './PhotoGrid';
+export { SpotTagFields, type SpotTags } from './SpotTagFields';

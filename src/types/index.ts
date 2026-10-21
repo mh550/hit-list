@@ -27,7 +27,7 @@ export enum SortDirection {
   Desc = 'desc',
 }
 
-/** Natural speed on the in-run, 0 None · 1 Little · 2 Some · 3 Enough · 4 Too much (D21); 0 is a real value, undefined = not rated. */
+/** Natural speed on the in-run, 0–4, words in `SPEED_LABELS` (src/constants/labels.ts, D21); 0 is a real value, undefined = not rated. */
 export type NaturalSpeed = 0 | 1 | 2 | 3 | 4;
 
 // ── Data Types ─────────────────────────────────────────

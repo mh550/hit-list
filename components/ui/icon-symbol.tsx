@@ -24,6 +24,7 @@ const MAPPING = {
   'photo.on.rectangle': 'photo-library',
   'magnifyingglass': 'search',
   'xmark': 'close',
+  'plus': 'add',
 } as IconMapping;
 
 /**

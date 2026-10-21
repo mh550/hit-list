@@ -10,20 +10,27 @@ export function useSpotActions() {
   const db = useSQLiteContext();
   const storeAddSpot = useSpotsStore((s) => s.addSpot);
   const storeUpdateSpot = useSpotsStore((s) => s.updateSpot);
+  const storeRevertSpotUpdate = useSpotsStore((s) => s.revertSpotUpdate);
   const storeRemoveSpot = useSpotsStore((s) => s.removeSpot);
 
   const updateSpot = useCallback(
     async (id: string, updates: SpotUpdate) => {
       // One stamp for memory and DB, so backfills that pass no updated_at don't leave the store stale.
       const stamped = { ...updates, updated_at: updates.updated_at ?? new Date().toISOString() };
+      const find = () => useSpotsStore.getState().spots.find((s) => s.id === id);
+      const before = find();
       storeUpdateSpot(id, stamped);
+      const applied = find();
       try {
         await dbUpdateSpot(db, id, stamped);
       } catch (err) {
+        // The DB still has the old values: so must the store, or the change would vanish on the next launch unseen.
         console.error('[useSpotActions] updateSpot failed:', err);
+        if (before && applied) storeRevertSpotUpdate(id, before, applied);
+        throw err;
       }
     },
-    [db, storeUpdateSpot],
+    [db, storeUpdateSpot, storeRevertSpotUpdate],
   );
 
   /** Adds the spot, then (in the background) stores its town for the untitled label (D4). */
@@ -35,9 +42,11 @@ export function useSpotActions() {
       } catch (err) {
         console.error('[useSpotActions] insertSpot failed:', err);
       }
-      void geocodeTown(spot.location).then(async (town) => {
-        if (town) await updateSpot(spot.id, { generated_name: town });
-      });
+      void geocodeTown(spot.location)
+        .then(async (town) => {
+          if (town) await updateSpot(spot.id, { generated_name: town });
+        })
+        .catch(() => {}); // updateSpot logged it; the backfill retries next launch
     },
     [db, storeAddSpot, updateSpot],
   );

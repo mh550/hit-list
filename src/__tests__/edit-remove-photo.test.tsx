@@ -53,19 +53,20 @@ describe('Edit spot: remove a photo', () => {
     jest.mocked(useRouter).mockReturnValue({ push: jest.fn(), back: mockBack, replace: jest.fn(), dismissAll: jest.fn() } as never);
   });
 
-  it('shows no Photos section and no remove controls for a spot without photos', () => {
-    // Nothing to remove, so the section must not add an empty heading to the form.
+  it('shows no photo tiles and no remove controls for a spot without photos', () => {
+    // Nothing to remove, so the grid must not add empty space to the form.
     renderEdit(createTestSpot({ id: 's1' }), []);
 
-    expect(screen.queryByText('Photos')).toBeNull();
+    expect(screen.queryByTestId('photo-tile-0')).toBeNull();
     expect(removeLabels()).toEqual([]);
   });
 
-  it('shows a Photos heading and one numbered remove control per photo', () => {
-    // Each photo needs its own accessible remove control, numbered 1..n.
+  it('shows no section header and one numbered remove control per grid tile', () => {
+    // Each photo needs its own accessible remove control, numbered 1..n; spec §2.2 drops the "Photos" header.
     renderEdit(createTestSpot({ id: 's1' }), makeMedia('s1', 3));
 
-    expect(screen.getByText('Photos')).toBeOnTheScreen();
+    expect(screen.queryByText('Photos')).toBeNull();
+    expect(screen.getAllByTestId(/^photo-tile-\d+$/)).toHaveLength(3);
     expect(removeLabels()).toEqual(['Remove photo 1', 'Remove photo 2', 'Remove photo 3']);
   });
 

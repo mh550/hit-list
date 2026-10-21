@@ -39,7 +39,11 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
 ## Layout
 
 - `app/` expo-router screens: `(tabs)/index.tsx` Spots (List | Map), `(tabs)/profile.tsx`,
-  `add/` Quick Add (camera → review), `import/` batch import, `spot/[id]/` detail + edit.
+  `add/` Quick Add (camera → review), `import/` batch import, `spot/[id]/` detail + edit (one screen: photo grid with
+  staged removes and adds, name, tags, notes; nothing is written until Save).
+- `src/components/` shared UI, exported from `index.ts`. The M2 edit pieces: `SpeedScale` (five-word natural-speed
+  radiogroup, re-tap clears; `readonly` bar form), `PhotoGrid` (hero 4:3 + rows of three square tiles, per-tile badges,
+  trailing '+' tile, taps by index), `SpotTagFields` (controlled What's here chips + 'Skate stopped' switch + SpeedScale).
 - `src/db/` SQLite access. `schema.ts` holds `MIGRATIONS` (versioned by `PRAGMA user_version`):
   **append a migration, never edit a shipped one**; per-connection pragmas (e.g. `foreign_keys`) go
   next to the WAL line in `migrateDb`, not in a migration. Foreign keys are OFF while migrations run and ON for the app
@@ -49,7 +53,7 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   the only reader of the archive.
 - `src/stores/` zustand: spots (+ Filter-sheet filters, a separate `searchQuery`, sort, `viewMode`; filtering and sorting live in its selectors), media (`mediaBySpot`), settings, location.
 - `src/hooks/` `useDbInit` (migrate, then load spots/media/settings even if the migration threw, background town backfill),
-  `useSpotActions`, `useMediaActions` (photo save and remove; removal deletes the row only, D3), `useCurrentLocation`.
+  `useSpotActions`, `useMediaActions` (photo save and remove, also used for adding photos from edit: `savePhotos` resolves the `Media[]` it actually saved; removal deletes the row only, D3), `useCurrentLocation`.
 - `src/utils/` pure logic: geo (`NO_LOCATION`, `isKnownLocation`, haversine), exif,
   photo-storage, reverse-geocode, spot-name (D4 label), map-region, import-clustering.
 
@@ -68,7 +72,7 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   `notes`, `natural_speed`, `primary_photo_id`. Everything the old nested model held (dimensions, material, stops,
   setup options, old scores…) was archived into
   `legacy_json` (`SpotLegacy` in `src/db/schema.ts`, read via `getSpotLegacy`; v2 test rows in `src/__tests__/fixtures/v2-spots.json`). Feature-type labels come from `FEATURE_TYPE_LABELS`
-  (`src/constants/labels.ts`) and `featureTypesLabel` (`src/utils/spot-name.ts`, "Rail +1").
+  (`src/constants/labels.ts`, next to the natural-speed words `SPEED_LABELS`) and `featureTypesLabel` (`src/utils/spot-name.ts`, "Rail +1").
 - **No location** is stored as `(0, 0)` (`NO_LOCATION`); always test with `isKnownLocation` (map,
   distance, geocoding).
 - **Ids** come from `newId()` in `src/utils/id.ts` (expo-crypto's native `randomUUID`). Never the `uuid`

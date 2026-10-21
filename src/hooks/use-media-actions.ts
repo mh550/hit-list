@@ -10,7 +10,8 @@ export type NewPhoto = Omit<Media, 'file_path'> & { sourceUri: string };
 
 /**
  * Photo changes are DB-first (unlike useSpotActions), and only rows the DB accepted reach the store, in one update.
- * - savePhotos: each photo is copied into app storage (D3), then its row inserted.
+ * - savePhotos: each photo is copied into app storage (D3), then its row inserted. Resolves the photos actually
+ *   saved, in the order given; a failed insert is logged and the others are still saved.
  * - removePhotos: each row is deleted; the file in app storage stays (D3) and the camera roll is never touched.
  *   Resolves the ids actually removed; a failed delete is logged and its photo stays.
  */
@@ -20,20 +21,21 @@ export function useMediaActions() {
   const removeMany = useMediaStore((s) => s.removeMany);
 
   const savePhotos = useCallback(
-    async (photos: NewPhoto[]) => {
-      const saved = await Promise.all(
+    async (photos: NewPhoto[]): Promise<Media[]> => {
+      const results = await Promise.allSettled(
         photos.map(async ({ sourceUri, ...fields }) => {
           const media: Media = { ...fields, file_path: await persistPhoto(sourceUri, fields.spot_id, fields.id) };
-          try {
-            await insertMedia(db, media);
-            return media;
-          } catch (err) {
-            console.error('[useMediaActions] insertMedia failed:', err);
-            return null;
-          }
+          await insertMedia(db, media);
+          return media;
         }),
       );
-      addMany(saved.filter((m): m is Media => m !== null));
+      const saved: Media[] = [];
+      for (const r of results) {
+        if (r.status === 'fulfilled') saved.push(r.value);
+        else console.error('[useMediaActions] insertMedia failed:', r.reason);
+      }
+      addMany(saved);
+      return saved;
     },
     [db, addMany],
   );

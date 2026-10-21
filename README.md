@@ -8,12 +8,14 @@ Built with Expo (React Native) and runs on an iPhone through Expo Go.
 ## Status (2026-10-21)
 
 Works end to end in tests and bundles for iOS. The simplification (rev 2,
-`docs/specs/2026-10-16-simplification-design.md`) is being built: the model step (M1) is done, the
-edit/detail/filter screens for the new tags come next.
+`docs/specs/2026-10-16-simplification-design.md`) is being built: the model step (M1) and the
+one-screen edit (M2) are done; the detail and filter screens come next.
 
 - Spot model (database v3): feature types (several per spot), skate stopped, natural speed (None to Too
   much, 0–4), notes. Migration 3 archives every older field (dimensions, material, stops, setup options,
   old scores…) in `legacy_json`, read only by `getSpotLegacy`.
+- Edit is one short screen: a photo grid (remove with ✕, add from the library with '+', written on Save), name,
+  tagging (feature types as chips, a Skate stopped switch, natural speed on a five-word scale), notes, Delete.
 - Quick Add (camera → optional name → Save) and batch import from the photo library (grouped by
   place from GPS; the EXIF capture time sets each spot's date).
 - Photos are kept in the app's own storage and shown as list thumbnails and a detail gallery.

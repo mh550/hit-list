@@ -10,3 +10,13 @@
 - 2026-10-21 11:23 · verify M1: M1-04 failed the re-check, back in the queue (one more attempt)
 - 2026-10-21 11:26 · M1-02 · claude-opus-5-5 · passes=true · 2 min · 4/39 passing
 - 2026-10-21 11:29 · M1-04 · claude-opus-5-5 · passes=true · 3 min · 5/39 passing
+- 2026-10-21 11:30 · M1 verified and tagged run/hit_list-2026-10-20/M1
+- 2026-10-21 11:30 · M1 merged into main · https://github.com/mh550/hit-list/pull/1
+- 2026-10-21 11:34 · M2-01 · claude-opus-5-5 · passes=true · 3 min · 6/39 passing
+- 2026-10-21 11:37 · M2-02 · claude-opus-5-5 · passes=true · 2 min · 7/39 passing
+- 2026-10-21 11:41 · M2-03 · claude-opus-5-5 · passes=true · 4 min · 8/39 passing
+- 2026-10-21 11:47 · M2-04 · claude-opus-5-5 · passes=true · 5 min · 9/39 passing
+- 2026-10-21 11:54 · M2-05 · claude-opus-5-5 · passes=true · 7 min · 10/39 passing
+- 2026-10-21 11:56 · M2-06 · claude-sonnet-5-5 · passes=true · 1 min · 11/39 passing
+- 2026-10-21 12:07 · M2-07 · claude-opus-5-5 · passes=true · 10 min · 12/39 passing
+- 2026-10-21 12:07 · merged main into harness/hit_list-2026-10-20

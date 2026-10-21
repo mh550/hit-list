@@ -5,15 +5,25 @@ import { palette, spacing, radius } from '@/src/constants/theme';
 // ── FormField ───────────────────────────────────────────
 
 interface FormFieldProps {
-  label: string;
+  /** Omitted: just the control (its placeholder says what it is). */
+  label?: string;
+  /** The control carries the same accessibilityLabel, so VoiceOver skips the visible Text (one stop per control). */
+  hideLabel?: boolean;
   children: React.ReactNode;
   error?: string;
 }
 
-export function FormField({ label, children, error }: FormFieldProps) {
+export function FormField({ label, hideLabel, children, error }: FormFieldProps) {
   return (
     <View style={styles.field}>
-      <Text style={styles.label}>{label}</Text>
+      {label ? (
+        <Text
+          style={styles.label}
+          accessibilityElementsHidden={hideLabel}
+          importantForAccessibility={hideLabel ? 'no' : undefined}>
+          {label}
+        </Text>
+      ) : null}
       {children}
       {error ? <Text style={styles.error}>{error}</Text> : null}
     </View>
@@ -22,14 +32,11 @@ export function FormField({ label, children, error }: FormFieldProps) {
 
 // ── FormInput ───────────────────────────────────────────
 
-interface FormInputProps extends TextInputProps {
-  label: string;
-  error?: string;
-}
+interface FormInputProps extends TextInputProps, Pick<FormFieldProps, 'label' | 'hideLabel' | 'error'> {}
 
-export function FormInput({ label, error, style, ...props }: FormInputProps) {
+export function FormInput({ label, hideLabel, error, style, ...props }: FormInputProps) {
   return (
-    <FormField label={label} error={error}>
+    <FormField label={label} hideLabel={hideLabel} error={error}>
       <TextInput
         style={[styles.input, style]}
         placeholderTextColor={palette.gray[400]}
@@ -41,12 +48,12 @@ export function FormInput({ label, error, style, ...props }: FormInputProps) {
 
 const styles = StyleSheet.create({
   field: {
-    gap: spacing.xs,
+    gap: spacing.sm,
   },
   label: {
     fontSize: 14,
     fontWeight: '500',
-    color: palette.gray[700],
+    color: palette.gray[600],
   },
   input: {
     borderWidth: 1,

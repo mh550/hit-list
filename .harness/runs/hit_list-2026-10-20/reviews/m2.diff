@@ -1,0 +1,1884 @@
+diff --git a/app/spot/[id]/edit.tsx b/app/spot/[id]/edit.tsx
+index b06ad38..bbdefff 100644
+--- a/app/spot/[id]/edit.tsx
++++ b/app/spot/[id]/edit.tsx
+@@ -1,4 +1,4 @@
+-import { useCallback, useRef, useState } from 'react';
++import { useCallback, useMemo, useRef, useState } from 'react';
+ import { useLocalSearchParams, useRouter } from 'expo-router';
+ import {
+   StyleSheet,
+@@ -10,25 +10,37 @@ import {
+   Alert,
+   AccessibilityInfo,
+ } from 'react-native';
+-import { Image } from 'expo-image';
+-
++import * as ImagePicker from 'expo-image-picker';
+ import { IconSymbol } from '@/components/ui/icon-symbol';
+ import { useSpotsStore, useMediaStore } from '@/src/stores';
+ import { useSpotActions } from '@/src/hooks/use-spot-actions';
+-import { useMediaActions } from '@/src/hooks/use-media-actions';
+-import { resolvePhotoUri } from '@/src/utils/photo-storage';
++import { useMediaActions, type NewPhoto } from '@/src/hooks/use-media-actions';
+ import { primaryPhoto, spotPhotos } from '@/src/utils/spot-photos';
+ import { getSpotDisplayName } from '@/src/utils/spot-name';
++import { importPhotoFromAsset } from '@/src/utils/exif';
++import { newId } from '@/src/utils/id';
+ import { Button } from '@/src/components/Button';
++import { PhotoGrid } from '@/src/components/PhotoGrid';
++import { SpotTagFields, type SpotTags } from '@/src/components/SpotTagFields';
+ import { palette, spacing, radius } from '@/src/constants/theme';
+-import type { SpotUpdate } from '@/src/types';
++import type { Media, SpotUpdate } from '@/src/types';
+ 
+-function SectionHeader({ title }: { title: string }) {
+-  return <Text style={styles.sectionHeader}>{title}</Text>;
+-}
++/** APP_SPECIFICATIONS: at most 20 photos per spot. */
++const MAX_PHOTOS = 20;
++
++/** A picked photo waiting for Save; `key` (the library asset) keeps a photo from being staged twice. */
++type StagedPhoto = NewPhoto & { key: string };
+ 
++/** Drafts render through the grid like saved photos: `resolvePhotoUri` passes the picker's file:// uri through. */
++const draftMedia = ({ sourceUri, key: _key, ...fields }: StagedPhoto): Media => ({ ...fields, file_path: sourceUri });
++
++/** Visible only: the input carries the same accessibilityLabel, so VoiceOver skips this Text. */
+ function FieldLabel({ label }: { label: string }) {
+-  return <Text style={styles.fieldLabel}>{label}</Text>;
++  return (
++    <Text style={styles.fieldLabel} accessibilityElementsHidden importantForAccessibility="no">
++      {label}
++    </Text>
++  );
+ }
+ 
+ export default function EditSpotScreen() {
+@@ -36,19 +48,36 @@ export default function EditSpotScreen() {
+   const router = useRouter();
+   const spot = useSpotsStore((s) => s.spots.find((sp) => sp.id === id));
+   const { updateSpot, removeSpot } = useSpotActions();
+-  const { removePhotos } = useMediaActions();
++  const { removePhotos, savePhotos } = useMediaActions();
+   const media = useMediaStore((s) => (spot ? s.mediaBySpot[spot.id] : undefined));
+ 
+   // Edit state (local copy)
+   const [name, setName] = useState(spot?.name ?? '');
++  const [tags, setTags] = useState<SpotTags>({
++    feature_types: spot?.feature_types ?? [],
++    stopped: spot?.stopped ?? false,
++    natural_speed: spot?.natural_speed,
++  });
++  const [notes, setNotes] = useState(spot?.notes ?? '');
+   // Photos staged for removal; nothing is deleted until Save (Cancel/back undoes them, like an edited name).
+   const [removedIds, setRemovedIds] = useState<string[]>([]);
++  // Photos picked from the library; nothing is copied or written until Save, so dismissing drops them.
++  const [staged, setStaged] = useState<StagedPhoto[]>([]);
++  // The picker is async, so a double tap on '+' must not open it twice.
++  const pickingRef = useRef(false);
+   // Save awaits the deletes before router.back(), so a second tap must not start another run.
+   const savingRef = useRef(false);
+   const [saving, setSaving] = useState(false);
+ 
+   const photos = spot ? spotPhotos(spot, media) : [];
+   const visiblePhotos = photos.filter((p) => !removedIds.includes(p.id));
++  // savePhotos puts saved rows in the store before Save clears their drafts; never show one photo twice.
++  const gridPhotos = [
++    ...visiblePhotos,
++    ...staged.filter((d) => !photos.some((p) => p.id === d.id)).map(draftMedia),
++  ];
++  const stagedIds = useMemo(() => new Set(staged.map((p) => p.id)), [staged]);
++  const photoCount = gridPhotos.length;
+ 
+   const stagePhotoRemoval = useCallback((photoId: string) => {
+     // A fast double tap fires twice before re-render, so never append the same id twice.
+@@ -56,6 +85,81 @@ export default function EditSpotScreen() {
+     AccessibilityInfo.announceForAccessibility('Photo will be removed when you save');
+   }, []);
+ 
++  // ✕ on a draft just unstages it: it was never saved, so there is nothing to remove on Save.
++  const unstagePhoto = useCallback((photoId: string) => {
++    setStaged((prev) => prev.filter((p) => p.id !== photoId));
++    AccessibilityInfo.announceForAccessibility('New photo removed');
++  }, []);
++
++  const renderBadge = useCallback(
++    (m: Media, index: number) => {
++      const isNew = stagedIds.has(m.id);
++      return (
++        <View style={styles.badgeRow} pointerEvents="box-none">
++          {isNew ? (
++            <View style={styles.newBadge} pointerEvents="none">
++              <Text style={styles.newBadgeText}>new</Text>
++            </View>
++          ) : null}
++          <Pressable
++            style={styles.removeBadge}
++            onPress={() => (isNew ? unstagePhoto(m.id) : stagePhotoRemoval(m.id))}
++            hitSlop={10}
++            accessibilityRole="button"
++            accessibilityLabel={`Remove photo ${index + 1}`}>
++            <IconSymbol name="xmark" size={14} color={palette.white} />
++          </Pressable>
++        </View>
++      );
++    },
++    [stagedIds, stagePhotoRemoval, unstagePhoto],
++  );
++
++  const handleAddPhotos = useCallback(async () => {
++    // Photos picked while Save runs would be dropped when the sheet closes.
++    if (!spot || pickingRef.current || savingRef.current) return;
++    pickingRef.current = true;
++    try {
++      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
++      if (!permission?.granted) {
++        Alert.alert('Photo access needed', 'Allow photo access in Settings to add photos.');
++        return;
++      }
++      const result = await ImagePicker.launchImageLibraryAsync({
++        mediaTypes: ['images'],
++        allowsMultipleSelection: true,
++        exif: true,
++        quality: 0.8,
++        selectionLimit: MAX_PHOTOS - photoCount,
++      });
++      if (result.canceled || result.assets.length === 0) return;
++
++      const now = new Date().toISOString();
++      const drafts = result.assets.map((asset): StagedPhoto => {
++        const photo = importPhotoFromAsset(asset, now);
++        return {
++          key: asset.assetId ?? asset.uri,
++          id: newId(),
++          spot_id: spot.id,
++          sourceUri: asset.uri,
++          captured_at: photo.capturedAt,
++          location: photo.location ?? undefined,
++          created_at: now,
++        };
++      });
++      setStaged((prev) => {
++        // The same library photo picked again (or twice in one pick) is staged once.
++        const next = [...prev];
++        for (const d of drafts) if (!next.some((p) => p.key === d.key)) next.push(d);
++        return next.slice(0, MAX_PHOTOS - visiblePhotos.length);
++      });
++    } catch (err) {
++      console.warn('[EditSpot] photo pick failed:', err);
++    } finally {
++      pickingRef.current = false;
++    }
++  }, [spot, photoCount, visiblePhotos.length]);
++
+   const handleSave = useCallback(async () => {
+     if (!spot || savingRef.current) return;
+     savingRef.current = true;
+@@ -63,27 +167,41 @@ export default function EditSpotScreen() {
+     try {
+       const updates: SpotUpdate = {
+         name: name.trim() || null, // null clears the stored name; undefined would keep the old one
++        feature_types: tags.feature_types,
++        stopped: tags.stopped,
++        natural_speed: tags.natural_speed ?? null, // 0 (None) is kept; only unrated clears
++        notes: notes.trim() || null,
+         updated_at: new Date().toISOString(),
+       };
+ 
+-      let someNotRemoved = false;
+-      if (removedIds.length > 0) {
+-        // Only ids whose row was actually deleted count, so a failed delete never leaves the primary pointing nowhere.
+-        const removed = await removePhotos(removedIds);
+-        someNotRemoved = removed.length < removedIds.length;
+-        const primaryId = primaryPhoto(spot, media)?.id;
+-        if (primaryId !== undefined && removed.includes(primaryId)) {
+-          const remaining = spotPhotos(spot, media).filter((p) => !removed.includes(p.id));
+-          updates.primary_photo_id = remaining[0]?.id ?? null; // null clears the column
+-        }
++      const existing = spotPhotos(spot, media);
++      // Only ids whose row was actually deleted count, so a failed delete never leaves the primary pointing nowhere.
++      const removed = removedIds.length > 0 ? await removePhotos(removedIds) : [];
++      // A removal that failed keeps its slot, so the adds that would take the spot past the cap stay unsaved.
++      const toAdd = staged.slice(0, Math.max(0, MAX_PHOTOS - (existing.length - removed.length)));
++      // Likewise only photos actually written can become the primary.
++      const added = toAdd.length > 0 ? await savePhotos(toAdd.map(({ key: _key, ...photo }) => photo)) : [];
++      // savePhotos/removePhotos already updated the store: drop what's done, so the grid never shows a photo twice
++      // and a retry after a failed update only retries what failed.
++      const addedIds = new Set(added.map((m) => m.id));
++      setStaged((prev) => prev.filter((p) => !addedIds.has(p.id)));
++      setRemovedIds((prev) => prev.filter((photoId) => !removed.includes(photoId)));
++      const someNotRemoved = removed.length < removedIds.length;
++      const someNotAdded = added.length < staged.length;
++
++      const primaryId = primaryPhoto(spot, media)?.id;
++      if (existing.length === 0) {
++        if (added.length > 0) updates.primary_photo_id = added[0].id;
++      } else if (primaryId !== undefined && removed.includes(primaryId)) {
++        const remaining = existing.filter((p) => !removed.includes(p.id));
++        updates.primary_photo_id = remaining[0]?.id ?? added[0]?.id ?? null; // null clears the column
+       }
+ 
+       await updateSpot(spot.id, updates);
+-      if (someNotRemoved) {
++      const warning = photoWarning(someNotRemoved, someNotAdded);
++      if (warning) {
+         // Close the sheet from the alert, so dismissing the sheet can't swallow the alert on iOS.
+-        Alert.alert("Some photos couldn't be removed", "They're still on this spot. Try again later.", [
+-          { text: 'OK', onPress: () => router.back() },
+-        ]);
++        Alert.alert(warning.title, warning.message, [{ text: 'OK', onPress: () => router.back() }]);
+       } else {
+         router.back();
+       }
+@@ -94,7 +212,7 @@ export default function EditSpotScreen() {
+       setSaving(false);
+       Alert.alert("Couldn't save", 'Please try again.');
+     }
+-  }, [spot, name, removedIds, media, updateSpot, removePhotos, router]);
++  }, [spot, name, tags, notes, removedIds, staged, media, updateSpot, removePhotos, savePhotos, router]);
+ 
+   const handleDelete = useCallback(() => {
+     if (!spot) return;
+@@ -127,68 +245,83 @@ export default function EditSpotScreen() {
+     <ScrollView
+       style={styles.container}
+       contentContainerStyle={styles.content}
+-      keyboardShouldPersistTaps="handled">
+-      {photos.length > 0 ? (
+-        <>
+-          <SectionHeader title="Photos" />
+-          {visiblePhotos.length > 0 ? (
+-            <ScrollView
+-              horizontal
+-              style={styles.photoRow}
+-              contentContainerStyle={styles.photoRowContent}
+-              showsHorizontalScrollIndicator={false}>
+-              {visiblePhotos.map((m, i) => (
+-                <View key={m.id} style={styles.thumbWrap}>
+-                  <Image source={{ uri: resolvePhotoUri(m.file_path) }} style={styles.thumb} contentFit="cover" />
+-                  <Pressable
+-                    style={styles.thumbRemove}
+-                    onPress={() => stagePhotoRemoval(m.id)}
+-                    hitSlop={10}
+-                    accessibilityRole="button"
+-                    accessibilityLabel={`Remove photo ${i + 1}`}>
+-                    <IconSymbol name="xmark" size={14} color={palette.white} />
+-                  </Pressable>
+-                </View>
+-              ))}
+-            </ScrollView>
+-          ) : null}
+-          {removedIds.length > 0 ? (
+-            <View style={styles.pendingRow}>
+-              <Text style={styles.photoHint}>
+-                {removedIds.length === 1 ? '1 photo' : `${removedIds.length} photos`} will be removed when you save.
+-              </Text>
+-              <Pressable
+-                onPress={() => setRemovedIds([])}
+-                hitSlop={10}
+-                accessibilityRole="button"
+-                accessibilityLabel="Undo">
+-                <Text style={styles.undoText}>Undo</Text>
+-              </Pressable>
+-            </View>
+-          ) : null}
+-        </>
++      keyboardShouldPersistTaps="handled"
++      automaticallyAdjustKeyboardInsets>
++      <PhotoGrid
++        photos={gridPhotos}
++        renderBadge={renderBadge}
++        trailing={
++          photoCount < MAX_PHOTOS ? (
++            <Pressable
++              style={({ pressed }) => [styles.addTile, pressed && styles.addTilePressed]}
++              onPress={handleAddPhotos}
++              disabled={saving}
++              accessibilityRole="button"
++              accessibilityLabel="Add photos">
++              <IconSymbol name="plus" size={28} color={palette.gray[500]} />
++            </Pressable>
++          ) : undefined
++        }
++      />
++      {removedIds.length > 0 ? (
++        <View style={styles.pendingRow}>
++          <Text style={styles.photoHint}>
++            {removedIds.length === 1 ? '1 photo' : `${removedIds.length} photos`} will be removed when you save.
++          </Text>
++          <Pressable
++            onPress={() => setRemovedIds([])}
++            hitSlop={10}
++            accessibilityRole="button"
++            accessibilityLabel="Undo">
++            <Text style={styles.undoText}>Undo</Text>
++          </Pressable>
++        </View>
+       ) : null}
+ 
++      <TextInput
++        style={styles.input}
++        value={name}
++        onChangeText={setName}
++        placeholder="Name (optional)"
++        placeholderTextColor={palette.gray[400]}
++        accessibilityLabel="Name"
++      />
++
++      <SpotTagFields value={tags} onChange={setTags} />
++
+       <View style={styles.field}>
+-        <FieldLabel label="Name" />
++        <FieldLabel label="Notes" />
+         <TextInput
+-          style={styles.input}
+-          value={name}
+-          onChangeText={setName}
+-          placeholder="Name (optional)"
++          style={[styles.input, styles.notes]}
++          value={notes}
++          onChangeText={setNotes}
++          placeholder="Anything else"
+           placeholderTextColor={palette.gray[400]}
++          accessibilityLabel="Notes"
++          multiline
++          textAlignVertical="top"
+         />
+       </View>
+ 
+       {/* Actions */}
+       <View style={styles.actions}>
+         <Button title="Save" onPress={handleSave} variant="primary" size="lg" disabled={saving} />
+-        <Button title="Delete Spot" onPress={handleDelete} variant="destructive" size="lg" />
++        <Button title="Delete spot" onPress={handleDelete} variant="destructive" size="lg" />
+       </View>
+     </ScrollView>
+   );
+ }
+ 
++/** One alert for whatever part of the photo changes didn't make it; null when everything saved. */
++function photoWarning(notRemoved: boolean, notAdded: boolean): { title: string; message: string } | null {
++  if (notRemoved && notAdded) {
++    return { title: "Some photo changes didn't save", message: 'Some photos are still on this spot and some new ones were not added. Try again later.' };
++  }
++  if (notRemoved) return { title: "Some photos couldn't be removed", message: "They're still on this spot. Try again later." };
++  if (notAdded) return { title: "Some photos couldn't be added", message: 'The others were saved. Try adding them again.' };
++  return null;
++}
++
+ const styles = StyleSheet.create({
+   container: {
+     flex: 1,
+@@ -203,38 +336,40 @@ const styles = StyleSheet.create({
+     alignItems: 'center',
+     justifyContent: 'center',
+   },
+-  sectionHeader: {
+-    fontSize: 18,
+-    fontWeight: '700',
+-    color: palette.gray[900],
+-    marginTop: spacing.lg,
+-  },
+   field: {
+     gap: spacing.sm,
+   },
+-  photoRow: {
+-    flexGrow: 0, // a horizontal ScrollView grows to fill the column by default
++  badgeRow: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    gap: spacing.xs,
+   },
+-  photoRowContent: {
+-    gap: spacing.sm,
+-    paddingTop: spacing.xs,
+-    paddingRight: spacing.xs,
++  newBadge: {
++    paddingHorizontal: spacing.sm,
++    height: 24,
++    justifyContent: 'center',
++    borderRadius: radius.full,
++    backgroundColor: palette.blue[500],
+   },
+-  thumbWrap: {
+-    width: 72,
+-    height: 72,
++  newBadgeText: {
++    fontSize: 12,
++    fontWeight: '600',
++    color: palette.white,
+   },
+-  thumb: {
+-    width: 72,
+-    height: 72,
+-    borderRadius: radius.md,
++  addTile: {
++    flex: 1,
++    alignItems: 'center',
++    justifyContent: 'center',
++    borderWidth: 1,
++    borderStyle: 'dashed',
++    borderColor: palette.gray[300],
++    borderRadius: radius.sm,
+     borderCurve: 'continuous',
++  },
++  addTilePressed: {
+     backgroundColor: palette.gray[200],
+   },
+-  thumbRemove: {
+-    position: 'absolute',
+-    top: 4,
+-    right: 4,
++  removeBadge: {
+     width: 24,
+     height: 24,
+     borderRadius: radius.full,
+@@ -274,6 +409,9 @@ const styles = StyleSheet.create({
+     color: palette.gray[900],
+     backgroundColor: palette.white,
+   },
++  notes: {
++    minHeight: 88,
++  },
+   actions: {
+     gap: spacing.md,
+     marginTop: spacing['2xl'],
+diff --git a/src/__tests__/edit-add-photos.test.tsx b/src/__tests__/edit-add-photos.test.tsx
+new file mode 100644
+index 0000000..b8638e6
+--- /dev/null
++++ b/src/__tests__/edit-add-photos.test.tsx
+@@ -0,0 +1,390 @@
++import { Alert } from 'react-native';
++import { act, render, screen, fireEvent, waitFor } from '@testing-library/react-native';
++import { useLocalSearchParams, useRouter } from 'expo-router';
++import * as ImagePicker from 'expo-image-picker';
++import type { ImagePickerAsset, ImagePickerResult, MediaLibraryPermissionResponse, PermissionStatus } from 'expo-image-picker';
++import { useMediaStore, useSpotsStore } from '@/src/stores';
++import type { NewPhoto } from '@/src/hooks/use-media-actions';
++import type { Media, Spot, SpotUpdate } from '@/src/types';
++import { createTestMedia, createTestSpot } from './factories';
++
++// Member names from node_modules/expo-image-picker/build/ImagePicker.d.ts (lines 25, 96).
++jest.mock('expo-image-picker', () => ({
++  launchImageLibraryAsync: jest.fn(),
++  requestMediaLibraryPermissionsAsync: jest.fn(),
++}));
++
++const mockUpdateSpot = jest.fn(async () => {});
++jest.mock('@/src/hooks/use-spot-actions', () => ({
++  useSpotActions: () => ({ updateSpot: mockUpdateSpot, addSpot: jest.fn(), removeSpot: jest.fn() }),
++}));
++
++// By default every photo is saved, as a fully successful savePhotos would resolve.
++const toMedia = ({ sourceUri, ...fields }: NewPhoto): Media => ({ ...fields, file_path: sourceUri });
++const mockSavePhotos = jest.fn(async (photos: NewPhoto[]) => photos.map(toMedia));
++const mockRemovePhotos = jest.fn(async (ids: string[]) => ids);
++jest.mock('@/src/hooks/use-media-actions', () => ({
++  useMediaActions: () => ({ removePhotos: mockRemovePhotos, savePhotos: mockSavePhotos }),
++}));
++
++import EditSpotScreen from '@/app/spot/[id]/edit';
++
++const launch = jest.mocked(ImagePicker.launchImageLibraryAsync);
++const requestPermission = jest.mocked(ImagePicker.requestMediaLibraryPermissionsAsync);
++// The module is mocked, so its PermissionStatus enum isn't there at runtime; its string values stand in.
++const GRANTED: MediaLibraryPermissionResponse = {
++  granted: true,
++  status: 'granted' as PermissionStatus,
++  canAskAgain: true,
++  expires: 'never',
++};
++const DENIED: MediaLibraryPermissionResponse = {
++  granted: false,
++  status: 'denied' as PermissionStatus,
++  canAskAgain: false,
++  expires: 'never',
++};
++
++// Fixture EXIF: iOS reports unsigned GPS plus a ref, which importPhotoFromAsset signs.
++const A1: ImagePickerAsset = {
++  assetId: 'a1',
++  uri: 'file:///picked/a1.jpg',
++  width: 4032,
++  height: 3024,
++  exif: {
++    DateTimeOriginal: '2026:10:12 14:22:05',
++    GPSLatitude: 40.7,
++    GPSLatitudeRef: 'N',
++    GPSLongitude: 74.0,
++    GPSLongitudeRef: 'W',
++  },
++};
++const A2: ImagePickerAsset = {
++  assetId: 'a2',
++  uri: 'file:///picked/a2.jpg',
++  width: 3024,
++  height: 4032,
++  exif: {
++    DateTimeOriginal: '2026:10:13 09:05:00',
++    GPSLatitude: 33.9,
++    GPSLatitudeRef: 'S',
++    GPSLongitude: 151.2,
++    GPSLongitudeRef: 'E',
++  },
++};
++const picked = (...assets: ImagePickerAsset[]): ImagePickerResult => ({ canceled: false, assets });
++
++const mockBack = jest.fn();
++const at = (min: number) => `2026-10-15T09:${String(min).padStart(2, '0')}:00.000Z`;
++const makeMedia = (spotId: string, count: number): Media[] =>
++  Array.from({ length: count }, (_, i) => createTestMedia({ id: `m${i + 1}`, spot_id: spotId, created_at: at(i + 1) }));
++
++function renderEdit(spot: Spot, media: Media[]) {
++  useSpotsStore.setState({ spots: [spot] });
++  useMediaStore.setState({ mediaBySpot: media.length ? { [spot.id]: media } : {} });
++  jest.mocked(useLocalSearchParams).mockReturnValue({ id: spot.id });
++  return render(<EditSpotScreen />);
++}
++
++async function addPhotos(...assets: ImagePickerAsset[]) {
++  launch.mockResolvedValueOnce(picked(...assets));
++  fireEvent.press(screen.getByLabelText('Add photos'));
++  await waitFor(() => expect(screen.getAllByText('new')).toHaveLength(assets.length));
++}
++
++async function save() {
++  fireEvent.press(screen.getByText('Save'));
++  await waitFor(() => expect(mockUpdateSpot).toHaveBeenCalledTimes(1));
++  return (mockUpdateSpot.mock.calls[0] as unknown as [string, SpotUpdate])[1];
++}
++
++const savedDrafts = () => mockSavePhotos.mock.calls[0][0];
++
++describe('Edit spot: add photos', () => {
++  beforeEach(() => {
++    jest.clearAllMocks();
++    mockSavePhotos.mockImplementation(async (photos: NewPhoto[]) => photos.map(toMedia));
++    mockRemovePhotos.mockImplementation(async (ids: string[]) => ids);
++    requestPermission.mockResolvedValue(GRANTED);
++    launch.mockResolvedValue({ canceled: true, assets: null });
++    jest.mocked(useRouter).mockReturnValue({ push: jest.fn(), back: mockBack, replace: jest.fn(), dismissAll: jest.fn() } as never);
++  });
++
++  it("opens the photo library with multiple selection and EXIF from the 'Add photos' tile", async () => {
++    // EXIF is what carries each photo's capture time and GPS.
++    renderEdit(createTestSpot({ id: 's1' }), makeMedia('s1', 2));
++
++    fireEvent.press(screen.getByLabelText('Add photos'));
++
++    await waitFor(() => expect(launch).toHaveBeenCalledTimes(1));
++    expect(launch).toHaveBeenCalledWith(
++      expect.objectContaining({ mediaTypes: ['images'], allowsMultipleSelection: true, exif: true, selectionLimit: 18 }),
++    );
++  });
++
++  it("shows picked photos as 'new' tiles and writes them once on Save with EXIF time and GPS", async () => {
++    // Picked photos are staged; Save writes them in one call and never moves the spot.
++    renderEdit(createTestSpot({ id: 's1' }), makeMedia('s1', 1));
++
++    await addPhotos(A1, A2);
++    expect(screen.getAllByTestId(/^photo-tile-\d+$/)).toHaveLength(3);
++    expect(mockSavePhotos).not.toHaveBeenCalled();
++
++    const patch = await save();
++
++    expect(mockSavePhotos).toHaveBeenCalledTimes(1);
++    const drafts = savedDrafts();
++    expect(drafts).toHaveLength(2);
++    expect(drafts[0]).toEqual(
++      expect.objectContaining({
++        spot_id: 's1',
++        sourceUri: 'file:///picked/a1.jpg',
++        captured_at: '2026-10-12T14:22:05',
++        location: { latitude: 40.7, longitude: -74 },
++      }),
++    );
++    expect(drafts[1]).toEqual(
++      expect.objectContaining({
++        spot_id: 's1',
++        sourceUri: 'file:///picked/a2.jpg',
++        captured_at: '2026-10-13T09:05:00',
++        location: { latitude: -33.9, longitude: 151.2 },
++      }),
++    );
++    expect(drafts[0].id).not.toBe(drafts[1].id);
++    expect(drafts[0]).not.toHaveProperty('key');
++    expect(patch).not.toHaveProperty('location');
++    expect(mockBack).toHaveBeenCalledTimes(1);
++  });
++
++  it('writes nothing when the sheet is dismissed without Save', async () => {
++    // Drafts are screen state only: leaving drops them.
++    const { unmount } = renderEdit(createTestSpot({ id: 's1' }), makeMedia('s1', 1));
++
++    await addPhotos(A1);
++    unmount();
++
++    expect(mockSavePhotos).not.toHaveBeenCalled();
++    expect(mockUpdateSpot).not.toHaveBeenCalled();
++  });
++
++  it('makes the first added photo primary when the spot had none', async () => {
++    renderEdit(createTestSpot({ id: 's1' }), []);
++
++    await addPhotos(A1);
++    const patch = await save();
++
++    expect(patch.primary_photo_id).toBe(savedDrafts()[0].id);
++  });
++
++  it('leaves primary_photo_id out of the patch when the spot already has photos', async () => {
++    renderEdit(createTestSpot({ id: 's1', primary_photo_id: 'm1' }), makeMedia('s1', 2));
++
++    await addPhotos(A1);
++    const patch = await save();
++
++    expect(patch).not.toHaveProperty('primary_photo_id');
++  });
++
++  it('removes and adds in one Save, with the pending-removal hint beside the new tile', async () => {
++    renderEdit(createTestSpot({ id: 's1', primary_photo_id: 'm1' }), makeMedia('s1', 2));
++
++    fireEvent.press(screen.getByLabelText('Remove photo 2'));
++    await addPhotos(A1);
++    expect(screen.getByText('1 photo will be removed when you save.')).toBeTruthy();
++    expect(screen.getByText('new')).toBeTruthy();
++
++    await save();
++
++    expect(mockRemovePhotos).toHaveBeenCalledWith(['m2']);
++    expect(mockSavePhotos).toHaveBeenCalledTimes(1);
++    expect(savedDrafts()).toEqual([expect.objectContaining({ sourceUri: 'file:///picked/a1.jpg' })]);
++  });
++
++  it('makes the first added photo primary when every existing photo was removed', async () => {
++    // The old primary is gone and nothing existing remains, so the new photo takes over.
++    renderEdit(createTestSpot({ id: 's1', primary_photo_id: 'm1' }), makeMedia('s1', 1));
++
++    fireEvent.press(screen.getByLabelText('Remove photo 1'));
++    await addPhotos(A1);
++    const patch = await save();
++
++    expect(patch.primary_photo_id).toBe(savedDrafts()[0].id);
++  });
++
++  it("asks for photo access and adds nothing when it's denied", async () => {
++    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
++    requestPermission.mockResolvedValue(DENIED);
++    renderEdit(createTestSpot({ id: 's1' }), makeMedia('s1', 1));
++
++    fireEvent.press(screen.getByLabelText('Add photos'));
++
++    await waitFor(() => expect(alertSpy).toHaveBeenCalledTimes(1));
++    expect(alertSpy.mock.calls[0][0]).toBe('Photo access needed');
++    expect(launch).not.toHaveBeenCalled();
++    expect(screen.queryByText('new')).toBeNull();
++    alertSpy.mockRestore();
++  });
++
++  it('stages nothing when the picker is canceled', async () => {
++    renderEdit(createTestSpot({ id: 's1' }), makeMedia('s1', 1));
++
++    fireEvent.press(screen.getByLabelText('Add photos'));
++    await waitFor(() => expect(launch).toHaveBeenCalledTimes(1));
++    await act(async () => {});
++
++    expect(screen.queryByText('new')).toBeNull();
++    expect(screen.getAllByTestId(/^photo-tile-\d+$/)).toHaveLength(1);
++  });
++
++  it('stages the same library photo once when it is picked twice', async () => {
++    renderEdit(createTestSpot({ id: 's1' }), makeMedia('s1', 1));
++
++    await addPhotos(A1);
++    launch.mockResolvedValueOnce(picked(A1, A2));
++    fireEvent.press(screen.getByLabelText('Add photos'));
++    await waitFor(() => expect(screen.getAllByText('new')).toHaveLength(2));
++    await save();
++
++    expect(savedDrafts().map((d) => d.sourceUri)).toEqual(['file:///picked/a1.jpg', 'file:///picked/a2.jpg']);
++  });
++
++  it('opens the picker once on a double tap', async () => {
++    renderEdit(createTestSpot({ id: 's1' }), makeMedia('s1', 1));
++    launch.mockResolvedValueOnce(picked(A1));
++
++    fireEvent.press(screen.getByLabelText('Add photos'));
++    fireEvent.press(screen.getByLabelText('Add photos'));
++    await waitFor(() => expect(screen.getAllByText('new')).toHaveLength(1));
++
++    expect(launch).toHaveBeenCalledTimes(1);
++  });
++
++  it("unstages a new photo from its ✕ so Save doesn't write it", async () => {
++    renderEdit(createTestSpot({ id: 's1' }), makeMedia('s1', 1));
++
++    await addPhotos(A1);
++    fireEvent.press(screen.getByLabelText('Remove photo 2'));
++    expect(screen.queryByText('new')).toBeNull();
++    // Unstaging a draft is not a pending removal of a saved photo.
++    expect(screen.queryByText(/will be removed when you save/)).toBeNull();
++    await save();
++
++    expect(mockSavePhotos).not.toHaveBeenCalled();
++    expect(mockRemovePhotos).not.toHaveBeenCalled();
++  });
++
++  it('hides the add tile at 20 photos', async () => {
++    // APP_SPECIFICATIONS: at most 20 photos per spot.
++    renderEdit(createTestSpot({ id: 's1' }), makeMedia('s1', 19));
++
++    await addPhotos(A1);
++
++    expect(screen.queryByLabelText('Add photos')).toBeNull();
++  });
++
++  it("warns before closing when some photos couldn't be added", async () => {
++    // savePhotos resolves only what it wrote; the sheet closes from the alert's OK, not before.
++    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
++    mockSavePhotos.mockImplementation(async (photos: NewPhoto[]) => photos.slice(1).map(toMedia));
++    renderEdit(createTestSpot({ id: 's1' }), makeMedia('s1', 1));
++
++    await addPhotos(A1, A2);
++    await save();
++
++    await waitFor(() => expect(alertSpy).toHaveBeenCalledTimes(1));
++    expect(alertSpy.mock.calls[0][0]).toBe("Some photos couldn't be added");
++    expect(mockBack).not.toHaveBeenCalled();
++    const buttons = alertSpy.mock.calls[0][2] as { text: string; onPress: () => void }[];
++    buttons[0].onPress();
++    expect(mockBack).toHaveBeenCalledTimes(1);
++    alertSpy.mockRestore();
++  });
++  it('keeps the next existing photo primary when the primary is removed and photos are added', async () => {
++    // Existing photos outrank new ones: m2 is what the user already saw second.
++    renderEdit(createTestSpot({ id: 's1', primary_photo_id: 'm1' }), makeMedia('s1', 2));
++
++    fireEvent.press(screen.getByLabelText('Remove photo 1'));
++    await addPhotos(A1);
++    const patch = await save();
++
++    expect(patch.primary_photo_id).toBe('m2');
++  });
++
++  it('shows each saved photo once while the partial-failure alert is up', async () => {
++    // savePhotos puts the saved rows in the store before the sheet closes; their drafts must leave the grid.
++    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
++    mockSavePhotos.mockImplementation(async (photos: NewPhoto[]) => {
++      const saved = photos.slice(1).map(toMedia);
++      useMediaStore.getState().addMany(saved);
++      return saved;
++    });
++    renderEdit(createTestSpot({ id: 's1' }), makeMedia('s1', 1));
++
++    await addPhotos(A1, A2);
++    await save();
++    await waitFor(() => expect(alertSpy).toHaveBeenCalledTimes(1));
++
++    expect(screen.getAllByTestId(/^photo-tile-\d+$/)).toHaveLength(3);
++    expect(screen.getAllByText('new')).toHaveLength(1);
++    alertSpy.mockRestore();
++  });
++
++  it('does not write the photos again when Save is retried after the spot update failed', async () => {
++    // The first Save already wrote them; a retry must only retry what failed.
++    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
++    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
++    mockSavePhotos.mockImplementation(async (photos: NewPhoto[]) => {
++      const saved = photos.map(toMedia);
++      useMediaStore.getState().addMany(saved);
++      return saved;
++    });
++    mockUpdateSpot.mockRejectedValueOnce(new Error('disk I/O error'));
++    renderEdit(createTestSpot({ id: 's1' }), makeMedia('s1', 1));
++
++    await addPhotos(A1);
++    fireEvent.press(screen.getByText('Save'));
++    await waitFor(() => expect(alertSpy).toHaveBeenCalledWith("Couldn't save", 'Please try again.'));
++    expect(screen.queryByText('new')).toBeNull();
++    fireEvent.press(screen.getByText('Save'));
++    await waitFor(() => expect(mockBack).toHaveBeenCalledTimes(1));
++
++    expect(mockSavePhotos).toHaveBeenCalledTimes(1);
++    // Only the failed update is logged: no duplicate-key warning from a photo shown as saved and as a draft.
++    expect(consoleSpy).toHaveBeenCalledTimes(1);
++    consoleSpy.mockRestore();
++    alertSpy.mockRestore();
++  });
++
++  it('does not open the picker while a save is running', async () => {
++    // Photos picked then would be dropped when the sheet closes.
++    let finish = () => {};
++    mockUpdateSpot.mockImplementationOnce(() => new Promise<void>((resolve) => (finish = resolve)));
++    renderEdit(createTestSpot({ id: 's1' }), makeMedia('s1', 1));
++
++    fireEvent.press(screen.getByText('Save'));
++    await waitFor(() => expect(mockUpdateSpot).toHaveBeenCalledTimes(1));
++    fireEvent.press(screen.getByLabelText('Add photos'));
++    await act(async () => {});
++
++    expect(requestPermission).not.toHaveBeenCalled();
++    expect(launch).not.toHaveBeenCalled();
++    await act(async () => finish());
++  });
++
++  it('never saves past 20 photos when a staged removal fails', async () => {
++    // The add used the slot the removal freed; if the photo is still there, the add would make 21.
++    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
++    mockRemovePhotos.mockImplementation(async () => []);
++    renderEdit(createTestSpot({ id: 's1', primary_photo_id: 'm1' }), makeMedia('s1', 20));
++
++    fireEvent.press(screen.getByLabelText('Remove photo 2'));
++    await addPhotos(A1);
++    await save();
++
++    expect(mockSavePhotos).not.toHaveBeenCalled();
++    await waitFor(() => expect(alertSpy).toHaveBeenCalledTimes(1));
++    expect(alertSpy.mock.calls[0][0]).toBe("Some photo changes didn't save");
++    alertSpy.mockRestore();
++  });
++});
+diff --git a/src/__tests__/edit-remove-photo.test.tsx b/src/__tests__/edit-remove-photo.test.tsx
+index d841404..e882986 100644
+--- a/src/__tests__/edit-remove-photo.test.tsx
++++ b/src/__tests__/edit-remove-photo.test.tsx
+@@ -53,19 +53,20 @@ describe('Edit spot: remove a photo', () => {
+     jest.mocked(useRouter).mockReturnValue({ push: jest.fn(), back: mockBack, replace: jest.fn(), dismissAll: jest.fn() } as never);
+   });
+ 
+-  it('shows no Photos section and no remove controls for a spot without photos', () => {
+-    // Nothing to remove, so the section must not add an empty heading to the form.
++  it('shows no photo tiles and no remove controls for a spot without photos', () => {
++    // Nothing to remove, so the grid must not add empty space to the form.
+     renderEdit(createTestSpot({ id: 's1' }), []);
+ 
+-    expect(screen.queryByText('Photos')).toBeNull();
++    expect(screen.queryByTestId('photo-tile-0')).toBeNull();
+     expect(removeLabels()).toEqual([]);
+   });
+ 
+-  it('shows a Photos heading and one numbered remove control per photo', () => {
+-    // Each photo needs its own accessible remove control, numbered 1..n.
++  it('shows no section header and one numbered remove control per grid tile', () => {
++    // Each photo needs its own accessible remove control, numbered 1..n; spec §2.2 drops the "Photos" header.
+     renderEdit(createTestSpot({ id: 's1' }), makeMedia('s1', 3));
+ 
+-    expect(screen.getByText('Photos')).toBeOnTheScreen();
++    expect(screen.queryByText('Photos')).toBeNull();
++    expect(screen.getAllByTestId(/^photo-tile-\d+$/)).toHaveLength(3);
+     expect(removeLabels()).toEqual(['Remove photo 1', 'Remove photo 2', 'Remove photo 3']);
+   });
+ 
+diff --git a/src/__tests__/edit-spot-name.test.tsx b/src/__tests__/edit-spot-name.test.tsx
+index aabe418..0e0f9e3 100644
+--- a/src/__tests__/edit-spot-name.test.tsx
++++ b/src/__tests__/edit-spot-name.test.tsx
+@@ -31,7 +31,8 @@ describe('Edit spot: clearing the name', () => {
+     });
+   });
+ 
+-  it('Save writes only the name and updated_at (nothing from the removed model)', () => {
++  it('Save writes the name, the three tags, notes and updated_at, and never the location', () => {
++    // Adding or editing never moves the spot, and nothing from the removed model is written.
+     const spot = createTestSpot({ name: 'Old', feature_types: [FeatureType.Rail], stopped: true, notes: 'keep' });
+     useSpotsStore.setState({ spots: [spot] });
+     jest.mocked(useLocalSearchParams).mockReturnValue({ id: spot.id });
+@@ -44,8 +45,10 @@ describe('Edit spot: clearing the name', () => {
+     return waitFor(() => {
+       expect(mockUpdateSpot).toHaveBeenCalledTimes(1);
+       const [, updates] = mockUpdateSpot.mock.calls[0] as unknown as [string, SpotUpdate];
+-      expect(Object.keys(updates).sort()).toEqual(['name', 'updated_at']);
+-      expect(updates.name).toBe('New');
++      expect(Object.keys(updates).sort()).toEqual(
++        ['feature_types', 'name', 'natural_speed', 'notes', 'stopped', 'updated_at'],
++      );
++      expect(updates).toMatchObject({ name: 'New', feature_types: [FeatureType.Rail], stopped: true, notes: 'keep' });
+     });
+   });
+ });
+diff --git a/src/__tests__/edit-spot-tags.test.tsx b/src/__tests__/edit-spot-tags.test.tsx
+new file mode 100644
+index 0000000..28e7baf
+--- /dev/null
++++ b/src/__tests__/edit-spot-tags.test.tsx
+@@ -0,0 +1,183 @@
++import { ScrollView } from 'react-native';
++import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
++import { useLocalSearchParams, useRouter } from 'expo-router';
++import { useMediaStore, useSpotsStore } from '@/src/stores';
++import { FeatureType } from '@/src/types';
++import type { Spot, SpotUpdate } from '@/src/types';
++import { createTestMedia, createTestSpot } from './factories';
++
++const mockUpdateSpot = jest.fn(async () => {});
++jest.mock('@/src/hooks/use-spot-actions', () => ({
++  useSpotActions: () => ({ updateSpot: mockUpdateSpot, addSpot: jest.fn(), removeSpot: jest.fn() }),
++}));
++jest.mock('@/src/hooks/use-media-actions', () => ({
++  useMediaActions: () => ({ removePhotos: jest.fn(async (ids: string[]) => ids), savePhotos: jest.fn() }),
++}));
++
++import EditSpotScreen from '@/app/spot/[id]/edit';
++
++function renderEdit(spot: Spot, photoCount = 0) {
++  const media = Array.from({ length: photoCount }, (_, i) => createTestMedia({ id: `m${i + 1}`, spot_id: spot.id }));
++  useSpotsStore.setState({ spots: [spot] });
++  useMediaStore.setState({ mediaBySpot: media.length ? { [spot.id]: media } : {} });
++  jest.mocked(useLocalSearchParams).mockReturnValue({ id: spot.id });
++  render(<EditSpotScreen />);
++}
++
++async function save() {
++  const saveButton = screen.getByRole('button', { name: 'Save' });
++  expect(saveButton).toBeEnabled();
++  fireEvent.press(saveButton);
++  await waitFor(() => expect(mockUpdateSpot).toHaveBeenCalledTimes(1));
++  const [id, patch] = mockUpdateSpot.mock.calls[0] as unknown as [string, SpotUpdate];
++  return { id, patch };
++}
++
++const tagged = () =>
++  createTestSpot({
++    id: 's1',
++    feature_types: [FeatureType.Rail],
++    stopped: true,
++    natural_speed: 2,
++    notes: 'n',
++  });
++
++describe('Edit spot: tags and notes', () => {
++  beforeEach(() => {
++    mockUpdateSpot.mockClear();
++    jest.mocked(useRouter).mockReturnValue({ push: jest.fn(), back: jest.fn(), replace: jest.fn(), dismissAll: jest.fn() } as never);
++  });
++
++  it('pre-fills the chips, the switch, the speed and the notes from the spot', () => {
++    renderEdit(tagged());
++
++    expect(screen.getByRole('checkbox', { name: 'Rail' }).props.accessibilityState).toMatchObject({ checked: true });
++    expect(screen.getByRole('checkbox', { name: 'Ledge' }).props.accessibilityState).toMatchObject({ checked: false });
++    expect(screen.getByRole('switch', { name: 'Skate stopped' }).props.value).toBe(true);
++    expect(screen.getByRole('radio', { name: /^Some:/ }).props.accessibilityState).toMatchObject({ checked: true });
++    expect(screen.getByLabelText('Notes').props.value).toBe('n');
++  });
++
++  it('saves feature_types in tap order, stopped, natural_speed and notes', async () => {
++    renderEdit(tagged());
++
++    fireEvent.press(screen.getByRole('checkbox', { name: 'Ledge' }));
++    fireEvent(screen.getByRole('switch', { name: 'Skate stopped' }), 'valueChange', false);
++    fireEvent.press(screen.getByRole('radio', { name: /^Enough:/ }));
++    fireEvent.changeText(screen.getByLabelText('Notes'), 'new notes');
++    const { id, patch } = await save();
++
++    expect(id).toBe('s1');
++    expect(patch).toMatchObject({
++      feature_types: [FeatureType.Rail, FeatureType.Ledge],
++      stopped: false,
++      natural_speed: 3,
++      notes: 'new notes',
++    });
++  });
++
++  it('keeps tap order when the tapped chip comes earlier in the label list', async () => {
++    // Rail is listed before Ledge, so a spot tagged Ledge that gains Rail must save ['ledge','rail'], not a sorted list.
++    renderEdit(createTestSpot({ id: 's1', feature_types: [FeatureType.Ledge] }));
++
++    fireEvent.press(screen.getByRole('checkbox', { name: 'Rail' }));
++    const { patch } = await save();
++
++    expect(patch.feature_types).toEqual([FeatureType.Ledge, FeatureType.Rail]);
++  });
++
++  it('lifts the form above the keyboard so Notes stays visible while typing', () => {
++    // Notes sits near the bottom of a long form; without keyboard insets the iOS keyboard covers it.
++    renderEdit(tagged());
++
++    expect(screen.UNSAFE_getByType(ScrollView).props.automaticallyAdjustKeyboardInsets).toBe(true);
++  });
++
++  it('gives VoiceOver one stop per control: the visible "Skate stopped" and "Notes" labels are hidden', () => {
++    // The Switch and the input carry the same label; a second stop on the plain Text only repeats it.
++    renderEdit(tagged());
++
++    for (const label of ['Skate stopped', 'Notes']) {
++      expect(screen.queryByText(label)).toBeNull(); // RNTL's default query skips hidden elements
++      const text = screen.getByText(label, { includeHiddenElements: true });
++      expect(text.props.accessibilityElementsHidden).toBe(true);
++      expect(text.props.importantForAccessibility).toBe('no');
++    }
++  });
++
++  it('saves notes: null when the notes field is cleared', async () => {
++    // undefined would keep the stored notes; null clears the column.
++    renderEdit(tagged());
++
++    fireEvent.changeText(screen.getByLabelText('Notes'), '  ');
++    const { patch } = await save();
++
++    expect(patch).toHaveProperty('notes', null);
++  });
++
++  it('saves natural_speed: null when the selected speed is tapped again', async () => {
++    renderEdit(tagged());
++
++    fireEvent.press(screen.getByRole('radio', { name: /^Some:/ }));
++    expect(screen.getByText('Not rated')).toBeOnTheScreen();
++    const { patch } = await save();
++
++    expect(patch).toHaveProperty('natural_speed', null);
++  });
++
++  it('keeps natural_speed 0 (None) as a real value', async () => {
++    renderEdit(createTestSpot({ id: 's1', natural_speed: 0 }));
++
++    expect(screen.getByRole('radio', { name: /^None:/ }).props.accessibilityState).toMatchObject({ checked: true });
++    const { patch } = await save();
++
++    expect(patch).toHaveProperty('natural_speed', 0);
++  });
++
++  it('enables Save with every control empty and writes the empty values', async () => {
++    renderEdit(createTestSpot({ id: 's1' }));
++
++    const { patch } = await save();
++
++    expect(patch).toMatchObject({ name: null, feature_types: [], stopped: false, natural_speed: null, notes: null });
++    expect(patch).not.toHaveProperty('location');
++  });
++
++  it('shows the §2.2 fields and none of the old form', () => {
++    renderEdit(tagged(), 3);
++
++    expect(screen.getByPlaceholderText('Name (optional)')).toBeOnTheScreen();
++    expect(screen.getByPlaceholderText('Anything else')).toBeOnTheScreen();
++    expect(screen.getByText('Delete spot')).toBeOnTheScreen();
++    for (const word of [
++      'Basic Info',
++      'Feature',
++      'In-Run',
++      'Landing',
++      'Details',
++      'Status',
++      'Save as Draft',
++      'Material',
++      'Shape',
++      'Length',
++      'Bustability',
++      'Intensity',
++      'Photos',
++      'Delete Spot',
++    ]) {
++      expect(screen.queryByText(word)).toBeNull();
++    }
++  });
++
++  it('shows the photos in a PhotoGrid with a "Remove photo N" button per tile', () => {
++    renderEdit(tagged(), 3);
++
++    expect(screen.getByTestId('photo-tile-0')).toBeOnTheScreen();
++    expect(screen.getByTestId('photo-tile-2')).toBeOnTheScreen();
++    expect(screen.getAllByRole('button', { name: /^Remove photo \d+$/ }).map((b) => b.props.accessibilityLabel)).toEqual([
++      'Remove photo 1',
++      'Remove photo 2',
++      'Remove photo 3',
++    ]);
++  });
++});
+diff --git a/src/__tests__/photo-grid.test.tsx b/src/__tests__/photo-grid.test.tsx
+new file mode 100644
+index 0000000..9a7bffa
+--- /dev/null
++++ b/src/__tests__/photo-grid.test.tsx
+@@ -0,0 +1,116 @@
++import React from 'react';
++import { Image, PixelRatio, StyleSheet, Text } from 'react-native';
++import { render, screen, fireEvent, within } from '@testing-library/react-native';
++import type { ReactTestInstance, ReactTestRendererJSON } from 'react-test-renderer';
++
++import { PhotoGrid } from '@/src/components';
++import { createTestMedia } from './factories';
++
++const photos = Array.from({ length: 7 }, (_, i) =>
++  createTestMedia({ spot_id: 's1', file_path: `photos/s1/m${i}.jpg` }),
++);
++
++const tileStyle = (i: number) => StyleSheet.flatten(screen.getByTestId(`photo-tile-${i}`).props.style);
++
++/** The nearest host (native) ancestor: the tile's wrapper View. */
++function hostParent(node: ReactTestInstance): ReactTestInstance {
++  let p = node.parent;
++  while (p && typeof p.type !== 'string') p = p.parent;
++  if (!p) throw new Error('no host parent');
++  return p;
++}
++
++/** Depth-first order of the rendered host tree: testIDs and text children, as they would appear on screen. */
++function treeOrder(node: ReactTestRendererJSON | ReactTestRendererJSON[] | null): string[] {
++  if (node === null) return [];
++  if (Array.isArray(node)) return node.flatMap(treeOrder);
++  const own = typeof node.props.testID === 'string' ? [node.props.testID as string] : [];
++  const children = (node.children ?? []).flatMap((c) => (typeof c === 'string' ? [c] : treeOrder(c)));
++  return [...own, ...children];
++}
++
++describe('PhotoGrid', () => {
++  it('renders the primary photo full width at 4:3 and the rest as square tiles', () => {
++    render(<PhotoGrid photos={photos} />);
++    for (let i = 0; i < 7; i++) expect(screen.getByTestId(`photo-tile-${i}`)).toBeTruthy();
++    expect(screen.queryByTestId('photo-tile-7')).toBeNull();
++    expect(tileStyle(0)).toEqual(expect.objectContaining({ width: '100%', aspectRatio: 4 / 3 }));
++    for (let i = 1; i < 7; i++) expect(tileStyle(i).aspectRatio).toBe(1);
++  });
++
++  it('reports a tap by index', () => {
++    const onPressPhoto = jest.fn();
++    render(<PhotoGrid photos={photos} onPressPhoto={onPressPhoto} />);
++    fireEvent.press(screen.getByTestId('photo-tile-4'));
++    expect(onPressPhoto).toHaveBeenCalledWith(4);
++    expect(onPressPhoto).toHaveBeenCalledTimes(1);
++  });
++
++  it('labels every tile as an image button "Photo N of M"', () => {
++    render(<PhotoGrid photos={photos} onPressPhoto={() => {}} />);
++    const tiles = screen.getAllByRole('imagebutton');
++    expect(tiles.map((t) => t.props.accessibilityLabel)).toEqual(
++      photos.map((_, i) => `Photo ${i + 1} of 7`),
++    );
++  });
++
++  it('renders each badge over its tile, beside the button so VoiceOver can reach it, with (media, index)', () => {
++    const renderBadge = jest.fn(() => <Text>X</Text>);
++    render(<PhotoGrid photos={photos} renderBadge={renderBadge} />);
++    expect(screen.getAllByText('X')).toHaveLength(7);
++    expect(renderBadge).toHaveBeenCalledWith(photos[0], 0);
++    expect(renderBadge).toHaveBeenCalledWith(photos[6], 6);
++    const tile3 = screen.getByTestId('photo-tile-3');
++    expect(within(hostParent(tile3)).getAllByText('X')).toHaveLength(1);
++    expect(within(tile3).queryAllByText('X')).toHaveLength(0);
++  });
++
++  it('renders the trailing tile after the last photo', () => {
++    render(<PhotoGrid photos={photos} trailing={<Text>+</Text>} />);
++    expect(screen.getByText('+')).toBeTruthy();
++    const order = treeOrder(screen.toJSON());
++    expect(order.indexOf('+')).toBeGreaterThan(order.indexOf('photo-tile-6'));
++    expect(order.indexOf('photo-tile-6')).toBeGreaterThan(-1);
++  });
++
++  it('renders nothing with no photos and no trailing tile', () => {
++    render(<PhotoGrid photos={[]} />);
++    expect(screen.toJSON()).toBeNull();
++  });
++
++  it('renders only the trailing tile with no photos', () => {
++    render(<PhotoGrid photos={[]} trailing={<Text>+</Text>} />);
++    expect(screen.getByText('+')).toBeTruthy();
++    expect(screen.queryAllByTestId(/^photo-tile-/)).toHaveLength(0);
++    expect(screen.UNSAFE_queryAllByType(Image)).toHaveLength(0);
++  });
++
++  it('resolves image sources through resolvePhotoUri', () => {
++    render(<PhotoGrid photos={photos} />);
++    const images = screen.UNSAFE_queryAllByType(Image);
++    expect(images).toHaveLength(7);
++    const uri = (images[0].props.source as { uri: string }).uri;
++    expect(uri.endsWith(photos[0].file_path)).toBe(true);
++    expect(uri).not.toBe(photos[0].file_path);
++  });
++
++  it('makes tiles inert without onPressPhoto', () => {
++    render(<PhotoGrid photos={photos.slice(0, 2)} />);
++    expect(screen.getByTestId('photo-tile-1').props.accessibilityState).toEqual(
++      expect.objectContaining({ disabled: true }),
++    );
++  });
++
++  it('sizes measured tiles to a pixel-snapped third of the row, the trailing tile too', () => {
++    render(<PhotoGrid photos={photos.slice(0, 3)} trailing={<Text>+</Text>} />);
++    const row = hostParent(hostParent(screen.getByTestId('photo-tile-1')));
++    fireEvent(row, 'layout', { nativeEvent: { layout: { x: 0, y: 0, width: 361, height: 200 } } });
++    const scale = PixelRatio.get();
++    const expected = Math.floor(((361 - 8) / 3) * scale) / scale;
++    const widths = row.children
++      .filter((c): c is ReactTestInstance => typeof c !== 'string')
++      .map((c) => StyleSheet.flatten(c.props.style).width);
++    expect(widths).toEqual([expected, expected, expected]);
++    expect(3 * expected + 8).toBeLessThanOrEqual(361);
++  });
++});
+diff --git a/src/__tests__/speed-scale.test.tsx b/src/__tests__/speed-scale.test.tsx
+new file mode 100644
+index 0000000..cf58db2
+--- /dev/null
++++ b/src/__tests__/speed-scale.test.tsx
+@@ -0,0 +1,109 @@
++import React from 'react';
++import { StyleSheet } from 'react-native';
++import { render, screen, fireEvent, within } from '@testing-library/react-native';
++
++import { SpeedScale } from '@/src/components';
++import { palette } from '@/src/constants/theme';
++
++// The radiogroup container is deliberately not `accessible` (that would merge the radios into one VoiceOver
++// element), so getByRole cannot see it; find the host View by its role prop instead.
++const radioGroups = () =>
++  screen.root.findAll((n) => typeof n.type === 'string' && n.props.accessibilityRole === 'radiogroup');
++
++const SEGMENTS = [
++  'None: Flat. You make all the speed.',
++  'Little: Slight slope. Needs a lot of help.',
++  'Some: Some slope. Needs a bit of help.',
++  'Enough: Rolls in with speed for most tricks.',
++  'Too much: Steep. You have to scrub speed.',
++];
++
++describe('SpeedScale (edit form)', () => {
++  it('renders five radios inside one radiogroup, labelled "<label>: <description>"', () => {
++    render(<SpeedScale onChange={() => {}} />);
++    expect(radioGroups()).toHaveLength(1);
++    const [group] = radioGroups();
++    expect(group.props.accessible).not.toBe(true);
++    const radios = within(group).getAllByRole('radio');
++    expect(radios.map((r) => r.props.accessibilityLabel)).toEqual(SEGMENTS);
++    expect(screen.getAllByRole('radio')).toHaveLength(5);
++  });
++
++  it('reads "Not rated" when unset', () => {
++    render(<SpeedScale onChange={() => {}} />);
++    expect(screen.getByText('Not rated')).toBeTruthy();
++    expect(screen.getAllByRole('radio').every((r) => !r.props.accessibilityState?.checked)).toBe(true);
++  });
++
++  it('pressing a segment selects it', () => {
++    const onChange = jest.fn();
++    render(<SpeedScale onChange={onChange} />);
++    fireEvent.press(screen.getByText('Enough'));
++    expect(onChange).toHaveBeenCalledWith(3);
++  });
++
++  it('pressing the selected segment again clears it', () => {
++    const onChange = jest.fn();
++    render(<SpeedScale value={3} onChange={onChange} />);
++    fireEvent.press(screen.getByText('Enough'));
++    expect(onChange).toHaveBeenCalledTimes(1);
++    expect(onChange).toHaveBeenCalledWith(undefined);
++  });
++
++  it('shows the selected description and marks that radio checked', () => {
++    render(<SpeedScale value={4} onChange={() => {}} />);
++    expect(screen.getByText('Steep. You have to scrub speed.')).toBeTruthy();
++    expect(screen.queryByText('Not rated')).toBeNull();
++    expect(screen.getByRole('radio', { name: SEGMENTS[4] }).props.accessibilityState).toEqual(
++      expect.objectContaining({ checked: true }),
++    );
++  });
++
++  it('treats 0 as None, not as unset', () => {
++    const onChange = jest.fn();
++    render(<SpeedScale value={0} onChange={onChange} />);
++    expect(screen.getByText('Flat. You make all the speed.')).toBeTruthy();
++    expect(screen.queryByText('Not rated')).toBeNull();
++    fireEvent.press(screen.getByText('None'));
++    expect(onChange).toHaveBeenCalledWith(undefined);
++  });
++
++  it('fills the selected segment with palette.blue[500]', () => {
++    render(<SpeedScale value={2} onChange={() => {}} />);
++    const selected = screen.getByRole('radio', { name: SEGMENTS[2] });
++    expect(StyleSheet.flatten(selected.props.style).backgroundColor).toBe(palette.blue[500]);
++    const other = screen.getByRole('radio', { name: SEGMENTS[1] });
++    expect(StyleSheet.flatten(other.props.style).backgroundColor).not.toBe(palette.blue[500]);
++  });
++});
++
++describe('SpeedScale (readonly bar)', () => {
++  const filled = (i: number) => screen.getByTestId(`speed-cell-${i}`).props.accessibilityState?.selected === true;
++
++  it('fills cells 0..value and shows the word', () => {
++    render(<SpeedScale value={3} readonly />);
++    expect([0, 1, 2, 3, 4].map(filled)).toEqual([true, true, true, true, false]);
++    expect(screen.getByText('Enough')).toBeTruthy();
++    expect(screen.queryAllByRole('radio')).toHaveLength(0);
++    expect(screen.getByLabelText('Natural speed: Enough')).toBeTruthy();
++  });
++
++  it('fills cells with palette.blue[500]', () => {
++    render(<SpeedScale value={3} readonly />);
++    const style = StyleSheet.flatten(screen.getByTestId('speed-cell-3').props.style);
++    expect(style.backgroundColor).toBe(palette.blue[500]);
++    const empty = StyleSheet.flatten(screen.getByTestId('speed-cell-4').props.style);
++    expect(empty.backgroundColor).not.toBe(palette.blue[500]);
++  });
++
++  it('value 0 fills only the first cell and reads None', () => {
++    render(<SpeedScale value={0} readonly />);
++    expect([0, 1, 2, 3, 4].map(filled)).toEqual([true, false, false, false, false]);
++    expect(screen.getByLabelText('Natural speed: None')).toBeTruthy();
++  });
++
++  it('renders nothing when not rated', () => {
++    render(<SpeedScale readonly />);
++    expect(screen.toJSON()).toBeNull();
++  });
++});
+diff --git a/src/__tests__/spot-tag-fields.test.tsx b/src/__tests__/spot-tag-fields.test.tsx
+new file mode 100644
+index 0000000..20032b3
+--- /dev/null
++++ b/src/__tests__/spot-tag-fields.test.tsx
+@@ -0,0 +1,89 @@
++import { useState } from 'react';
++import { render, screen, fireEvent, within } from '@testing-library/react-native';
++import { SpotTagFields, type SpotTags } from '@/src/components/SpotTagFields';
++import { FEATURE_TYPE_LABELS } from '@/src/constants/labels';
++import { FeatureType } from '@/src/types';
++
++const EMPTY: SpotTags = { feature_types: [], stopped: false, natural_speed: undefined };
++
++/** Holds the value like a screen would, so consecutive taps build on each other. */
++function renderFields(initial: SpotTags = EMPTY) {
++  const onChange = jest.fn();
++  function Harness() {
++    const [value, setValue] = useState(initial);
++    return (
++      <SpotTagFields
++        value={value}
++        onChange={(next) => {
++          onChange(next);
++          setValue(next);
++        }}
++      />
++    );
++  }
++  render(<Harness />);
++  const last = () => onChange.mock.calls[onChange.mock.calls.length - 1][0] as SpotTags;
++  return { onChange, last };
++}
++
++const chip = (label: string) => screen.getByRole('checkbox', { name: label });
++
++describe('SpotTagFields', () => {
++  it('keeps feature types in tap order and removes one on a second tap', () => {
++    // D19: the first tapped type is the one the list label leads with ("Ledge +1").
++    const { last } = renderFields();
++
++    fireEvent.press(chip('Ledge'));
++    fireEvent.press(chip('Rail'));
++    expect(last().feature_types).toEqual([FeatureType.Ledge, FeatureType.Rail]);
++
++    fireEvent.press(chip('Ledge'));
++    expect(last().feature_types).toEqual([FeatureType.Rail]);
++  });
++
++  it('renders the eight chips in FEATURE_TYPE_LABELS order, checked when the value includes them', () => {
++    renderFields({ ...EMPTY, feature_types: [FeatureType.Gap] });
++
++    const chips = screen.getAllByRole('checkbox');
++    expect(chips.map((c) => within(c).getByText(/./).props.children)).toEqual(Object.values(FEATURE_TYPE_LABELS));
++    expect(chip('Gap').props.accessibilityState).toMatchObject({ checked: true });
++    expect(chip('Rail').props.accessibilityState).toMatchObject({ checked: false });
++  });
++
++  it('sets stopped from the "Skate stopped" switch and passes the rest through', () => {
++    const { last } = renderFields({ ...EMPTY, feature_types: [FeatureType.Rail], natural_speed: 1 });
++
++    const toggle = screen.getByRole('switch', { name: 'Skate stopped' });
++    expect(toggle.props.value).toBe(false);
++    fireEvent(toggle, 'valueChange', true);
++
++    expect(last()).toEqual({ feature_types: [FeatureType.Rail], stopped: true, natural_speed: 1 });
++    expect(screen.getByText('Skate stopped', { includeHiddenElements: true })).toBeOnTheScreen();
++  });
++
++  it('sets natural speed from the SpeedScale and clears it on a second tap', () => {
++    const { last } = renderFields();
++
++    fireEvent.press(screen.getByRole('radio', { name: /^Some:/ }));
++    expect(last().natural_speed).toBe(2);
++
++    fireEvent.press(screen.getByRole('radio', { name: /^Some:/ }));
++    expect(last().natural_speed).toBeUndefined();
++  });
++
++  it('labels the chips "What\'s here" and the scale "Natural speed"', () => {
++    renderFields();
++
++    expect(screen.getByText("What's here")).toBeOnTheScreen();
++    expect(screen.getByText('Natural speed')).toBeOnTheScreen();
++  });
++
++  it('has none of the old section words', () => {
++    // The old edit form had a section skeleton; the rewrite has none (spec §2.2).
++    renderFields({ feature_types: [FeatureType.Rail], stopped: true, natural_speed: 3 });
++
++    for (const word of ['Feature', 'In-Run', 'Landing', 'Details', 'Status']) {
++      expect(screen.queryByText(word)).toBeNull();
++    }
++  });
++});
+diff --git a/src/__tests__/use-media-actions.test.ts b/src/__tests__/use-media-actions.test.ts
+index a0c9e11..9e4aca2 100644
+--- a/src/__tests__/use-media-actions.test.ts
++++ b/src/__tests__/use-media-actions.test.ts
+@@ -77,3 +77,58 @@ describe('useMediaActions.removePhotos', () => {
+     expect(fs.__fileExists(a.file_path)).toBe(true);
+   });
+ });
++
++describe('useMediaActions.savePhotos', () => {
++  const { insertMedia: mockInsertMedia } = jest.requireMock('@/src/db') as { insertMedia: jest.Mock };
++  const draft = (id: string) => ({
++    id,
++    spot_id: 's1',
++    sourceUri: `file:///picked/${id}.jpg`,
++    captured_at: '2026-10-12T14:22:05',
++    created_at: '2026-10-21T10:00:00.000Z',
++  });
++
++  beforeEach(() => {
++    jest.clearAllMocks();
++    mockInsertMedia.mockResolvedValue(undefined);
++    fs.__resetFs();
++    fs.__putFile('file:///picked/n1.jpg');
++    fs.__putFile('file:///picked/n2.jpg');
++    useMediaStore.setState({ mediaBySpot: {} });
++  });
++
++  it('resolves the saved photos with their app-storage paths, in the order given', async () => {
++    // Edit picks the new primary from this result, so it must be what was actually written.
++    const { result } = renderHook(() => useMediaActions());
++
++    let saved: unknown;
++    await act(async () => {
++      saved = await result.current.savePhotos([draft('n1'), draft('n2')]);
++    });
++
++    expect(saved).toEqual([
++      expect.objectContaining({ id: 'n1', spot_id: 's1', file_path: 'photos/s1/n1.jpg', captured_at: '2026-10-12T14:22:05' }),
++      expect.objectContaining({ id: 'n2', file_path: 'photos/s1/n2.jpg' }),
++    ]);
++    expect(useMediaStore.getState().mediaBySpot.s1.map((m) => m.id)).toEqual(['n1', 'n2']);
++  });
++
++  it('leaves a photo whose insert failed out of the result and the store, and keeps the others', async () => {
++    // One bad row must not throw away the rest; the caller compares counts to warn the user.
++    mockInsertMedia.mockImplementation(async (_db: unknown, m: { id: string }) => {
++      if (m.id === 'n1') throw new Error('disk I/O error');
++    });
++    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
++    const { result } = renderHook(() => useMediaActions());
++
++    let saved: { id: string }[] = [];
++    await act(async () => {
++      saved = await result.current.savePhotos([draft('n1'), draft('n2')]);
++    });
++
++    expect(saved.map((m) => m.id)).toEqual(['n2']);
++    expect(useMediaStore.getState().mediaBySpot.s1.map((m) => m.id)).toEqual(['n2']);
++    expect(consoleSpy).toHaveBeenCalledTimes(1);
++    consoleSpy.mockRestore();
++  });
++});
+diff --git a/src/components/PhotoGrid.tsx b/src/components/PhotoGrid.tsx
+new file mode 100644
+index 0000000..dedb33c
+--- /dev/null
++++ b/src/components/PhotoGrid.tsx
+@@ -0,0 +1,100 @@
++import React, { useState, type ReactNode } from 'react';
++import { View, Pressable, PixelRatio, StyleSheet, type DimensionValue, type LayoutChangeEvent } from 'react-native';
++import { Image } from 'expo-image';
++import { palette, spacing, radius } from '@/src/constants/theme';
++import { resolvePhotoUri } from '@/src/utils/photo-storage';
++import type { Media } from '@/src/types';
++
++interface PhotoGridProps {
++  /** Already in display order (`spotPhotos`): primary first. */
++  photos: Media[];
++  onPressPhoto?: (index: number) => void;
++  /**
++   * Drawn over the tile's top-right corner: the ✕ remove button in edit, the 'new' mark on a staged add. A badge
++   * that isn't a button should set `pointerEvents="none"` so taps on it reach the tile.
++   */
++  renderBadge?: (media: Media, index: number) => ReactNode;
++  /** Rendered as the last square tile, e.g. the '+' add tile in edit. */
++  trailing?: ReactNode;
++}
++
++/** Before the row is measured, 31% keeps the first frame three across. */
++const UNMEASURED_TILE: DimensionValue = '31%';
++
++/** The primary photo full width at 4:3, then every other photo in rows of three square tiles. */
++export function PhotoGrid({ photos, onPressPhoto, renderBadge, trailing }: PhotoGridProps) {
++  const [rowWidth, setRowWidth] = useState(0);
++  if (photos.length === 0 && trailing == null) return null;
++
++  // Floored to the pixel grid: an exact third can round past the row width and wrap the third tile.
++  const scale = PixelRatio.get();
++  const tileWidth =
++    rowWidth > 0 ? Math.floor(((rowWidth - 2 * spacing.xs) / 3) * scale) / scale : UNMEASURED_TILE;
++  const onRowLayout = (e: LayoutChangeEvent) => setRowWidth(e.nativeEvent.layout.width);
++
++  // The badge sits beside the Pressable, not inside it: an accessible imagebutton would hide a nested
++  // ✕ button from VoiceOver.
++  const tile = (media: Media, index: number) => (
++    <View key={media.id} style={index === 0 ? undefined : { width: tileWidth }}>
++      <Pressable
++        testID={`photo-tile-${index}`}
++        onPress={onPressPhoto ? () => onPressPhoto(index) : undefined}
++        disabled={!onPressPhoto}
++        accessibilityRole="imagebutton"
++        accessibilityLabel={`Photo ${index + 1} of ${photos.length}`}
++        style={index === 0 ? styles.hero : styles.tile}>
++        <Image source={{ uri: resolvePhotoUri(media.file_path) }} style={styles.image} contentFit="cover" />
++      </Pressable>
++      {renderBadge ? <View style={styles.badge} pointerEvents="box-none">{renderBadge(media, index)}</View> : null}
++    </View>
++  );
++
++  const [hero, ...rest] = photos;
++  return (
++    <View style={styles.grid}>
++      {hero ? tile(hero, 0) : null}
++      {rest.length > 0 || trailing != null ? (
++        <View style={styles.row} onLayout={onRowLayout}>
++          {rest.map((m, i) => tile(m, i + 1))}
++          {trailing != null ? <View style={[styles.tile, { width: tileWidth }]}>{trailing}</View> : null}
++        </View>
++      ) : null}
++    </View>
++  );
++}
++
++const styles = StyleSheet.create({
++  grid: {
++    gap: spacing.xs,
++  },
++  hero: {
++    width: '100%',
++    aspectRatio: 4 / 3,
++    borderRadius: radius.md,
++    borderCurve: 'continuous',
++    overflow: 'hidden',
++    backgroundColor: palette.gray[100],
++  },
++  row: {
++    flexDirection: 'row',
++    flexWrap: 'wrap',
++    gap: spacing.xs,
++  },
++  tile: {
++    width: '100%',
++    aspectRatio: 1,
++    borderRadius: radius.sm,
++    borderCurve: 'continuous',
++    overflow: 'hidden',
++    backgroundColor: palette.gray[100],
++  },
++  image: {
++    width: '100%',
++    height: '100%',
++  },
++  badge: {
++    position: 'absolute',
++    top: spacing.xs,
++    right: spacing.xs,
++  },
++});
+diff --git a/src/components/SpeedScale.tsx b/src/components/SpeedScale.tsx
+new file mode 100644
+index 0000000..8f5b105
+--- /dev/null
++++ b/src/components/SpeedScale.tsx
+@@ -0,0 +1,135 @@
++import React from 'react';
++import { View, Pressable, Text, StyleSheet } from 'react-native';
++import { palette, spacing, radius, typography } from '@/src/constants/theme';
++import type { NaturalSpeed } from '@/src/types';
++
++/** Natural speed words and descriptions, spec §2.3 (D21). */
++export const SPEED_LABELS: Record<NaturalSpeed, { label: string; description: string }> = {
++  0: { label: 'None', description: 'Flat. You make all the speed.' },
++  1: { label: 'Little', description: 'Slight slope. Needs a lot of help.' },
++  2: { label: 'Some', description: 'Some slope. Needs a bit of help.' },
++  3: { label: 'Enough', description: 'Rolls in with speed for most tricks.' },
++  4: { label: 'Too much', description: 'Steep. You have to scrub speed.' },
++};
++
++const LEVELS: readonly NaturalSpeed[] = [0, 1, 2, 3, 4];
++
++interface SpeedScaleProps {
++  /** undefined = not rated; 0 (None) is a real value. */
++  value?: NaturalSpeed;
++  onChange?: (value: NaturalSpeed | undefined) => void;
++  /** Compact five-cell bar with the word beside it; renders nothing when not rated. */
++  readonly?: boolean;
++}
++
++export function SpeedScale({ value, onChange, readonly }: SpeedScaleProps) {
++  if (readonly) {
++    if (value === undefined) return null;
++    const { label } = SPEED_LABELS[value];
++    return (
++      <View style={styles.bar} accessible accessibilityLabel={`Natural speed: ${label}`}>
++        <View style={styles.cells}>
++          {LEVELS.map((level) => {
++            const filled = level <= value;
++            return (
++              <View
++                key={level}
++                testID={`speed-cell-${level}`}
++                accessibilityState={{ selected: filled }}
++                style={[styles.cell, filled && styles.filled]}
++              />
++            );
++          })}
++        </View>
++        <Text style={styles.barLabel}>{label}</Text>
++      </View>
++    );
++  }
++
++  return (
++    <View>
++      <View style={styles.row} accessibilityRole="radiogroup">
++        {LEVELS.map((level) => {
++          const checked = level === value;
++          const { label, description } = SPEED_LABELS[level];
++          return (
++            <Pressable
++              key={level}
++              onPress={() => onChange?.(checked ? undefined : level)}
++              style={[styles.segment, checked && styles.filled]}
++              accessibilityRole="radio"
++              accessibilityState={{ checked }}
++              accessibilityLabel={`${label}: ${description}`}>
++              <Text
++                style={[styles.segmentLabel, checked && styles.selectedLabel]}
++                numberOfLines={level === 4 ? 2 : 1}>
++                {label}
++              </Text>
++            </Pressable>
++          );
++        })}
++      </View>
++      <Text style={styles.description}>
++        {value === undefined ? 'Not rated' : SPEED_LABELS[value].description}
++      </Text>
++    </View>
++  );
++}
++
++const styles = StyleSheet.create({
++  row: {
++    flexDirection: 'row',
++    gap: 2,
++    backgroundColor: palette.gray[100],
++    borderRadius: radius.md,
++    borderCurve: 'continuous',
++    padding: 2,
++  },
++  segment: {
++    flex: 1,
++    minHeight: 44,
++    paddingHorizontal: 2,
++    alignItems: 'center',
++    justifyContent: 'center',
++    borderRadius: radius.md - 2,
++    borderCurve: 'continuous',
++    backgroundColor: palette.gray[100],
++  },
++  filled: {
++    backgroundColor: palette.blue[500],
++  },
++  segmentLabel: {
++    fontSize: 13,
++    fontWeight: '500',
++    color: palette.gray[700],
++    textAlign: 'center',
++  },
++  selectedLabel: {
++    color: palette.white,
++    fontWeight: '600',
++  },
++  description: {
++    ...typography.footnote,
++    color: palette.gray[500],
++    marginTop: spacing.xs,
++  },
++  bar: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    gap: spacing.sm,
++  },
++  cells: {
++    flexDirection: 'row',
++    gap: 2,
++  },
++  cell: {
++    width: 12,
++    height: 8,
++    borderRadius: 2,
++    backgroundColor: palette.gray[200],
++  },
++  barLabel: {
++    ...typography.subheadline,
++    color: palette.gray[700],
++  },
++});
+diff --git a/src/components/SpotTagFields.tsx b/src/components/SpotTagFields.tsx
+new file mode 100644
+index 0000000..fda22d7
+--- /dev/null
++++ b/src/components/SpotTagFields.tsx
+@@ -0,0 +1,90 @@
++import React from 'react';
++import { View, Text, Switch, StyleSheet } from 'react-native';
++import { Chip, ChipGroup } from './Chip';
++import { SpeedScale } from './SpeedScale';
++import { FEATURE_TYPE_LABELS } from '@/src/constants/labels';
++import { palette, spacing } from '@/src/constants/theme';
++import type { FeatureType, Spot } from '@/src/types';
++
++export type SpotTags = Pick<Spot, 'feature_types' | 'stopped' | 'natural_speed'>;
++
++interface SpotTagFieldsProps {
++  value: SpotTags;
++  /** Always called with the full next value. */
++  onChange: (next: SpotTags) => void;
++}
++
++const FEATURE_TYPES = Object.entries(FEATURE_TYPE_LABELS) as [FeatureType, string][];
++
++/** The three tags of a spot (spec §2.2 items 3–5): what's here, skate stopped, natural speed. Controlled. */
++export function SpotTagFields({ value, onChange }: SpotTagFieldsProps) {
++  const toggleType = (type: FeatureType) => {
++    const feature_types = value.feature_types.includes(type)
++      ? value.feature_types.filter((t) => t !== type)
++      : [...value.feature_types, type]; // tap order kept (D19)
++    onChange({ ...value, feature_types });
++  };
++
++  return (
++    <View style={styles.container}>
++      <View style={styles.field}>
++        <Text style={styles.label}>What&apos;s here</Text>
++        <ChipGroup>
++          {FEATURE_TYPES.map(([type, label]) => (
++            <Chip
++              key={type}
++              label={label}
++              selected={value.feature_types.includes(type)}
++              onPress={() => toggleType(type)}
++            />
++          ))}
++        </ChipGroup>
++      </View>
++
++      <View style={styles.switchRow}>
++        {/* The Switch carries the same label, so VoiceOver skips this Text. */}
++        <Text style={styles.switchLabel} accessibilityElementsHidden importantForAccessibility="no">
++          Skate stopped
++        </Text>
++        <Switch
++          value={value.stopped}
++          onValueChange={(stopped) => onChange({ ...value, stopped })}
++          accessibilityLabel="Skate stopped"
++        />
++      </View>
++
++      <View style={styles.field}>
++        <Text style={styles.label}>Natural speed</Text>
++        <SpeedScale
++          value={value.natural_speed}
++          onChange={(natural_speed) => onChange({ ...value, natural_speed })}
++        />
++      </View>
++    </View>
++  );
++}
++
++const styles = StyleSheet.create({
++  container: {
++    gap: spacing.lg,
++  },
++  field: {
++    gap: spacing.sm,
++  },
++  label: {
++    fontSize: 14,
++    fontWeight: '500',
++    color: palette.gray[600],
++  },
++  switchRow: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    justifyContent: 'space-between',
++    gap: spacing.md,
++  },
++  switchLabel: {
++    flexShrink: 1,
++    fontSize: 16,
++    color: palette.gray[900],
++  },
++});
+diff --git a/src/components/index.ts b/src/components/index.ts
+index 7035cfa..2ce6a47 100644
+--- a/src/components/index.ts
++++ b/src/components/index.ts
+@@ -5,3 +5,6 @@ export { Chip, ChipGroup } from './Chip';
+ export { FormField, FormInput } from './FormField';
+ export { EmptyState } from './EmptyState';
+ export { SpotListItem } from './SpotListItem';
++export { SpeedScale, SPEED_LABELS } from './SpeedScale';
++export { PhotoGrid } from './PhotoGrid';
++export { SpotTagFields, type SpotTags } from './SpotTagFields';
+diff --git a/src/hooks/use-media-actions.ts b/src/hooks/use-media-actions.ts
+index 37c2aba..7da7655 100644
+--- a/src/hooks/use-media-actions.ts
++++ b/src/hooks/use-media-actions.ts
+@@ -10,7 +10,8 @@ export type NewPhoto = Omit<Media, 'file_path'> & { sourceUri: string };
+ 
+ /**
+  * Photo changes are DB-first (unlike useSpotActions), and only rows the DB accepted reach the store, in one update.
+- * - savePhotos: each photo is copied into app storage (D3), then its row inserted.
++ * - savePhotos: each photo is copied into app storage (D3), then its row inserted. Resolves the photos actually
++ *   saved, in the order given; a failed insert is logged and the others are still saved.
+  * - removePhotos: each row is deleted; the file in app storage stays (D3) and the camera roll is never touched.
+  *   Resolves the ids actually removed; a failed delete is logged and its photo stays.
+  */
+@@ -20,20 +21,21 @@ export function useMediaActions() {
+   const removeMany = useMediaStore((s) => s.removeMany);
+ 
+   const savePhotos = useCallback(
+-    async (photos: NewPhoto[]) => {
+-      const saved = await Promise.all(
++    async (photos: NewPhoto[]): Promise<Media[]> => {
++      const results = await Promise.allSettled(
+         photos.map(async ({ sourceUri, ...fields }) => {
+           const media: Media = { ...fields, file_path: await persistPhoto(sourceUri, fields.spot_id, fields.id) };
+-          try {
+-            await insertMedia(db, media);
+-            return media;
+-          } catch (err) {
+-            console.error('[useMediaActions] insertMedia failed:', err);
+-            return null;
+-          }
++          await insertMedia(db, media);
++          return media;
+         }),
+       );
+-      addMany(saved.filter((m): m is Media => m !== null));
++      const saved: Media[] = [];
++      for (const r of results) {
++        if (r.status === 'fulfilled') saved.push(r.value);
++        else console.error('[useMediaActions] insertMedia failed:', r.reason);
++      }
++      addMany(saved);
++      return saved;
+     },
+     [db, addMany],
+   );

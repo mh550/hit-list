@@ -40,6 +40,11 @@ export async function backfillTowns(spots: Spot[], updateSpot: UpdateSpot, limit
     .slice(0, limit);
   for (const spot of pending) {
     const town = await geocodeTown(spot.location);
-    if (town) await updateSpot(spot.id, { generated_name: town });
+    if (!town) continue;
+    try {
+      await updateSpot(spot.id, { generated_name: town });
+    } catch {
+      // updateSpot logged it; this spot is retried next launch.
+    }
   }
 }

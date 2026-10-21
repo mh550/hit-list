@@ -63,11 +63,11 @@ describe('foreign keys', () => {
           created_at TEXT NOT NULL DEFAULT (datetime('now')),
           updated_at TEXT NOT NULL DEFAULT (datetime('now')),
           deleted_at TEXT,
-          status TEXT NOT NULL DEFAULT 'draft',
-          feature_json TEXT NOT NULL DEFAULT '{}',
-          in_run_json TEXT NOT NULL DEFAULT '{"setup_options":[]}',
-          landing_json TEXT NOT NULL DEFAULT '{}',
-          metadata_json TEXT NOT NULL DEFAULT '{}',
+          feature_types_json TEXT NOT NULL DEFAULT '[]',
+          stopped INTEGER NOT NULL DEFAULT 0,
+          natural_speed INTEGER,
+          notes TEXT,
+          legacy_json TEXT,
           primary_photo_id TEXT
         );
         INSERT INTO spots_new SELECT * FROM spots;

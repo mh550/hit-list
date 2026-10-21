@@ -46,6 +46,8 @@ export default function ReviewScreen() {
       location: { latitude, longitude },
       created_at: now,
       updated_at: now,
+      feature_types: [],
+      stopped: false,
       status: SpotStatus.Draft,
       feature: {},
       in_run: { setup_options: [] },

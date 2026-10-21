@@ -16,7 +16,9 @@ export function createTestSpot(overrides: Partial<Spot> = {}): Spot {
     location: CITIES.seattle,
     created_at: now,
     updated_at: now,
-    status: SpotStatus.Draft,
+    feature_types: [],
+    stopped: false,
+    status: SpotStatus.Complete, // what rowToSpot returns until M1-03 removes status
     feature: {},
     in_run: { setup_options: [] },
     landing: {},

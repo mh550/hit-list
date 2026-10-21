@@ -18,8 +18,9 @@ export function useDbInit(): { isReady: boolean } {
 
   useEffect(() => {
     (async () => {
-      // A failed upgrade leaves the DB at its last good version, which this build can still read, so the
-      // load goes ahead: skipping it would look like every spot had vanished.
+      // A failed upgrade leaves the DB at its last good version and the load still goes ahead: skipping it would
+      // look like every spot had vanished. Below version 3 this build's spot columns are missing, so getSpots
+      // throws and the list stays empty until a later launch's retry succeeds; nothing on disk is lost.
       try {
         await migrateDb(db);
       } catch (err) {

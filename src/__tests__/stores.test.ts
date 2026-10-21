@@ -360,3 +360,30 @@ describe('useSpotsStore.updateSpot: primary_photo_id', () => {
     expect(updated.name).toBe('Keep me');
   });
 });
+
+describe('useSpotsStore.updateSpot: notes and natural_speed', () => {
+  afterEach(() => useSpotsStore.setState({ spots: [] }));
+
+  it('null clears notes and natural_speed (undefined in memory) while other fields stay', () => {
+    const spot = createTestSpot({ id: 'n1', name: 'Keep me', notes: 'hello', natural_speed: 3 });
+    useSpotsStore.setState({ spots: [spot] });
+
+    useSpotsStore.getState().updateSpot('n1', { notes: null, natural_speed: null });
+
+    const updated = useSpotsStore.getState().spots[0];
+    expect(updated.notes).toBeUndefined();
+    expect(updated.natural_speed).toBeUndefined();
+    expect(updated).not.toHaveProperty('notes', null);
+    expect(updated).not.toHaveProperty('natural_speed', null);
+    expect(updated.name).toBe('Keep me');
+  });
+
+  it('natural_speed 0 is kept, not treated as a clear', () => {
+    const spot = createTestSpot({ id: 'n2', natural_speed: 3 });
+    useSpotsStore.setState({ spots: [spot] });
+
+    useSpotsStore.getState().updateSpot('n2', { natural_speed: 0 });
+
+    expect(useSpotsStore.getState().spots[0].natural_speed).toBe(0);
+  });
+});

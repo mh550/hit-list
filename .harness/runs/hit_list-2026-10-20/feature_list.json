@@ -31,7 +31,7 @@
         "db-init, db-foreign-keys, use-spot-actions and db-settings tests pass against schema v3 (rewritten where they inserted old columns); grep -rn \"feature_json\\|in_run_json\\|landing_json\\|metadata_json\" src app --include=*.ts --include=*.tsx | grep -v 'src/db/schema.ts' prints nothing.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "M1-03",

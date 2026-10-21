@@ -79,6 +79,9 @@ export enum SortDirection {
 
 export type RequirementCategory = 'gear' | 'build';
 
+/** Natural speed on the in-run: 0 = None (a real value), 4 = Fast; undefined = not rated. */
+export type NaturalSpeed = 0 | 1 | 2 | 3 | 4;
+
 // ── Data Types ─────────────────────────────────────────
 
 export interface GeoPoint {
@@ -144,6 +147,11 @@ export interface Spot {
   created_at: string; // ISO 8601
   updated_at: string; // ISO 8601
   deleted_at?: string; // ISO 8601
+  feature_types: FeatureType[]; // [] = untagged, ordered as tapped
+  stopped: boolean;
+  natural_speed?: NaturalSpeed;
+  notes?: string;
+  // Old nested model: no column since migration 3; read back as empty defaults until M1-03/M1-04 remove them.
   status: SpotStatus;
   feature: FeatureDetails;
   in_run: InRun;
@@ -152,11 +160,38 @@ export interface Spot {
   primary_photo_id?: string;
 }
 
-/** A patch for a spot; `null` for `name` or `primary_photo_id` clears the stored value (undefined keeps it). */
-export type SpotUpdate = Omit<Partial<Spot>, 'name' | 'primary_photo_id'> & {
+/** A patch for a spot; `null` for `name`, `notes`, `natural_speed` or `primary_photo_id` clears the stored value (undefined keeps it). */
+export type SpotUpdate = Omit<Partial<Spot>, 'name' | 'notes' | 'natural_speed' | 'primary_photo_id'> & {
   name?: string | null;
+  notes?: string | null;
+  natural_speed?: NaturalSpeed | null;
   primary_photo_id?: string | null;
 };
+
+/** What migration 3 archived from the removed fields (spec §4); read only through getSpotLegacy. Lengths in metres. */
+export interface SpotLegacy {
+  custom_type?: string;
+  shape?: string;
+  length_m?: number;
+  height_m?: number;
+  width_m?: number;
+  material?: string;
+  stop_type?: string;
+  stop_description?: string;
+  removable?: boolean;
+  difficulty?: number;
+  setup_options?: unknown[];
+  landing_difficulty?: number;
+  landing_surface?: string;
+  intensity?: number;
+  bustability?: number;
+  bustability_notes?: string;
+  // A column that was not valid JSON, kept verbatim.
+  raw_feature?: string;
+  raw_in_run?: string;
+  raw_landing?: string;
+  raw_metadata?: string;
+}
 
 export interface Media {
   id: string;

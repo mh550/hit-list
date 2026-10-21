@@ -12,6 +12,15 @@ Brief for this run (Michael, 2026-10-20 12:54): build the simplification design 
 (`docs/specs/2026-10-16-simplification-design.md`), proceed on the bold defaults in its §9, and
 **add anything new to §9 rather than stopping**. Build-only: nothing live, nothing on the phone.
 
+### 2026-10-21 11:05 · M1-02 · passes
+
+- Migration 3 in `src/db/schema.ts`: adds `feature_types_json`/`stopped`/`natural_speed`/`notes`/`legacy_json`, backfills via the pure exported `migrateSpotRowV3`, rebuilds `spots` without `status` and the 4 JSON columns (`idx_spots_status` gone). `src/db/spots.ts` reads/writes the new columns, uses explicit `SPOT_COLUMNS` (never `legacy_json`), new `getSpotLegacy`. `Spot` gains `feature_types`, `stopped`, `natural_speed?`, `notes?` (old fields kept, read back as empty defaults). `SpotUpdate` takes null for notes/natural_speed and the store clears on null (0 kept). The review screens write `feature_types: []`, `stopped: false`. Tests 387 → 412.
+- Verified: `check.sh` green (412), 0 `console.error`; db-migrate 27 cases (full-fat → exact 16-key legacy, rail, empty → NULL, speed 1→0, unparseable, soft-deleted, 1→2→3, idempotent, 4 media + `foreign_key_check` empty, column list/indexes); db-spots round trip incl. `natural_speed 0`, null clears, getSpotLegacy. Opus review: no medium/high bugs; its 3 low findings were fixed (unpicked `{requires:[]}` setup options are not archived, a blank column is not archived as raw, the `use-db-init` comment now says a failed 2→3 leaves the list empty until the next launch retries).
+- Builder calls (spec §10, "Older details" key wording): an unparseable column is archived as `raw_feature`/`raw_in_run`/`raw_landing`/`raw_metadata`, not `raw_<column>_json`.
+- Next (M1-03): factory still sets `status: Complete` (rowToSpot's interim default); remove both with `SpotStatus`. Review screens already write `feature_types`/`stopped`.
+- Questions for Michael: none.
+- Proposed changes: M1-02 step 6's grep also prints `src/__tests__/db-migrate.test.ts`, which step 3 needs to insert v2 rows into the old columns. Its `grep -v` should also exclude that file. M1-04's similar grep is fine. Step 2: the diff unavoidably changes the `MIGRATIONS` line itself (1 removed line); everything else is additions.
+
 ### 2026-10-20 · M1-01 · passes
 
 - Wrote `docs/plans/2026-10-20-m1-model.md`: final types (Spot, SpotUpdate, SpotLegacy, SpotFilters, UserSettings, NaturalSpeed), migration 3 SQL (5 ADD COLUMN, JS backfill via pure `migrateSpotRowV3`, rebuild with explicit column list, `idx_spots_deleted_at` recreated), the 16 legacy keys, the M1-02/03/04 type split, `FEATURE_TYPE_LABELS`, the exact v2 fixture (full/empty/rail) with expected values, and a per-file table for all 20 tests (+ db-migrate, review-persist, screens, spot-name). Docs only; tests 387 → 387.

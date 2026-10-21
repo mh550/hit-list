@@ -68,6 +68,8 @@ export default function ImportReviewScreen() {
             location,
             created_at: now, // the import, not the photo's capture date (D13); media keeps captured_at
             updated_at: now,
+            feature_types: [],
+            stopped: false,
             status: SpotStatus.Draft,
             feature: {},
             in_run: { setup_options: [] },

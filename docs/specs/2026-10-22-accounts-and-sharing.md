@@ -101,6 +101,7 @@ it can **Save a copy** (it becomes their own private spot, with "From @name" on 
 | D49 | **Tabs: Spots · Lists · Inbox · Profile** *default* | Lists: my hit lists, shared with me, + New, + Area list. Inbox: badge = unseen items. Profile: account, Friends, settings. Signed out, Lists works (local lists) and Inbox shows "Sign in to get spots from friends". | (§9 Q10) |
 | D50 | **Blocking** | Blocking someone removes the friendship, hides their pending sends/invites, and stops them sending to you or inviting you; they aren't told. Shared lists you're both in stay as they are (§9 Q11). | Minimum safety for a social feature |
 | D51 | **Account deletion** | Profile → Delete account: deletes the account's spots, photos, lists, sends and links on the server (sends already saved by others stay theirs), signs out, and asks Keep / Remove on this phone (D38). | App Store requires in-app deletion once accounts exist |
+| D52 | **One set of filters, search, sort and List \| Map for every view** *default* | The Spots tab, each hit list's screen and the list picker read and write the same `useSpotsStore` fields; only the set of spots differs. A filter set on a list is still on back on the Spots tab (the Filter count shows it). | S1 plan (`docs/plans/2026-10-22-s1-hit-lists.md`): simplest, no per-list state (§9 Q13) |
 
 ---
 
@@ -336,6 +337,8 @@ it stops at a milestone boundary; S9 (links) is last among the features because 
 11. **Blocking inside a shared list (D50).** Default nothing changes in lists you share; you can leave. Or hide each
     other's spots in shared lists?
 12. **Spot notes by others.** Not built: members commenting or adding photos to someone else's spot. Next run?
+13. **Filters across lists (D52).** Default: the Spots tab and every hit list share one set of filters, search and sort
+    (set "Rail" on a list and the Spots tab shows rails too until you reset). Or should each list remember its own?
 
 ---
 

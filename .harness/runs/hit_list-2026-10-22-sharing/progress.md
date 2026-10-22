@@ -20,6 +20,15 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-22 20:10 · S1-01 · passes
+
+- New `docs/plans/2026-10-22-s1-hit-lists.md`: decisions, Types, Migration 4 (exact SQL, `IF NOT EXISTS`, two indexes `idx_hit_lists_deleted_at`, `idx_hit_list_spots_spot_id`), DB API, Store, Hook (revert table), SpotsBrowser, Tab bar, Screens, Copy, a RED test list per feature S1-02…S1-09, risks. Docs only; tests 656 → 656.
+- Spec: **D52 *default*** in §2 (one set of filters/search/sort/List|Map shared by the Spots tab, list screens and the picker) and asked as §9 Q13.
+- Verified: every required section/string grepped in the plan; `check.sh` green (656 tests, 13 s).
+- Next sessions: SpotsBrowser keeps exactly S1-04's props plus optional `contentBottomInset` (S1-04); `headerActions`, `onSpotPress`, `onSpotLongPress`, `selectedIds` are added by S1-06/S1-08 (Filter stays in SpotsBrowser's `headerRight`, screens set only `title`). `'list.bullet'` must be added to `MAPPING` in `components/ui/icon-symbol.tsx` (typed names). Existing migrate tests use `LATEST_SCHEMA_VERSION`, so none needs editing. Lists tab header title is 'Hit lists' (`headerTitle`), tab label 'Lists'.
+- Question for Michael: D52 (§9 Q13): filters shared across the Spots tab and lists (default), or per list?
+- Proposed changes: none.
+
 ### 2026-10-22 · init (Fable) · feature list written
 
 **Counts.** 76 features in 10 milestones: S1 hit lists 11 · S2 area lists 6 · S3 backend 8 ·

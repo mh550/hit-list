@@ -20,6 +20,14 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 · S9-02 · passes
+
+- New: `supabase/functions/share-preview/index.ts` (GET `?t=`, no JWT, Web Crypto SHA-256 → `preview_link(p_sha)` as service role; send = allow-listed frozen fields + `createSignedUrls(…, 600)` only for objects listed under `sends/<id>/`; invite = list name + inviter; one `{"error":"gone"}` 404; `Cache-Control: no-store`), migration `20261026010000_links_s9.sql` (`list_my_links` + `used_by`/`used_by_username`), pgTAP `120-links-s9` (9), `config.toml` (`verify_jwt` false/true, `[edge_runtime.secrets] PUBLIC_SUPABASE_URL`), `src/__integration__/links-function.test.ts` (14). Jest stays 1937 (server-only work).
+- Verified: RED 0455a43 first (pgTAP `column "used_by" does not exist`; function test 9/9 `Function not found`). Then `db:reset` → `test:db` Files=12, 639 passed (630 before) → `test:integration` 6 suites, 68 passed (54 before), 0 console lines → `db:stop`. `docker ps` shows only the 7 dj-*/n8n-* containers. `check.sh` green, and `npx jest --ci` has 0 `console.error`.
+- Opus review: 3 Important + 4 Minor; #1–#5 fixed (table under "As built (S9-02)" in the plan). #1 was a real bug: a port-less `PUBLIC_SUPABASE_URL` kept the gateway's `:8000`. A mutation run (sign payload paths as written, read the payload's sender) fails 2 tests. #6 (token in `?t=` reaches gateway logs) is left for S9-07; #7 (0,0 location) is left for the page (S9-04).
+- Next sessions: the function edits need `docker restart supabase_edge_runtime_hit-list`; `config.toml` edits need `db:stop && db:start`. For phone tests set `PUBLIC_SUPABASE_URL` to the tailnet address (live checklist S9).
+- Proposed change: S9-02 step 1's `rpc('preview_link', { token_sha256 })` → `{ p_sha }` (the shipped arg, S9-01 plan item 1). No new questions.
+
 ### 2026-10-23 · S9-01 · passes
 
 - `chore:` e3620d4 adds expo-clipboard ~57.0.2 (`npx expo install`, no nested expo-modules-core); `npx expo export --platform ios` → exit 0, 5.4 MB (to the scratch dir, not /tmp/hl-export). Plan `docs/plans/2026-10-22-s9-links.md` (Tokens, Base URL, Server, share-preview, Client, UI, Page, Tests, Copy table, Test list, Proposed changes); spec §2 D92–D95 *default*, §9 Q53–Q56; live checklist gains an S9 section (local page over Tailscale, functions deploy, hosting in stages, undo). Tests 1937 → 1937 (docs only), check.sh green.

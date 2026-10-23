@@ -20,6 +20,16 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 07:40 · S4-08 · passes
+
+- Opus review of the whole S4 diff (`reviews/s4.diff`, 3918 lines): 0 Critical, 1 Important fixed: the username screen had no way out (no back, no swipe, tabs redirect back) → ghost `Sign out` (D64 *default*). Minors fixed: signed out on a launch-redirected username screen left a stack with no tabs (→ `Back to Profile`, dismissTo/replace); JSON/parse-error/empty `signInWithOtp` messages → fixed copy. RED `f42b395` (8 fail) → GREEN `df32e18`. Left (in the plan): delete that timed out but worked gets 401 on retry, offline-expired launch shows signed out until refresh, two tiny races.
+- `refactor:` `f47c502`: `signOutOfAccount` drops the dead `scope: 'local'` retry (auth-js 2.118 `_signOut` already removes the session); `ACCOUNTS_NOT_SET_UP` shared. Jest 1062 → 1069.
+- Docs: CLAUDE.md (accounts layout, `test:integration`, accounts-optional and .env conventions), README `Accounts (S4)`, RUNNING-ON-PHONE "With accounts", plan `## Review` (RED-first table, findings + commits, six written answers), what-Michael-will-see + live checklist (Sign out on the username screen).
+- Verified: check.sh green 1069; `npx jest --ci` 0 console.error; 3 extra full runs green (the S4-06 flake didn't recur); `npx expo export --platform ios` exit 0; `git ls-files '.env*'` = `.env.example`; the secrets grep hits only feature_list.json's own copy of the command (unavoidable).
+- Next (S5) must know: a `signed_in` rider can have no username (offline launch, deep links skip onboarding).
+- Question for Michael (spec §9 Q25, D64): keep the 'Sign out' on the username screen, or make picking a username the only way on?
+- Proposed change: S4-08 step 2's "git grep 'eyJ' prints nothing" can never hold, since feature_list.json contains the command; exclude `.harness`.
+
 ### 2026-10-23 06:40 · S4-07 · passes
 
 - New: `docs/plans/2026-10-22-s4-what-michael-will-see.md` (docs only): Profile unconfigured / signed out / signed in (with and without display name), sign-in, code, username (empty, `ab`, `Ana Rider!`, `ana_rides`) from a temporary from-scratch render test (deleted, not committed), every text/label/role/placeholder; "What to tap" (.env.local, Mailpit 54324, Delete account); verification record.

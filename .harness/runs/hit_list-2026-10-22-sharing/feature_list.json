@@ -499,7 +499,7 @@
         "CLAUDE.md Layout gains src/sync/client.ts, session-storage, the auth store/hook, app/auth/, supabase/functions/; Commands gains npm run test:integration with 'needs the local stack'; Conventions gains 'Accounts are optional: every screen that needs a session checks useAuthStore status and shows a one-line Sign in prompt, never a disabled control' and the .env rule; README Status gains an 'Accounts (S4)' bullet; docs/RUNNING-ON-PHONE.md gains a short 'With accounts (local stack over Tailscale)' section pointing at the live checklist.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S5-01",

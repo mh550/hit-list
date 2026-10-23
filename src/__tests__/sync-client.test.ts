@@ -89,6 +89,8 @@ describe('getSupabase', () => {
         persistSession: true,
         autoRefreshToken: true,
         detectSessionInUrl: false,
+        // A fixed key, so a sign out that auth-js can't finish (offline, expired token) can clear it itself.
+        storageKey: 'hitlist.auth.session',
         storage: expect.objectContaining({
           getItem: expect.any(Function),
           setItem: expect.any(Function),

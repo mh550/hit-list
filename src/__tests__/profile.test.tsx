@@ -13,6 +13,7 @@ jest.mock('@/src/sync/client', () => ({
 
 import ProfileScreen from '@/app/(tabs)/profile';
 import { SIGNED_OUT, useAuthStore, type AuthSnapshot } from '@/src/stores/auth-store';
+import { SESSION_STORAGE_KEY, sessionStorage } from '@/src/sync/session-storage';
 import { useSettingsStore } from '@/src/stores/settings-store';
 import { UnitSystem } from '@/src/types';
 import { saveUserSettings } from '@/src/db';
@@ -321,6 +322,46 @@ describe('Profile account section (S4-05)', () => {
     expect(useAuthStore.getState()).toMatchObject(SIGNED_OUT);
   });
 
+  it('clears the stored session itself when auth-js cannot (offline with an expired access token)', async () => {
+    // auth-js 2.118: the session read fails (the refresh is offline), so both signOut() and signOut({ scope:
+    // 'local' }) return that error before removing anything, and the stored session would sign the rider back in.
+    useAuthStore.setState(ANA);
+    const offline = { error: { name: 'AuthRetryableFetchError', message: 'Network request failed', status: 0 } };
+    mockFake!.auth.signOut.mockResolvedValueOnce(offline as never).mockResolvedValueOnce(offline as never);
+    const remove = jest.spyOn(sessionStorage, 'removeItem');
+    render(<ProfileScreen />);
+    await act(async () => {
+      fireEvent.press(screen.getByRole('button', { name: 'Sign out' }));
+    });
+    expect(mockFake!.auth.signOut).toHaveBeenLastCalledWith({ scope: 'local' });
+    expect(remove).toHaveBeenCalledWith(SESSION_STORAGE_KEY);
+    expect(useAuthStore.getState()).toMatchObject(SIGNED_OUT);
+    remove.mockRestore();
+  });
+
+  it('leaves the stored session to auth-js when a sign out works', async () => {
+    useAuthStore.setState(ANA);
+    const remove = jest.spyOn(sessionStorage, 'removeItem');
+    render(<ProfileScreen />);
+    await act(async () => {
+      fireEvent.press(screen.getByRole('button', { name: 'Sign out' }));
+    });
+    expect(remove).not.toHaveBeenCalled();
+    remove.mockRestore();
+  });
+
+  it('does not show an old delete error after signing out and back in', async () => {
+    useAuthStore.setState(ANA);
+    mockFake!.failNext('invoke', { message: 'boom' });
+    render(<ProfileScreen />);
+    await pressInDeleteAlert('Delete');
+    expect(screen.getByText("Couldn't delete the account. Try again.")).toBeTruthy();
+    // Signed out from elsewhere (a revoked refresh token), then in again while the tab stays mounted.
+    act(() => useAuthStore.getState().setAuth(SIGNED_OUT));
+    act(() => useAuthStore.getState().setAuth(ANA));
+    expect(screen.queryByText("Couldn't delete the account. Try again.")).toBeNull();
+  });
+
   it('Delete account asks first, with a destructive Delete and a Cancel', () => {
     useAuthStore.setState(ANA);
     render(<ProfileScreen />);
@@ -419,8 +460,17 @@ describe('Profile account section (S4-05)', () => {
     render(<ProfileScreen />);
     await pressInDeleteAlert('Delete');
     expect(screen.getByText("Couldn't delete the account. Try again.")).toBeTruthy();
+    // The retry is still running: the old error is already gone.
+    let finish: (value: { data: unknown; error: null }) => void = () => {};
+    mockFake!.functions.invoke.mockImplementationOnce(
+      () => new Promise((resolve) => (finish = resolve)) as never,
+    );
     await pressInDeleteAlert('Delete');
+    expect(screen.getByRole('button', { name: 'Deleting…' })).toBeTruthy();
     expect(screen.queryByText("Couldn't delete the account. Try again.")).toBeNull();
+    await act(async () => {
+      finish({ data: { ok: true }, error: null });
+    });
     expect(useAuthStore.getState()).toMatchObject(SIGNED_OUT);
   });
 });

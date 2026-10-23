@@ -992,7 +992,7 @@
         "CLAUDE.md Layout gains ShareListSheet, app/list/[id]/members.tsx, src/sync/lists.ts, src/sync/copy.ts, the photo cache rule (others' photos in Paths.cache, never Paths.document) and the D47 read-only rule; README Status gains 'Shared hit lists (S8)'; the live checklist gains the two-phone sharing check.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S9-01",

@@ -20,6 +20,14 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 22:40 · S8-09 · passes
+
+- Two Opus reviewers read `reviews/s8.diff` (11290 lines, `d9c1201..HEAD`). No Critical. One Important was fixed: every sync's cache removal (often of nothing) bumped one global counter, so a friend's photo downloading at that moment went grey and Save a copy dropped it. Downloads are now invalidated per spot. Also fixed RED first: A5 (local failure after Leave/Stop/Remove only warns), A6 (`removeSpotFromList` follows D42), A7 (half-saved copy), B1 (phone account read before the app is ready), B2 (edit route of another rider's spot shows no editor; failed Delete alerts), B3/B4 (no navigation after the screen was left), B6 (strip uses `isShared`). Left A2/A3/A4/B5/B7 with reasons. Table, the seven written answers and the anti-goal answer are under 'Review (S8-09)' in the S8 plan.
+- `refactor:` drops the dead `getMyMemberships`; `shared-rows.ts` uses `deleteMembers`/`deleteMember`; Inbox uses `handleOf`. Docs: CLAUDE.md Layout (ShareListSheet, members screen, copy.ts, join.ts, cache and D47 rules, the app-time transaction), README 'Shared hit lists (S8)', live checklist two-phone sharing check.
+- Tests 1924 → 1937: RED 3 + 12 failing, then GREEN; one dead test removed. `check.sh` green, `npx jest --ci` 0 console.error. Local stack: `test:db` Files=11 Tests=630 PASS, `test:integration` 5 suites 54 passed. `db:stop`; only the dj-*/n8n-* containers are left.
+- Next: S8 is complete; open the S8 PR (harness), then S9. A3 (D86 gap after 'Sign out anyway': others' rows stay until the next sign-in) is a candidate for S10 hardening.
+- No new D, no questions. Proposed change: none.
+
 ### 2026-10-23 20:10 · S8-08 · passes
 
 - New `docs/plans/2026-10-22-s8-what-michael-will-see.md`: renders from scratch (temporary Jest test, deleted) of the Share sheet (D34 sentence), list screen actions + member strip, members screen as owner/member with the Leave and Stop sharing alerts, Lists tab (shared badge, 'Shared with me'), Add-to-list sheet (shared/view-only/area), first-add alert, a foreign spot's detail, Inbox invitation. 'What to tap' for two riders.

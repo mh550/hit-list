@@ -160,7 +160,8 @@ save waits for Try again); `dismissSend`, `withdrawSend`, `listSent`; hook `src/
 `lists.ts` (S8-02: `shareList` (D85 refusal, `share_list` rpc) / `invite` / `setRole` / `removeMember` / `leave` /
 `stopSharing` / `respondInvite` / `loadAndApplyInvites` (engine, after sends; Inbox kind `invite`), `(db, client, uid,
 …)`, false without `maySync`; local removals in `shared-rows.ts` on `runExclusive` + one transaction, cache folders
-after the commit), pull's S8 steps (members full read, others' lists only once joined, others' photos at
+after the commit; the one app-time `withTransactionAsync` (a screen write landing inside it joins it; a failure after the
+server answered only warns, the next pull converges, S8-09)), pull's S8 steps (members full read, others' lists only once joined, others' photos at
 `cache/photos/<spot>/<media>.jpg`, the per-list fill, list/photo reconciliation, `removedSpotIds`/`removedPhotoPaths`),
 `copy.ts` (S8-03: `saveCopy`, Save a copy of another rider's spot: the photos are downloaded into the cache first and
 copied into `Paths.document` as the rider's own new spot, D89), `join.ts` (S8-06: `joinList` = `respondInvite` →

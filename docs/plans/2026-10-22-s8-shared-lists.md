@@ -734,6 +734,122 @@ not joined, loses the invitation when A removes the friendship (`withdraw_pair_i
 | 9 | Minor | shared module state across riders | fixed: header comment (keep calls sequential) |
 | 10 | Minor | node:sqlite handles not closed | left: the test harness's db has no `closeAsync` (as the other integration files) |
 
+## Review (S8-09)
+
+RED-first record (each build feature's test commit, its GREEN commit, and its review-fix pair):
+
+| Feature | RED | GREEN | Review-fix RED → GREEN |
+|---|---|---|---|
+| S8-02 | RED runs recorded in the commits (migration `9e9629c`: 6 db-migrate fail; pgTAP 110 `846e936`: RED on the S7 schema) | `9e9629c`, `64ceb67`, `846e936`, `80144ac`, `023a12a` | `6d3aff9` (RED + GREEN in one commit, see 'S8-02 review') |
+| S8-03 | RED runs recorded per commit (`3cdeb6b` … `cd1d35a`; no separate RED commits) | same | `94d8b57`, `0a43aa9`, `bbe7ac4` (each RED + GREEN) |
+| S8-04 | `391c49c` | `89411fd` | `244e327` → `53ab8fa` |
+| S8-05 | `6f4206a` (20 fail) | `246f55a` | `60e4d61` (6 fail) → `9464b86` |
+| S8-06 | `8371b39` (15 fail) | `182b570` | `116ec34` (5 fail) → `edd55da` |
+| S8-07 | — (integration test of S8-02…06 code; mutation runs instead, see 'As built (S8-07)') | `cc3c93b` | — |
+| S8-09 | `183dcb4` (3 fail), `b02da5a` (12 fail with the first) | `fa5ae1c`, `a37fbce` | (this review) |
+
+Two Opus reviewers read `.harness/runs/hit_list-2026-10-22-sharing/reviews/s8.diff` (11290 lines,
+`git diff d9c1201..HEAD -- src app supabase`) and the files in full. Reviewer A took the data path (migration 8 and
+the triggers, `hit-lists.ts`, `lists.ts`, `pull.ts`, `shared-rows.ts`, `photos.ts`, `adopt.ts`, `copy.ts`, `join.ts`,
+the hooks, the server migration and pgTAP 110, the integration test). Reviewer B took the screens (ShareListSheet,
+members, the list screen, Lists/Inbox/Spots/Profile tabs, detail and the viewer, Quick Add/import/area picker,
+AddToListSheet, SharedBadge, the Send guards). Every claim was checked here against the code (line numbers as of
+`f9350bf`). **No Critical finding; the one Important finding is fixed** (RED `b02da5a`, GREEN `fa5ae1c`).
+
+| # | Sev | Where | Finding | Fix |
+|---|---|---|---|---|
+| A1 | Important | `src/sync/photos.ts:38-40, 62-64, 185`, `engine.ts:107` | Every sync called `deleteCachedPhotos`/`deleteCachedFiles` (often with `[]`), and each bumped one global generation: any friend's photo downloading at that moment (5-min timer, 'active', pull-to-refresh, the sync after Join) rejected, its tile went grey until a remount, and Save a copy left that photo out for good. | Invalidation per spot (`spotGenerations`; `deleteAllCachedPhotos` keeps the global bump). Tests: `sync-photos.test.ts` › `a removal of nothing or of other spots (every sync) leaves a running download alone`, › `a pull removing the photo's own file while it downloads writes nothing and rejects` |
+| A5 | Minor | `src/sync/lists.ts:167, 179, 201` | `leave_list`/`remove_member`/`stop_sharing` succeeded but the local removal threw: "Couldn't leave the list. Try again.", and the retry got 42501 ("can't do that any more"). | `removeLocally` warns and resolves; the transaction left every row and the next pull's reconciliation removes them. Tests: `sync-lists.test.ts` › leave › `removes the rows in one transaction…`, stopSharing › `a local failure after the server stopped sharing resolves true and warns` |
+| A6 | Minor | `src/hooks/use-hit-list-actions.ts:163` | `removeSpotFromList` had no guard (only the list screen limited it); a member removing another's spot blinked it out until the next fill. | `assertCanRemove` (D42: owner any, adder own only, viewer none, never an area list). Tests › `removeSpotFromList (S8-09 review A#6) follows the list screen…`, › `removeSpotFromList rejects an area list` |
+| A7 | Minor | `src/sync/copy.ts:94-104` | A photo row failing after the copy's spot was inserted threw: "Couldn't save a copy" while a copy existed; a retry made a second. | Counted as a missing photo (file removed, primary cleared if it was that one). Test › `a photo row that fails to insert after the spot is saved is left out and counted, never a second copy` |
+| B1 | Minor | `src/hooks/use-db-init.ts:66` | `isReady` before `phoneUserId` was read: on an offline launch with a slow disk, others' spots showed Edit/Send for a moment (S8-05 #3). | The account is read before `setIsReady(true)`. Test: `db-init.test.ts` › `knows the phone's account before the app is ready…` (gated read) |
+| B2 | Minor | `app/spot/[id]/edit.tsx:38, 241` | `/spot/<another's>/edit` from a link showed the full editor (writes refused by the hook); Delete's rejection was unhandled. | The route shows "This spot isn't yours to edit."; a failed Delete alerts "Couldn't delete". Tests: `edit-foreign.test.tsx` |
+| B3 | Minor | `app/spot/[id]/index.tsx:172` | Save a copy (downloads first) replaced whatever screen was on top if the rider had pressed Back. | Mounted ref: toast only. Test › `a copy that finishes after the rider left the spot…` |
+| B4 | Minor | `app/list/[id]/members.tsx:154` | Stop sharing's `router.back()` after a Back pressed meanwhile popped the list too. | Mounted ref. Test › `a Stop sharing that ends after the screen was left…` |
+| B6 | Minor | `app/list/[id]/index.tsx:231` | The strip used `list.shared`, the badges `isShared`: a joined list whose flag hadn't arrived had a badge but no way to Members (no Leave). | `isShared(list)`. Test › `a joined list whose shared flag hasn't arrived still has the strip…` |
+| A2 | Minor | `src/stores/hit-lists-store.ts:114` | After 'Sign out anyway' (others' lists stay, A3), a new phone-only spot inside a friend's circle shows in the friend's area list on this phone (S8-03 #5). | Left: needs A3's state; nothing reaches the server (phone-only rows never sync). |
+| A3 | Minor | `src/sync/adopt.ts:141`, `app/(tabs)/profile.tsx:171` | With changes pending, `removeForeignRows` refuses and 'Sign out anyway' never calls it: others' rows and the photo cache stay on a signed-out phone until the next sign-in (D86 gap). | Left for S10 hardening: keeping only the lists a pending own membership names is a design change. Next sign-in (same rider: kept and synced; another: removed by adopt) clears it. |
+| A4 | Minor | `src/sync/lists.ts:58` | Leave/Stop/Remove use `withTransactionAsync` on the shared connection while screens are live; a screen write landing between BEGIN and COMMIT joins the transaction and is lost if it rolls back. | Left, documented in CLAUDE.md (`lists.ts`): the window is one short local transaction after a server answer, and a rollback is now only a warned failure (A5). |
+| B5 | Minor | `app/spot/[id]/photos.tsx:230` | The viewer shows a black page (no placeholder, no swipe-down) for a friend's photo that failed to download. | Left: ✕ Close still works; the grid shows the placeholder (D91). |
+| B7 | Minor | `src/utils/ownership.ts` + adoption | During a pending account switch (D66 confirm open) the other account's spots read 'A friend's spot' and Save a copy fails. | Left: a transient state the D66 alert ends. |
+
+Run record (2026-10-23, after the fixes): `check.sh` green, 1937 tests (1924 → 1938 with the review tests, − 1 dead
+`getMyMemberships` test), `npx jest --ci` 0 console.error; local stack `test:db` Files=11 Tests=630 PASS,
+`test:integration` 5 suites 54 passed; `db:stop` after (only the dj-*/n8n-* containers left).
+
+Simplification (`refactor:` `ea65325`): the dead `getMyMemberships` (and its test) is gone; `shared-rows.ts` uses
+`deleteMembers`/`deleteMember`; `lists.ts` calls `reloadStoresQuietly` without the alias; the Inbox's handles use
+`handleOf`. Not taken: one `CheckRow`/sheet frame for ShareListSheet, AddToListSheet and SendSheet; a `RequireAccount`
+gate (Share sheet, members, Send sheet: the S7 note's fourth case, still three slightly different lines); one
+`deleteSpotsQuietly` for the three foreign-spot deletes (pull, shared-rows, adopt); the join result → message mapping
+in Lists and Inbox.
+
+Written answers (each proving test checked to exist):
+
+1. **A foreign spot can never be edited, deleted or sent from this phone.** The only writers are the hooks and
+   `createSend`. `useSpotActions.updateSpot`/`setTown`/`removeSpot` and `useMediaActions` reject with 'not your spot'
+   before any write; `createSend` refuses any spot not owned by the rider. The UI offers none of it: detail has no Edit,
+   Send or Add photos; the viewer's long press has no options; the select bar, a list's Send row, the area picker,
+   Quick Add and import take only the rider's own spots (D87); since this review the edit route reached by a link shows
+   no editor. Tests: `use-spot-actions.test.ts` › `updateSpot, setTown and removeSpot reject with 'not your spot' and
+   write nothing`, › `signed out (an offline launch…) …others' spots stay read-only`; `use-media-actions.test.ts` ›
+   `savePhotos and removePhotos reject…`; `spot-detail.test.tsx` › `shows '@ana's spot' under the title, no Edit, no
+   Send, and a 'Save a copy' button`, › `another rider's spot has no Send`; `photo-viewer.test.tsx` › `another rider's
+   spot (S8, D47): photos from the cache, no options on a long press or for VoiceOver`; `spots-select.test.tsx` › `in a
+   shared list, Send and Add to list take only the rider's own spots`; `list-screen.test.tsx` › `a shared list sends
+   only the rider's own spots…`; `area-picker.test.tsx` › `counts, saves and sends only the rider's own spots`;
+   `quick-add-nearby`/`import-nearby` › `never offers another rider's spot`; `edit-foreign.test.tsx` (new);
+   `sync-sends.test.ts` › `a spot that is not backed up (… another account's) refuses before any call`. Even a write
+   that slipped past would queue nothing: the triggers queue only rows of `sync_state.user_id` (`db-spots.test.ts` › `a
+   spot owned by another rider (S8) appends nothing`) and the server refuses it (pgTAP 030 owner-only writes).
+2. **Leaving a list deletes the local rows in one transaction and then the cache files.** `removeLocally` runs the
+   removal and `removeUnheldForeignSpots` in one `withTransactionAsync` on `runExclusive`, then `deleteCachedPhotos` of
+   the removed spots (under `Paths.cache` only). Tests: `sync-lists.test.ts` › leave › `calls leave_list, then removes
+   the list, its memberships, its mirror rows and the others' spots only it showed`, › `deletes the cache folder of
+   every spot it removed, and nothing under Paths.document`, › `removes the rows in one transaction: a failure partway
+   leaves every row and cached photo` (new; fails with the transaction removed: a mutation run here showed it);
+   integration `shared-list.test.ts` (Leave drops L, the spots and the cache).
+3. **The member count equals members with status 'member' + 1.** `memberCount` in `src/utils/members.ts` is the one
+   rule; the badge, chips, sheet rows, strip, members screen and the first-add sentence all call it. Test:
+   `members.test.ts` › `memberCount = joined members + the owner; invitations never count (D84)`; the screens:
+   `list-screen.test.tsx` › `…the strip shows initials, the count (D84) and '+ Invite'` (an invited row in the fixture,
+   not counted), `add-to-list-sheet.test.tsx` › `the first add to a shared list asks 'Everyone in Downtown (4) will see
+   this spot.'…`.
+4. **The first-add flag is per list and survives relaunch.** It is `sync_state` `confirmed_list:<id>` (SQLite), set
+   only after the add succeeds, cleared for every list by `forgetAccount`. Tests: `add-to-list-sheet.test.tsx` › `Add
+   adds the spots and sets 'confirmed_list:<id>'; the next add to that list asks nothing`, › `an answer saved on this
+   phone before the sheet opened asks nothing` (the relaunch case: the key is read from the DB), › `adding to a
+   different shared list asks again (D90: once per list)`; `db-sync.test.ts` › `forgetAccount clears every
+   'confirmed_list:<id>'…`.
+5. **'Share' never appears in SendSheet and 'Send' never in ShareListSheet or members.tsx.** `grep -in share
+   src/components/SendSheet.tsx` and `grep -in send src/components/ShareListSheet.tsx app/list/[id]/members.tsx` print
+   nothing (exit 1). Tests read the sources (comments included): `send-sheet.test.tsx` › `the source file never says
+   Share (any case)`, `share-list-sheet.test.tsx` › `the source never says 'Send', comments included`,
+   `list-members.test.tsx` › `the source never says 'Send', comments included`; and the renders: `send-sheet` › `no
+   state of the sheet renders Share, Shared or Invite (any case)`, `share-list-sheet` › `no render says 'Send'`.
+6. **The Add-to-list sheet never offers an area list.** An area list is a disabled row with its hint (and so is a
+   friend's list joined view-only or not joined); `useHitListActions.addSpotsToList` refuses one anyway. Tests:
+   `add-to-list-sheet.test.tsx` › `shows an area list as a disabled row with its hint`, › `disables a shared area list
+   with the area hint (members can't add, D41)`, › `disables a shared list where my role is 'view'…`, › `ana's list
+   with no members row of mine is 'View only'`; `use-hit-list-actions.test.ts` › `addSpotsToList rejects an area list…`.
+7. **The readable-id reconciliation runs on every pull, so a removed member loses the spots within one sync.**
+   `pull()` calls `reconcileReadableSpots` unconditionally and `reconcileLists` whenever the members read succeeded
+   (`src/sync/pull.ts:74-75`); both remove only after a successful read and a lasting session. Tests:
+   `sync-pull.test.ts` › `asks which of the local foreign spots are still readable and removes the rest, with their
+   photos and memberships`, › `a list the rider left (no member row) goes with its memberships and the others' spots,
+   own spots stay`, › `a readable-id error removes nothing`, › `the session ending before the removals removes
+   nothing`; integration `shared-list.test.ts` › `removing B takes B's spot out of L … B's pull drops L` (one pull).
+
+**The anti-goal 'a spot leaking because the check lived only in the app'.** Every read rule is on the server: spots,
+media and Storage reads go through `can_read_spot` (owner, a joined member of a list holding it, a friend in a shared
+area list); an invitee reads only the list row and `list_invitations()`'s count; adds need `can_add_to_list` (role
+'add') plus `lock_adder_membership`. pgTAP: `030`/`040`/`070`/`110` (e.g. `040` › `view member cannot add a spot`,
+`110` invitee and owner-blocks-invitee cases), run green in S8-07 (Files=11, Tests=630). Integration
+`shared-list.test.ts` proves it with real clients: C's view-only add is parked 42501; after Leave and after removal the
+storage download is refused and the spots are unreadable. The app checks (read-only UI, `assertOwn`, D87) only keep
+the phone honest; none of them is the only guard of what another rider can read. One rule is app-only by nature: D87
+(not sending a friend's spot onward) — a member can read the data, so no server rule could stop a copy.
+
 ## Unresolved questions
 
 - D83–D91 are defaults (§9 Q44–Q52). Q11 (blocking inside a shared list) stays as D50: nothing changes in lists you

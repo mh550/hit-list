@@ -420,8 +420,15 @@ describe('pull: bring the server rows down (real SQLite, fake client)', () => {
       expect(await getSpots(db)).toEqual([]);
       expect(await getCursor(db, 'spots')).toBe(0);
       expect(await getHitLists(db)).toHaveLength(1);
-      expect(result).toEqual({ changed: true });
+      // the engine reads `failed` as "not backed up": offline, every select fails like this
+      expect(result).toEqual({ changed: true, failed: true });
       expect(warn).toHaveBeenCalled();
+    });
+
+    it('a row that waits for its spot is not a failed pull', async () => {
+      serve({ media: [serverMedia({ spot_id: 'spot-not-here' })] });
+      const result = await pull(db, asClient(fake), ME);
+      expect(result.failed).toBeUndefined();
     });
   });
 

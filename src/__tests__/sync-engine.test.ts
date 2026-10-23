@@ -178,6 +178,35 @@ describe('syncNow', () => {
     expect(state.syncing).toBe(false);
   });
 
+  it('a pull that could not read a table (offline) is not a backup: lastSyncAt stays', async () => {
+    mockPull.mockResolvedValueOnce({ changed: false, failed: true });
+
+    await syncNow(db);
+
+    expect(useSyncStore.getState().lastSyncAt).toBeNull();
+    expect(useSyncStore.getState().lastError).not.toBeNull();
+    expect(await getSyncState(db, `last_sync_at:${ME}`)).toBeUndefined();
+  });
+
+  it('a push with rows that failed is not a backup either', async () => {
+    mockPush.mockResolvedValueOnce({ pushed: 1, failed: 2 });
+
+    await syncNow(db);
+
+    expect(useSyncStore.getState().lastSyncAt).toBeNull();
+    expect(useSyncStore.getState().lastError).not.toBeNull();
+  });
+
+  it('a later sync that goes through clears lastError', async () => {
+    mockPush.mockResolvedValueOnce({ pushed: 0, failed: 1 });
+    await syncNow(db);
+
+    await syncNow(db);
+
+    expect(useSyncStore.getState().lastError).toBeNull();
+    expect(useSyncStore.getState().lastSyncAt).not.toBeNull();
+  });
+
   it('a failed photo download warns and still finishes the sync', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     mockDownload.mockRejectedValueOnce(new Error('storage down'));

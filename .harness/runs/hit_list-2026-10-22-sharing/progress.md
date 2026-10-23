@@ -20,6 +20,42 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 · verify S7
+
+Ran `check.sh` (green, 1684 tests, cached for this tree) and the five S7 test files directly (`npx jest --ci --silent` on send-payload, sync-sends, send-sheet, inbox-tab, sent-screen: 5 suites, 172 tests pass). Build-only policy: I did not start the Supabase stack, so the integration test and pgTAP were not re-run; S7-06 rests on the recorded run plus a read of the test. `docker ps` shows no `supabase_*` container. Where a step's literal call shape differs from the code (`createSend(db, client, uid, …)`, `saveSend(db, client, uid, item, …)`, `loadSends`, day-only `captured_at`), the plan's "Proposed changes to later feature steps" records it and the tests assert the same behaviour, so I counted the step as holding.
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| S7-01 | 1 | `grep -n '^#'` on docs/plans/2026-10-22-s7-send.md; read Payload, Photo copy, Migration 7 | Sections Payload, Photo copy (copy then create_send, client-side newId, failed copy removes copied paths, server-side copy function rejected), Migration 7, Send sheet, Entry points, Inbox, Sent, Copy table, Test list per feature all present | yes |
+| S7-01 | 2 | grep D76–D82 in the spec §2 | D76 (one send per friend, own photo set) with reason; D77–D82 also recorded and asked in §9 Q37–43; no shared set, so no storage re-check needed | yes |
+| S7-01 | 3 | `check.sh` | green, 1684 tests (whole-branch suite) | yes |
+| S7-02 | 1 | `npx jest send-payload.test.ts`; read freeze/thaw/parse cases | pass; exact-key freeze, 0 stays 0, NO_LOCATION round trip, thaw fresh ids/owner/from_username/primary, rejects `unknown send payload version 2` and `send payload is not an object` | yes |
+| S7-02 | 2 | `schema.ts` L438-439; db-migrate.test.ts L939; spot-detail.test.tsx L76-88; types/index.ts L54-55 | `toHaveLength(7)`, v6→v7 cases, getSpots returns from_username, Spot has both fields, detail shows 'From @ana' under the title | yes |
+| S7-02 | 3 | `check.sh` | green | yes |
+| S7-03 | 1 | `npx jest sync-sends.test.ts`; read createSend/save/dismiss/withdraw/listSent cases | pass; copy per photo then create_send per recipient, copy failure removes copied paths and sends nothing, listSent statuses, loadSends excludes saved/dismissed/withdrawn, saveSend downloads to photos/<new>/, inserts owned rows, newList 'From @…', failedPhotos counted | yes |
+| S7-03 | 2 | `engine.ts` L13/L130; use-sent-sends.test.tsx | engine calls loadAndApplySends after each sync; useSentSends calls listSent on mount | yes |
+| S7-03 | 3 | `check.sh` | green | yes |
+| S7-04 | 1 | `npx jest send-sheet.test.tsx` (25); read L118-352 | pass; signed-out line + Sign in, thumbnails, @ana/@ben checkboxes, exact D34 sentence (many/one), Send disabled until checked, createSend + 'Sent to @ana' toast, 'Add a friend first' + link to /friends; regex /share\|invite/i test | yes |
+| S7-04 | 2 | spot-detail L308-360, spots-select L341-371, list-screen L438-498, area-picker L830-886 | 'Send this spot' paperplane, 'Send (2)' beside 'Add to list (2)', 'Send these spots' + 'one-time copy of 2 spots', 'Send these 23 spots' left of Save as hit list; each opens the sheet with the right ids | yes |
+| S7-04 | 3 | spot-detail.test.tsx L356 | "another rider's spot has no Send" passes | yes |
+| S7-04 | 4 | `check.sh` | green | yes |
+| S7-05 | 1 | `npx jest inbox-tab.test.tsx`; read L409-600 | pass; '@ana sent you 3 spots' + thumbnail, Save all / new hit list / Pick spots / Dismiss ('Dismiss these spots?'), 'Saved 3 spots', "· 1 photo couldn't be downloaded" | yes |
+| S7-05 | 2 | `npx jest sent-screen.test.tsx`; app/_layout.tsx L69; profile.test.tsx L909 | pass; 'To @ben · 3 spots · Waiting' + Withdraw confirm, 'Saved copies are theirs', Withdrawn row, 'Nothing sent yet'; route 'Sent'; Profile 'Sent' row | yes |
+| S7-05 | 3 | spot-detail.test.tsx L345; inbox-store.test.ts L52 | saved copy shows 'From @ana' with Edit present; badge counts unseen sends | yes |
+| S7-05 | 4 | `check.sh` | green | yes |
+| S7-06 | 1 | read src/__integration__/send.test.ts (8 cases) and the plan's As built; not re-run (build-only) | cases: 3 sent then rename/delete → original names, save → 3 owned copies with files, ana can't read copies, withdraw before save → Inbox empty and download refused, withdraw of saved → 55000 | yes |
+| S7-06 | 2 | plan 'As built (S7-06)' run record; `docker ps --format '{{.Names}}' \| grep -c supabase` | test:db 604 and test:integration 44 recorded, stack stopped; 0 supabase containers; only dj-*/n8n-* running. I did not re-run | yes |
+| S7-06 | 3 | `check.sh` | green | yes |
+| S7-07 | 1 | read docs/plans/2026-10-22-s7-what-michael-will-see.md | lists the sheet signed out/no friends/two friends+three spots (exact D34 sentence), Inbox send + Pick spots, Sent three statuses, saved copy detail; temp tests deleted | yes |
+| S7-07 | 2 | same file, 'What to tap' | seven steps with two riders: one spot, multi-select, list, edit then recipient gets original, withdraw before saving | yes |
+| S7-07 | 3 | same file, Verification record | jest 1676 passed with 0 console.error, integration 44 passed, expo export exit 0 at 5.3 MB | yes |
+| S7-07 | 4 | `check.sh` | green | yes |
+| S7-08 | 1 | `wc -l reviews/s7.diff`; plan 'Review (S7-08)'; `git cat-file -t 918b14b` | 7795-line diff from 46ece42 (last S6 commit); findings table with severity/file:line/fix; RED 918b14b before GREEN b28ffb5 | yes |
+| S7-08 | 2 | plan written answers 1-7; `grep -in share src/components/SendSheet.tsx` | seven answers each naming an existing test; grep prints nothing; I confirmed the named tests in send-sheet, sync-sends, sent-screen, spot-detail | yes |
+| S7-08 | 3 | `git log --oneline \| grep refactor:` | e3e2417 'refactor: S7-08 simplification…' | yes |
+| S7-08 | 4 | grep CLAUDE.md, README.md, live-checklist | CLAUDE.md has SendSheet, app/sent, sends.ts, send-payload.ts and the 'Send = copy, Share = live' bullet; README 'Send spots to friends (S7)'; checklist § S7 two-rider send | yes |
+| S7-08 | 5 | `check.sh` | green | yes |
+
 ### 2026-10-23 23:00 · S7-08 · passes
 
 - Two Opus reviews of `reviews/s7.diff` (7795 lines, `46ece42..HEAD`): 5 Important, 0 Critical, all fixed RED `918b14b` (8 fail) → GREEN `b28ffb5`: an offline Save all could use up a send on copies with no photos (now marks nothing; retries download failed photos again); a sync after a lost save answer dropped the 'Try again' row (kept now); SendSheet tapped silently with no username (line + `refreshProfile`); the sheet couldn't be cancelled during the pre-send backup (now it can, nothing goes); lines announced for VoiceOver. Minor fixes: dedupe ids, stable select-bar keys, D34 regexes any case.

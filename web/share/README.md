@@ -3,7 +3,8 @@
 The page a send link or an invite link opens in a browser (D44/D45). Two static files, no build step, no framework:
 `index.html` and `share.js`. The link carries its token in the fragment (`…/share/#t=<token>`), so the host that
 serves these files never sees it. `share.js` reads it, asks the `share-preview` Edge Function for the link's JSON
-(`GET <functions url>/share-preview?t=<token>`, no account, no Authorization header) and renders:
+(`POST <functions url>/share-preview` with the token as a text/plain body, D96: never in a URL; no account, no
+Authorization header) and renders:
 
 - a send link: `3 spots from @ana`, the expiry, one card per spot (name or `Untitled · <town>`, tags, a red
   `Skate stopped`, `Natural speed: Enough`, notes, photos from 10-minute signed URLs, `Open in Maps` and

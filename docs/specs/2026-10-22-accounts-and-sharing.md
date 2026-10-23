@@ -145,6 +145,7 @@ it can **Save a copy** (it becomes their own private spot, with "From @name" on 
 | D93 | **Revoking a send link also takes back its spots** *default* | Revoke in Sent kills the link and withdraws the link's own send, removing its photos from the server; an expired link's photos stay until you Revoke it or delete the account. | S9 plan (`docs/plans/2026-10-22-s9-links.md`): nothing else reads a link's send (§9 Q54) |
 | D94 | **Each Copy link is its own send** *default* | Copy link makes a new one-time copy with no recipient; Sent shows it only as a Link row with its expiry, never as a send "to nobody". | S9 plan (`docs/plans/2026-10-22-s9-links.md`) (§9 Q55) |
 | D95 | **A pasted send link opens its web page** *default* | In the Inbox, Paste a link joins a list for an invite link and opens the page in Safari for a send link; saving a link's spots into the app isn't built in S9. | S9 plan (`docs/plans/2026-10-22-s9-links.md`): the feature steps say open; a client-side save is proposed there (§9 Q56) |
+| D96 | **A link's page asks for it with a POST** *default* | The page (and Paste a link) sends the token to `share-preview` as a text/plain POST body, never `?t=` in the function's URL, so no gateway or platform request log keeps a working link; `GET ?t=` answers 405. | S9-07 review (`docs/plans/2026-10-22-s9-links.md` "Review (S9-07)"): request logs keep URLs; a text/plain POST is still a simple CORS request (§9 Q57) |
 
 ---
 
@@ -472,6 +473,9 @@ it stops at a milestone boundary; S9 (links) is last among the features because 
     link for the same spots?
 56. **Saving from a send link (D95).** Default: in Expo Go a pasted send link only opens the page. Want "Save these
     N spots" in the app for a pasted send link (no account needed on the sender's side; you'd need one to save)?
+57. **How the link page asks for a link (D96).** Default: the token goes to `share-preview` in a POST body, so no
+    request log keeps it (the hashed-only storage of D45 would be undone by logs otherwise). Fine, or keep `GET ?t=`
+    (a plain URL you can curl, at the cost of tokens in Supabase's request logs)?
 
 ---
 

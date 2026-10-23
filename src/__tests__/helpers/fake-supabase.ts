@@ -53,14 +53,22 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
     for (const listener of [...listeners]) listener(event, next);
   };
 
+  type QueryResult = { data: unknown; error: FakeError | null };
+  interface FakeQuery extends PromiseLike<QueryResult> {
+    select: jest.Mock<FakeQuery, [columns?: string]>;
+    update: jest.Mock<FakeQuery, [values: Partial<FakeProfile>]>;
+    eq: jest.Mock<FakeQuery, [column: string, value: unknown]>;
+    maybeSingle: jest.Mock<FakeQuery, []>;
+  }
+
   // A PostgREST builder: chainable, and awaiting it runs the query against `profiles`.
-  function query(table: string) {
+  function query(table: string): FakeQuery {
     let op: 'select' | 'update' = 'select';
     let values: Partial<FakeProfile> = {};
     let one = false;
     const filters: [string, unknown][] = [];
 
-    const run = (): { data: unknown; error: FakeError | null } => {
+    const run = (): QueryResult => {
       const error = takeFailure(op);
       if (error) return { data: null, error };
       if (table !== 'profiles') return { data: one ? null : [], error: null };
@@ -74,7 +82,7 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
       return { data: one ? (rows[0] ?? null) : rows, error: null };
     };
 
-    const builder = {
+    const builder: FakeQuery = {
       select: jest.fn((_columns?: string) => {
         op = 'select';
         return builder;
@@ -92,7 +100,7 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
         one = true;
         return builder;
       }),
-      then<T>(resolve: (result: { data: unknown; error: FakeError | null }) => T, reject?: (e: unknown) => T) {
+      then(resolve, reject) {
         const wait = fake.queryDelayMs > 0 ? new Promise((done) => setTimeout(done, fake.queryDelayMs)) : Promise.resolve();
         return wait.then(run).then(resolve, reject);
       },

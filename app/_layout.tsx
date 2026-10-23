@@ -8,6 +8,7 @@ import 'react-native-reanimated';
 
 import { DB_NAME } from '@/src/db';
 import { DBInitializer } from '@/src/components/DBInitializer';
+import { useAuthInit } from '@/src/hooks/use-auth-init';
 import { palette } from '@/src/constants/theme';
 
 function LoadingScreen() {
@@ -16,6 +17,12 @@ function LoadingScreen() {
       <ActivityIndicator color={palette.blue[500]} />
     </View>
   );
+}
+
+// Mirrors the Supabase session into the auth store; inside DBInitializer, so it starts once the DB is ready.
+function AuthInit() {
+  useAuthInit();
+  return null;
 }
 
 // Light only (app.json userInterfaceStyle "light"): the screens use light-theme colours and set no
@@ -28,6 +35,7 @@ export default function RootLayout() {
         <Suspense fallback={<LoadingScreen />}>
           <SQLiteProvider databaseName={DB_NAME} useSuspense>
             <DBInitializer>
+              <AuthInit />
               <Stack>
                 <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
                 <Stack.Screen name="spot/[id]/index" options={{ title: 'Spot Details' }} />

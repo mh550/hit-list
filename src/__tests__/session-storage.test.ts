@@ -94,8 +94,8 @@ describe('sessionStorage', () => {
     expect(await AsyncStorage.getItem(KEY)).toBeNull();
   });
 
-  it('counts UTF-8 bytes, not characters: 1500 multibyte characters are encrypted', async () => {
-    const value = 'é😀'.repeat(750);
+  it('counts UTF-8 bytes, not characters: 1500 multibyte characters (é, an emoji) are encrypted', async () => {
+    const value = 'é'.repeat(1499) + '😀';
     expect(value.length).toBeLessThan(2048);
 
     await sessionStorage.setItem(KEY, value);

@@ -113,8 +113,15 @@ function applyRow(db: SQLiteDatabase, table: SyncTable, row: ServerRow): Promise
   }
 }
 
-/** Server → local columns (push maps the other way). `legacy_json` never left the phone, so a pull never sets it. */
+/**
+ * Server → local columns (push maps the other way). `legacy_json` never left the phone, so a pull never sets it. A
+ * saved send's two columns (S7) come only when the server row has them, so a server without the S7 migration never
+ * clears them.
+ */
 function spotValues(row: ServerRow): Values {
+  const sendColumns: Values = {};
+  if ('copied_from_send' in row) sendColumns.copied_from_send = text(row.copied_from_send);
+  if ('from_username' in row) sendColumns.from_username = text(row.from_username);
   return {
     owner_id: text(row.owner_id),
     name: text(row.name),
@@ -127,6 +134,7 @@ function spotValues(row: ServerRow): Values {
     natural_speed: num(row.natural_speed),
     notes: text(row.notes),
     primary_photo_id: text(row.primary_photo_id),
+    ...sendColumns,
     created_at: stamp(row.created_at),
     updated_at: stamp(row.updated_at),
     deleted_at: stamp(row.deleted_at),

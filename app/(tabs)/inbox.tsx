@@ -170,10 +170,21 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
     switch (item.kind) {
       case 'friend_request':
         return renderRequest(item);
+      case 'send': {
+        // the line only: Save all, Save into a new hit list, Pick spots and Dismiss come with S7-05
+        const count = item.payload.spots.length;
+        return (
+          <View style={styles.row}>
+            <Text style={[styles.title, styles.rowText]} numberOfLines={2}>
+              {`@${item.from.username} sent you ${count === 1 ? 'a spot' : `${count} spots`}`}
+            </Text>
+          </View>
+        );
+      }
       default: {
-        // S7 and S8 add their kinds here; a kind without a row is a type error
-        const unhandled: never = item.kind;
-        console.warn('[Inbox] no row for', unhandled);
+        // S8 adds its kind here; a kind without a row is a type error
+        const unhandled: never = item;
+        console.warn('[Inbox] no row for', (unhandled as InboxItem).kind);
         return null;
       }
     }

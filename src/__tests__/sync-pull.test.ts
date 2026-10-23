@@ -625,6 +625,9 @@ describe('downloadMissingPhotos: own photos pulled from another phone', () => {
       write: jest.fn((path: string, bytes: Uint8Array) => {
         files[path] = bytes;
       }),
+      remove: jest.fn((path: string) => {
+        delete files[path];
+      }),
     };
     return io;
   }

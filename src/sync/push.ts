@@ -181,6 +181,8 @@ interface SpotRow {
   natural_speed: number | null;
   notes: string | null;
   primary_photo_id: string | null;
+  copied_from_send: string | null;
+  from_username: string | null;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
@@ -200,7 +202,7 @@ function featureTypes(json: string): string[] {
 async function sendSpot(db: SQLiteDatabase, client: SupabaseClient, uid: string, id: string): Promise<Sent> {
   const row = await db.getFirstAsync<SpotRow>(
     `SELECT id, owner_id, name, generated_name, latitude, longitude, feature_types_json, stopped, natural_speed, notes,
-            primary_photo_id, created_at, updated_at, deleted_at FROM spots WHERE id = ?`,
+            primary_photo_id, copied_from_send, from_username, created_at, updated_at, deleted_at FROM spots WHERE id = ?`,
     id,
   );
   if (!row) return 'sent';
@@ -219,6 +221,9 @@ async function sendSpot(db: SQLiteDatabase, client: SupabaseClient, uid: string,
       natural_speed: row.natural_speed,
       notes: row.notes,
       primary_photo_id: row.primary_photo_id,
+      // a saved send's copy (S7): the server needs its from_username column first (deploy order, live checklist)
+      copied_from_send: row.copied_from_send,
+      from_username: row.from_username,
       created_at: stamp(row.created_at),
       updated_at: stamp(row.updated_at),
       deleted_at: optionalStamp(row.deleted_at),

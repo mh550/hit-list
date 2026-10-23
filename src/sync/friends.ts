@@ -99,7 +99,7 @@ async function readAll<T extends Record<string, unknown>>(
 }
 
 /** The profiles of `ids` the server lets the rider read, by id. */
-async function readProfiles(client: SupabaseClient, ids: string[]): Promise<FriendProfile[]> {
+export async function readProfiles(client: SupabaseClient, ids: string[]): Promise<FriendProfile[]> {
   const profiles: FriendProfile[] = [];
   for (let i = 0; i < ids.length; i += PROFILE_CHUNK) {
     const { data, error } = await client

@@ -3,6 +3,7 @@ import { create } from 'zustand';
 
 import { getSyncState, inboxSeenKey, setSyncState } from '@/src/db/sync';
 import type { FriendProfile } from '@/src/types';
+import type { SendPayload, SendSender } from '@/src/utils/send-payload';
 import { useAuthStore } from './auth-store';
 
 // The Inbox tab's items and the badge (S6-04, docs/plans/2026-10-22-s6-friends.md "Inbox tab"): only items addressed
@@ -26,8 +27,17 @@ export interface FriendRequestItem extends InboxItemBase {
   from: FriendProfile;
 }
 
-// S7 adds `| SendItem` (kind 'send'), S8 `| InviteItem` (kind 'invite').
-export type InboxItem = FriendRequestItem;
+/** Spots a friend sent the rider (S7): the frozen copy, until they Save or Dismiss it. `id` is the send's id. */
+export interface SendItem extends InboxItemBase {
+  kind: 'send';
+  sendId: string;
+  /** the payload's sender, written by the server (D80) */
+  from: SendSender;
+  payload: SendPayload;
+}
+
+// S8 adds `| InviteItem` (kind 'invite').
+export type InboxItem = FriendRequestItem | SendItem;
 
 type ItemsOf<K extends InboxKind> = Extract<InboxItem, { kind: K }>[];
 

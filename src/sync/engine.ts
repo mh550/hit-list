@@ -1,8 +1,6 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import { getAllMedia, getHitLists, getListMemberships, getSpots } from '@/src/db';
 import { countFailed, countPending, getSyncState, lastOutboxId, lastSyncKey, setSyncState } from '@/src/db/sync';
-import { useHitListsStore, useMediaStore, useSpotsStore } from '@/src/stores';
 import { useSyncStore } from '@/src/stores/sync-store';
 import { getSupabase } from './client';
 import { errorMessage } from './errors';
@@ -11,8 +9,11 @@ import { downloadMissingPhotos } from './photos';
 import { pull } from './pull';
 import { push } from './push';
 import { runExclusive } from './queue';
+import { reloadStoresQuietly } from './reload';
+import { loadAndApplySends } from './sends';
 
 export { runExclusive };
+export { reloadStores, reloadStoresQuietly } from './reload';
 
 /** useSync's timer: a sync every 5 minutes while the app is open (D48). */
 export const SYNC_INTERVAL_MS = 300_000;
@@ -123,57 +124,14 @@ async function syncOnce(db: SQLiteDatabase): Promise<void> {
       useSyncStore.setState({ lastSyncAt });
     }
     useSyncStore.setState({ failedCount, lastError: error });
-    // friends and requests (S6), once the backup is settled: a slow friends read never holds the pulled spots or
-    // 'Backed up' back; never rejects
+    // friends and requests (S6), then the sends to the rider (S7), once the backup is settled: a slow read never
+    // holds the pulled spots or 'Backed up' back; neither rejects
     await loadAndApplyFriends(db, client, uid);
+    await loadAndApplySends(db, client, uid);
   } catch (err) {
     fail('sync', err);
     useSyncStore.setState({ lastError: error });
   } finally {
     useSyncStore.setState({ syncing: false });
   }
-}
-
-/** reloadStores after a commit: a failure only warns (the next pull that changes rows reloads again). */
-export async function reloadStoresQuietly(db: SQLiteDatabase): Promise<void> {
-  try {
-    await reloadStores(db);
-  } catch (err) {
-    console.warn('[sync] reloading the stores failed:', errorMessage(err));
-  }
-}
-
-/** Reads before giving up on a reload the rider keeps changing (the next pull that changes rows reloads again). */
-const RELOAD_TRIES = 3;
-
-/** The store values a reload replaces; the action hooks replace them (store first, then the DB) on every change. */
-const storeValues = () => [
-  useSpotsStore.getState().spots,
-  useMediaStore.getState().mediaBySpot,
-  useHitListsStore.getState().lists,
-  useHitListsStore.getState().membershipBySpot,
-];
-
-/**
- * What a pull (or adoption, src/sync/adopt.ts) changed reaches the screens: the same loads as useDbInit's. A change the rider made while the loads ran
- * is in the store but maybe not in what was read, so then it reads again rather than put an older state back (the
- * action hooks issue their DB write right after the store update, so the next read sees it).
- */
-export async function reloadStores(db: SQLiteDatabase): Promise<void> {
-  for (let attempt = 0; attempt < RELOAD_TRIES; attempt += 1) {
-    const before = storeValues();
-    const [spots, media, lists, memberships] = await Promise.all([
-      getSpots(db),
-      getAllMedia(db),
-      getHitLists(db),
-      getListMemberships(db),
-    ]);
-    if (storeValues().some((value, i) => value !== before[i])) continue;
-    useSpotsStore.getState().setSpots(spots);
-    useMediaStore.getState().setAll(media);
-    useHitListsStore.getState().setLists(lists);
-    useHitListsStore.getState().setMemberships(memberships);
-    return;
-  }
-  console.warn('[sync] the stores kept changing; they reload after the next pull that changes rows');
 }

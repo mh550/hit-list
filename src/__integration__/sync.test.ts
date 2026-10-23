@@ -65,6 +65,9 @@ function nodePhotoIO(root: string): PhotoIO {
       mkdirSync(dirname(at(filePath)), { recursive: true });
       writeFileSync(at(filePath), bytes);
     },
+    remove(filePath) {
+      rmSync(at(filePath), { force: true });
+    },
   };
 }
 

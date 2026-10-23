@@ -37,6 +37,7 @@ function memoryIO(files: Record<string, Uint8Array>) {
       },
     })),
     write: jest.fn(),
+    remove: jest.fn(),
   };
   return { io, cleaned };
 }
@@ -143,6 +144,8 @@ describe('push: drain the outbox into Supabase (real SQLite, fake client)', () =
           natural_speed: 2,
           notes: 'kinked',
           primary_photo_id: 'media-1',
+          copied_from_send: null,
+          from_username: null,
           created_at: T0,
           updated_at: T1,
           deleted_at: null,

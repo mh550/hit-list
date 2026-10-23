@@ -21,6 +21,8 @@ export interface PhotoIO {
   prepare(filePath: string): Promise<{ uri: string; bytes: Uint8Array; cleanup(): void }>;
   /** Writes a downloaded photo to a relative `photos/<spot>/<media>.jpg` path, making its folder. */
   write(filePath: string, bytes: Uint8Array): void;
+  /** Deletes a file `write` made (a save that didn't go through, S7); one that isn't there is fine. */
+  remove(filePath: string): void;
 }
 
 /** Where a photo lives in the bucket; always derived, local media has no storage_path column. */
@@ -79,6 +81,10 @@ export const defaultPhotoIO: PhotoIO = {
     });
     new File(resolvePhotoUri(filePath)).write(bytes);
   },
+  remove(filePath) {
+    const file = new File(resolvePhotoUri(filePath));
+    if (file.exists) file.delete();
+  },
 };
 
 /** Uploads to photos/<owner>/<spot>/<media>.jpg (upsert: a retry after a failed row write re-uploads harmlessly). */
@@ -97,7 +103,7 @@ export async function uploadPhoto(
 }
 
 /** A downloaded Blob's bytes. React Native's Blob has no arrayBuffer(); its FileReader reads one (Node's Blob has it). */
-function blobBytes(blob: Blob): Promise<Uint8Array> {
+export function blobBytes(blob: Blob): Promise<Uint8Array> {
   if (typeof blob.arrayBuffer === 'function') return blob.arrayBuffer().then((buffer) => new Uint8Array(buffer));
   return new Promise((resolve, reject) => {
     const reader = new FileReader();

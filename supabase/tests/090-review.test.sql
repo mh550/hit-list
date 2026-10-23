@@ -3,7 +3,7 @@
 -- triggers and soft deletes, and what anon can execute. The storage path parser is proved in 070
 -- ('photo_path_ok accepts only three-segment …', 'a path with fewer than three segments is refused').
 begin;
-select plan(24);
+select plan(31);
 
 -- 1. Every security definer function pins search_path and checks the caller.
 select is_empty(
@@ -16,7 +16,7 @@ select is_empty(
   $$ select p.proname from pg_proc p
      where p.pronamespace = 'public'::regnamespace and p.prosecdef
        and has_function_privilege('authenticated', p.oid, 'execute')
-       and position('auth.uid()' in p.prosrc) = 0 $$,
+       and position('auth.uid()' in regexp_replace(p.prosrc, '--[^\n]*', '', 'g')) = 0 $$,
   'every security definer function a signed-in client can call checks auth.uid()'
 );
 select results_eq(
@@ -113,9 +113,9 @@ reset enable_seqscan;
 select unalike(current_setting('t.plan'), '%Seq Scan%', 'can_read_spot''s plan has no sequential scan');
 select matches(current_setting('t.plan'), 'Index Scan using spots_pkey on spots',
                'can_read_spot finds the spot by its primary key');
-select matches(current_setting('t.plan'), 'Index Scan on hit_list_spots_spot_idx',
+select matches(current_setting('t.plan'), '(Index Scan using|Index Only Scan using|Bitmap Index Scan on) hit_list_spots_spot_idx',
                'can_read_spot finds the spot''s list rows by hit_list_spots(spot_id)');
-select matches(current_setting('t.plan'), 'Index Scan (using|on) hit_list_members_(pkey|user_idx)',
+select matches(current_setting('t.plan'), '(Index Scan using|Index Only Scan using|Bitmap Index Scan on) hit_list_members_(pkey|user_idx)',
                'can_read_spot finds memberships by an index on hit_list_members (list_id, user_id)');
 
 -- 4. One rev trigger, BEFORE INSERT OR UPDATE FOR EACH ROW on any column, on every synced table, and soft deletes
@@ -163,6 +163,94 @@ select ok(not has_function_privilege('authenticated', 'public.preview_link(text)
           'preview_link is executable by the service role only');
 select tests.clear_auth();
 select throws_ok($$ select public.redeem_invite('any-token') $$, '42501', null, 'anon cannot redeem an invite');
+
+-- Every action a client calls refuses a token without a user (role authenticated, no sub), not just anon (which fails
+-- on EXECUTE first). Each one is called with NULL arguments; anything but 42501 'not signed in' is listed.
+create function pg_temp.actions_without_user() returns setof text language plpgsql as $f$
+declare
+  f record;
+begin
+  for f in
+    select p.oid::regprocedure as sig, p.oid::regproc::text as fn,
+           (select string_agg('null::' || format_type(t, null), ', ' order by o)
+              from unnest(p.proargtypes::oid[]) with ordinality as a(t, o)) as args
+    from pg_proc p
+    where p.pronamespace = 'public'::regnamespace and p.prosecdef and p.provolatile = 'v'
+      and p.prorettype <> 'trigger'::regtype and has_function_privilege('authenticated', p.oid, 'execute')
+  loop
+    begin
+      execute format('select %s(%s)', f.fn, coalesce(f.args, ''));
+      return next f.sig::text || ': no error';
+    exception when others then
+      if sqlstate <> '42501' or sqlerrm <> 'not signed in' then
+        return next f.sig::text || ': ' || sqlstate || ' ' || sqlerrm;
+      end if;
+    end;
+  end loop;
+end
+$f$;
+select set_config('role', 'authenticated', true);
+select set_config('request.jwt.claims', '{"role": "authenticated"}', true);
+select is_empty($$ select * from pg_temp.actions_without_user() $$,
+                'every client action raises not signed in for a token without a user');
+reset role;
+select set_config('request.jwt.claims', '', true);
+
+-- seed.sql's helpers: tests.create_user writes auth.users as its definer, so no client role may call it.
+select ok(not has_function_privilege('anon', 'tests.create_user(text, text)', 'execute')
+          and not has_function_privilege('authenticated', 'tests.create_user(text, text)', 'execute'),
+          'no client role executes tests.create_user');
+
+-- Review fixes (S3-08). D50: an invitation that outlived its friendship (an invite racing Remove friend) still goes
+-- when either rider blocks the other, and a blocked pair can't Join.
+select set_config('t.rider', tests.create_user('rider9@test.local', 'rider9')::text, true);
+select set_config('t.rider2', tests.create_user('rider9b@test.local', 'rider9b')::text, true);
+insert into public.hit_lists (id, owner_id, name, kind, shared, updated_at)
+values ('00000000-0000-0000-0000-0000000009d2', current_setting('t.owner')::uuid, 'Second', 'manual', true, now());
+insert into public.hit_list_members (list_id, user_id, role, status, invited_by)
+values ('00000000-0000-0000-0000-0000000009d2', current_setting('t.rider')::uuid, 'add', 'invited',
+        current_setting('t.owner')::uuid),
+       ('00000000-0000-0000-0000-0000000009d2', current_setting('t.rider2')::uuid, 'add', 'invited',
+        current_setting('t.owner')::uuid);
+select tests.authenticate_as(current_setting('t.owner')::uuid);
+select public.block_user(current_setting('t.rider')::uuid);
+reset role;
+select is_empty(
+  $$ select 1 from public.hit_list_members
+     where list_id = '00000000-0000-0000-0000-0000000009d2' and user_id = current_setting('t.rider')::uuid $$,
+  'block_user withdraws an invitation between the pair even with no friendship'
+);
+insert into public.blocks (blocker, blocked) values (current_setting('t.rider2')::uuid, current_setting('t.owner')::uuid);
+select tests.authenticate_as(current_setting('t.rider2')::uuid);
+select throws_ok(
+  $$ update public.hit_list_members set status = 'member'
+     where list_id = '00000000-0000-0000-0000-0000000009d2' and user_id = current_setting('t.rider2')::uuid $$,
+  '42501', null, 'a blocked pair cannot Join through an invitation left from before the block'
+);
+
+-- media.uploaded_by names the uploader: the owner can't put someone else's id there.
+select tests.authenticate_as(current_setting('t.owner')::uuid);
+insert into public.spots (id, owner_id, name, lat, lng, updated_at)
+values ('00000000-0000-0000-0000-0000000009b2', current_setting('t.owner')::uuid, 'Bank', 47.6, -122.3, now());
+select throws_ok(
+  $$ insert into public.media (id, spot_id, owner_id, uploaded_by, updated_at)
+     values ('00000000-0000-0000-0000-0000000009c2', '00000000-0000-0000-0000-0000000009b2',
+             current_setting('t.owner')::uuid, current_setting('t.member')::uuid, now()) $$,
+  '42501', null, 'owner cannot insert a photo uploaded_by someone else'
+);
+select lives_ok(
+  $$ insert into public.media (id, spot_id, owner_id, uploaded_by, updated_at)
+     values ('00000000-0000-0000-0000-0000000009c3', '00000000-0000-0000-0000-0000000009b2',
+             current_setting('t.owner')::uuid, current_setting('t.owner')::uuid, now()) $$,
+  'owner inserts a photo uploaded_by themselves'
+);
+select throws_ok(
+  $$ update public.media set uploaded_by = current_setting('t.member')::uuid, updated_at = now() + interval '2 minutes'
+     where id = '00000000-0000-0000-0000-0000000009c3' $$,
+  '42501', null, 'owner cannot set a photo''s uploaded_by to someone else'
+);
+reset role;
+select set_config('request.jwt.claims', '', true);
 
 select * from finish();
 rollback;

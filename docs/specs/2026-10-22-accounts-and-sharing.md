@@ -141,6 +141,10 @@ it can **Save a copy** (it becomes their own private spot, with "From @name" on 
 | D89 | **Save a copy downloads the photos first; ones that fail are left out** *default* | The copy is saved with the photos that arrived and the toast says "Saved a copy · 1 photo couldn't be copied". | S8 plan (`docs/plans/2026-10-22-s8-shared-lists.md`), like the S7 save (§9 Q50) |
 | D90 | **The first-add confirmation is once per shared list on this phone** *default* | "Everyone in Downtown (4) will see this spot." shows the first time you add to each shared list (the owner too), remembered on the phone; signing in as another account asks again. | S8 plan (`docs/plans/2026-10-22-s8-shared-lists.md`) (§9 Q51) |
 | D91 | **Others' photos download when first shown and live in the phone's cache** *default* | No prefetch; iOS may clear the cache and they download again; offline and not cached shows a grey tile. Your own photos stay in the app's documents as today. | S8 plan (`docs/plans/2026-10-22-s8-shared-lists.md`): §3.4 "lazily into the cache directory" (§9 Q52) |
+| D92 | **The link base URL defaults to `http://localhost:8080/share/`** *default* | `EXPO_PUBLIC_SHARE_BASE_URL` sets where links point; unset, links point at the box's local page (`web/share/` served by `python3 -m http.server 8080`), which only opens on the box itself until the page is hosted. | S9 plan (`docs/plans/2026-10-22-s9-links.md`): hosting is a live step (§9 Q53) |
+| D93 | **Revoking a send link also takes back its spots** *default* | Revoke in Sent kills the link and withdraws the link's own send, removing its photos from the server; an expired link's photos stay until you Revoke it or delete the account. | S9 plan (`docs/plans/2026-10-22-s9-links.md`): nothing else reads a link's send (§9 Q54) |
+| D94 | **Each Copy link is its own send** *default* | Copy link makes a new one-time copy with no recipient; Sent shows it only as a Link row with its expiry, never as a send "to nobody". | S9 plan (`docs/plans/2026-10-22-s9-links.md`) (§9 Q55) |
+| D95 | **A pasted send link opens its web page** *default* | In the Inbox, Paste a link joins a list for an invite link and opens the page in Safari for a send link; saving a link's spots into the app isn't built in S9. | S9 plan (`docs/plans/2026-10-22-s9-links.md`): the feature steps say open; a client-side save is proposed there (§9 Q56) |
 
 ---
 
@@ -460,6 +464,14 @@ it stops at a milestone boundary; S9 (links) is last among the features because 
     the owner included. Every time instead, or never for the owner?
 52. **Friends' photos (D91).** Default: downloaded when you first look at them, kept in the phone's cache (iOS may
     clear it). Want them downloaded for offline use when you join a list?
+53. **Where links point (D92).** Default: until you host `web/share/`, links point at `http://localhost:8080/share/`
+    on the box. What domain do you want for links (and should I point them at the box's Tailscale address meanwhile)?
+54. **Revoke (D93).** Default: revoking a send link also deletes its photos from the server. Or keep them (and the
+    send) so a revoked link could be turned back on later?
+55. **One send per link (D94).** Default: every Copy link press is a new copy with its own expiry. Or reuse the last
+    link for the same spots?
+56. **Saving from a send link (D95).** Default: in Expo Go a pasted send link only opens the page. Want "Save these
+    N spots" in the app for a pasted send link (no account needed on the sender's side; you'd need one to save)?
 
 ---
 

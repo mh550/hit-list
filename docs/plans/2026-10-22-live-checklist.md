@@ -15,7 +15,7 @@ milestone appends its own steps below.
       `EXPO_PUBLIC_*` values, configure the email sender (custom SMTP before real users; Supabase's built-in sender is
       rate-limited).
 - [ ] **Host `web/share/`** (Vercel next to the portfolio, Cloudflare Pages or GitHub Pages) on a domain you like
-      for links; set `SHARE_BASE_URL` in the app config.
+      for links; set `EXPO_PUBLIC_SHARE_BASE_URL` in `.env.local` (D92; the S9 section below has the steps).
 - [ ] **Later, with a dev build / TestFlight:** Apple sign-in, the `hitlist://` scheme + universal links for "Open
       in HitList", push notifications for the Inbox.
 
@@ -241,3 +241,34 @@ screens come in S8-03…S8-06 and the two-phone check with S8-08. Plan: `docs/pl
       sharing` after re-inviting. Check each time: the list leaves phone 2 after one pull; A's list keeps its spots.
       **Sign out (D86):** B joined again → Profile → Sign out → Keep. Check: only B's spots stay; A's are gone.
       **Undo:** delete the test list and spots on phone 1; `npm run db:stop`.
+
+## S9 — links (send links, invite links, the `web/share/` page)
+
+Plan: `docs/plans/2026-10-22-s9-links.md`. The app makes links from S9-03 on; the page exists from S9-04. Nothing here
+has been run.
+
+- [ ] **Local first (box + phone over Tailscale):** stack up (S4 steps), `docker restart supabase_edge_runtime_hit-list`
+      if a function changed since `db:start`. Serve the page: `cd web && python3 -m http.server 8080`. Check:
+      `curl -s -o /dev/null -w '%{http_code}\n' 'http://100.88.90.97:54321/functions/v1/share-preview?t=AAAAAAAAAAAAAAAAAAAAAA'`
+      prints `404` with no Authorization header (verify_jwt off), and `curl -s …` of the same prints `{"error":"gone"}`.
+      In `web/share/index.html` set `<meta name="hitlist-functions-url" content="http://100.88.90.97:54321/functions/v1">`
+      (don't commit that edit), and in `.env.local` `EXPO_PUBLIC_SHARE_BASE_URL=http://100.88.90.97:8080/share/`;
+      restart Metro. Check: Copy link on the phone, paste it into Safari on the phone: the spots and photos show.
+      Revoke it in Sent, reload Safari: `This link doesn't work any more.` **Undo:** stop the Python server (Ctrl-C),
+      remove the line from `.env.local`, `git checkout web/share/index.html`.
+- [ ] **Deploy the functions (cloud, after the S3/S5 cloud steps):** dry run: `npx supabase functions list` (linked
+      project) shows what's there. Then `npx supabase functions deploy share-preview` and
+      `npx supabase functions deploy account-delete` (each reads `supabase/config.toml`: `share-preview` must say
+      `verify_jwt = false`, `account-delete` `true`). Check: `curl -s 'https://<ref>.supabase.co/functions/v1/share-preview?t=AAAAAAAAAAAAAAAAAAAAAA'`
+      → `{"error":"gone"}` and status 404 with no headers sent; `curl -s -X POST https://<ref>.supabase.co/functions/v1/account-delete`
+      → 401. The function's service-role key comes from the platform (never set it yourself, never in the repo).
+      **Undo:** `npx supabase functions delete share-preview` (links stop previewing; the app still works).
+- [ ] **Host `web/share/`** (pick one: Vercel next to the portfolio, Cloudflare Pages or GitHub Pages; the folder is
+      static, no build command, output directory `web/share`). Before deploying, set the meta tag to
+      `https://<ref>.supabase.co/functions/v1` in the hosted copy. Stage it: deploy a preview URL first and open
+      `<preview>/#t=AAAAAAAAAAAAAAAAAAAAAA` → `This link doesn't work any more.`; then a real link made against the
+      cloud project (change `EXPO_PUBLIC_SHARE_BASE_URL` to the preview URL in `.env.local`, restart Metro, Copy link)
+      → the spots show; then promote to the domain you want and set `EXPO_PUBLIC_SHARE_BASE_URL=https://<domain>/share/`
+      (keep the trailing slash). Check the host's request log: requests show `/share/` with no `t=` (the token is in
+      the fragment and never reaches the host). **Undo:** delete the hosting project; links already sent then fail to
+      load (the app is unaffected); revert `EXPO_PUBLIC_SHARE_BASE_URL`.

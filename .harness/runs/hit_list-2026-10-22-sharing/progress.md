@@ -20,6 +20,13 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 · S9-01 · passes
+
+- `chore:` e3620d4 adds expo-clipboard ~57.0.2 (`npx expo install`, no nested expo-modules-core); `npx expo export --platform ios` → exit 0, 5.4 MB (to the scratch dir, not /tmp/hl-export). Plan `docs/plans/2026-10-22-s9-links.md` (Tokens, Base URL, Server, share-preview, Client, UI, Page, Tests, Copy table, Test list, Proposed changes); spec §2 D92–D95 *default*, §9 Q53–Q56; live checklist gains an S9 section (local page over Tailscale, functions deploy, hosting in stages, undo). Tests 1937 → 1937 (docs only), check.sh green.
+- Opus plan review: 12 findings folded in. Next sessions must know: the local edge runtime's `SUPABASE_URL` is likely `http://kong:8000`, so signed photo URLs need the `PUBLIC_SUPABASE_URL` origin rewrite (S9-02 confirms first); the fake's `functions.invoke` must be extended before `previewLink` tests; a link-only send is a new `createLinkSend` (an empty `recipientIds` must keep failing); `list_my_links` lacks `used_by`, so S9-02 adds migration `20261026010000_links_s9.sql` + pgTAP 120.
+- Michael: Q53 which domain for links (meanwhile `http://localhost:8080/share/`)? Q54 Revoke deletes a link's photos, OK? Q55 a new copy per Copy link, OK? Q56 want "Save these N spots" in the app for a pasted send link (today it only opens the page, which says to paste it in the app)?
+- Proposed changes: S9-02 rpc arg is `p_sha` and it needs the migration above; S9-03 rpc args are the shipped `p_*` names and the calls take `(client, uid, …)`; S9-03 "createSend with recipientIds []" → `createLinkSend`; S9-05 "B redeemInvite again → gone" contradicts D60 (a member gets the list id back); S9-03/S9-04 send-link save loop (Q56).
+
 ### 2026-10-23 · verify S8
 
 Ran check.sh (green, 1937 tests); re-ran the S8 test files (`npx jest --ci --verbose` on 20 files: 275 + 319 passed, 0 failed). Did not start Docker (build-only policy): S8-07 step 1 is judged by reading the test plus the plan's recorded run (test:db 630, integration 54).

@@ -56,7 +56,8 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   a 'This list is gone' state; an area list (S2) shows 'Area · 2 mi of <place>' under its title and 'Edit area', no
   Remove; S8: the owner's 'Share list' (→ `ShareListSheet`, 'Invite' once shared) beside 'Send these spots', a shared
   list's member strip (initials, D84 count, '+ Invite') → `list/[id]/members.tsx` (S8-04: owner taps a member → role /
-  'Remove from list', 'Withdraw invitation', 'Invite', 'Stop sharing'; a member 'Leave list'; each confirms, never says
+  'Remove from list', 'Withdraw invitation', 'Invite', 'Stop sharing' (syncs first; refused while the list waits in the
+  outbox, D85); a member 'Leave list'; 'Add friend' beside a joined non-friend's row, S10-01; each confirms, never says
   Send)), `area/` (`app/area/index.tsx`) 'Pick an area' (`fullScreenModal`: MapView with a fixed centre pin + `Circle`, radius chips,
   'Search a place' (`geocodeAsync` on submit only, never on a region change), 'Use my location', the shared filters, a
   live count; 'Save as hit list' → 'Just these N' (manual list) / 'Keep it updated' (area list); `?listId` = edit mode,
@@ -158,7 +159,7 @@ rows; no photo arrived = nothing marked, and each try downloads the failed ones 
 save waits for Try again); `dismissSend`, `withdrawSend`, `listSent`; hook `src/hooks/use-sent-sends.ts`), `reload.ts`
 (`reloadStores(Quietly)`, re-exported by engine), `PhotoIO.remove`,
 `lists.ts` (S8-02: `shareList` (D85 refusal, `share_list` rpc) / `invite` / `setRole` / `removeMember` / `leave` /
-`stopSharing` / `respondInvite` / `loadAndApplyInvites` (engine, after sends; Inbox kind `invite`), `(db, client, uid,
+`stopSharing` (D85 refusal too, S10-01) / `respondInvite` / `loadAndApplyInvites` (engine, after sends; Inbox kind `invite`), `(db, client, uid,
 …)`, false without `maySync`; local removals in `shared-rows.ts` on `runExclusive` + one transaction, cache folders
 after the commit; the one app-time `withTransactionAsync` (a screen write landing inside it joins it; a failure after the
 server answered only warns, the next pull converges, S8-09)), pull's S8 steps (members full read, others' lists only once joined, others' photos at

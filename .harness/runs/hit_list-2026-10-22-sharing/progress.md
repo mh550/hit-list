@@ -20,6 +20,16 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 13:00 · S10-01 · passes
+
+Whole-run Opus review of `run.diff` (4aa5326..b9e850a, 48 118 lines) in two passes (data/sync/SQL 10 068, UI 8 294 lines, tests excluded): no Critical; 3 Important + 1 Minor fixed RED-first, 3 Minor left with reasons; table and the five anti-goal answers in `docs/plans/2026-10-22-s10-sweep.md` › Final review.
+- D1 (Important): Stop sharing overwrote a list rename/circle still in the outbox with the server's row (edit lost). `stopSharing` now refuses with `ListNotBackedUpError` (D85, like `shareList`); Members syncs first and shows the refusal (45693e3 → 20431b0).
+- U1 (Important): the send-link page told riders to Paste a link in the app, which only reopens the page (D95). It now says saving from a link isn't in the app yet; the invite page gets the Paste hint (2bc234c → 5c9db25).
+- U2 (Important): 'Add friend' on a non-friend member row (§3.5) was dropped in S8 and is now built (bcb6093 → 2b118e8). U3 (Minor): the Spots picker no longer keeps a list that left through a reload (b95bd2c → 7acab3a).
+- Verified: jest 2080 → 2088, 0 console.error; fresh stack: pgTAP 12 files/640, integration 7/79; `supabase stop`, no supabase_* left (dj-*/n8n-* untouched); export exit 0, 5.4 MB; expo-doctor 21/21; check.sh green.
+- Proposed change: S10-01 step 3's stale grep prints `src/__tests__/db-migrate.test.ts:736-745`, the test that proves migration drops `sync_queue` (D65); no app code matches. Exclude `src/__tests__` from that grep. Left for later: U4 (select mode counts others' spots), U5 (area editor by URL on another's list), D2 (clock-skew LWW, speculative).
+- No new decisions; no questions for Michael.
+
 ### 2026-10-23 · verify S9
 
 Re-ran: check.sh (green, 2080 tests); `db:start`, `db:reset`, `test:db` (12 files, 640 tests PASS), `test:integration` (7 suites, 79 tests), `db:stop` (docker ps: only dj-*/n8n-* left; no other container touched); `expo export` exit 0. Three later recorded decisions (D96 POST body, strict 22-char `parseToken`, D60 idempotent re-redeem) supersede the wording of some steps; each is marked "yes (D..)" and I judged the intent met. Result: 7 hold, 0 fail.

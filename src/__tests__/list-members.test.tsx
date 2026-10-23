@@ -29,6 +29,11 @@ jest.mock('@/src/sync/links', () => ({
 }));
 // The sheet is share-list-sheet.test.tsx's; here only that Invite opens it.
 const mockShareSheet = jest.fn();
+jest.mock('@/src/sync/friends', () => ({
+  ...jest.requireActual('@/src/sync/friends'),
+  addFriend: jest.fn(),
+  refreshFriends: jest.fn(),
+}));
 jest.mock('@/src/components/ShareListSheet', () => ({
   ShareListSheet: (props: unknown) => {
     mockShareSheet(props);
@@ -44,6 +49,8 @@ import { SIGNED_OUT, useAuthStore, type AuthSnapshot } from '@/src/stores/auth-s
 import { clearToast, useToastStore } from '@/src/stores/toast-store';
 import { leave, NotAllowedError, removeMember, setRole, stopSharing } from '@/src/sync/lists';
 import { createInviteLink, listMyLinks, revokeLink, type MyLink } from '@/src/sync/links';
+import { addFriend, refreshFriends, type FriendProfile } from '@/src/sync/friends';
+import { EMPTY_FRIENDS, useFriendsStore } from '@/src/stores/friends-store';
 import type { HitList, HitListMember } from '@/src/types';
 import { createTestHitList, createTestSpot } from './factories';
 
@@ -539,6 +546,62 @@ describe('Members screen invite links (S9-03)', () => {
     expect(screen.queryByRole('button', { name: 'Invite link' })).toBeNull();
     expect(screen.queryByText(/Invite link ·/)).toBeNull();
     expect(listMyLinks).not.toHaveBeenCalled();
+  });
+});
+
+// S10-01 review U2: 'Add friend' on a member row of someone who isn't a friend (spec §3.5, S8 plan)
+describe('Members screen Add friend', () => {
+  const profile = (id: string, username: string): FriendProfile => ({ id, username, display_name: null });
+  const row = (id: string, username: string) => ({ friendshipId: `f-${id}`, created_at: '2026-10-22T00:00:00.000Z', profile: profile(id, username) });
+
+  beforeEach(() => {
+    signIn();
+    useFriendsStore.getState().clearFriends();
+    jest.mocked(addFriend).mockReset().mockResolvedValue({ found: true, status: 'sent', profile: profile('u-ben', 'ben') });
+    jest.mocked(refreshFriends).mockReset().mockResolvedValue(undefined as never);
+  });
+
+  it("offers 'Add friend' only on joined riders who aren't friends, asked or blocked", async () => {
+    useFriendsStore.getState().applyFriends(ME, { ...EMPTY_FRIENDS, friends: [row('u-dee', 'dee')] });
+    await renderScreen();
+    expect(screen.getByRole('button', { name: 'Add @ben as a friend' })).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: 'Add @dee as a friend' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Add @cal as a friend' })).toBeNull(); // only invited
+    expect(screen.queryByRole('button', { name: 'Add @me as a friend' })).toBeNull();
+  });
+
+  it('offers nothing before the friends load', async () => {
+    await renderScreen();
+    expect(screen.queryByRole('button', { name: 'Add @ben as a friend' })).toBeNull();
+  });
+
+  it("a member sees it on the owner's row, not on a rider already asked", async () => {
+    setList(anas, [...spotsOf(ME, 5, 'm'), ...spotsOf('u-ana', 6, 'a')]);
+    useFriendsStore.getState().applyFriends(ME, { ...EMPTY_FRIENDS, outgoing: [row('u-ben', 'ben')] });
+    await renderScreen();
+    expect(screen.getByRole('button', { name: 'Add @ana as a friend' })).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: 'Add @ben as a friend' })).toBeNull();
+  });
+
+  it("pressing it asks by username, toasts 'Request sent to @ben' and reloads the friends", async () => {
+    useFriendsStore.getState().applyFriends(ME, EMPTY_FRIENDS);
+    await renderScreen();
+    await act(async () => {
+      fireEvent.press(screen.getByRole('button', { name: 'Add @ben as a friend' }));
+    });
+    expect(addFriend).toHaveBeenCalledWith(mockFake, db, ME, 'ben');
+    expect(useToastStore.getState().text).toBe('Request sent to @ben');
+    expect(refreshFriends).toHaveBeenCalledWith(db, mockFake, ME);
+  });
+
+  it("a failed request alerts \"Couldn't add @ben. Try again.\"", async () => {
+    useFriendsStore.getState().applyFriends(ME, EMPTY_FRIENDS);
+    jest.mocked(addFriend).mockRejectedValue(new Error('offline'));
+    await renderScreen();
+    await act(async () => {
+      fireEvent.press(screen.getByRole('button', { name: 'Add @ben as a friend' }));
+    });
+    expect(lastAlert()[0]).toBe("Couldn't add @ben. Try again.");
   });
 });
 

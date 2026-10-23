@@ -80,3 +80,4 @@
 - 2026-10-23 10:32 · S8-08 · claude-sonnet-5-5 · passes=true · 5 min · 65/76 passing
 - 2026-10-23 10:54 · S8-09 · claude-opus-5-5 · passes=true · 21 min · 66/76 passing
 - 2026-10-23 10:56 · S8 verified and tagged run/hit_list-2026-10-22-sharing/S8
+- 2026-10-23 10:56 · S8 proposed for merging · https://github.com/mh550/hit-list/pull/16

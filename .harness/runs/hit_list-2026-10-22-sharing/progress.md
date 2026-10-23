@@ -20,6 +20,16 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 06:00 · S7-01 · passes
+
+- New `docs/plans/2026-10-22-s7-send.md`: Payload (`src/utils/send-payload.ts` v1, frozen fields only), Photo copy (copy each photo to `sends/<id>/` before `create_send`, client `newId()`, failure removes copies; server-side copy function rejected), Migration 7, Send sheet, Entry points, Inbox save flows, Sent, Copy table, integration design, RED test list per feature, Opus plan review (1 Critical, 6 Important: all folded in).
+- Finding: S3's storage policy refuses uploads into a send that doesn't exist yet, so "copy before create_send" needs one append-only server migration in **S7-03**: staged photos (D77), `create_send` stamps the sender's name, `mark_send_saved` refuses a second save, `spots.from_username`. pgTAP `100-sends-s7` + one `070` case changes.
+- Spec §2 D76–D82 *default*, §9 Q37–Q43; live checklist gains 'S7 — Send spots to friends' (with deploy order).
+- Verified: `check.sh` green, 1495 → 1495 tests (docs only).
+- Next session (S7-02): build to the plan's signatures (Proposed changes lists where they differ from the feature texts); `captured_at` freezes as the day only (D46).
+- Questions for Michael: §9 Q37–Q43 (one copy per friend; photos copied before the send; sending needs a backup; ≤ 100 spots per send; 'From @name' frozen; picking some spots finishes a send; dismissed reads 'Waiting' to the sender).
+- Proposed changes: S7-03 gains the server migration + pgTAP + push/pull mapping; Save order is download → `mark_send_saved` → insert (closes the withdraw race); S7-06 gains staging-cleanup and forged-sender cases.
+
 ### 2026-10-23 · verify S6
 
 All 26 steps hold; no live stack run (build-only), integration counts read from the plan.

@@ -125,6 +125,13 @@ it can **Save a copy** (it becomes their own private spot, with "From @name" on 
 | D73 | **A request you sent shows the name only on the phone you sent it from** *default* | The server doesn't show you someone's profile until they accept (S3: you mustn't follow them through a rename), so 'Requests sent' shows '@cal' where you typed it and 'A rider you asked' on another phone, with Cancel either way. | S6 plan (§9 Q34) |
 | D74 | **Friends has a 'Blocked' section with Unblock** *default* | Blocked riders are listed (names from the phone's mirror, D72) with Unblock; unblocking restores nothing (no friendship comes back, D50). | S6 plan: without it a block could never be lifted from the app (§9 Q35) |
 | D75 | **Opening the Inbox marks everything in it seen** *default* | The Inbox tab's badge counts items addressed to you that arrived after you last opened it; no per-row read state; the tab badge only (an app-icon badge needs push notifications, a dev build). | S6 plan (§9 Q36) |
+| D76 | **A send to several friends is one send per friend, each with its own photo copy** *default* | `create_send` once per recipient with its own client id and its own `sends/<id>/` photo set; Save, Dismiss and Withdraw are per friend. | S7 plan (`docs/plans/2026-10-22-s7-send.md`): S3's storage rule maps one photo path to one send; a shared set would need a new mapping and a withdrawal couldn't delete photos another friend still needs. Cost: photos × friends in storage, copied server-side (§9 Q37) |
+| D77 | **A send's photos are copied before the send exists** *default* | A rider may write photos under `sends/<id>/` for an id no send has yet (nobody can read them), and remove them; `create_send` refuses an id holding another rider's photos; Delete account removes leftovers. | S7 plan: the recipient never sees a send with a photo missing; one small storage-policy change instead of a service-role copy function (§9 Q38) |
+| D78 | **Sending needs the spots backed up** *default* | The Send sheet syncs first; if any of the spots or their photos still wait in the outbox: "Some of these spots aren't backed up yet. Try again when you're online." | S7 plan: the server copies the photos from the rider's backup (§9 Q39) |
+| D79 | **At most 100 spots per send** *default* | More than 100 (a big area or list): "That's 140 spots. Send up to 100 at a time." | S7 plan: one copy request per photo per friend (§9 Q40) |
+| D80 | **The sender's name on a send is the server's, and "From @name" is frozen** *default* | `create_send` writes the sender's @username and display name into the payload (a forged one is replaced); a saved copy keeps "From @ana" as it was when saved (a later rename doesn't change it) and the name syncs with the spot (server `spots.from_username`). | S7 plan (§9 Q41) |
+| D81 | **Saving some of a send's spots finishes it** *default* | Pick spots → Save saves those and marks the send saved; the rest aren't offered again (ask the sender to send them again). | S7 plan: one saved state per send, as S3 built it (§9 Q42) |
+| D82 | **A dismissed send reads "Waiting" to its sender** *default* | The sender isn't told it was dismissed (Sent shows Waiting and still offers Withdraw). | S7 plan: like D50, nobody is told no (§9 Q43) |
 
 ---
 
@@ -413,6 +420,20 @@ it stops at a milestone boundary; S9 (links) is last among the features because 
 35. **Unblocking (D74).** Default: Profile → Friends lists the riders you blocked, each with Unblock. Or should a block
     be permanent / live in Settings?
 36. **Inbox badge (D75).** Default: opening the Inbox tab clears its badge; no unread dot per row. Want per-row unread?
+37. **Sending to several friends (D76).** Default: each friend gets their own copy (photos stored once per friend).
+    OK, or should one send be shared by all its recipients (less storage, but withdrawing from one friend gets
+    complicated)?
+38. **Photos go up before the send (D77).** Default: the app copies the photos into the send's folder first, then
+    creates the send, so a friend never opens one with photos missing. OK?
+39. **Sending spots that aren't backed up (D78).** Default: Send tries a backup first and refuses with a message if
+    something is still waiting (e.g. offline). Or should the send wait and go out by itself later?
+40. **Send size (D79).** Default: at most 100 spots per send. More, fewer, or no limit?
+41. **"From @name" (D80).** Default: the name is the sender's @username when you saved it, and doesn't change if they
+    rename later. Should it follow their current name instead?
+42. **Picking some spots of a send (D81).** Default: saving the ones you picked finishes the send; the rest are gone.
+    Or should the rest stay in the Inbox?
+43. **Dismissing (D82).** Default: the sender still sees "Waiting" after you dismiss (they aren't told). Or should
+    Sent say "Dismissed"?
 
 ---
 

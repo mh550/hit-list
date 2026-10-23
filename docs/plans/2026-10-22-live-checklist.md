@@ -154,3 +154,32 @@ two emails** (codes for both show in the local Mailpit at port 54324); on one ph
 - [ ] **Stop:** `npm run db:stop`. **Undo:** remove friendships from the app (Remove friend / Cancel / Unblock) or
       `npm run db:reset` to wipe the server side; the phone's name mirror empties when another account signs in.
 - Later (dev build): push notifications for friend requests and an app-icon badge (D75).
+
+## S7 — Send spots to friends (local stack over Tailscale)
+
+Works from S7-05 on (the server migration lands in S7-03). Same setup as S6: stack up, `.env.local`,
+`npm run start:tailscale`, two riders A and B who are friends (S6). Plan: `docs/plans/2026-10-22-s7-send.md`.
+
+- [ ] **Server side first:** `npm run db:reset && npm run test:db && npm run test:integration`. Check: the send suite
+      passes (counts in the S7 plan's 'As built').
+- [ ] **Deploy order (cloud, later):** `npx supabase db push` the S7 migration **before** installing a build that
+      sends spots (an older server without `spots.from_username` stalls every backup).
+- [ ] **One spot from its page:** as A, open a spot with a photo → paper-plane (top right) → tick @B. Check: the
+      sentence "They get a copy of this spot as it is now. Changes you make later won't reach them." and no word
+      "Share" anywhere in the sheet. Send. Check: 'Sent to @B'.
+- [ ] **Three from multi-select, and a list:** Spots tab → Select → three spots → 'Send (3)' → @B → Send. Open a hit
+      list → 'Send these spots · one-time copy of N spots' → @B → Send.
+- [ ] **The copy is frozen:** as A, rename the first sent spot and delete another. Switch to B (Sign out → Keep →
+      sign in). Check: Inbox badge, '@A sent you 3 spots' shows the **old** name; Save all. Check: 'Saved 3 spots',
+      the spots are in B's Spots tab with 'From @A' on detail, photos included, and Edit works.
+- [ ] **Pick and new list:** on the list send: 'Pick spots' → untick one → Save; on another: 'Save into a new hit
+      list' → a list 'From @A' appears on Lists.
+- [ ] **Withdraw:** as A, send one more spot; Profile → Sent → Withdraw before B saves. Switch to B: it's gone from
+      the Inbox. As A, Sent shows the saved one as 'Saved' with no Withdraw ('Saved copies are theirs').
+- [ ] **Offline:** Airplane mode, try Send. Check: "Couldn't send. Try again." (or the not-backed-up line) and
+      nothing appears on B's side.
+- [ ] **What to check in Studio** (`http://<tailnet-ip>:54323`): `sends` has one row per friend per send with
+      `payload.sender.username` = A; Storage `photos/sends/<id>/` holds one file per photo; after Withdraw that folder
+      is empty and `withdrawn_at` is set.
+- [ ] **Stop:** `npm run db:stop`. **Undo:** delete B's copies on the phone like any spot; `npm run db:reset` wipes
+      the server side.

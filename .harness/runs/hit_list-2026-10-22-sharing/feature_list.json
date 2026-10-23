@@ -116,7 +116,7 @@
         "The FAB column is hidden in select mode (queryByLabelText('Add new spot') is null while selecting).",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S1-09",

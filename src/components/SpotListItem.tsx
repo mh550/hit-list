@@ -6,6 +6,7 @@ import type { NaturalSpeed } from '@/src/types';
 import { SPEED_LABELS } from '@/src/constants/labels';
 import { Tag } from '@/src/components/Chip';
 import { SpeedScale } from '@/src/components/SpeedScale';
+import { IconSymbol } from '@/components/ui/icon-symbol';
 
 interface SpotListItemProps {
   id: string;
@@ -17,6 +18,9 @@ interface SpotListItemProps {
   distance?: string;
   onPress: (id: string) => void;
   onLongPress?: (id: string) => void;
+  /** Select mode: the row is a checkbox (a check circle left of the thumbnail) and a tap toggles it. */
+  selectable?: boolean;
+  selected?: boolean;
 }
 
 export const SpotListItem = memo(function SpotListItem({
@@ -29,6 +33,8 @@ export const SpotListItem = memo(function SpotListItem({
   distance,
   onPress,
   onLongPress,
+  selectable = false,
+  selected = false,
 }: SpotListItemProps) {
   // VoiceOver reads only the row's label, not the badges inside it, so the label says what they show.
   const label = [
@@ -46,8 +52,14 @@ export const SpotListItem = memo(function SpotListItem({
       onPress={() => onPress(id)}
       onLongPress={onLongPress ? () => onLongPress(id) : undefined}
       style={({ pressed }) => [styles.container, pressed && styles.pressed]}
-      accessibilityRole="button"
+      accessibilityRole={selectable ? 'checkbox' : 'button'}
+      accessibilityState={selectable ? { checked: selected } : undefined}
       accessibilityLabel={label}>
+      {selectable ? (
+        <View testID={`spot-check-${id}`} style={[styles.check, selected && styles.checkSelected]}>
+          {selected ? <IconSymbol name="checkmark" size={16} color={palette.white} /> : null}
+        </View>
+      ) : null}
       <View style={styles.thumbnailContainer}>
         {thumbnailUri ? (
           <Image
@@ -86,6 +98,20 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     gap: spacing.md,
     backgroundColor: palette.white,
+  },
+  check: {
+    alignSelf: 'center',
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: palette.gray[400],
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkSelected: {
+    borderColor: palette.blue[500],
+    backgroundColor: palette.blue[500],
   },
   pressed: {
     backgroundColor: palette.gray[50],

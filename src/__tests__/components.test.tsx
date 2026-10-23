@@ -8,6 +8,7 @@ import { Chip } from '@/src/components/Chip';
 import { EmptyState } from '@/src/components/EmptyState';
 import { Card, CardContent, CardTitle } from '@/src/components/Card';
 import { FormInput } from '@/src/components/FormField';
+import { SpotListItem } from '@/src/components/SpotListItem';
 
 describe('Button', () => {
   it('renders title', () => {
@@ -120,5 +121,35 @@ describe('FormInput', () => {
   it('renders error message', () => {
     render(<FormInput label="Name" error="Required" />);
     expect(screen.getByText('Required')).toBeTruthy();
+  });
+});
+
+describe('SpotListItem', () => {
+  const base = { id: 's1', displayName: 'Pier rail', stopped: false, onPress: () => {} };
+
+  it('is a plain button with no checkbox outside select mode', () => {
+    render(<SpotListItem {...base} />);
+    const row = screen.getByLabelText('Pier rail');
+    expect(row.props.accessibilityRole).toBe('button');
+    expect(row.props.accessibilityState?.checked).toBeUndefined();
+    expect(screen.queryByTestId('spot-check-s1')).toBeNull();
+  });
+
+  it('is an unchecked checkbox when selectable and not selected', () => {
+    render(<SpotListItem {...base} selectable selected={false} />);
+    const row = screen.getByLabelText('Pier rail');
+    expect(row.props.accessibilityRole).toBe('checkbox');
+    expect(row.props.accessibilityState).toEqual({ checked: false });
+    expect(screen.getByTestId('spot-check-s1')).toBeTruthy();
+  });
+
+  it('is a checked checkbox when selectable and selected, and a tap still reports the id', () => {
+    const onPress = jest.fn();
+    render(<SpotListItem {...base} onPress={onPress} selectable selected />);
+    const row = screen.getByLabelText('Pier rail');
+    expect(row.props.accessibilityRole).toBe('checkbox');
+    expect(row.props.accessibilityState).toEqual({ checked: true });
+    fireEvent.press(row);
+    expect(onPress).toHaveBeenCalledWith('s1');
   });
 });

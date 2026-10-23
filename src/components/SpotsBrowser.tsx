@@ -43,7 +43,15 @@ interface SpotsBrowserProps {
   contentBottomInset?: number;
   /** Rendered in the header before the Filter button (a screen's own headerRight would replace Filter). */
   headerActions?: ReactNode;
+  /** Overrides the header's title text ('2 selected'); undefined shows the screen's title. */
+  headerTitle?: string;
+  /** The header's left side (the Spots tab's 'Select' / 'Cancel'); undefined keeps the default (a back button). */
+  headerLeft?: ReactNode;
   onSpotLongPress?: (id: string) => void;
+  /** Replaces a row tap's default (open the spot). */
+  onSpotPress?: (id: string) => void;
+  /** Defined = select mode: rows render as checkboxes, checked when their id is in the set. */
+  selectedIds?: ReadonlySet<string>;
 }
 
 /**
@@ -59,7 +67,11 @@ export function SpotsBrowser({
   aboveList,
   contentBottomInset = spacing.md,
   headerActions,
+  headerTitle,
+  headerLeft,
   onSpotLongPress,
+  onSpotPress,
+  selectedIds,
 }: SpotsBrowserProps) {
   const router = useRouter();
   useCurrentLocation(); // distances in the list and the map's own position (bug 5)
@@ -97,13 +109,14 @@ export function SpotsBrowser({
     [filtered, sortField, sortDirection, sortLocation],
   );
 
-  const handleSpotPress = useCallback(
+  const openSpot = useCallback(
     (id: string) => {
       Keyboard.dismiss(); // a raised keyboard would cover the spot screen while it animates in
       router.push(`/spot/${id}` as `/spot/${string}`);
     },
     [router],
   );
+  const handleRowPress = onSpotPress ?? openSpot;
 
   const getDistance = useCallback(
     (spot: Spot): string | undefined => {
@@ -126,12 +139,14 @@ export function SpotsBrowser({
           stopped={item.stopped}
           naturalSpeed={item.natural_speed}
           distance={getDistance(item)}
-          onPress={handleSpotPress}
+          onPress={handleRowPress}
           onLongPress={onSpotLongPress}
+          selectable={selectedIds !== undefined}
+          selected={selectedIds?.has(item.id) ?? false}
         />
       );
     },
-    [handleSpotPress, onSpotLongPress, getDistance, mediaBySpot],
+    [handleRowPress, onSpotLongPress, selectedIds, getDistance, mediaBySpot],
   );
 
   const keyExtractor = useCallback((item: Spot) => item.id, []);
@@ -160,7 +175,11 @@ export function SpotsBrowser({
   return (
     <View style={styles.container}>
       <Stack.Screen
+        // These options always carry headerTitle and headerLeft (undefined un-sets them, as '2 selected' needs), so
+        // they overwrite a layout's; a screen sets them through these props, not its own Stack.Screen.
         options={{
+          headerTitle,
+          headerLeft: headerLeft === undefined ? undefined : () => headerLeft,
           headerRight: () => (
             <View style={styles.headerButtons}>
               {headerActions}
@@ -201,7 +220,7 @@ export function SpotsBrowser({
       ) : null}
       <View style={styles.body}>
         {viewMode === 'map' ? (
-          <SpotMap spots={filtered} currentLocation={currentLocation} onOpenSpot={handleSpotPress} />
+          <SpotMap spots={filtered} currentLocation={currentLocation} onOpenSpot={openSpot} />
         ) : null}
         {viewMode === 'list' && spots.length === 0 ? (
           <EmptyState
@@ -225,6 +244,7 @@ export function SpotsBrowser({
             data={sorted}
             renderItem={renderItem}
             keyExtractor={keyExtractor}
+            extraData={selectedIds}
             contentContainerStyle={{ paddingBottom: contentBottomInset }}
             keyboardDismissMode="on-drag"
             keyboardShouldPersistTaps="handled"

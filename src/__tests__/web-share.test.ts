@@ -75,8 +75,8 @@ describe('web/share files', () => {
     expect(doc.querySelector('meta[name="hitlist-functions-url"]')?.getAttribute('content')).toBe(FUNCTIONS_URL);
     expect(doc.querySelectorAll('meta[name="hitlist-functions-url"]')).toHaveLength(1);
     expect(doc.querySelector('meta[name="referrer"]')?.getAttribute('content')).toBe('no-referrer');
-    expect(doc.querySelector('meta[http-equiv="Content-Security-Policy"]')?.getAttribute('content')).toContain(
-      "script-src 'self'",
+    expect(doc.querySelector('meta[http-equiv="Content-Security-Policy"]')?.getAttribute('content')).toBe(
+      "default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src https: http:; connect-src https: http:; base-uri 'none'; form-action 'none'",
     );
     const scripts = Array.from(doc.querySelectorAll('script'));
     expect(scripts.map((s) => s.getAttribute('src'))).toEqual(['share.js']);
@@ -84,7 +84,9 @@ describe('web/share files', () => {
   });
 
   it('share.js never writes HTML', () => {
-    expect(SCRIPT).not.toMatch(/innerHTML|outerHTML|insertAdjacentHTML|document\.write/);
+    expect(SCRIPT).not.toMatch(
+      /innerHTML|outerHTML|insertAdjacentHTML|document\.write|setHTMLUnsafe|createContextualFragment|DOMParser/,
+    );
   });
 });
 
@@ -136,11 +138,18 @@ describe('a send link', () => {
 
     const imgs = Array.from(document.querySelectorAll('img')).map((img) => img.getAttribute('src'));
     expect(imgs).toEqual(['https://cdn.test/a.jpg?token=1', 'https://cdn.test/b.jpg?token=2']);
+    // Signed URLs live 600 s: load them now, not when scrolled to.
+    for (const img of Array.from(document.querySelectorAll('img'))) {
+      expect(img.getAttribute('alt')).toBe('');
+      expect(img.hasAttribute('loading')).toBe(false);
+    }
+    expect(SCRIPT).not.toMatch(/\.loading\b|lazy/); // jsdom 20 doesn't reflect img.loading, so read the source
 
     const maps = Array.from(first.querySelectorAll('a')).find((a) => a.textContent === 'Open in Maps');
     expect(maps?.getAttribute('href')).toBe('https://maps.apple.com/?ll=47.6,-122.3');
     const osm = Array.from(first.querySelectorAll('a')).find((a) => a.textContent === 'OpenStreetMap');
     expect(osm?.getAttribute('href')).toBe('https://www.openstreetmap.org/?mlat=47.6&mlon=-122.3#map=18/47.6/-122.3');
+    expect(maps?.getAttribute('rel')).toBe('noopener noreferrer');
 
     expect(text()).toContain('Expires Nov 21, 2026');
   });
@@ -168,8 +177,12 @@ describe('a send link', () => {
     expect(text()).not.toContain(line);
     const button = Array.from(document.querySelectorAll('button')).find((b) => b.textContent === 'Save to my spots');
     expect(button).toBeDefined();
+    expect(button!.getAttribute('aria-expanded')).toBe('false');
     button!.click();
     expect(text()).toContain(line);
+    expect(button!.getAttribute('aria-expanded')).toBe('true');
+    button!.click();
+    expect(text().split(line)).toHaveLength(2); // shown once
   });
 
   it('renders a hostile name as text', async () => {
@@ -185,14 +198,20 @@ describe('a send link', () => {
     expect(text()).toContain('<b>bold</b>');
   });
 
-  it('never sets a link or image from a non-http(s) URL', async () => {
+  it('never sets a link or image from a non-http(s) URL or a non-number location', async () => {
     stubFetch({
       status: 200,
-      body: sendBody([spot({ photo_urls: ['javascript:alert(1)', 'https://cdn.test/ok.jpg'] })]),
+      body: sendBody([
+        spot({ photo_urls: ['javascript:alert(1)', 'https://cdn.test/ok.jpg'] }),
+        spot({ lat: '47.6', lng: '"><x', photo_urls: [] }),
+      ]),
     });
     await openPage(`/share/#t=${TOKEN}`);
     const imgs = Array.from(document.querySelectorAll('img')).map((img) => img.getAttribute('src'));
     expect(imgs).toEqual(['https://cdn.test/ok.jpg']);
+    const [first, second] = Array.from(document.querySelectorAll('[data-testid="spot"]'));
+    expect(first.querySelectorAll('a')).toHaveLength(2);
+    expect(second.querySelectorAll('a')).toHaveLength(0);
   });
 
   it('shows a sender with no username by display name, and none at all as just the count', async () => {
@@ -253,10 +272,39 @@ describe('a dead link', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('renders the gone line for an answer it does not understand', async () => {
+  it('renders the gone line for an answer it does not understand, or a send with no spots', async () => {
     stubFetch({ status: 200, body: { kind: 'other' } });
     expect(await openPage(`/share/#t=${TOKEN}`)).toBe('gone');
     expect(text()).toContain(GONE);
+
+    stubFetch({ status: 200, body: sendBody([]) });
+    expect(await openPage(`/share/#t=${TOKEN}`)).toBe('gone');
+    expect(text()).toContain(GONE);
+  });
+
+  it("says it could not load for a 404 that isn't the function's gone (wrong functions URL, not deployed)", async () => {
+    stubFetch({ status: 404, body: { message: 'Function not found' } });
+    expect(await openPage(`/share/#t=${TOKEN}`)).toBe('error');
+    expect(text()).toContain("Couldn't load this link. Try again.");
+    expect(text()).not.toContain(GONE);
+  });
+
+  it('never fetches when the functions URL is missing, so the token never goes to the page host', async () => {
+    stubFetch({ status: 200, body: sendBody([spot()]) });
+    const html = HTML.replace('content="http://127.0.0.1:54321/functions/v1"', 'content=""');
+    window.history.replaceState(null, '', `/share/#t=${TOKEN}`);
+    const parsed = new DOMParser().parseFromString(html, 'text/html');
+    document.replaceChild(document.importNode(parsed.documentElement, true), document.documentElement);
+    new Function(SCRIPT)();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(document.body.dataset.state).toBe('error');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('announces the state it lands in', async () => {
+    stubFetch({ status: 404, body: { error: 'gone' } });
+    await openPage(`/share/#t=${TOKEN}`);
+    expect(document.getElementById('app')?.getAttribute('aria-live')).toBe('polite');
   });
 
   it('says it could not load on a network failure or a 500', async () => {

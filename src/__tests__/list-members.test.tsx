@@ -77,7 +77,7 @@ const anas: HitList = createTestHitList({
   owner_id: 'u-ana',
   owner_username: 'ana',
   shared: true,
-  members: [member(ME, 'me', 'add', 'member'), member('u-ben', 'ben', 'add', 'member'), member('u-cal', undefined, 'add', 'invited')],
+  members: [member(ME, undefined, 'add', 'member'), member('u-ben', 'ben', 'add', 'member'), member('u-cal', undefined, 'add', 'invited')],
 });
 
 const spotsOf = (owner: string, n: number, prefix: string) =>

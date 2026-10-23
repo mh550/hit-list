@@ -223,8 +223,13 @@ describe('ShareListSheet signed in', () => {
     await renderSheet();
 
     fireEvent.press(friend('@ana'));
-    await press(shareButton());
-    await press(screen.getByRole('button', { name: 'Sharing…' }));
+    // two taps before any re-render: the button isn't disabled yet, only the ref stops the second
+    const button = shareButton();
+    await act(async () => {
+      fireEvent.press(button);
+      fireEvent.press(button);
+    });
+    expect(syncNow).toHaveBeenCalledTimes(1);
     expect(shareList).toHaveBeenCalledTimes(1);
     // can't close while the server call runs
     fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
@@ -347,6 +352,8 @@ describe('ShareListSheet in invite mode (a list already shared)', () => {
     expect(screen.queryByRole('checkbox', { name: '@ana' })).toBeNull();
     expect(screen.queryByRole('checkbox', { name: '@ben' })).toBeNull();
     expect(screen.getByText('In the list')).toBeOnTheScreen();
+    expect(screen.getByLabelText('@ana, In the list')).toBeOnTheScreen();
+    expect(screen.getByLabelText('@ben, Invited')).toBeOnTheScreen();
     expect(screen.getByText('Invited')).toBeOnTheScreen();
     expect(screen.getByText(D34('Downtown'))).toBeOnTheScreen();
     expect(screen.queryByText(/will become visible/)).toBeNull();

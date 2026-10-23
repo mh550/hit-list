@@ -658,7 +658,8 @@ describe("List screen: 'Share list' and the member strip (S8-04)", () => {
       owner_id: 'u-ana',
       owner_username: 'ana',
       shared: true,
-      members: [member(ME, 'me'), member('u-ben', 'ben')],
+      // the profiles mirror never holds the rider's own name: it comes from the auth store
+      members: [{ user_id: ME, role: 'add' as const, status: 'member' as const }, member('u-ben', 'ben')],
     });
     const mineIn = createTestSpot({ id: 'mine', name: 'My rail', owner_id: ME });
     const hers = createTestSpot({ id: 'hers', name: 'Her ledge', owner_id: 'u-ana' });
@@ -669,6 +670,8 @@ describe("List screen: 'Share list' and the member strip (S8-04)", () => {
 
       const strip = screen.getByRole('button', { name: '3 in this list. Show members' });
       expect(within(strip).getByText('A')).toBeTruthy();
+      expect(within(strip).getByText('M')).toBeTruthy();
+      expect(within(strip).queryByText('?')).toBeNull();
       expect(screen.queryByRole('button', { name: '+ Invite' })).toBeNull();
       expect(screen.queryByText('Share list')).toBeNull();
       expect(screen.queryByText('Invite')).toBeNull();
@@ -691,7 +694,7 @@ describe("List screen: 'Share list' and the member strip (S8-04)", () => {
 
     it('a view-only member never gets Remove from list', () => {
       const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
-      setList({ ...anas, members: [member(ME, 'me', 'member', 'view')] }, [mineIn, hers]);
+      setList({ ...anas, members: [{ user_id: ME, role: 'view', status: 'member' }] }, [mineIn, hers]);
       renderList();
       fireEvent(screen.getByRole('button', { name: /^My rail/ }), 'longPress');
       expect(alert).not.toHaveBeenCalled();

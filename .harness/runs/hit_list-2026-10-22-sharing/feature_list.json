@@ -224,7 +224,7 @@
         "End to end in src/__tests__/area-list-live.test.tsx: with an area list of radius 1609 m around CITIES.seattle, adding a spot 500 m away through useSpotActions.addSpot (real SQLite) makes the list screen render that spot on re-render with no other action; a spot 2 km away does not appear.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S2-05",

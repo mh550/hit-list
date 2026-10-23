@@ -20,6 +20,16 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 01:30 · S2-04 · passes
+
+- Picker (`app/area/index.tsx`): 'Just these N' and 'Keep it updated' now lead to a name card **in the same Modal** (`NameListCard` + `useGuardedSubmit`, split out of `NameListSheet`; iOS won't present a second Modal while the first is closing). Create → `createList(name, { kind: 'manual' })` + `addSpotsToList` (a failed add deletes the new list again), or `createList(name, { kind: 'area', … })`; then the chooser closes and `router.replace('/list/<id>')`. Edit mode `?listId`: pre-fills centre/radius/place, loads `area_filters` into the shared filters (D55), and has one action, 'Save area' → `updateHitList` → `back()`. A missing or manual list shows 'This list is gone' with Cancel.
+- Hook: `createList(name, NewHitList)` and a new `updateHitList` (store first, reverts the patched keys; the store gains `replaceList`). Lists tab: '+ Area list' and 'Area · 2 mi' rows. Area list screen: a two-line header title (`SpotsBrowser.headerTitle` is now a ReactNode), 'Edit area' beside 'Delete list', no long-press Remove, area empty copy. `AddToListSheet`: area rows are read-only checkboxes with the hint.
+- Tests 879 → 919: area-picker +21, use-hit-list-actions +6, lists-tab +4 (S1's 'no New area list' assertion removed, by design), list-screen +8, add-to-list-sheet +4, spot-detail +2, new area-list-live (1, real SQLite). All RED first, except the detail chip and the live test, which S2-02's selectors already satisfied. Mutation checks show they fail when area lists are dropped.
+- Verified: `check.sh` green (919), `npx jest --ci` 0 console.error, `npx expo export --platform ios` exit 0. An Opus review found 2 Important bugs (a duplicate list on a second Create tap; Cancel during 'Save area' popped two screens) and 4 Minor ones (the revert of a key absent before, edit filters' first frame, header a11y, gone headerTitle). All are fixed, each with a RED test where it can be tested.
+- Step notes: the picker's edit-mode tests live in `area-picker.test.tsx`, not `list-screen.test.tsx`. "Opens NameListSheet" is the same card (title 'New hit list', 'List name', Create) rendered inside the chooser's Modal.
+- **Phone checks for S2-05:** `router.replace` from the fullScreenModal picker to `/list/<id>`; the chooser → name card swap with the keyboard up.
+- Questions for Michael: none new (D53–D56 still open in spec §9).
+
 ### 2026-10-23 00:40 · S2-03 · passes
 
 - New `app/area/index.tsx` (the 'Pick an area' screen; `app/_layout.tsx` registers it as a `fullScreenModal`). It has a MapView with a fixed centre pin (`area-center-pin`), a `Circle`, a pin per spot inside, `radio` radius chips (`Chip` gains the role), and 'Search a place' (`geocodeAsync` on submit; a request counter drops stale answers; `[]` or a rejection shows 'No place found' silently). It also has 'Use my location' (disabled with no fix), Cancel / Filter in the header (the shared `FilterSheet`), and a live count from `selectAreaSpots`. 'Save as hit list' opens a chooser ('Just these N spots', hidden at 0, and 'Keep it updated', each with its hint, plus Cancel). Every option only closes it.

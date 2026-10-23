@@ -20,6 +20,15 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 09:40 · S6-04 · passes
+
+- Added `src/stores/inbox-store.ts` (kind-tagged items, `InboxKind` = friend_request | send | invite; `setItems` per kind, `removeItem`, `loadSeen`/`markSeen` on `sync_state` `inbox_seen_at:<uid>` = newest server `created_at` seen, never backwards; `selectUnseenCount`, 0 until the mark loads; emptied on every rider change) and `app/(tabs)/inbox.tsx` (Friend requests with Accept / Decline, single-flight, long press or VoiceOver Block + confirm, empty copy, signed out / unconfigured lines, marks seen while focused **and** AppState active, refresh on focus and pull). Tabs: Spots · Lists · Inbox (`tray.fill` → 'inbox') · Profile, badge from `selectUnseenCount`. `loadAndApplyFriends` fills the Inbox; adopt/Remove/release clear the mark; Friends' 'N friend requests in Inbox' is a link (`router.dismissTo('/inbox')`). Tests 1436 → 1487.
+- Verified: RED d14bde9 (4 suites unresolved + 1 case), green; mutation checks: dropping the busy ref turns the double-tap test red, dropping the app-active gate turns the background test red. `check.sh` green 1487, 0 `console.error`; `npx expo export --platform ios` exit 0.
+- Opus review: 1 Important (`router.navigate('/inbox')` from Friends would push a second tab navigator; now `dismissTo`) + 3 Minor (answered row tappable again until the reload; a seen-mark read failure showed as a Friends load error and could leave the Inbox behind Friends; mark never cleaned up) + 1 test gap (markSeen across a rider change), all fixed after RED 423af11 (10 failing).
+- Next session (S6-05): integration only; nothing in the Inbox needs the stack. S7/S8 add an item interface to the `InboxItem` union, a `case` in the tab's `renderItem` (the `never` check makes a missing one a type error), and call `setItems(uid, 'send' | 'invite', …)`; the badge needs no change.
+- Proposed changes: S6-04 step 2's `setSyncState('inbox_seen_at', now)` is per rider and stores the newest server time (plan); step 3's items type has the `friend_request` variant only, `InboxKind` lists all three (S7/S8 add their variants); Accept/Decline accessibility labels are 'Accept friend request from @ana'.
+- Questions for Michael: none new (D72–D75, §9 Q33–Q36 still open).
+
 ### 2026-10-23 08:10 · S6-03 · passes
 
 - Added `app/friends/index.tsx` (Add by exact @username + hint + result lines per the plan's copy table, sections Friends / Requests sent (Cancel) / Blocked (Unblock, D74), long press or VoiceOver actions → Remove friend / Block @ana → confirm, single-flight per row via a ref, pull to refresh, 'N friend requests in Inbox' line), registered as 'Friends' in `app/_layout.tsx`; Profile (signed in) gains a 'Friends · N' row → `/friends`. Tests: 1399 → 1436 (`friends-screen.test.tsx` 33, profile +3, root-layout +1).

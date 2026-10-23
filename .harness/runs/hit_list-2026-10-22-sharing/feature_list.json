@@ -696,7 +696,7 @@
         "src/stores/inbox-store.ts exists with items typed { kind: 'friend_request' | 'send' | 'invite', id, created_at, … } so S7 and S8 add kinds without changing the badge logic; src/__tests__/inbox-store.test.ts covers selectUnseenCount.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S6-05",

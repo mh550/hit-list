@@ -11,7 +11,6 @@ import { HeaderTextButton } from '@/src/components/HeaderTextButton';
 import { AddToListSheet } from '@/src/components/AddToListSheet';
 import { ListPickerChips } from '@/src/components/ListPickerChips';
 import { useAuthStore } from '@/src/stores/auth-store';
-import { useSyncStore } from '@/src/stores/sync-store';
 import { syncNow } from '@/src/sync/engine';
 import { palette, radius, spacing } from '@/src/constants/theme';
 
@@ -28,7 +27,12 @@ export default function SpotsScreen() {
   const router = useRouter();
   const db = useSQLiteContext();
   const signedIn = useAuthStore((s) => s.status === 'signed_in');
-  const syncing = useSyncStore((s) => s.syncing);
+  // The spinner is the rider's pull only (syncNow never rejects); background syncs show nothing here.
+  const [pulling, setPulling] = useState(false);
+  const pullToSync = () => {
+    setPulling(true);
+    void syncNow(db).finally(() => setPulling(false));
+  };
   const allSpots = useSpotsStore((s) => s.spots);
   const viewMode = useSpotsStore((s) => s.viewMode);
   const lists = useHitListsStore((s) => s.lists);
@@ -102,7 +106,7 @@ export default function SpotsScreen() {
         onSpotLongPress={(id) => (selecting ? toggle(id) : setSelected([id]))}
         // Pull to refresh = sync now (D48); signed out there is nothing to sync.
         refreshControl={
-          signedIn ? <RefreshControl refreshing={syncing} onRefresh={() => void syncNow(db)} /> : undefined
+          signedIn ? <RefreshControl refreshing={pulling} onRefresh={pullToSync} /> : undefined
         }
       />
       {selecting ? (

@@ -20,6 +20,16 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 16:20 · S8-05 · passes
+
+- Every §1 marker. New `SharedBadge` (`person.2.fill` + D84 count, VoiceOver 'Shared with 4') on Lists tab rows, picker chips (`Chip` `accessory`), detail 'In lists' chips and Add-to-list rows. The Lists tab has 'Shared with me' ('@ana · 12 spots'). New in `src/utils/members.ts`: `isShared` and `myRole`.
+- AddToListSheet: area lists and others' lists not joined with 'add' are disabled ('View only'). The first add to a shared list asks 'Everyone in Downtown (4) will see this spot.' (Cancel / Add). Add stores `confirmed_list:<id>` and `forgetAccount` clears every such key (D90). `addSpotsToList` in the hook now refuses view-only, unjoined and area lists.
+- Shared area lists already held from S8-03/04; this feature adds the store and list-screen cases.
+- Tests 1862 → 1896, RED first (20 failed, then 6 more for the review). `check.sh` green, `npx jest --ci` shows 0 console.error, `npx expo export --platform ios` bundles.
+- Opus review: no Critical or Important findings. Fixed #1 and #4–#7 with RED tests and filled the #8 test gaps. Left: #2 ('Shared with me' after 'Sign out anyway' shows lists still on the phone), #3 (S8-03 launch window where `useRiderId()` is null, for S8-09) and #9 (wording 'Downtown (1)' while nobody has joined yet). Table under 'S8-05 review' in the plan.
+- Next session (S8-06): the Lists tab sections are built in `app/(tabs)/lists.tsx` `sections`. Add the invitation rows and their 'Join' chip there from `selectInvitations`. An invited mirror row shows in neither section today.
+- No new D and no questions. Proposed change: none to the steps. Step 3's "sets sync_state" holds only after the add succeeds.
+
 ### 2026-10-23 14:10 · S8-04 · passes
 
 - Built the Share screens:

@@ -613,6 +613,44 @@ grants, count = `can_read_spot`).
 | 4 | Minor | the double-tap test never reached the ref (second press hit a disabled button) | fixed: two presses before a re-render; fails with the ref removed (checked) |
 | 5 | Minor | `needs_username` sees the sign-in line | left: same as SendSheet, unreachable behind the tabs' redirect |
 
+## As built (S8-05)
+
+- **`src/components/SharedBadge.tsx`**: `person.2.fill` + `memberCount` (D84); `sharedLabel(list)` 'Shared with 4' goes
+  into the holder's VoiceOver label ('Downtown, Shared with 4'). Shown when `isShared(list)` (`src/utils/members.ts`:
+  the flag, or a joined member, so another rider's list is badged before its flag arrives). On Lists tab rows, picker
+  chips and detail 'In lists' chips (new `Chip` `accessory`, its label shrinks beside it), `AddToListSheet` rows. The
+  read-only 'In lists' text of another rider's spot has no badge.
+- **Lists tab:** 'My hit lists' = live lists that aren't another rider's (`isForeign` against `useRiderId()`), then
+  'Shared with me' = `selectSharedWithMe` with '@ana · 12 spots' ('A friend · …' while the name isn't mirrored). An
+  invitation (mirror row 'invited') shows in neither (S8-06 adds the Join row).
+- **AddToListSheet:** `myRole(list, uid)` (members.ts, also used by the list screen and the hook): an area list →
+  disabled with S2's hint; another rider's list unless joined with 'add' → disabled 'View only'. The first add to a
+  shared list → `Alert('Everyone in Downtown (4) will see this spot.' / 'these 2 spots.' (only the spots not yet in
+  it), undefined, Cancel / Add)`; Add → `addSpotsToList` → `setSyncState(confirmedListKey(id), '1')` (kept only after
+  the add went through; an Add in flight counts as answered in this sheet); one question per list at a time
+  (`asking` ref). Removing never asks. `forgetAccount` deletes every `confirmed_list:%` (D90: another account asks
+  again; adopt's account switch, Remove and release all call it; sign-out Keep doesn't).
+- **`useHitListActions.addSpotsToList`** refuses an area list and another rider's list unless joined with 'add'
+  ('not your list'), before anything changes (review #7).
+- **Shared area lists:** already held from S8-03/S8-04 (`selectListSpots`' owner rule, the member's list screen);
+  S8-05 adds the cases (store: only ana's spots inside the circle with her filters; screen: 'Area · 2 mi of Capitol
+  Hill', no Edit area).
+- Tests 1862 → 1896 (RED first: 20 failed, then 6 for the review).
+
+### S8-05 review (Opus, diff 6b0cf6a..246f55a): no Critical/Important
+
+| # | Severity | Finding | Outcome |
+|---|---|---|---|
+| 1 | Minor | a long name pushed the badge out of a wrapping detail chip | fixed: label `flexShrink: 1` beside an accessory (RED) |
+| 2 | Minor | 'Shared with me' shows signed out when 'Sign out anyway' left friends' lists on the phone | left: those lists are on the phone and read-only (S8-03 note); hiding them on one tab while the picker shows them would be odd. Plan's "signed out it isn't shown" holds whenever D86 removed them |
+| 3 | Minor (S8-03) | at launch, before `phoneUserId`/session load, `useRiderId()` is null and others' lists count as mine for a moment | left for S8-09 (`useDbInit` sets `phoneUserId` after `setIsReady`) |
+| 4 | Minor | question keyed on `shared` only | fixed: `isShared` (flag or a joined member) (RED) |
+| 5 | Minor | 'these 3 spots' counted spots already in the list | fixed: counts arriving spots (RED) |
+| 6 | Minor | a re-tick while the confirmed add was writing asked again | fixed: in-sheet `confirmedHere` (RED) |
+| 7 | Minor | the hook didn't check the list side | fixed: `assertCanAdd` (RED: view, unjoined, area) |
+| 8 | Minor | test gaps | added: double tap, retry after Cancel / failure, saved answer, no mirror row, LIKE escape; not added: an adopt-level D90 case (forgetAccount is covered and called on all three paths) |
+| 9 | Product | 'Everyone in Downtown (1)' when nobody joined yet | left: D84 count; S8-09 / Michael may reword |
+
 ## Unresolved questions
 
 - D83–D91 are defaults (§9 Q44–Q52). Q11 (blocking inside a shared list) stays as D50: nothing changes in lists you

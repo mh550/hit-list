@@ -145,7 +145,7 @@ outbox row, D78); `loadSends`/`loadAndApplySends` (engine, after friends; Inbox 
 the server may have marked stays pending in memory and its retry sends the **same token** and inserts only missing
 rows); `dismissSend`, `withdrawSend`, `listSent`; hook `src/hooks/use-sent-sends.ts`), `reload.ts`
 (`reloadStores(Quietly)`, re-exported by engine), `PhotoIO.remove`,
-`errors.ts` (`errorMessage`); push marks a row done only while the rider's session lasts (an anon DELETE answers 204
+`errors.ts` (`errorMessage`, `serverError` keeps a supabase-js error's `code`), `tickets.ts` (`createTickets()`: per rider, the newest load wins; friends and sends loads each have one); push marks a row done only while the rider's session lasts (an anon DELETE answers 204
 for 0 rows); a pull keeps the local row on an `updated_at` tie while a change of it waits in the outbox; media
 `addMany` skips ids already in the store (a reload may have read them first); accounts (S4) are `client.ts`, `auth.ts`, `session-storage.ts`.
 - `src/stores/` zustand: spots (+ the Filter sheet's three filters: What's here `types` (any of), Skate stopped

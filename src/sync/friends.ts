@@ -6,7 +6,8 @@ import { byName, useFriendsStore } from '@/src/stores/friends-store';
 import { useInboxStore, type FriendRequestItem } from '@/src/stores/inbox-store';
 import type { FriendProfile } from '@/src/types';
 import { maySync, signedInAs } from './account';
-import { errorMessage } from './errors';
+import { errorMessage, serverError } from './errors';
+import { createTickets } from './tickets';
 import { runExclusive } from './queue';
 import { toIso } from './time';
 
@@ -57,9 +58,6 @@ const PAGE = 500;
 const PROFILE_CHUNK = 100;
 const USERNAME = /^[a-z0-9_.]{3,20}$/;
 const NOT_FOUND = { found: false, status: 'not_found' } as const;
-
-type ServerError = { message: string; code?: string };
-const serverError = (error: ServerError) => Object.assign(new Error(error.message), { code: error.code });
 
 /** A typed name as the server stores it (trimmed, one leading @ dropped, lowercase), or null if it can't be one (D39). */
 export function normaliseUsername(typed: string): string | null {
@@ -280,15 +278,7 @@ const requestItem = (row: FriendRow): FriendRequestItem => ({
   from: row.profile,
 });
 
-/** The newest load asked for, per rider: an older one that ends later must not put back what a newer one dropped. */
-const newestTicket = new Map<string, number>();
-let tickets = 0;
-
-function takeTicket(uid: string): number {
-  tickets += 1;
-  newestTicket.set(uid, tickets);
-  return tickets;
-}
+const loads = createTickets();
 
 /**
  * Loads the rider's friends, mirrors the profiles the server returned, fills the names it hides from the mirror and
@@ -300,9 +290,9 @@ export async function loadAndApplyFriends(
   db: SQLiteDatabase,
   client: SupabaseClient,
   uid: string,
-  ticket: number = takeTicket(uid),
+  ticket: number = loads.take(uid),
 ): Promise<void> {
-  const isNewest = () => newestTicket.get(uid) === ticket;
+  const isNewest = () => loads.isNewest(uid, ticket);
   try {
     const fetched = await fetchFriends(client, uid);
     if (!fetched || !isNewest() || !(await maySync(db, client, uid))) return;
@@ -338,6 +328,6 @@ export async function loadAndApplyFriends(
 
 /** loadAndApplyFriends on the sync queue (screens, after a mutation). A runExclusive task must never await it. */
 export function refreshFriends(db: SQLiteDatabase, client: SupabaseClient, uid: string): Promise<void> {
-  const ticket = takeTicket(uid);
+  const ticket = loads.take(uid);
   return runExclusive(() => loadAndApplyFriends(db, client, uid, ticket));
 }

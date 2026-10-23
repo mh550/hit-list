@@ -10,13 +10,13 @@ import {
   freezeSend,
   MAX_SEND_SPOTS,
   parseSendPayload,
-  sendPhotoPath,
   thawSend,
   type SendDownload,
   type SendSender,
 } from '@/src/utils/send-payload';
 import { maySync, signedInAs } from './account';
-import { errorMessage } from './errors';
+import { errorMessage, serverError } from './errors';
+import { createTickets } from './tickets';
 import { readProfiles } from './friends';
 import { blobBytes, defaultPhotoIO, PHOTOS_BUCKET, storagePath, type PhotoIO } from './photos';
 import { runExclusive } from './queue';
@@ -33,9 +33,6 @@ import { toIso } from './time';
 /** Rows per page (PostgREST caps a response at 1000). */
 const PAGE = 500;
 const SEND_COLUMNS = 'id,sender,recipient,payload,created_at,saved_at,dismissed_at,withdrawn_at';
-
-type ServerError = { message: string; code?: string };
-const serverError = (error: ServerError) => Object.assign(new Error(error.message), { code: error.code });
 
 interface SendRow {
   id: string;
@@ -223,15 +220,7 @@ export async function loadSends(client: SupabaseClient, uid: string): Promise<Se
   return items.sort(newestFirst);
 }
 
-/** The newest sends load asked for, per rider: an older one that ends later must not put back what a save took off. */
-const newestTicket = new Map<string, number>();
-let tickets = 0;
-
-function takeTicket(uid: string): number {
-  tickets += 1;
-  newestTicket.set(uid, tickets);
-  return tickets;
-}
+const loads = createTickets();
 
 /**
  * Loads the sends to the rider into the Inbox (kind 'send'). The engine runs it after the friends load, inside its
@@ -242,11 +231,11 @@ export async function loadAndApplySends(
   db: SQLiteDatabase,
   client: SupabaseClient,
   uid: string,
-  ticket: number = takeTicket(uid),
+  ticket: number = loads.take(uid),
 ): Promise<void> {
   try {
     const items = await loadSends(client, uid);
-    if (!items || newestTicket.get(uid) !== ticket || !(await maySync(db, client, uid))) return;
+    if (!items || !loads.isNewest(uid, ticket) || !(await maySync(db, client, uid))) return;
     // a save the server may have marked lists it saved, but its copies wait for Try again: keep its item
     const inbox = useInboxStore.getState();
     const waiting =
@@ -400,7 +389,7 @@ async function saveOnce(
   io: PhotoIO,
 ): Promise<SaveResult | null> {
   // a sends load already running would put this item back after it leaves
-  takeTicket(uid);
+  loads.take(uid);
   if (!(await signedInAs(client, uid))) return null;
   const key = `${uid}:${item.sendId}`;
   const save = pendingSaves.get(key) ?? startSave(uid, item, opts);
@@ -452,7 +441,7 @@ async function saveOnce(
   if (result.status === 'saved') await reloadStoresQuietly(db);
   if (result.status !== 'failed') {
     // a load started while this save ran read the server before the mark
-    takeTicket(uid);
+    loads.take(uid);
     useInboxStore.getState().removeItem(uid, 'send', item.id);
   }
   return result;
@@ -481,11 +470,11 @@ async function markSaved(
 export async function dismissSend(client: SupabaseClient, uid: string, sendId: string): Promise<void> {
   if (!(await signedInAs(client, uid))) return;
   // a sends load already running would put this item back after it leaves
-  takeTicket(uid);
+  loads.take(uid);
   const { error } = await client.rpc('dismiss_send', { p_id: sendId });
   if (error && !(error.code === '42501' && (await signedInAs(client, uid)))) throw serverError(error);
   // and one started while the rpc ran
-  takeTicket(uid);
+  loads.take(uid);
   useInboxStore.getState().removeItem(uid, 'send', sendId);
 }
 
@@ -526,7 +515,7 @@ function payloadPhotoPaths(row: SendRow): { count: number; photoPaths: string[] 
     const payload = parseSendPayload(row.payload, row.id);
     return {
       count: payload.spots.length,
-      photoPaths: payload.spots.flatMap((s) => s.photos.map((p) => sendPhotoPath(row.id, p.media_id))),
+      photoPaths: payload.spots.flatMap((s) => s.photos.map((p) => p.path)),
     };
   } catch (err) {
     console.warn(`[sends] reading sent payload ${row.id} failed:`, errorMessage(err));

@@ -192,7 +192,9 @@ describe('Spots tab pull-to-refresh', () => {
   });
   afterEach(() => act(() => useAuthStore.setState(SIGNED_OUT)));
 
-  it('signed in, the list has a RefreshControl that syncs, refreshing while a sync runs', () => {
+  it('signed in, the list has a RefreshControl that syncs, refreshing until the sync it started ends', async () => {
+    let finish!: () => void;
+    jest.mocked(syncNow).mockReturnValueOnce(new Promise<void>((resolve) => (finish = resolve)));
     useAuthStore.setState({ status: 'signed_in', userId: 'rider-me', email: null, username: 'me', displayName: null });
     render(<SpotsScreen />);
 
@@ -200,9 +202,19 @@ describe('Spots tab pull-to-refresh', () => {
     expect(control.props.refreshing).toBe(false);
     act(() => control.props.onRefresh());
     expect(syncNow).toHaveBeenCalledWith(useSQLiteContext());
+    expect(screen.UNSAFE_getByType(RefreshControl).props.refreshing).toBe(true);
+
+    await act(async () => finish());
+    expect(screen.UNSAFE_getByType(RefreshControl).props.refreshing).toBe(false);
+  });
+
+  it('a background sync (launch, foreground, the 5-minute timer) shows no pull-to-refresh spinner', () => {
+    useAuthStore.setState({ status: 'signed_in', userId: 'rider-me', email: null, username: 'me', displayName: null });
+    render(<SpotsScreen />);
 
     act(() => useSyncStore.setState({ syncing: true }));
-    expect(screen.UNSAFE_getByType(RefreshControl).props.refreshing).toBe(true);
+
+    expect(screen.UNSAFE_getByType(RefreshControl).props.refreshing).toBe(false);
   });
 
   it('signed out (or unconfigured) the list has no RefreshControl', () => {

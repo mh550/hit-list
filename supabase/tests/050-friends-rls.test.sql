@@ -1,7 +1,7 @@
 -- S3-05: profiles, friendships and blocks (D39 exact usernames, D50 blocking). §3.3 cases; the Case table in
 -- docs/plans/2026-10-22-s3-backend.md names each test.
 begin;
-select plan(76);
+select plan(91);
 
 -- People ----------------------------------------------------------------------------------------------------------
 select set_config('t.me', tests.create_user('me@test.local', 'rider_me')::text, true);
@@ -19,6 +19,8 @@ select set_config('t.asker', tests.create_user('asker@test.local', 'asker')::tex
 select set_config('t.asker2', tests.create_user('asker2@test.local', 'asker_two')::text, true);
 select set_config('t.victim', tests.create_user('victim@test.local', 'victim')::text, true);
 select set_config('t.pest', tests.create_user('pest@test.local', 'pest')::text, true);
+select set_config('t.loner', tests.create_user('loner@test.local', 'loner')::text, true);
+select set_config('t.lonemate', tests.create_user('lonemate@test.local', 'lonemate')::text, true);
 update public.profiles set display_name = 'Ana R' where id = current_setting('t.ana')::uuid;
 
 -- Friendships (as postgres): me–friend and me–victim accepted; asker, asker2 and pest asked me (pending).
@@ -44,14 +46,21 @@ values (current_setting('t.blocker')::uuid, current_setting('t.me')::uuid),
        (current_setting('t.me')::uuid, current_setting('t.blockee')::uuid);
 
 -- Lists: f1 owner's shared 'Crew' (me and comember members, invitee invited) · f2 owner's shared but deleted 'Old
--- crew' (me and goner members) · f3 mine, shared (victim invited, pest a member) · f4 pest's, shared (me invited).
+-- crew' (me and goner members) · f3 mine, shared (victim invited, pest a member) · f4 pest's, shared (me invited) ·
+-- f5 friend's, shared (me invited; Remove friend withdraws it) · f6 loner's, not shared (me and lonemate members:
+-- only the service role can leave that state, unsharing drops members) · f7 comember's, shared (me invited: a third
+-- party's invitation a block leaves alone).
 insert into public.hit_lists (id, owner_id, name, kind, shared, updated_at, deleted_at)
-select id::uuid, current_setting('t.' || who)::uuid, name, 'manual', true, '2026-10-22T12:00:00Z', deleted
+select id::uuid, current_setting('t.' || who)::uuid, name, 'manual', name <> 'Unshared', '2026-10-22T12:00:00Z',
+       deleted
 from (values
   ('00000000-0000-0000-0000-0000000000f1', 'owner', 'Crew', null::timestamptz),
   ('00000000-0000-0000-0000-0000000000f2', 'owner', 'Old crew', now()),
   ('00000000-0000-0000-0000-0000000000f3', 'me', 'Mine', null),
-  ('00000000-0000-0000-0000-0000000000f4', 'pest', 'Pest list', null)
+  ('00000000-0000-0000-0000-0000000000f4', 'pest', 'Pest list', null),
+  ('00000000-0000-0000-0000-0000000000f5', 'friend', 'Friend list', null),
+  ('00000000-0000-0000-0000-0000000000f6', 'loner', 'Unshared', null),
+  ('00000000-0000-0000-0000-0000000000f7', 'co', 'Third party', null)
 ) as v(id, who, name, deleted);
 insert into public.hit_list_members (list_id, user_id, role, status)
 select l::uuid, current_setting('t.' || who)::uuid, 'add', status
@@ -63,7 +72,11 @@ from (values
   ('00000000-0000-0000-0000-0000000000f2', 'goner', 'member'),
   ('00000000-0000-0000-0000-0000000000f3', 'victim', 'invited'),
   ('00000000-0000-0000-0000-0000000000f3', 'pest', 'member'),
-  ('00000000-0000-0000-0000-0000000000f4', 'me', 'invited')
+  ('00000000-0000-0000-0000-0000000000f4', 'me', 'invited'),
+  ('00000000-0000-0000-0000-0000000000f5', 'me', 'invited'),
+  ('00000000-0000-0000-0000-0000000000f6', 'me', 'member'),
+  ('00000000-0000-0000-0000-0000000000f6', 'lonemate', 'member'),
+  ('00000000-0000-0000-0000-0000000000f7', 'me', 'invited')
 ) as v(l, who, status);
 
 -- Shape -------------------------------------------------------------------------------------------------------------
@@ -77,7 +90,8 @@ select ok((select count(*) = 6 and bool_and(roles = array['authenticated']::name
            where schemaname = 'public' and tablename in ('profiles', 'friendships', 'blocks')),
           'every profile, friendship and block policy applies to authenticated only (anon gets none)');
 select is(
-  array(select p from unnest(array['can_read_profile', 'find_profile', 'send_friend_request',
+  array(select p from unnest(array['can_read_profile', 'find_profile', 'send_friend_request', 'lock_user_pair', 'guard_invite_block',
+                                   'withdraw_pair_invitations',
                                    'respond_friend_request', 'block_user', 'unblock_user']) as p
         where not exists (select 1 from pg_proc
                           where proname = p and pronamespace = 'public'::regnamespace
@@ -85,17 +99,22 @@ select is(
   '{}'::text[],
   'every S3-05 function is security definer with search_path pinned'
 );
+select trigger_is('public', 'hit_list_members', 't05_block_guard', 'public', 'guard_invite_block',
+                  'a new membership takes the pair lock and re-checks blocks (no invite slips in behind a block)');
+select trigger_is('public', 'friendships', 't30_withdraw_invitations', 'public', 'withdraw_pair_invitations',
+                  'removing a friendship withdraws pending invitations between the two');
 select is(
   array(select proname::text from pg_proc
         where pronamespace = 'public'::regnamespace
           and proname in ('can_read_profile', 'find_profile', 'send_friend_request', 'respond_friend_request',
-                          'block_user', 'unblock_user', 'keep_profile_identity')
+                          'block_user', 'unblock_user', 'keep_profile_identity', 'lock_user_pair',
+                          'guard_invite_block', 'withdraw_pair_invitations')
           and has_function_privilege('authenticated', oid, 'execute')
           and not has_function_privilege('anon', oid, 'execute')
         order by 1),
   array['block_user', 'can_read_profile', 'find_profile', 'respond_friend_request', 'send_friend_request',
         'unblock_user'],
-  'authenticated executes the S3-05 functions, anon none, nobody the trigger function'
+  'authenticated executes the S3-05 functions, anon none, nobody the trigger function or the pair lock'
 );
 
 -- Who reads a profile -----------------------------------------------------------------------------------------------
@@ -104,7 +123,7 @@ select set_eq(
   $$ select id from public.profiles $$,
   $$ select current_setting('t.' || who)::uuid
      from unnest(array['me', 'friend', 'victim', 'asker', 'asker2', 'pest', 'owner', 'co']) as who $$,
-  'a user reads exactly their own, friends'', pending requests'' and co-members'' profiles'
+  'a user reads exactly their own, friends'', requests to them and co-members'' profiles'
 );
 select tests.authenticate_as(current_setting('t.stranger')::uuid);
 select is_empty($$ select id from public.profiles where id <> current_setting('t.stranger')::uuid $$,
@@ -128,10 +147,16 @@ select is_empty($$ select id from public.profiles where id = current_setting('t.
 select tests.authenticate_as(current_setting('t.goner')::uuid);
 select is_empty($$ select id from public.profiles where id = current_setting('t.me')::uuid $$,
                 'a deleted list makes no co-members');
+select is_empty($$ select id from public.profiles where id = current_setting('t.owner')::uuid $$,
+                'a deleted list''s member reads its owner''s profile no more');
 select tests.authenticate_as(current_setting('t.asker')::uuid);
-select results_eq($$ select id from public.profiles where id = current_setting('t.me')::uuid $$,
-                  $$ values (current_setting('t.me')::uuid) $$,
-                  'the sender of a pending request reads the receiver''s profile');
+select is_empty($$ select id from public.profiles where id = current_setting('t.me')::uuid $$,
+                'the sender of a pending request does not read the receiver''s profile (find_profile is the way)');
+select tests.authenticate_as(current_setting('t.lonemate')::uuid);
+select is_empty($$ select id from public.profiles where id = current_setting('t.me')::uuid $$,
+                'members of an unshared list are not co-members');
+select is_empty($$ select id from public.profiles where id = current_setting('t.loner')::uuid $$,
+                'an unshared list''s owner and member are not co-members');
 select tests.authenticate_as(current_setting('t.me')::uuid);
 select is(public.can_read_profile(current_setting('t.stranger')::uuid), false,
           'can_read_profile is false for a stranger');
@@ -172,6 +197,8 @@ select results_eq(
 );
 select results_eq($$ select public.send_friend_request('ana') = current_setting('t.req', true)::uuid $$,
                   $$ values (true) $$, 'a repeated request returns the same row');
+select results_eq($$ select status from public.friendships where id = current_setting('t.req', true)::uuid $$,
+                  $$ values ('pending') $$, 'asking again does not accept your own request');
 select tests.authenticate_as(current_setting('t.ana')::uuid);
 select results_eq($$ select public.send_friend_request('rider_me') = current_setting('t.req', true)::uuid $$,
                   $$ values (true) $$, 'a request the other way returns the same row');
@@ -246,6 +273,10 @@ select results_eq(
 );
 select is_empty($$ select id from public.profiles where id = current_setting('t.me')::uuid $$,
                 'a removed friend reads the profile no more');
+reset role;
+select is_empty($$ select 1 from public.hit_list_members
+                   where list_id = '00000000-0000-0000-0000-0000000000f5' and user_id = current_setting('t.me')::uuid $$,
+                'removing a friend withdraws their pending invitation');
 
 -- block_user / unblock_user (D50) ---------------------------------------------------------------------------------
 select tests.authenticate_as(current_setting('t.me')::uuid);
@@ -282,9 +313,35 @@ select results_eq(
   $$ values ('member') $$,
   'a shared list both are in stays as it is (D50)'
 );
+select results_eq(
+  $$ select status from public.hit_list_members
+     where (list_id = '00000000-0000-0000-0000-0000000000f1' and user_id = current_setting('t.inv')::uuid)
+        or (list_id = '00000000-0000-0000-0000-0000000000f7' and user_id = current_setting('t.me')::uuid) $$,
+  $$ values ('invited'), ('invited') $$,
+  'block_user leaves other lists'' invitations alone'
+);
+select throws_ok(
+  $$ insert into public.hit_list_members (list_id, user_id, status)
+     values ('00000000-0000-0000-0000-0000000000f3', current_setting('t.victim')::uuid, 'invited') $$,
+  'blocked users cannot be added to each other''s lists',
+  'the block guard refuses a membership between a blocked pair even past the policies'
+);
+select throws_ok(
+  $$ insert into public.hit_list_members (list_id, user_id, status)
+     values ('00000000-0000-0000-0000-0000000000f3', current_setting('t.blocker')::uuid, 'member') $$,
+  'blocked users cannot be added to each other''s lists',
+  'the block guard works whichever side blocked'
+);
 select tests.authenticate_as(current_setting('t.victim')::uuid);
 select is_empty($$ select * from public.blocks $$, 'the blocked user reads nothing about the block');
 select is_empty($$ delete from public.blocks returning blocked $$, 'the blocked user cannot lift the block');
+select lives_ok($$ select public.unblock_user(current_setting('t.me')::uuid), public.unblock_user(current_setting('t.victim')::uuid) $$,
+                'unblock_user by the blocked user runs');
+reset role;
+select is((select count(*) from public.blocks
+           where blocker = current_setting('t.me')::uuid and blocked = current_setting('t.victim')::uuid),
+          1::bigint, 'the blocked user cannot lift the block with unblock_user');
+select tests.authenticate_as(current_setting('t.victim')::uuid);
 select is_empty($$ select * from public.find_profile('rider_me') $$, 'find_profile returns nothing for a blocked caller');
 select throws_ok($$ select public.send_friend_request('rider_me') $$, 'P0002', 'user not found',
                  'a newly blocked user cannot send friend request either');
@@ -308,7 +365,14 @@ select results_eq(
 );
 select throws_ok($$ update public.profiles set id = current_setting('t.stranger')::uuid
                     where id = current_setting('t.me')::uuid $$,
-                 '42501', null, 'a user cannot change their profile id');
+                 'profile id and created_at are fixed', 'a user cannot change their profile id');
+select throws_ok($$ update public.profiles set display_name = repeat('x', 51) where id = current_setting('t.me')::uuid $$,
+                 '23514', null, 'a display name longer than 50 characters is refused (D58)');
+select lives_ok($$ update public.profiles set display_name = repeat('x', 50) where id = current_setting('t.me')::uuid $$,
+                'a 50-character display name is accepted');
+select throws_ok($$ update public.profiles set created_at = now() - interval '1 year'
+                    where id = current_setting('t.me')::uuid $$,
+                 'profile id and created_at are fixed', 'a user cannot change their profile created_at');
 select is_empty($$ update public.profiles set display_name = 'Hacked' where id = current_setting('t.owner')::uuid
                    returning id $$, 'a user cannot update someone else''s profile');
 select throws_ok($$ insert into public.profiles (id) values (gen_random_uuid()) $$, '42501', null,

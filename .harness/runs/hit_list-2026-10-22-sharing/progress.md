@@ -20,6 +20,14 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 03:30 · S3-05 · passes
+
+- Changed: `supabase/migrations/20261023025214_friends_rls.sql` (profiles/friendships/blocks policies; `can_read_profile`, `find_profile`, `send_friend_request`, `respond_friend_request`, `block_user`, `unblock_user`, `lock_user_pair`; triggers `t05_keep_identity` on profiles, `t05_block_guard` on hit_list_members, `t30_withdraw_invitations` on friendships; display_name ≤ 50). `supabase/tests/050-friends-rls.test.sql` has 91 assertions; `010` 42 → 39. RED commit `5370167` (13/16 failed, died at test 17). Jest 924 → 924; pgTAP 229 → 317.
+- Verified: `db:start` → `db reset` → `test db`: `Files=5, Tests=317, Result: PASS` → `db:stop`; `docker ps` = the same 7 n8n-*/dj-* containers. 36 hand mutations, each killed by a named test except the two delete-policy ones (the SELECT policy already limits a DELETE). `check.sh` green (924), 0 console.error.
+- Opus review: 2 Important, both fixed test-first. (1) The sender of a pending request could read the target's profile by id, following them through a rename. Now only the receiver reads the sender. (2) An invitation racing `block_user` survived. A pair-lock guard trigger fixes it. Two-session `race.sh`: before the fix the invite went in after 0.09 s and was kept; after it the invite waited 1.6 s and was refused, 0 left. Six Minor fixes or notes, all in the S3 plan's Review table.
+- Next sessions must know: S3-06 `create_send` should take `lock_user_pair`, and the sends policy must hide sends from a recipient who blocked the sender. S3-07 `redeem_invite` must map the block guard's error to `'invalid invite'`. `find_profile` uses `operator(extensions.=)`: a bare `=` on citext under `search_path ''` compares case-sensitively.
+- Questions for Michael: **D58 *default*** (spec §9 Q19). Is a display name of up to 50 characters right? Removing a friend also withdraws pending list invitations. Is that OK? Should we accept that a blocked rider can learn your username exists by trying to take it?
+
 ### 2026-10-23 02:50 · S3-04 · passes
 
 - Changed: `supabase/migrations/20261023021848_lists_rls.sql` (hit_lists / hit_list_spots / hit_list_members policies; definer helpers `is_list_owner`, `is_list_member`, `is_list_invitee`, `can_add_to_list`, `can_invite_to_list`, `can_read_list_spots`; `leave_list`, `remove_member`, `stop_sharing`; triggers `t05_keep_identity` (list owner_id/kind fixed), `t10_member_guard`, `t10_lock_membership`, `t30_member_spots_leave`/`_join` (D43), `t30_unshare`). `supabase/tests/040-lists-rls.test.sql` has 94 assertions; `010` 45 → 42. RED commit `62c39aa` (48/79 failed). Jest 924 → 924; pgTAP 138 → 229.

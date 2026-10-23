@@ -107,6 +107,7 @@ it can **Save a copy** (it becomes their own private spot, with "From @name" on 
 | D55 | **The area picker uses the shared filters (D52)** *default* | 'Keep it updated' saves the current filters as the area list's `area_filters`; 'Edit area' loads them into the shared filters while the picker is open and puts the rider's own filters back when it closes (Save or Cancel, S2 review); the Spots tab's text search is never applied in the picker or saved | S2 plan: one filter set, as D52 (§9 Q16) |
 | D56 | **Area radius: default 2 mi / 2 km; a saved radius is never resized** *default* | Stored in whole metres, one of the chip steps of the unit it was picked in; after a units switch the label converts it ('Area · 3.2 km') and no chip is selected until one is tapped | S2 plan (§9 Q17) |
 | D57 | **A shared-list invitation is a member row with `status = 'invited'`** *default* | `hit_list_members.status` is `'invited'` \| `'member'`; Join flips it to `'member'` (sets `joined_at`), Decline deletes it. An invitee sees the list's name and owner only; only `'member'` reads its spots. | S3 plan (`docs/plans/2026-10-22-s3-backend.md`): §3.5's Join / Decline needs an invited state that §3.2 didn't have (§9 Q18) |
+| D58 | **A display name is at most 50 characters** *default* | A `profiles` check constraint; usernames stay 3–20 (D39). Removing a friend also withdraws pending list invitations between the two (an invitation needs a friendship). | S3-05 Opus review: an unbounded display name is downloaded by every friend, co-member and `find_profile` caller (§9 Q19) |
 
 ---
 
@@ -356,6 +357,9 @@ it stops at a milestone boundary; S9 (links) is last among the features because 
 18. **Invitations to a shared list (D57).** Default: you're added as "invited" and see only the list's name and who
     invited you until you tap Join; Decline removes the invitation. Or should a friend you invite be in the list
     straight away (they could Leave)?
+19. **Display name length (D58).** Default: up to 50 characters. Longer or shorter? (Also: a blocked rider who tries to
+    take your exact username learns it exists while `find_profile` hides you; unavoidable with unique names unless
+    username changes go through a rate-limited function. OK to accept?)
 
 ---
 

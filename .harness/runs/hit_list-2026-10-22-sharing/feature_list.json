@@ -330,7 +330,7 @@
         "The local stack was started with npx supabase start, the checks below were run, and npx supabase stop was run afterwards; docker ps --format '{{.Names}}' shows no supabase_* container left and never touched any container not matching supabase_*_hit-list.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S3-06",

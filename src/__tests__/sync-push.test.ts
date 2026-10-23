@@ -186,7 +186,6 @@ describe('push: drain the outbox into Supabase (real SQLite, fake client)', () =
           area_radius_m: null,
           area_filters: null,
           area_place: null,
-          shared: false,
           created_at: '2026-10-01T12:00:00.000Z',
           updated_at: '2026-10-01T12:00:00.000Z',
           deleted_at: null,
@@ -360,7 +359,7 @@ describe('push: drain the outbox into Supabase (real SQLite, fake client)', () =
     expect(await outboxOps(db)).toEqual([]);
   });
 
-  it('an area list sends its circle, its filters as JSON and shared as a boolean', async () => {
+  it('an area list sends its circle and its filters as JSON, and never `shared` (only the sharing functions change it)', async () => {
     await insertHitList(
       db,
       createTestHitList({
@@ -386,9 +385,10 @@ describe('push: drain the outbox into Supabase (real SQLite, fake client)', () =
         area_radius_m: 3219,
         area_filters: { types: [FeatureType.Rail], stopped: false },
         area_place: 'Capitol Hill',
-        shared: true,
       },
     });
+    // a stale shared: false would fire the server's t30_unshare and drop every member
+    expect(fake.calls[0].kind === 'upsert' && 'shared' in fake.calls[0].values).toBe(false);
   });
 
   it('sends timestamps as ISO: SQLite datetime() becomes …Z, an unreadable captured_at becomes null', async () => {
@@ -408,6 +408,26 @@ describe('push: drain the outbox into Supabase (real SQLite, fake client)', () =
     const upserts = fake.calls.filter((c) => c.kind === 'upsert');
     expect(upserts[0].values.created_at).toBe('2026-10-01T08:09:10.000Z');
     expect(upserts[1].values.captured_at).toBeNull();
+  });
+
+  it('an EXIF captured_at (local wall-clock, no zone) goes up as that local time in UTC', async () => {
+    // Seattle in October: UTC−7
+    const offset = jest.spyOn(Date.prototype, 'getTimezoneOffset').mockReturnValue(420);
+    await insertSpot(db, createTestSpot({ id: 'spot-1', owner_id: ME }));
+    await insertMedia(
+      db,
+      createTestMedia({ id: 'media-1', spot_id: 'spot-1', file_path: 'p.jpg', captured_at: '2026-10-13T14:22:05' }),
+    );
+    await setOutbox(db, [['media', 'media-1', 'upsert']]);
+
+    try {
+      await push(db, asClient(fake), ME, memoryIO({ 'p.jpg': PHOTO }).io);
+    } finally {
+      offset.mockRestore();
+    }
+
+    const media = fake.calls.find((c) => c.kind === 'upsert');
+    expect(media?.kind === 'upsert' && media.values.captured_at).toBe('2026-10-13T21:22:05.000Z');
   });
 
   it('a permanent refusal (RLS 42501, check 23514) is set aside and the push goes on', async () => {
@@ -430,6 +450,69 @@ describe('push: drain the outbox into Supabase (real SQLite, fake client)', () =
         last_error: 'new row violates row-level security policy',
         parked: 1,
       },
+    ]);
+  });
+
+  it('a membership or photo waits, untouched, while its spot or list still waits in the outbox (the server answers 42501 for a missing parent)', async () => {
+    const { io } = await seed();
+    await setOutbox(db, [
+      ['spot', 'spot-1', 'upsert'],
+      ['hit_list', 'list-1', 'upsert'],
+      ['media', 'media-1', 'upsert'],
+      ['hit_list_spot', 'list-1/spot-1', 'upsert'],
+    ]);
+    // the spot and the list failed three times: they are in the backoff pass; their photo and membership are fresh
+    await setAttempts(db, 'spot-1', 3);
+    await setAttempts(db, 'list-1', 3);
+    // the backoff pass: the spot fails again (timeout), the list goes up
+    fake.failNext('upsert', { message: 'timeout' });
+
+    const first = await push(db, asClient(fake), ME, io);
+
+    expect(fake.calls.map((c) => (c.kind === 'upsert' ? `${c.table} ${c.values.id}` : c.kind))).toEqual([
+      'spots spot-1',
+      'hit_lists list-1',
+    ]);
+    expect(first).toEqual({ pushed: 1, failed: 1 });
+    expect(await outboxRows(db)).toEqual([
+      expect.objectContaining({ entity_id: 'spot-1', attempts: 4, parked: 0 }),
+      expect.objectContaining({ entity_id: 'media-1', attempts: 0, last_error: null, parked: 0 }),
+      expect.objectContaining({ entity_id: 'list-1/spot-1', attempts: 0, last_error: null, parked: 0 }),
+    ]);
+
+    // the spot goes up (backoff pass); its photo and membership follow on the next push
+    await push(db, asClient(fake), ME, io);
+    await push(db, asClient(fake), ME, io);
+
+    expect(await outboxRows(db)).toEqual([]);
+    expect(fake.calls.slice(2).map((c) => (c.kind === 'upload' ? 'upload' : c.table))).toEqual([
+      'spots',
+      'upload',
+      'media',
+      'hit_list_spots',
+    ]);
+  });
+
+  it('a 42501 after the session ended mid-push leaves the rows alone and stops (it is not a refusal)', async () => {
+    const { io } = await seed();
+    await setOutbox(db, [
+      ['spot', 'spot-1', 'upsert'],
+      ['hit_list', 'list-1', 'upsert'],
+    ]);
+    const realFrom = fake.from.getMockImplementation()!;
+    fake.from.mockImplementationOnce((table: string) => {
+      // signed out (Keep) while the push runs: the request goes out with the anon key
+      fake.setSession(null);
+      fake.failNext('upsert', { message: 'new row violates row-level security policy', code: '42501' });
+      return realFrom(table);
+    });
+
+    await push(db, asClient(fake), ME, io);
+
+    expect(fake.calls).toHaveLength(1);
+    expect(await outboxRows(db)).toEqual([
+      expect.objectContaining({ entity_id: 'spot-1', attempts: 0, last_error: null, parked: 0 }),
+      expect.objectContaining({ entity_id: 'list-1', attempts: 0, last_error: null, parked: 0 }),
     ]);
   });
 

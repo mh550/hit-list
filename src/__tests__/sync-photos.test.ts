@@ -1,3 +1,4 @@
+import { File } from 'expo-file-system';
 import { SaveFormat } from 'expo-image-manipulator';
 import { fakeFs } from './helpers/fake-fs';
 import { createFakeSupabase, fakeSession } from './helpers/fake-supabase';
@@ -23,6 +24,7 @@ const mockImage = {
   saved: new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 7]),
   resizes: [] as { width?: number | null; height?: number | null }[],
   saves: [] as unknown[],
+  savedUris: [] as string[],
   released: 0,
 };
 jest.mock('expo-image-manipulator', () => {
@@ -47,6 +49,7 @@ jest.mock('expo-image-manipulator', () => {
               n += 1;
               const uri = `file:///data/Caches/ImageManipulator/out-${n}.jpg`;
               fs.__putFile(uri, mockImage.saved);
+              mockImage.savedUris.push(uri);
               return { uri, ...size };
             }),
             release: jest.fn(() => {
@@ -69,7 +72,7 @@ const ORIGINAL_BYTES = new Uint8Array([1, 2, 3, 4]);
 beforeEach(() => {
   fakeFs.__resetFs();
   fakeFs.__putFile(ORIGINAL, ORIGINAL_BYTES);
-  Object.assign(mockImage, { width: 4032, height: 3024, resizes: [], saves: [], released: 0 });
+  Object.assign(mockImage, { width: 4032, height: 3024, resizes: [], saves: [], savedUris: [], released: 0 });
 });
 
 describe('preparePhoto: re-encode for upload (D46)', () => {
@@ -106,6 +109,17 @@ describe('preparePhoto: re-encode for upload (D46)', () => {
     await preparePhoto(ORIGINAL);
 
     expect(fakeFs.__writes()).not.toContain(ORIGINAL);
+    expect(fakeFs.__fileBytes(ORIGINAL)).toEqual(ORIGINAL_BYTES);
+  });
+
+  it('deletes its cache copy when reading the bytes fails', async () => {
+    const bytes = jest.spyOn(File.prototype, 'bytes').mockRejectedValueOnce(new Error('read failed'));
+
+    await expect(preparePhoto(ORIGINAL)).rejects.toThrow('read failed');
+
+    bytes.mockRestore();
+    expect(mockImage.savedUris).toHaveLength(1);
+    expect(fakeFs.__fileExists(mockImage.savedUris[0])).toBe(false);
     expect(fakeFs.__fileBytes(ORIGINAL)).toEqual(ORIGINAL_BYTES);
   });
 

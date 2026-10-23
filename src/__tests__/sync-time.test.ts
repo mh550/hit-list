@@ -30,4 +30,26 @@ describe('toIso: one timestamp shape across the server boundary', () => {
     expect(toIso(null)).toBeNull();
     expect(toIso(undefined)).toBeNull();
   });
+
+  describe("zoneless 'local' (an EXIF capture time is the phone's wall clock)", () => {
+    let offset: jest.SpyInstance;
+    beforeEach(() => {
+      // UTC−7
+      offset = jest.spyOn(Date.prototype, 'getTimezoneOffset').mockReturnValue(420);
+    });
+    afterEach(() => offset.mockRestore());
+
+    it('reads a value without a zone as local time', () => {
+      expect(toIso('2026-10-13T14:22:05', 'local')).toBe('2026-10-13T21:22:05.000Z');
+    });
+
+    it('still honours a zone when there is one', () => {
+      expect(toIso('2026-10-13T14:22:05Z', 'local')).toBe('2026-10-13T14:22:05.000Z');
+      expect(toIso('2026-10-13T14:22:05+02:00', 'local')).toBe('2026-10-13T12:22:05.000Z');
+    });
+
+    it('the default stays UTC', () => {
+      expect(toIso('2026-10-13 14:22:05')).toBe('2026-10-13T14:22:05.000Z');
+    });
+  });
 });

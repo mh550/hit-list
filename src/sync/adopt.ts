@@ -9,6 +9,7 @@ import {
   resetCursors,
   setSyncState,
 } from '@/src/db/sync';
+import { clearProfiles } from '@/src/db/profiles';
 import { useSyncStore } from '@/src/stores/sync-store';
 import { deleteSpotPhotos } from '@/src/utils/photo-storage';
 import { reloadStoresQuietly, runExclusive } from './engine';
@@ -38,9 +39,9 @@ const ADOPTABLE_MEDIA =
 const ADOPTABLE_LISTS = 'owner_id IS NULL AND deleted_at IS NULL';
 
 /**
- * Deletes every row that came with an account (owner_id set) except `keep`'s, memberships first, and returns the
- * removed spots' ids (for their photo folders). `sync_state.user_id` must already be cleared, so no delete trigger
- * queues a server DELETE.
+ * Deletes every row that came with an account (owner_id set) except `keep`'s, memberships first, and the friend names
+ * mirror (D72: they were that account's friends), and returns the removed spots' ids (for their photo folders).
+ * `sync_state.user_id` must already be cleared, so no delete trigger queues a server DELETE.
  */
 async function deleteAccountRows(db: SQLiteDatabase, keep: string | null): Promise<string[]> {
   const owned = 'owner_id IS NOT NULL AND owner_id IS NOT ?';
@@ -58,6 +59,7 @@ async function deleteAccountRows(db: SQLiteDatabase, keep: string | null): Promi
   );
   await db.runAsync(`DELETE FROM spots WHERE ${owned}`, keep);
   await db.runAsync(`DELETE FROM hit_lists WHERE ${owned}`, keep);
+  await clearProfiles(db);
   return spots.map((s) => s.id);
 }
 

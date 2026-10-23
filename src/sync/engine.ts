@@ -6,31 +6,21 @@ import { useHitListsStore, useMediaStore, useSpotsStore } from '@/src/stores';
 import { useSyncStore } from '@/src/stores/sync-store';
 import { getSupabase } from './client';
 import { errorMessage } from './errors';
+import { loadAndApplyFriends } from './friends';
 import { downloadMissingPhotos } from './photos';
 import { pull } from './pull';
 import { push } from './push';
+import { runExclusive } from './queue';
+
+export { runExclusive };
 
 /** useSync's timer: a sync every 5 minutes while the app is open (D48). */
 export const SYNC_INTERVAL_MS = 300_000;
 
-/** The tail of the queue every sync and every exclusive task (adopt, Remove from this phone) runs on, one at a time. */
-let queue: Promise<unknown> = Promise.resolve();
 /** The sync queued or running now (`started` once it runs); a call before it starts joins it. */
 let current: { promise: Promise<void>; started: boolean } | null = null;
 /** The one sync asked for while `current` runs: it starts after `current`, so a change saved meanwhile goes too. */
 let followUp: Promise<void> | null = null;
-
-/**
- * Runs `task` once nothing else on the queue runs: never during a sync's push or pull, and a sync asked for meanwhile
- * waits for it. Adoption and Remove (S5-06) go through here, so no push or pull sees their transaction half done.
- * A task must not await syncNow (that sync queues behind the task: a deadlock); `void syncNow(db)` inside it, or
- * awaiting it after runExclusive resolves, is fine.
- */
-export function runExclusive<T>(task: () => Promise<T>): Promise<T> {
-  const run = queue.then(task, task);
-  queue = run.catch(() => undefined);
-  return run;
-}
 
 /**
  * Push, then pull, then the missing photo files, as the signed-in rider; single-flight: a call while a sync waits to
@@ -122,6 +112,8 @@ async function syncOnce(db: SQLiteDatabase): Promise<void> {
       // the photos are already backed up; their files come next sync
       console.warn('[sync] photo download failed:', errorMessage(err));
     }
+    // friends and requests (S6); never rejects, and never makes a sync count as not backed up
+    await loadAndApplyFriends(db, client, uid);
     if (changed) await reloadStoresQuietly(db);
 
     const failedCount = await countFailed(db);

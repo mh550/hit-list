@@ -17,6 +17,7 @@ import {
   respond,
   unblock,
 } from '@/src/sync/friends';
+import { runExclusive } from '@/src/sync/queue';
 import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
 import { EMPTY_FRIENDS, useFriendsStore } from '@/src/stores/friends-store';
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -55,6 +56,8 @@ function serverRiders(riders: { id: string; username: string; display_name: stri
 }
 
 const rpcNames = () => fake.rpcs.map((r) => r.fn);
+/** addFriend mirrors a hit on the sync queue without waiting for it: anything queued after it sees it. */
+const flushQueue = () => runExclusive(async () => undefined);
 
 beforeEach(async () => {
   db = await createMigratedTestDb();
@@ -179,7 +182,7 @@ describe('addFriend', () => {
   beforeEach(() => {
     serverRiders([
       { id: ANA, username: 'ana', display_name: 'Ana B' },
-      { id: ME, username: 'me', display_name: null },
+      { id: ME, username: 'me_rider', display_name: null },
     ]);
   });
 
@@ -191,6 +194,7 @@ describe('addFriend', () => {
       { fn: 'send_friend_request', args: { p_username: 'ana' } },
     ]);
     expect(result).toEqual({ found: true, status: 'sent', profile: profile(ANA, 'ana', 'Ana B') });
+    await flushQueue();
     expect(await getProfiles(db, [ANA])).toEqual({ [ANA]: profile(ANA, 'ana', 'Ana B') });
   });
 
@@ -251,8 +255,9 @@ describe('addFriend', () => {
   });
 
   it("my own name: self, no send, nothing mirrored", async () => {
-    expect(await addFriend(client(), db, ME, 'Me')).toMatchObject({ found: true, status: 'self' });
+    expect(await addFriend(client(), db, ME, '@Me_Rider')).toMatchObject({ found: true, status: 'self' });
     expect(rpcNames()).toEqual(['find_profile']);
+    await flushQueue();
     expect(await getProfiles(db, [ME])).toEqual({});
   });
 
@@ -279,6 +284,7 @@ describe('addFriend', () => {
     await setSyncState(db, 'user_id', 'someone-else');
 
     await addFriend(client(), db, ME, 'ana');
+    await flushQueue();
 
     expect(await getProfiles(db, [ANA])).toEqual({});
   });

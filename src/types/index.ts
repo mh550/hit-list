@@ -114,6 +114,16 @@ export type NewHitList =
   | { kind: 'manual' }
   | { kind: 'area'; area_center: GeoPoint; area_radius_m: number; area_place?: string; area_filters: SpotFilters };
 
+/**
+ * Another rider as the server's profiles row shows them (S6). `username` is null until they onboard, or when the
+ * server doesn't let this rider read them (a request you sent, a rider you blocked) and the phone never learnt it.
+ */
+export interface FriendProfile {
+  id: string;
+  username: string | null;
+  display_name: string | null;
+}
+
 export interface UserSettings {
   units: UnitSystem;
   batch_import_radius: number; // meters

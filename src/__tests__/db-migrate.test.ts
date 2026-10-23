@@ -89,6 +89,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
       'hit_list_spots',
       'hit_lists',
       'media',
+      'profiles',
       'spots',
       'sqlite_sequence',
       'sync_outbox',

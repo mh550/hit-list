@@ -413,8 +413,30 @@ async function migration5(db: SQLiteDatabase): Promise<void> {
   `);
 }
 
+/**
+ * Version 6: friends (S6, docs/plans/2026-10-22-s6-friends.md "Local cache", D72). A mirror of the server profiles the
+ * rider's friends rows (and a name typed into Add) returned, so names show offline. Never in the outbox, never pushed:
+ * no trigger. Emptied with the account's rows (src/sync/adopt.ts).
+ */
+async function migration6(db: SQLiteDatabase): Promise<void> {
+  await db.execAsync(`
+    CREATE TABLE profiles (
+      id TEXT PRIMARY KEY,
+      username TEXT,
+      display_name TEXT
+    );
+  `);
+}
+
 /** MIGRATIONS[i] takes the DB from version i to i + 1. */
-export const MIGRATIONS: readonly Migration[] = [migration1, migration2, migration3, migration4, migration5];
+export const MIGRATIONS: readonly Migration[] = [
+  migration1,
+  migration2,
+  migration3,
+  migration4,
+  migration5,
+  migration6,
+];
 export const LATEST_SCHEMA_VERSION = MIGRATIONS.length;
 
 export async function getSchemaVersion(db: SQLiteDatabase): Promise<number> {

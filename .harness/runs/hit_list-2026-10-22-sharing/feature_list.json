@@ -1132,7 +1132,7 @@
         "docs/RUNNING-ON-PHONE.md has a 'With accounts (local stack over Tailscale)' section: npm run db:start, the .env.local values, Mailpit at :54324 for the code, Studio at :54323, and 'npm run db:stop when done'; the stale 'git switch overnight/2026-10-14' line is replaced by 'main'.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes (docs only changed)."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S10-03",

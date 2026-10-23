@@ -20,6 +20,10 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 · S10-02 · passes
+Docs only. APP_SPECIFICATIONS.md: new '## Accounts and sharing (2026-10-22)' (vocabulary, two verbs, ownership, server model + RLS rule, D48 sync, D44/D45 links, pointer) after the simplified-model section; the three [FUTURE] sharing headings retitled [SUPERSEDED] with a pointer; Sync Strategy 'Built as' note. README Status dated 2026-10-22 with the summary line and what Michael needs. CLAUDE.md: intro, Stack deps, Docker pointer, append-only SQL rule, pgTAP/integration/fake-supabase testing line. RUNNING-ON-PHONE: short 'With accounts' summary, Studio, `git switch main`.
+Verified: check.sh green, 2088 tests (unchanged). No questions.
+
 ### 2026-10-23 13:00 · S10-01 · passes
 
 Whole-run Opus review of `run.diff` (4aa5326..b9e850a, 48 118 lines) in two passes (data/sync/SQL 10 068, UI 8 294 lines, tests excluded): no Critical; 3 Important + 1 Minor fixed RED-first, 3 Minor left with reasons; table and the five anti-goal answers in `docs/plans/2026-10-22-s10-sweep.md` › Final review.

@@ -11,7 +11,8 @@ Guidance for Claude Code working in this repository.
 **HitList**: a mobile-first app for street snowboarders/skateboarders to track "spots" (one rideable
 feature at one place: rail, ledge, bank…), with photos, a map, and three tags (what's here, skate
 stopped, natural speed). Product spec: `APP_SPECIFICATIONS.md`; the simplified model (rev 2) is
-`docs/specs/2026-10-16-simplification-design.md`. Native-only (web is a stub). Runs on Michael's iPhone in Expo Go; see
+`docs/specs/2026-10-16-simplification-design.md`. Accounts are optional (the app is fully local without one); the backend is Supabase (Postgres, Auth, Storage, Edge
+Functions), **local Docker stack only so far, nothing deployed**. Native-only (web is a stub). Runs on Michael's iPhone in Expo Go; see
 `docs/RUNNING-ON-PHONE.md`.
 
 ## Stack (as of 2026-10-15)
@@ -20,7 +21,9 @@ Expo **SDK 57** (expo 57.0.31) · React Native 0.86.3 (New Architecture, Hermes)
 expo-router 57 · zustand 5 · expo-sqlite 57 · expo-file-system 57 (`File`/`Directory`/`Paths`) ·
 expo-location 57 · expo-image · react-native-maps 1.27.2 (Apple Maps) · react-native-map-clustering 4 · TypeScript 6.0 strict ·
 Jest **29.7** with jest-expo 57 (Jest 30 is not required; keep `@types/jest` 29.5.14) ·
-react-test-renderer pinned to 19.2.3 (= React).
+react-test-renderer pinned to 19.2.3 (= React). Accounts and sync: @supabase/supabase-js ^2.118 · supabase CLI 2.121.0
+(pinned devDependency, `npx supabase …`) · expo-secure-store 57 · @react-native-async-storage/async-storage 2.2.0 ·
+expo-image-manipulator 57 (photo re-encode for upload) · expo-clipboard 57 (Copy link).
 
 ## Commands
 
@@ -35,7 +38,7 @@ npx expo-doctor                # must be clean
 npm run db:start               # supabase start: the local stack (need Docker; not in CI)
 npm run db:reset               # supabase db reset: migrations + seed.sql on a fresh database
 npm run test:db                # supabase test db: every supabase/tests/*.test.sql (pgTAP)
-npm run db:stop                # supabase stop: always stop the stack after use
+npm run db:stop                # supabase stop: always stop the stack after use (Docker rule: see Conventions)
 npm run test:integration       # src/__integration__ against the local stack (needs the local stack: db:start + db:reset first)
 ```
 
@@ -277,6 +280,8 @@ for 0 rows); a pull keeps the local row on an `updated_at` tie while a change of
 - **.env**: only `.env.example` (empty values) is committed; real values go in the git-ignored `.env.local` (the local
   stack's URL and anon key from `npx supabase status`). Never commit a key or URL; tests and
   `scripts/supabase-env.mjs` pass keys through the environment only, never a file.
+- **SQL migrations are append-only**: a shipped `supabase/migrations/*.sql` file is never edited; add a new one (SQLite
+  `MIGRATIONS` in `src/db/schema.ts` follow the same rule).
 - **Docker** (the Supabase stack): Only containers named supabase_*_hit-list belong to this project; never touch dj-*, n8n-* or any other container; never docker system prune; never docker compose in another directory.
 
 ## Testing
@@ -301,6 +306,10 @@ for 0 rows); a pull keeps the local row on an `updated_at` tie while a change of
   `react-native-gesture-handler/jest-utils` (pages expose `viewer-<i>-pinch|pan|double-tap|long-press`).
 - `supercluster` and `kdbush` (ES modules used by react-native-map-clustering) are in Jest's
   `transformIgnorePatterns` so they get transformed.
+- Server code: pgTAP in `supabase/tests/` (`npm run test:db`), using the `tests` schema that `seed.sql` creates
+  (`create_user`, `authenticate_as`, `clear_auth`). Client sync code: Jest with `src/__tests__/helpers/fake-supabase.ts`;
+  against the real local stack: `src/__integration__/` under `jest.integration.config.js` (`npm run test:integration`,
+  never part of `npx jest`).
 - Only `*.test.ts(x)` files are tests.
 
 ## Git

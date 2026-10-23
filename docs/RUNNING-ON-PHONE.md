@@ -18,8 +18,8 @@ On the desktop:
 
 ```bash
 cd ~/projects/hit_list
-git switch overnight/2026-10-14     # until it is merged into main
-npm ci                              # first time on this branch: SDK 57 packages
+git switch main
+npm ci                              # first time, or after the packages change
 npm run start:tailscale
 ```
 
@@ -92,12 +92,15 @@ takes a little while; later loads are quick.
 
 ## With accounts (local stack over Tailscale)
 
+Short version: `npm run db:start` (Docker), put the URL and anon key in `.env.local`, read the code in Mailpit
+(`:54324`), look at the data in Studio (`:54323`), and `npm run db:stop` when done.
+
 Without a `.env.local` the app runs signed out only (Profile: 'Accounts aren't set up in this build'). To try
 sign-in, the box runs the local Supabase stack (`npm run db:start`), `.env.local` points the app at
 `http://100.88.90.97:54321` with the anon key from `npx supabase status`, and the 6-digit code shows up in Mailpit at
 `http://100.88.90.97:54324` (nothing is really emailed). Restart Metro after editing `.env.local`. Every step, with what
 to check and how to undo it: the S4 section of [`docs/plans/2026-10-22-live-checklist.md`](plans/2026-10-22-live-checklist.md).
-Stop the stack afterwards with `npm run db:stop`.
+Studio (the database browser) is at `http://100.88.90.97:54323`. Stop the stack afterwards with `npm run db:stop`.
 
 ## Reload, logs, stopping
 

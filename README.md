@@ -5,12 +5,19 @@ feature at one place (a rail, a ledge, a bank…), with photos, a map and three 
 here, whether it's skate-stopped, and how much natural speed the in-run gives.
 Built with Expo (React Native) and runs on an iPhone through Expo Go.
 
-## Status (2026-10-20, simplified model)
+## Status (2026-10-22, accounts and sharing)
 
 Works end to end in tests and bundles for iOS. The simplification (rev 2,
 `docs/specs/2026-10-16-simplification-design.md`) is being built: the model step (M1), the
 one-screen edit (M2), the detail screen (M3), the full-screen photo viewer (M4), the
-three-filter list (M5), the review screens (M6) and the import radius in your units (M7) are done.
+three-filter list (M5), the review screens (M6) and the import radius in your units (M7) are done. Accounts and
+sharing (S1–S10, `docs/specs/2026-10-22-accounts-and-sharing.md`) are built and tested against the local Supabase
+stack only; nothing is deployed.
+
+In short: hit lists, area lists, optional accounts (email code), backup and sync, friends and Inbox, Send, Share
+and links. To try any account feature you need the local stack on the desktop (`npm run db:start`, Docker) and
+`.env.local` pointing at it over Tailscale; without it the app runs signed out and everything local works. See
+`docs/RUNNING-ON-PHONE.md` ("With accounts") and `docs/plans/2026-10-22-live-checklist.md`.
 
 - Spot model (database v3): feature types (several per spot), skate stopped, natural speed (None to Too
   much, 0–4), notes. Migration 3 archives every older field (dimensions, material, stops, setup options,
@@ -108,7 +115,7 @@ npx expo export --platform ios --output-dir /tmp/hl-export
 
 - Moving a spot's pin in the edit screen.
 - Spots saved without GPS can't be placed on the map yet (they stay in the list).
-- Invite links, crews, folders; a cloud Supabase project; video; offline map tiles (needs a dev build).
+- Crews and folders; a cloud Supabase project and hosting the link page; video; offline map tiles (needs a dev build).
 - A build that runs without the desktop (an EAS preview or production build through TestFlight, or
   EAS Update; a dev build still loads from Metro); today the app needs Metro running on the desktop.
 

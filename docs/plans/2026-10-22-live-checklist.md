@@ -224,3 +224,20 @@ screens come in S8-03…S8-06 and the two-phone check with S8-08. Plan: `docs/pl
       Check in the SQL editor: `select * from public.list_invitations()` as anon is refused (permission denied).
       Undo: the migration only adds two functions; `drop function public.list_invitations(); drop function
       public.share_list(uuid);` puts the server back.
+- [ ] **Two phones (S8-09):** A signed in on phone 1, B on phone 2 (both on the tailnet, same Metro), A and B friends,
+      A's list 'Downtown' with three spots (one with two photos) and 'Backed up' on Profile. As A: Downtown → `Share
+      list` → tick `@B` → `Can add spots` → `Share`. Check on phone 1: the strip reads `2`, the Lists row has the badge
+      `2`, and no word "Send" in the sheet or on Members. On phone 2 (Inbox, no relaunch): `@A invited you to Downtown
+      (3 spots)` → `Join`. Check: `Joined Downtown` → `Open`; the three spots, photos load as you scroll, no Edit, no
+      Send, no photo long-press actions, `Save a copy` works (the copy is B's own, Edit works on it).
+      **Live both ways:** as A, rename a spot and add a photo; B pulls: the new name and photo. As B, add one of B's
+      spots to Downtown (the alert `Everyone in Downtown (2) will see this spot.` once; a second add doesn't ask); A
+      pulls: it shows, read-only, `@B's spot`. Relaunch phone 2 and add another spot: no alert (D90, kept on the phone).
+      **Roles:** A → Members → @B → `View only`. B pulls: Add to hit list shows Downtown `View only`, disabled.
+      **Removal within one sync:** A → Members → tap @B → `Remove from list` → `Remove`. B pulls once. Check: Downtown is gone from
+      B's Lists tab and A's spots from B's Spots tab; B's own spots stay in B's library. A's spots are no longer
+      readable for B on the server (the integration test `shared-list.test.ts` proves the same with the real client).
+      **Leave / Stop sharing:** share again, B joins, B → Members → `Leave list` → `Leave`; A → Members → `Stop
+      sharing` after re-inviting. Check each time: the list leaves phone 2 after one pull; A's list keeps its spots.
+      **Sign out (D86):** B joined again → Profile → Sign out → Keep. Check: only B's spots stay; A's are gone.
+      **Undo:** delete the test list and spots on phone 1; `npm run db:stop`.

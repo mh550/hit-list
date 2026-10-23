@@ -72,7 +72,14 @@ three-filter list (M5), the review screens (M6) and the import radius in your un
   reach them." The friend's Inbox shows '@ana sent you 3 spots' with a thumbnail: Save all, Save into a new hit list,
   Pick spots or Dismiss (the sender isn't told). Saved copies are the friend's own spots ('From @ana' on detail) with
   their photos, backed up like any other. Profile → Sent lists what you sent: Waiting (Withdraw), Saved, Withdrawn.
-  Live shared hit lists come later (S8).
+- Shared hit lists (S8): live access, not a copy. From a hit list, 'Share list' → tick friends → 'Can add spots' or
+  'View only'. They get an invitation in the Inbox ('@ana invited you to Downtown (12 spots)', Join / Decline); once
+  joined, the list shows under 'Shared with me' on the Lists tab and every change on either side arrives on the next
+  sync. Others' spots are read-only on your phone (no Edit, no Send; 'Save a copy' makes one your own); their photos
+  download when first shown and live in the phone's cache. A list shared by you or with you carries a two-people badge
+  with the member count. Members (the strip on the list) lets the owner change roles, remove a member or stop sharing,
+  and a member leave; the first spot you add to a shared list asks 'Everyone in Downtown (4) will see this spot.' once.
+  When you leave or are removed, the list, its spots and their cached photos leave your phone on the next sync.
 
 ## Run it
 
@@ -93,7 +100,7 @@ npx expo export --platform ios --output-dir /tmp/hl-export
 
 - Moving a spot's pin in the edit screen.
 - Spots saved without GPS can't be placed on the map yet (they stay in the list).
-- Sharing, crews, folders; a cloud Supabase project; video; offline map tiles (needs a dev build).
+- Invite links, crews, folders; a cloud Supabase project; video; offline map tiles (needs a dev build).
 - A build that runs without the desktop (an EAS preview or production build through TestFlight, or
   EAS Update; a dev build still loads from Metro); today the app needs Metro running on the desktop.
 

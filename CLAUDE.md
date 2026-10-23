@@ -54,7 +54,10 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   `(tabs)/lists.tsx` 'My hit lists' (rows with live spot counts, '+ New hit list' → `NameListSheet` → `/list/<id>`),
   `list/[id]/` one list (`SpotsBrowser` scoped to its spots, Rename, long-press 'Remove from list', 'Delete list',
   a 'This list is gone' state; an area list (S2) shows 'Area · 2 mi of <place>' under its title and 'Edit area', no
-  Remove), `area/` (`app/area/index.tsx`) 'Pick an area' (`fullScreenModal`: MapView with a fixed centre pin + `Circle`, radius chips,
+  Remove; S8: the owner's 'Share list' (→ `ShareListSheet`, 'Invite' once shared) beside 'Send these spots', a shared
+  list's member strip (initials, D84 count, '+ Invite') → `list/[id]/members.tsx` (S8-04: owner taps a member → role /
+  'Remove from list', 'Withdraw invitation', 'Invite', 'Stop sharing'; a member 'Leave list'; each confirms, never says
+  Send)), `area/` (`app/area/index.tsx`) 'Pick an area' (`fullScreenModal`: MapView with a fixed centre pin + `Circle`, radius chips,
   'Search a place' (`geocodeAsync` on submit only, never on a region change), 'Use my location', the shared filters, a
   live count; 'Save as hit list' → 'Just these N' (manual list) / 'Keep it updated' (area list); `?listId` = edit mode,
   'Save area'), `(tabs)/profile.tsx`,
@@ -76,7 +79,9 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   trailing '+' tile (`AddPhotosTile`, shared by detail and edit), taps by index), `SpotTagFields` (controlled What's here chips + 'Skate stopped' switch + SpeedScale).
   Hit lists (S1): `SpotsBrowser` (the List | Map body with search, sort, filter, FAB; takes the `spots` to show plus
   `aboveList`, `headerActions`, `headerTitle`/`headerLeft`, `onSpotPress`/`onSpotLongPress`, `selectedIds`),
-  `NameListSheet` (create/rename a list), `HeaderTextButton` (the blue header text button: Filter, Select, Rename), `FilterHeaderButton` ('Filter (2)' from the shared filters; SpotsBrowser and the picker), `AddToListSheet` (a checkbox per manual list, checked when every given spot
+  `NameListSheet` (create/rename a list), `ShareListSheet` (S8-04, `{ listId, mode: 'share' | 'invite', onClose }`,
+  mounted per open: friends with checkboxes, one role for the batch (D88, 'Can add spots' / 'View only'), the D34 live
+  sentence, `syncNow` → `shareList`/`invite`, D85 'isn't backed up yet' line; never the word Send, a test reads it), `HeaderTextButton` (the blue header text button: Filter, Select, Rename), `FilterHeaderButton` ('Filter (2)' from the shared filters; SpotsBrowser and the picker), `AddToListSheet` (a checkbox per manual list, checked when every given spot
   is in it, '+ New hit list'), `ListPickerChips` (store-connected, `null` with no lists). `SharedBadge` (S8-05: `person.2.fill` + the D84 count, `sharedLabel` 'Shared with 4' for the holder's VoiceOver label; Lists tab rows, picker chips (`Chip` `accessory`), detail 'In lists' chips, `AddToListSheet` rows; never on a private list). `AddToListSheet` disables an area list and another rider's list unless the rider joined it with role 'add' ('View only'; `myRole` in `src/utils/members.ts`, which `useHitListActions.addSpotsToList` also enforces); the first add to a shared list asks 'Everyone in Downtown (4) will see this spot.' once per list per phone (D90, `sync_state` `confirmedListKey(id)`, cleared by `forgetAccount`). The Lists tab's 'Shared with me' = `selectSharedWithMe` ('@ana · 12 spots'). `confirmBlock(handle, onBlock)` (S6: the one Block confirm, Friends and Inbox).
   Send (S7-04): `SendSheet` (`{ spotIds, onClose }`, mounted per open; friends with checkboxes, the D34 sentence,
   `syncNow` → `createSend`, can't close while sending; never the word Share in the file, a test reads it), opened from
@@ -157,6 +162,10 @@ save waits for Try again); `dismissSend`, `withdrawSend`, `listSent`; hook `src/
 …)`, false without `maySync`; local removals in `shared-rows.ts` on `runExclusive` + one transaction, cache folders
 after the commit), pull's S8 steps (members full read, others' lists only once joined, others' photos at
 `cache/photos/<spot>/<media>.jpg`, the per-list fill, list/photo reconciliation, `removedSpotIds`/`removedPhotoPaths`),
+`copy.ts` (S8-03: `saveCopy`, Save a copy of another rider's spot: the photos are downloaded into the cache first and
+copied into `Paths.document` as the rider's own new spot, D89), `join.ts` (S8-06: `joinList` = `respondInvite` →
+`syncNow`, one join per list across the Inbox and Lists tabs), **others' photos live only in `Paths.cache`, never
+`Paths.document`, and leave with their rows; others' spots, media and lists are read-only (D47)** (see Conventions),
 `errors.ts` (`errorMessage`, `serverError` keeps a supabase-js error's `code`), `tickets.ts` (`createTickets()`: per rider, the newest load wins; friends and sends loads each have one); push marks a row done only while the rider's session lasts (an anon DELETE answers 204
 for 0 rows); a pull keeps the local row on an `updated_at` tie while a change of it waits in the outbox; media
 `addMany` skips ids already in the store (a reload may have read them first); accounts (S4) are `client.ts`, `auth.ts`, `session-storage.ts`.

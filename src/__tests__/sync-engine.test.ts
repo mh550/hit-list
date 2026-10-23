@@ -26,6 +26,8 @@ import { downloadMissingPhotos } from '@/src/sync/photos';
 import { runExclusive, syncNow } from '@/src/sync/engine';
 import { INITIAL_SYNC, useSyncStore } from '@/src/stores/sync-store';
 import { useHitListsStore, useMediaStore, useSpotsStore } from '@/src/stores';
+import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
+import { useFriendsStore } from '@/src/stores/friends-store';
 
 const mockPush = jest.mocked(push);
 const mockPull = jest.mocked(pull);
@@ -44,6 +46,8 @@ beforeEach(async () => {
   useSpotsStore.setState({ spots: [] });
   useMediaStore.setState({ mediaBySpot: {} });
   useHitListsStore.setState({ lists: [], membershipBySpot: {} });
+  useAuthStore.setState({ ...SIGNED_OUT });
+  useFriendsStore.getState().clearFriends();
 });
 
 describe('syncNow', () => {
@@ -120,6 +124,39 @@ describe('syncNow', () => {
     expect(Date.parse(state.lastSyncAt ?? '')).toBeGreaterThanOrEqual(before);
     // kept on the phone, so a relaunch still knows when it last backed up
     expect(await getSyncState(db, `last_sync_at:${ME}`)).toBe(state.lastSyncAt);
+  });
+
+  it('loads friends after the pull and fills the friends store (S6)', async () => {
+    useAuthStore.setState({ ...SIGNED_OUT, status: 'signed_in', userId: ME });
+    mockFake!.tables.friendships = [
+      { id: 'f-ana', user_a: 'rider-ana', user_b: ME, status: 'accepted', requested_by: ME, created_at: '2026-10-20 10:00:00+00' },
+    ];
+    mockFake!.tables.blocks = [];
+    mockFake!.profiles.set('rider-ana', { username: 'ana', display_name: null });
+    let friendSelectsAtPull = -1;
+    mockPull.mockImplementationOnce(async () => {
+      friendSelectsAtPull = mockFake!.selects.filter((s) => s.table === 'friendships').length;
+      return { changed: false };
+    });
+
+    await syncNow(db);
+
+    expect(friendSelectsAtPull).toBe(0);
+    expect(mockFake!.selects.filter((s) => s.table === 'friendships')).toHaveLength(1);
+    expect(useFriendsStore.getState().friends.map((f) => f.profile.username)).toEqual(['ana']);
+  });
+
+  it("a friends load that fails warns and still counts as backed up (it never sets lastError)", async () => {
+    useAuthStore.setState({ ...SIGNED_OUT, status: 'signed_in', userId: ME });
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockFake!.failSelect((s) => s.table === 'friendships', { message: 'offline' });
+
+    await syncNow(db);
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('[friends]'), 'offline');
+    expect(useSyncStore.getState().lastError).toBeNull();
+    expect(useSyncStore.getState().lastSyncAt).not.toBeNull();
+    warn.mockRestore();
   });
 
   it('records failedCount from countFailed; rows still waiting mean not backed up', async () => {

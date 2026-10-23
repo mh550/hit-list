@@ -687,16 +687,11 @@ describe('migrateDb (PRAGMA user_version)', () => {
         await db.getAllAsync<{ name: string }>(`SELECT name FROM sqlite_master WHERE type = ? ORDER BY name`, type)
       ).map((r) => r.name);
 
-    it('is the last migration', () => {
-      expect(MIGRATIONS).toHaveLength(5);
-      expect(LATEST_SCHEMA_VERSION).toBe(5);
-    });
-
     it('adds owner_id to spots and media (hit_lists has it since 4), rev to all four tables, media updated_at/deleted_at', async () => {
       const db = await v4Db();
       expect(await columnNames(db, 'spots')).not.toContain('owner_id');
 
-      await migrateDb(db);
+      await migrateDb(db, MIGRATIONS.slice(0, 5));
 
       expect(await getSchemaVersion(db)).toBe(5);
       for (const table of ['spots', 'media', 'hit_lists']) {
@@ -831,7 +826,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
         photo.created_at,
       );
 
-      await migrateDb(db);
+      await migrateDb(db, MIGRATIONS.slice(0, 5));
 
       expect(await getSchemaVersion(db)).toBe(5);
       expect((await getSpots(db)).map((s) => s.name).sort()).toEqual(['empty', 'full']);
@@ -844,7 +839,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
 
     it('migrating a v5 DB again changes nothing (rows, outbox and sync state stay)', async () => {
       const db = await v4Db();
-      await migrateDb(db);
+      await migrateDb(db, MIGRATIONS.slice(0, 5));
       await db.runAsync("INSERT INTO sync_state (key, value) VALUES ('user_id', 'u1')");
       await insertSpot(db, createTestSpot({ owner_id: 'u1' }));
       const snapshot = async () => ({
@@ -855,10 +850,88 @@ describe('migrateDb (PRAGMA user_version)', () => {
       const before = await snapshot();
       expect(before.outbox).toHaveLength(1);
 
-      await migrateDb(db);
+      await migrateDb(db, MIGRATIONS.slice(0, 5));
 
       expect(await getSchemaVersion(db)).toBe(5);
       expect(await snapshot()).toEqual(before);
+    });
+  });
+
+  describe('migration 6 (profiles: the local mirror of friend names, D72)', () => {
+    /** A DB as S5's builds left it: at version 5. */
+    const v5Db = async () => {
+      const db = createTestDb();
+      await migrateDb(db, MIGRATIONS.slice(0, 5));
+      expect(await getSchemaVersion(db)).toBe(5);
+      return db;
+    };
+    const columns = async (db: SQLiteDatabase, table: string) =>
+      (await db.getAllAsync<{ name: string; type: string; pk: number }>(`PRAGMA table_info(${table})`)).map(
+        ({ name, type, pk }) => ({ name, type, pk }),
+      );
+
+    it('is the last migration', () => {
+      expect(MIGRATIONS).toHaveLength(6);
+      expect(LATEST_SCHEMA_VERSION).toBe(6);
+    });
+
+    it('adds profiles (id TEXT primary key, username, display_name) to a v5 DB', async () => {
+      const db = await v5Db();
+      expect(await tables(db)).not.toContain('profiles');
+
+      await migrateDb(db);
+
+      expect(await getSchemaVersion(db)).toBe(6);
+      expect(await columns(db, 'profiles')).toEqual([
+        { name: 'id', type: 'TEXT', pk: 1 },
+        { name: 'username', type: 'TEXT', pk: 0 },
+        { name: 'display_name', type: 'TEXT', pk: 0 },
+      ]);
+    });
+
+    it('adds no trigger: a profile row never reaches the outbox', async () => {
+      const db = await v5Db();
+      const triggersBefore = await db.getAllAsync(`SELECT name FROM sqlite_master WHERE type = 'trigger'`);
+
+      await migrateDb(db);
+      await db.runAsync("INSERT INTO sync_state (key, value) VALUES ('user_id', 'u1')");
+      await db.runAsync("INSERT INTO profiles (id, username) VALUES ('p1', 'ana')");
+
+      expect(await db.getAllAsync(`SELECT name FROM sqlite_master WHERE type = 'trigger'`)).toEqual(triggersBefore);
+      expect(await db.getFirstAsync('SELECT COUNT(*) AS n FROM sync_outbox')).toEqual({ n: 0 });
+    });
+
+    it('the v2 fixture rows migrate 2 → 6 with their spots and media intact', async () => {
+      const db = createTestDb();
+      await migrateDb(db, MIGRATIONS.slice(0, 2));
+      const full = createTestSpot({ name: 'full' });
+      await insertOldSpot(db, full, {
+        status: V2_SPOTS.full.status,
+        feature: JSON.stringify(V2_SPOTS.full.feature),
+        inRun: JSON.stringify(V2_SPOTS.full.inRun),
+        landing: JSON.stringify(V2_SPOTS.full.landing),
+        metadata: JSON.stringify(V2_SPOTS.full.metadata),
+      });
+
+      await migrateDb(db);
+
+      expect(await getSchemaVersion(db)).toBe(6);
+      expect(await getSpot(db, full.id)).toMatchObject({ stopped: true, natural_speed: 3, notes: 'hello' });
+      expect(await getSpotLegacy(db, full.id)).toEqual(V2_SPOTS.fullLegacy);
+      expect(await db.getFirstAsync('SELECT COUNT(*) AS n FROM profiles')).toEqual({ n: 0 });
+    });
+
+    it('migrating a v6 DB again changes nothing', async () => {
+      const db = await v5Db();
+      await migrateDb(db);
+      await db.runAsync("INSERT INTO profiles (id, username, display_name) VALUES ('p1', 'ana', 'Ana B')");
+
+      await migrateDb(db);
+
+      expect(await getSchemaVersion(db)).toBe(6);
+      expect(await db.getAllAsync('SELECT * FROM profiles')).toEqual([
+        { id: 'p1', username: 'ana', display_name: 'Ana B' },
+      ]);
     });
   });
 

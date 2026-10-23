@@ -12,13 +12,17 @@
 //     { data: { id, path, fullPath }, error: null } | { data: null, error: StorageError };
 //     storage.from(bucket).download(path) → { data: Blob, error: null } | { data: null, error: StorageError })
 //   node_modules/@supabase/functions-js/dist/module/FunctionsClient.d.ts (functions.invoke(name, options?))
+//   node_modules/@supabase/supabase-js/dist/index.d.mts (rpc(fn, args?) → a thenable { data, error }; a set-returning
+//     function such as find_profile answers an array)
 // Every member is a jest.fn. Screens get it with
 //   jest.mock('@/src/sync/client', () => ({ getSupabase: () => mockFake, isConfigured: () => true }))
 // The fake keeps one session and a `profiles` table; `failNext(method, error, table?)` makes the next call of
-// that method (on that table) answer { data: null, error }; `queryDelayMs` slows every query down. Every upsert,
-// delete and upload is logged in `calls`, in the order the app awaited them (the push tests read the order there).
-// Other tables answer selects from `tables` (filters, order and limit applied; each select logged in `selects`);
-// storage downloads answer from `objects`.
+// that method (on that table, or rpc function) answer { data: null, error }; `queryDelayMs` slows every query down.
+// Every upsert, delete and upload is logged in `calls`, in the order the app awaited them (the push tests read the
+// order there). Selects answer from `tables`, `profiles` from the `profiles` map (filters, order and limit applied;
+// each select logged in `selects`); `readableProfiles` (a set of ids, null = all) mimics the profiles RLS. rpc calls
+// are logged in `rpcs` and answered by `rpcHandlers[fn]` (no handler: { data: null, error: null }); storage downloads
+// answer from `objects`.
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
 
 export type FakeError = { message: string; code?: string; status?: number };
@@ -34,7 +38,8 @@ type FailMethod =
   | 'delete'
   | 'upload'
   | 'download'
-  | 'invoke';
+  | 'invoke'
+  | 'rpc';
 export type FakeCall =
   | { kind: 'upsert'; table: string; values: Record<string, unknown>; options?: UpsertOptions }
   | { kind: 'delete'; table: string; filters: [string, unknown][] }
@@ -43,7 +48,7 @@ type UpsertOptions = { onConflict?: string; ignoreDuplicates?: boolean };
 type UploadOptions = { contentType?: string; upsert?: boolean };
 type Row = Record<string, unknown>;
 type Filter = ['eq' | 'gt', string, unknown] | ['in', string, unknown[]];
-/** One awaited select on a table other than `profiles`: what pull asked the server. */
+/** One awaited select: what the app asked the server. */
 export interface FakeSelect {
   table: string;
   columns?: string;
@@ -54,6 +59,12 @@ export interface FakeSelect {
 export interface FakeProfile {
   username: string | null;
   display_name: string | null;
+}
+type RpcResult = { data: unknown; error: FakeError | null };
+/** One awaited rpc call. */
+export interface FakeRpc {
+  fn: string;
+  args: Record<string, unknown> | undefined;
 }
 
 export function fakeSession({ userId = 'user-ana', email = 'ana@example.com' } = {}): Session {
@@ -81,6 +92,8 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
   const profiles = new Map<string, FakeProfile>();
   const calls: FakeCall[] = [];
   const selects: FakeSelect[] = [];
+  const rpcs: FakeRpc[] = [];
+  const rpcHandlers: Record<string, (args: Record<string, unknown> | undefined) => RpcResult> = {};
   /** The server's rows per table (not `profiles`), as PostgREST returns them. */
   const tables: Record<string, Row[]> = {};
   /** Storage objects by `<bucket>/<path>`. */
@@ -119,9 +132,15 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
 
   const compare = (a: unknown, b: unknown) => ((a as number | string) < (b as number | string) ? -1 : a === b ? 0 : 1);
 
-  /** A select on `tables[table]`: filters, then order, then limit, columns picked from `columns`. */
+  /** The `profiles` map as rows, only those `readableProfiles` lets this session read. */
+  const profileRows = (): Row[] =>
+    [...profiles.entries()]
+      .filter(([id]) => fake.readableProfiles === null || fake.readableProfiles.has(id))
+      .map(([id, row]) => ({ id, ...row }));
+
+  /** A select on `tables[table]` (or the profiles): filters, then order, then limit, columns picked from `columns`. */
   function selectRows(table: string, columns: string | undefined, filters: Filter[], order: string[], limit?: number) {
-    let rows = (tables[table] ?? []).filter((row) =>
+    let rows = (table === 'profiles' ? profileRows() : (tables[table] ?? [])).filter((row) =>
       filters.every(([op, column, value]) => {
         if (op === 'eq') return row[column] === value;
         // SQL: NULL > x is not true
@@ -160,7 +179,7 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
     const run = (): QueryResult => {
       if (op === 'upsert') calls.push({ kind: 'upsert', table, values: upserted, options: upsertOptions });
       if (op === 'delete') calls.push({ kind: 'delete', table, filters: [...filters] });
-      if (op === 'select' && table !== 'profiles') {
+      if (op === 'select') {
         const select: FakeSelect = { table, columns, filters: [...selectFilters], order: [...order], limit };
         selects.push(select);
         const failure = selectFailures.findIndex(({ match }) => match(select));
@@ -169,17 +188,12 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
       const error = takeFailure(op, table);
       if (error) return { data: null, error };
       if (op === 'upsert' || op === 'delete') return { data: null, error: null };
-      if (table !== 'profiles') {
-        const rows = selectRows(table, columns, selectFilters, order, limit);
-        return { data: one ? (rows[0] ?? null) : rows, error: null };
-      }
-      const rows = [...profiles.entries()]
-        .map(([id, row]) => ({ id, ...row }))
-        .filter((row) => filters.every(([column, value]) => row[column as keyof typeof row] === value));
       if (op === 'update') {
-        for (const row of rows) profiles.set(row.id, { ...profiles.get(row.id)!, ...values });
+        const rows = profileRows().filter((row) => filters.every(([column, value]) => row[column] === value));
+        for (const row of rows) profiles.set(row.id as string, { ...profiles.get(row.id as string)!, ...values });
         return { data: returning ? rows.map(({ id }) => ({ id })) : null, error: null };
       }
+      const rows = selectRows(table, columns, selectFilters, order, limit);
       return { data: one ? (rows[0] ?? null) : rows, error: null };
     };
 
@@ -274,6 +288,19 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
       stopAutoRefresh: jest.fn(async () => {}),
     },
     from: jest.fn((table: string) => query(table)),
+    rpc: jest.fn((fn: string, args?: Record<string, unknown>): PromiseLike<RpcResult> => ({
+      then(resolve, reject) {
+        const wait = fake.queryDelayMs > 0 ? new Promise((done) => setTimeout(done, fake.queryDelayMs)) : Promise.resolve();
+        return wait
+          .then((): RpcResult => {
+            rpcs.push({ fn, args });
+            const error = takeFailure('rpc', fn);
+            if (error) return { data: null, error };
+            return rpcHandlers[fn]?.(args) ?? { data: null, error: null };
+          })
+          .then(resolve, reject);
+      },
+    })),
     storage: {
       from: jest.fn((bucket: string) => ({
         upload: jest.fn(async (path: string, body: unknown, options?: UploadOptions) => {
@@ -304,7 +331,11 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
     profiles,
     calls,
     selects,
+    rpcs,
+    rpcHandlers,
     tables,
+    /** The profile ids this session may read (the profiles RLS); null = every profile. */
+    readableProfiles: null as Set<string> | null,
     objects,
     /** Makes every query answer after this many ms (an in-flight fetch racing an auth event). */
     queryDelayMs: 0,
@@ -316,11 +347,11 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
       session = next;
       emit(event, next);
     },
-    /** The next `method` call answers `error`; with `table`, only the next one on that table. */
+    /** The next `method` call answers `error`; with `table`, only the next one on that table (rpc: that function). */
     failNext(method: FailMethod, error: FakeError, table?: string) {
       failures.set(table ? `${method}:${table}` : method, error);
     },
-    /** The next select (not on `profiles`) that `match` picks answers `error`. */
+    /** The next select that `match` picks answers `error`. */
     failSelect(match: (select: FakeSelect) => boolean, error: FakeError) {
       selectFailures.push({ match, error });
     },

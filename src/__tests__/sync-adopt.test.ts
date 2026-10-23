@@ -33,6 +33,7 @@ import {
   removeLocalAccountData,
   removeReleasedRows,
 } from '@/src/sync/adopt';
+import { upsertProfiles } from '@/src/db/profiles';
 import { INITIAL_SYNC, useSyncStore } from '@/src/stores/sync-store';
 import * as engine from '@/src/sync/engine';
 import { useHitListsStore, useMediaStore, useSpotsStore } from '@/src/stores';
@@ -489,5 +490,46 @@ describe('deleteAccountAndRelease: Delete account on the sync queue (S5-09 revie
 
     expect(warn).toHaveBeenCalled();
     warn.mockRestore();
+  });
+});
+
+describe('the friend names mirror (D72) leaves with the account', () => {
+  const mirrorAna = () => upsertProfiles(db, [{ id: 'rider-ana', username: 'ana', display_name: null }]);
+
+  it('another account signing in empties profiles', async () => {
+    await setSyncState(db, 'user_id', A);
+    await mirrorAna();
+
+    await adopt(db, B);
+
+    expect(await count('profiles')).toBe(0);
+  });
+
+  it('the same account signing back in keeps them', async () => {
+    await setSyncState(db, 'user_id', A);
+    await insertSpot(db, createTestSpot({ id: 'phone' })); // something to adopt, so adopt writes
+    await mirrorAna();
+
+    await adopt(db, A);
+
+    expect(await count('profiles')).toBe(1);
+  });
+
+  it('Remove from this phone empties profiles', async () => {
+    await setSyncState(db, 'user_id', A);
+    await mirrorAna();
+
+    await removeLocalAccountData(db, A);
+
+    expect(await count('profiles')).toBe(0);
+  });
+
+  it('Keep after Delete account empties profiles (the friendships are gone with the account)', async () => {
+    await setSyncState(db, 'user_id', A);
+    await mirrorAna();
+
+    await releaseAccountData(db, A, { exists: () => true });
+
+    expect(await count('profiles')).toBe(0);
   });
 });

@@ -14,6 +14,7 @@ jest.mock('@/src/sync/client', () => ({
 
 import { useAuthStore, SIGNED_OUT } from '@/src/stores/auth-store';
 import { useAuthInit } from '@/src/hooks/use-auth-init';
+import { useFriendsStore } from '@/src/stores/friends-store';
 
 const ana = fakeSession({ userId: 'user-ana', email: 'ana@example.com' });
 
@@ -198,6 +199,20 @@ describe('useAuthInit', () => {
       username: null,
       displayName: null,
     });
+  });
+
+  it('SIGNED_OUT empties the friends store (S6)', async () => {
+    mockFake!.setSession(ana);
+    mockFake!.profiles.set('user-ana', { username: 'ana', display_name: 'Ana B' });
+    renderHook(() => useAuthInit());
+    await waitFor(() => expect(useAuthStore.getState().status).toBe('signed_in'));
+    const friend = { friendshipId: 'f1', created_at: '2026-10-20T10:00:00.000Z', profile: { id: 'user-ben', username: 'ben', display_name: null } };
+    useFriendsStore.getState().applyFriends('user-ana', { friends: [friend], incoming: [], outgoing: [], blocked: [] });
+    expect(useFriendsStore.getState().friends).toHaveLength(1);
+
+    act(() => mockFake!.emit('SIGNED_OUT', null));
+
+    await waitFor(() => expect(useFriendsStore.getState().friends).toEqual([]));
   });
 
   it('follows SIGNED_IN after launch', async () => {

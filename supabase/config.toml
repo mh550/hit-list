@@ -383,8 +383,20 @@ inspector_port = 8083
 # The Deno major version to use.
 deno_version = 2
 
-# [edge_runtime.secrets]
-# secret_key = "env(SECRET_VALUE)"
+# Not a secret: the stack's public API origin, which share-preview (S9) puts on the photo URLs it signs (inside the
+# runtime SUPABASE_URL is the internal gateway, which a browser can't reach). For phone tests over Tailscale set the
+# box's tailnet address instead (docs/plans/2026-10-22-live-checklist.md). An edit needs db:stop + db:start.
+[edge_runtime.secrets]
+PUBLIC_SUPABASE_URL = "http://127.0.0.1:54321"
+
+# Delete account (S4-05): the caller's JWT is required and is the only source of the user id.
+[functions.account-delete]
+verify_jwt = true
+
+# Link previews (S9-02): a browser with no account calls it with a plain GET, so no JWT is required; the token is the
+# only key.
+[functions.share-preview]
+verify_jwt = false
 
 [analytics]
 enabled = true

@@ -37,7 +37,7 @@ select is(
   pg_get_function_result('public.list_my_links(text)'::regprocedure),
   'TABLE(id uuid, kind text, send_id uuid, list_id uuid, role text, created_at timestamp with time zone, '
   'expires_at timestamp with time zone, revoked_at timestamp with time zone, used_at timestamp with time zone, '
-  'used_by uuid, used_by_username extensions.citext)',
+  'used_by uuid, used_by_username citext)',
   'list_my_links keeps the old columns and adds used_by, used_by_username (never the hash)'
 );
 

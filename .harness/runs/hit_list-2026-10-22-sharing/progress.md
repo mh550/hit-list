@@ -20,6 +20,33 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 11:40 · S5-06 · passes
+
+- **What changed:**
+  - New: `src/sync/adopt.ts` (`adopt`, `removeLocalAccountData`, `releaseAccountData`, `removeReleasedRows`), `src/sync/owner.ts` (`currentOwnerId`) and `src/hooks/use-adoption.ts` (mounted in `AuthInit`).
+  - `deleteSpotPhotos` was added. The fs fake gained `Directory.delete`.
+  - Profile's Sign out now does one last backup (up to 10 s), then shows the Keep / Remove / Cancel alert, or "3 changes aren't backed up yet".
+  - Delete account now makes the spots phone-only first, then asks Keep / Remove.
+  - New spots and lists get the rider as owner. A town keeps the spot's `updated_at`.
+  - Tests 1266 → 1324.
+  - Commits: RED `294992f`, GREEN `81768cc`, review RED/GREEN `813b409`/`4b80604`.
+- **Verified:** check.sh green, 1324 tests, 0 `console.error`; `npx expo export --platform ios` exit 0. The steps by name:
+  - `sync-adopt` (23 cases): 3 spots + 4 photos + 2 lists queue 9 upserts plus 3 memberships. An injected trigger failure leaves every owner NULL and an empty outbox. Running adopt again adds 0 rows. Switching A→B removes A's rows and files and resets the cursors.
+  - `use-adoption` (13): adopt, then sync, and the D66 alert.
+  - `profile` (69): all three alert variants, plus the Delete-account variant.
+- **Opus review:** 0 Critical, 2 Important, 6 Minor; everything fixed RED first except 3 accepted Minors (details under "As built (S5-06)" in the plan).
+  - Delete account with the alert never answered: the next sign-in would have wiped the spots. Fixed by D71: release first, then ask.
+  - Adoption uploaded photos of spots deleted before sign-in. Fixed by D70: live rows only.
+- **Next (S5-07) must know:**
+  - `adopt(db, uid)` sets `sync_state.user_id`; the integration test needs it before `push`.
+  - Sign-out Keep = `signOutOfAccount` only.
+  - The switch keeps rows owned by the new rider.
+- **Questions for Michael:** Q31 (D70: spots deleted before sign-in are never uploaded) and Q32 (D71: closing the app on "Account deleted" means Keep).
+- **Proposed changes:**
+  - S5-06 step 3: adoption lives in `useAdoption` next to `useAuthInit`, tested in `use-adoption.test.tsx`.
+  - Step 4: the Keep / Remove alert has a third button, Cancel. The waiting alert keys on `countPending` (D69), not `failedCount`.
+  - S5-09: count parked rows before Remove and before the account switch.
+
 ### 2026-10-23 09:20 · S5-05 · passes
 
 - **What changed:**

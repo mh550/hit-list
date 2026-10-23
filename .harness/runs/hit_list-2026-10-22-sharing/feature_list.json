@@ -592,7 +592,7 @@
         "Delete account (S4-05) now ends with the same Keep / Remove prompt (D51), with the message 'Your account is deleted. Keep the spots on this phone?'; test updated.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S5-07",

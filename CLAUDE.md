@@ -105,6 +105,14 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   `userId` = the signed-in rider), `src/hooks/use-sync.ts` (in `AuthInit` in `app/_layout.tsx`: sign-in, `'active'`,
   every 5 min in the foreground), Spots tab pull-to-refresh (`SpotsBrowser` `refreshControl`, signed in only),
   Profile 'Backed up · 3 min ago' (`src/utils/relative-time.ts`) / 'N changes not backed up' + Retry.
+  Adoption (S5-06): `src/sync/adopt.ts` `adopt` (live NULL-owner rows → the rider, one transaction on `runExclusive`;
+  another account's rows leave first with their photo folders, `'needs_confirm'` when they still have pending
+  changes), `removeLocalAccountData` (refuses with pending changes unless `discardPending`), `releaseAccountData`
+  (Delete account: runs before asking, rows become phone-only) + `removeReleasedRows`; every one clears `user_id`
+  before deleting so nothing queues a server DELETE. `src/hooks/use-adoption.ts` (in `AuthInit`: adopt → `syncNow`,
+  the D66 confirm, retry on `'active'`); `src/sync/owner.ts` `currentOwnerId()` (sync store `adoptedUserId`) is the
+  owner of new spots/lists; `useSpotActions.setTown` keeps `updated_at`. Profile Sign out: last backup (10 s) →
+  Keep / Remove / Cancel, or 'N changes aren't backed up yet' (Cancel / Sign out anyway).
   `hit-lists.ts` (migration 4): `insertHitList`, `getHitLists` (live only), `updateHitList`, `softDeleteHitList`,
   `addSpotsToList` (one `INSERT OR IGNORE … FROM json_each(?)`, idempotent; no `withTransactionAsync` for app writes: it is a
   plain BEGIN/COMMIT on the shared connection, so two writes at once collide), `removeSpotFromList`, `getListMemberships` (`{ spotId: listId[] }`, live lists).

@@ -119,6 +119,8 @@ it can **Save a copy** (it becomes their own private spot, with "From @name" on 
 | D67 | **Keep after Delete account makes the spots phone-only again** *default* | Choosing Keep after deleting the account clears the deleted account from those spots, photos and lists; they are local spots again, and a later sign-in adopts them like any other. | S5 plan: otherwise the next sign-in would treat them as another account's and remove them (§9 Q28) |
 | D68 | **"Older details" stay on the phone** *default* | The archived pre-v3 fields (`legacy_json`) are not uploaded; a second phone shows the spot without the Older details disclosure. The server schema stays as S3 shipped it. | S5 plan: read-only leftovers, simplest; a later migration can add them (§9 Q29) |
 | D69 | **Sign out backs up first; Remove only when nothing is waiting** *default* | Sign out tries one sync, then counts every change still waiting (not only those that failed 10 times). Anything waiting → "3 changes aren't backed up yet" · Cancel / Sign out anyway, with no Remove option; nothing waiting → Keep / Remove from this phone (D38). | S5 plan: an offline edit is not yet "failed" but would still be lost by Remove (§9 Q30) |
+| D70 | **Spots deleted before the first sign-in stay on the phone only** *default* | Adoption takes live spots, live photos of live spots and live lists; a spot (or photo) deleted before signing in is never uploaded, and its list memberships aren't either. | S5-06 review: adopting tombstones would upload every photo of every spot deleted since install (privacy, data) (§9 Q31) |
+| D71 | **Delete account keeps the phone's spots first, then asks** *default* | Right after the account is deleted the app makes its spots, photos and lists phone-only (D67); the Keep / Remove question that follows only decides whether to remove them. An unanswered question (app closed) means Keep. | S5-06 review: otherwise the next sign-in would remove them as another account's, with no server copy left (§9 Q32) |
 
 ---
 
@@ -395,6 +397,10 @@ it stops at a milestone boundary; S9 (links) is last among the features because 
     aren't backed up. Want them in the account too (one more server column)?
 30. **Signing out with changes waiting (D69).** Default: Sign out tries a backup first; if anything is still waiting
     it offers only Cancel / Sign out anyway (no Remove). OK?
+31. **Spots deleted before you ever signed in (D70).** Default: they stay on the phone only and are never uploaded
+    (nor their photos). OK, or should the first sign-in back up deleted spots too?
+32. **Closing the app on "Account deleted · Keep the spots on this phone?" (D71).** Default: Keep (they become
+    phone-only spots right away; Remove takes them off). OK?
 
 ---
 

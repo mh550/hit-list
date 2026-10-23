@@ -411,6 +411,32 @@ describe('useHitListActions', () => {
       expect(store().membershipBySpot).toEqual({ a: ['adds'] });
     });
 
+    it('removeSpotFromList (S8-09 review A#6) follows the list screen: the owner any spot, an adder only their own, a viewer none', async () => {
+      const member = (role: 'add' | 'view') => [{ user_id: 'u-me', role, status: 'member' as const }];
+      await seedList({ id: 'adds', owner_id: 'u-ana', shared: true, members: member('add') });
+      await seedList({ id: 'views', owner_id: 'u-ana', shared: true, members: member('view') });
+      await seedList({ id: 'mine', owner_id: 'u-me', shared: true });
+      useSpotsStore.setState({
+        spots: [createTestSpot({ id: 'a', owner_id: 'u-me' }), createTestSpot({ id: 'anas', owner_id: 'u-ana' })],
+      });
+      const memberships = { a: ['adds', 'views'], anas: ['adds', 'mine'] };
+      useHitListsStore.setState({ membershipBySpot: memberships });
+      const { result } = renderHook(() => useHitListActions());
+
+      await expect(result.current.removeSpotFromList('adds', 'anas')).rejects.toThrow('not your spot');
+      await expect(result.current.removeSpotFromList('views', 'a')).rejects.toThrow('not your list');
+      expect(store().membershipBySpot).toEqual(memberships);
+      await act(async () => result.current.removeSpotFromList('adds', 'a'));
+      await act(async () => result.current.removeSpotFromList('mine', 'anas'));
+      expect(store().membershipBySpot).toEqual({ a: ['views'], anas: ['adds'] });
+    });
+
+    it("removeSpotFromList rejects an area list (S8-09 review A#6)", async () => {
+      await seedList({ id: 'area', kind: 'area', area_center: { latitude: 47.6, longitude: -122.3 }, area_radius_m: 1609 });
+      const { result } = renderHook(() => useHitListActions());
+      await expect(result.current.removeSpotFromList('area', 'a')).rejects.toThrow('area list');
+    });
+
     it("addSpotsToList rejects an area list: its spots are its circle's, never stored", async () => {
       await seedList({ id: 'area', kind: 'area', area_center: { latitude: 47.6, longitude: -122.3 }, area_radius_m: 1609 });
       useSpotsStore.setState({ spots: [createTestSpot({ id: 'a' })] });

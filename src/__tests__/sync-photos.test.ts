@@ -7,6 +7,7 @@ import {
   cachedPhotoUri,
   defaultPhotoIO,
   deleteAllCachedPhotos,
+  deleteCachedFiles,
   deleteCachedPhotos,
   preparePhoto,
   uploadPhoto,
@@ -258,6 +259,23 @@ describe("cachedPhotoUri: another rider's photo, downloaded into the cache on fi
     expect(fakeFs.__fileExists(CACHED)).toBe(false);
     // a later show downloads it again
     await expect(cachedPhotoUri(asClient(fake), theirs)).resolves.toBe(CACHED);
+  });
+
+  it('a removal of nothing or of other spots (every sync) leaves a running download alone (S8-09 review A#1)', async () => {
+    const pending = cachedPhotoUri(asClient(fake), theirs);
+    deleteCachedPhotos([]);
+    deleteCachedPhotos(['other-spot']);
+    deleteCachedFiles([]);
+    deleteCachedFiles(['cache/photos/other-spot/x.jpg', 'photos/s9/mine.jpg']);
+    await expect(pending).resolves.toBe(CACHED);
+    expect(fakeFs.__fileBytes(CACHED)).toEqual(BYTES);
+  });
+
+  it("a pull removing the photo's own file while it downloads writes nothing and rejects", async () => {
+    const pending = cachedPhotoUri(asClient(fake), theirs);
+    deleteCachedFiles(['cache/photos/s9/m9.jpg']);
+    await expect(pending).rejects.toThrow('removed while downloading');
+    expect(fakeFs.__fileExists(CACHED)).toBe(false);
   });
 
   it('defaultPhotoIO.write makes a cache/… folder under Paths.cache', () => {

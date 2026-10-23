@@ -164,6 +164,35 @@ describe('useDbInit', () => {
     mockDb.getFirstAsync.mockResolvedValue(null);
   });
 
+  it("knows the phone's account before the app is ready, so no screen shows others' spots as editable (S8-09 review B#1)", async () => {
+    // the account's read is slow (a busy disk): the app waits for it
+    let release: () => void = () => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    mockDb.getFirstAsync.mockImplementation(async (sql: string, key: string) => {
+      if (!(sql.includes('sync_state') && key === 'user_id')) return null;
+      await gate;
+      return { value: 'u-me' };
+    });
+    mockGetSpots.mockResolvedValue([]);
+    mockGetUserSettings.mockResolvedValue(null);
+    useSyncStore.setState({ phoneUserId: null });
+    const seen: (string | null)[] = [];
+
+    renderHook(() => {
+      const { isReady } = useDbInit();
+      const phone = useSyncStore((s) => s.phoneUserId);
+      if (isReady) seen.push(phone);
+    });
+    await flushInit();
+    expect(seen).toEqual([]);
+    await act(async () => release());
+    await flushInit();
+
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((uid) => uid === 'u-me')).toBe(true);
+    mockDb.getFirstAsync.mockResolvedValue(null);
+  });
+
   it('still loads spots, media and settings when migrateDb throws', async () => {
     // A failed upgrade leaves the DB at the last good version; whatever still loads is loaded (DBInitializer then
     // blocks the app, D28).

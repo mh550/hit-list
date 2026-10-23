@@ -341,7 +341,9 @@ describe('leave', () => {
     // the list goes first, the spots last: a spot delete that fails must bring the list back
     await db.execAsync("CREATE TRIGGER fail_spot_delete BEFORE DELETE ON spots BEGIN SELECT RAISE(ABORT, 'disk full'); END");
 
-    await expect(leave(db, client(), ME, 'list-1')).rejects.toThrow('disk full');
+    // the server already took the rider out: that stands (review A#5), the next pull's reconciliation removes the rows
+    await expect(leave(db, client(), ME, 'list-1')).resolves.toBe(true);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('[lists]'), expect.stringContaining('disk full'));
 
     expect(await ids('hit_lists')).toEqual(['list-1', 'list-2']);
     expect(await memberships()).toEqual(['list-1/ana-1', 'list-1/ana-2', 'list-1/mine', 'list-2/ana-2']);
@@ -391,6 +393,15 @@ describe('stopSharing', () => {
     await expect(stopSharing(db, client(), ME, 'list-1')).rejects.toBeInstanceOf(NotAllowedError);
 
     expect(await listRow('list-1')).toEqual({ shared: 1, rev: 60 });
+    expect(await getMembers(db, 'list-1')).toHaveLength(2);
+  });
+
+  it("a local failure after the server stopped sharing resolves true and warns (review A#5): it isn't 'Couldn't'", async () => {
+    await db.execAsync(
+      "CREATE TRIGGER fail_member_delete BEFORE DELETE ON hit_list_members BEGIN SELECT RAISE(ABORT, 'disk full'); END",
+    );
+    await expect(stopSharing(db, client(), ME, 'list-1')).resolves.toBe(true);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('[lists]'), expect.stringContaining('disk full'));
     expect(await getMembers(db, 'list-1')).toHaveLength(2);
   });
 });

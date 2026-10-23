@@ -223,6 +223,25 @@ describe('Members screen as the owner', () => {
     expect(router.back).toHaveBeenCalled();
   });
 
+  it('a Stop sharing that ends after the screen was left still toasts but goes back nowhere (S8-09 review B#4)', async () => {
+    let finish: (v: boolean) => void = () => {};
+    jest.mocked(stopSharing).mockReturnValue(new Promise<boolean>((resolve) => (finish = resolve)));
+    await renderScreen();
+    fireEvent.press(screen.getByRole('button', { name: 'Stop sharing' }));
+    const button = lastAlert()[2]?.find((b) => b.text === 'Stop sharing');
+    let pressed: unknown;
+    act(() => {
+      pressed = button?.onPress?.();
+    });
+    screen.unmount();
+    await act(async () => {
+      finish(true);
+      await pressed;
+    });
+    expect(useToastStore.getState().text).toBe('Stopped sharing Downtown');
+    expect(router.back).not.toHaveBeenCalled();
+  });
+
   it("has no 'Leave list'", async () => {
     await renderScreen();
     expect(screen.queryByRole('button', { name: 'Leave list' })).toBeNull();

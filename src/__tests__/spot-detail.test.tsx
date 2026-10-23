@@ -564,6 +564,27 @@ describe("Spot detail: another rider's spot (S8, D47)", () => {
     alert.mockRestore();
   });
 
+  it('a copy that finishes after the rider left the spot still toasts but replaces no other screen (S8-09 review B#3)', async () => {
+    let finish: (r: { spotId: string; missingPhotos: number }) => void = () => {};
+    jest.mocked(saveCopy).mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    replace.mockReset();
+    await renderTheirs();
+    fireEvent.press(screen.getByRole('button', { name: 'Save a copy' }));
+    let pressed: unknown;
+    act(() => {
+      pressed = alert.mock.calls[0][2]![1].onPress!();
+    });
+    screen.unmount();
+    await act(async () => {
+      finish({ spotId: 'copy-3', missingPhotos: 0 });
+      await pressed;
+    });
+    expect(useToastStore.getState().text).toBe('Saved a copy');
+    expect(replace).not.toHaveBeenCalled();
+    alert.mockRestore();
+  });
+
   it("a copy that left a photo out says so; a failed copy stays here and says it couldn't", async () => {
     jest.mocked(saveCopy).mockResolvedValueOnce({ spotId: 'copy-2', missingPhotos: 1 });
     const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});

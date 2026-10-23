@@ -129,6 +129,27 @@ describe('saveCopy (S8, D47/D89): another rider\'s spot becomes the rider\'s own
     warn.mockRestore();
   });
 
+  it('a photo row that fails to insert after the spot is saved is left out and counted, never a second copy (review A#7)', async () => {
+    // the copy's second photo (the primary) fails: the spot and the first photo are already saved and queued
+    await db.execAsync(`CREATE TRIGGER fail_second_photo BEFORE INSERT ON media
+      WHEN NEW.spot_id <> 'anas-ledge' AND (SELECT count(*) FROM media WHERE spot_id = NEW.spot_id) >= 1
+      BEGIN SELECT RAISE(ABORT, 'disk full'); END`);
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const { spotId, missingPhotos } = await saveCopy(db, client(), ME, anas.id);
+
+    expect(missingPhotos).toBe(1);
+    expect((await getSpots(db)).filter((s) => s.owner_id === ME)).toHaveLength(1);
+    const media = await getMediaForSpot(db, spotId);
+    expect(media).toHaveLength(1);
+    // the primary was the photo that failed: the copy has none, and the failed file is gone
+    expect((await getSpot(db, spotId))?.primary_photo_id).toBeUndefined();
+    expect(fakeFs.__writes().filter((uri) => uri.startsWith(`${DOC}photos/${spotId}/`)).filter((uri) => fakeFs.__fileExists(uri))).toEqual([
+      `${DOC}${media[0].file_path}`,
+    ]);
+    warn.mockRestore();
+  });
+
   it("refuses the rider's own spot or one that isn't here, writing nothing", async () => {
     await insertSpot(db, createTestSpot({ id: 'mine', owner_id: ME }));
     const before = await outboxOps(db);

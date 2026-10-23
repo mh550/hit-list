@@ -20,6 +20,44 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 · verify S9
+
+Re-ran: check.sh (green, 2080 tests); `db:start`, `db:reset`, `test:db` (12 files, 640 tests PASS), `test:integration` (7 suites, 79 tests), `db:stop` (docker ps: only dj-*/n8n-* left; no other container touched); `expo export` exit 0. Three later recorded decisions (D96 POST body, strict 22-char `parseToken`, D60 idempotent re-redeem) supersede the wording of some steps; each is marked "yes (D..)" and I judged the intent met. Result: 7 hold, 0 fail.
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| S9-01 | 1 | `grep expo-clipboard package.json`; `git log` chore commits; `npx expo export --platform ios --output-dir /tmp/hl-export-v9` | `expo-clipboard ~57.0.2` in own commit e3620d4; export exit 0 | yes |
+| S9-01 | 2 | read `docs/plans/2026-10-22-s9-links.md` headings | Tokens, Base URL (D92), share-preview, Client, UI, Page, Tests, Copy table, Test list per feature all present; share-preview later changed GET→POST by D96 (recorded) | yes (D96) |
+| S9-01 | 3 | `grep` live checklist | S9 section: host `web/share/`, set meta tag + `EXPO_PUBLIC_SHARE_BASE_URL`, `functions deploy share-preview account-delete` | yes |
+| S9-01 | 4 | `check.sh` | green (lint, tsc, jest 2080) | yes |
+| S9-02 | 1 | read `supabase/functions/share-preview/index.ts`, `config.toml:393-399` | `verify_jwt` false for share-preview, true for account-delete; `crypto.subtle.digest('SHA-256')`; `preview_link` via admin client; `SIGNED_URL_SECONDS = 600`; `Cache-Control: no-store`; no `spots`/`media` table read | yes |
+| S9-02 | 2 | `test:integration` links-function.test.ts verbose | 200 with frozen spots, sender, signed URLs fetching fixture bytes, no auth header; unknown/revoked/withdrawn/expired/used/unshared/deleted all 404 gone, byte-identical test passes; invite → list name+inviter. Uses POST (D96), GET is 405 | yes (D96) |
+| S9-02 | 3 | ran `db:start`, `db:reset`, `test:db`, `test:integration`, `db:stop`, `docker ps` | pgTAP 640 PASS; integration 79 PASS; after stop only dj-*/n8n-* containers | yes |
+| S9-02 | 4 | `check.sh` + `npx jest --ci` on S9 files | green; no console.error lines | yes |
+| S9-03 | 1 | `jest src/__tests__/link-token.test.ts` | newToken 22 base64url chars, differs; tokenHash = Node sha256; linkUrl `#t=`; parseToken accepts URL/`?t=`/bare token, null for other URL. Test uses 22-char tokens, not 'tok' (strict parse, S9-07 B3) | yes (B3) |
+| S9-03 | 2 | `jest sync-links.test.ts` | create_link with hash + expiry 1d/7d/30d, never→null, invite 7d, revoke_link, listMyLinks statuses, redeemInvite parses URL and resolves list id | yes |
+| S9-03 | 3 | `jest send-sheet, sent-screen, list-members` | expiry chips (30 days selected), D44 line, Copy link order + clipboard + toast; Sent link rows Active/Expired/Revoked, Revoke confirm; members Invite link, role, 'Used by @ben', Revoke: 180 passed with inbox | yes |
+| S9-03 | 4 | `jest inbox-tab.test.tsx` Paste a link | row hidden signed out; 'Joined Downtown'; "That link doesn't work any more"; send link opens page URL | yes |
+| S9-03 | 5 | `check.sh` | green, zero console.error | yes |
+| S9-04 | 1 | read `web/share/index.html`, `share.js`; web-share tests | meta tag, textContent only (share.js-never-writes-HTML test), heading, cards, tags, maps links, Save-to-my-spots text, gone line, expiry | yes |
+| S9-04 | 2 | `jest web-share.test.ts` verbose | send/invite/gone/missing-t (no fetch)/hostile-name-as-text cases all pass | yes |
+| S9-04 | 3 | `web/share/README.md` | serve with `python3 -m http.server 8080` from `web/`; hosting is live step | yes |
+| S9-04 | 4 | `check.sh` | green | yes |
+| S9-05 | 1 | `test:integration` links.test.ts verbose | send link 2 spots no auth; revoke→gone; expired→gone; anon redeem refused; ben joins, pull brings spots; repeat gives list id (D60 idempotent, not error); cal refused; listMyLinks 'used' by ben | yes (D60) |
+| S9-05 | 2 | same file | "static page renders the live answer: 2 spots from @ana and two photos that load" passes | yes |
+| S9-05 | 3 | stack start/reset/test:db/test:integration/stop, `docker ps` | 640 pgTAP, 79 integration; no supabase_* left | yes |
+| S9-05 | 4 | `check.sh` | green | yes |
+| S9-06 | 1 | read `s9-what-michael-will-see.md` headings | send sheet link mode, Sent rows, members invite rows, Inbox paste + results, web page three states | yes |
+| S9-06 | 2 | same file `## What to tap`, `## Where the page must be hosted later` | phone steps and hosting pointer to the live checklist present | yes |
+| S9-06 | 3 | same file lines 96-102 | records jest counts, integration 77 (now 79 after S9-07 fixes), export exit 0 5.4 MB; I re-ran export exit 0 | yes |
+| S9-06 | 4 | `check.sh` | green | yes |
+| S9-07 | 1 | `reviews/s9.diff` exists; plan `## Review (S9-07)` | diff 5143 lines; findings table with severity/file:line/fix; RED df86277 → GREEN d457eb6 | yes |
+| S9-07 | 2 | `grep` migrations for token columns; links-function and web-share tests | no plain-token column (only `save_token`, a send-save key, and `token_sha256`); gone byte-identical test, 600 s test, XSS test pass; function never reads spots; redeem concurrency integration test passes | yes |
+| S9-07 | 3 | `git log --grep refactor` | ecfe9bf S9 simplification pass | yes |
+| S9-07 | 4 | grep CLAUDE.md, README, live checklist | CLAUDE.md lists links.ts, link-token.ts, share-preview, web/share, fragment rule; README 'Links (S9)'; checklist hosting + deploy commands | yes |
+| S9-07 | 5 | `check.sh` | green | yes |
+
+
 ### 2026-10-23 · S9-07 · passes
 
 - S9 review (two Opus reviewers, `reviews/s9.diff` 5143 lines): no Critical; **2 Important fixed** (A1: `redeem_invite`'s single use under concurrency had no committed proof → a 10× race in `links-function.test.ts` + a pgTAP lock guard, both shown failing on a lock-less mutation; B1: the Inbox list swallowed the first tap on Open while the keyboard was up). 10 Minor fixed (incl. the deferred clipboard and `?t=` items), 1 left (CSP width). Table + seven written answers under "Review (S9-07)" in the S9 plan. RED `df86277` → GREEN `d457eb6`, `refactor:` `ecfe9bf`.

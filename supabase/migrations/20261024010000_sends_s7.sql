@@ -115,8 +115,12 @@ $$;
 -- mark_send_saved -------------------------------------------------------------------------------------------------
 
 -- As shipped, but a send saves once: a second phone or a stale Inbox item gets 55000 instead of saving a second set
--- of copies.
-create or replace function public.mark_send_saved(p_id uuid)
+-- of copies. p_token is the saving phone's: the same token again (a retry after a lost answer) succeeds, so only the
+-- phone whose save went through inserts the copies. save_token is readable by the sender too: a random uuid.
+alter table public.sends add column save_token uuid;
+
+drop function public.mark_send_saved(uuid);
+create function public.mark_send_saved(p_id uuid, p_token uuid default null)
 returns void
 language plpgsql
 security definer
@@ -134,11 +138,17 @@ begin
     raise exception 'no such send' using errcode = '42501';
   end if;
   if v_row.saved_at is not null then
+    if p_token is not null and v_row.save_token = p_token then
+      return;
+    end if;
     raise exception 'this send was saved already' using errcode = '55000';
   end if;
-  update public.sends set saved_at = now() where id = p_id;
+  update public.sends set saved_at = now(), save_token = p_token where id = p_id;
 end;
 $$;
+
+revoke execute on function public.mark_send_saved(uuid, uuid) from public, anon;
+grant execute on function public.mark_send_saved(uuid, uuid) to authenticated;
 
 -- spots.from_username ---------------------------------------------------------------------------------------------
 

@@ -9,6 +9,7 @@ import { fakeFs } from './helpers/fake-fs';
 import { ME, adoptPhoneFor, outboxOps } from './helpers/outbox';
 import { createTestMedia, createTestSpot } from './factories';
 
+import * as dbModule from '@/src/db';
 import { getAllMedia, getHitLists, getListMemberships, getSpots, insertMedia, insertSpot } from '@/src/db';
 import { upsertProfiles } from '@/src/db/profiles';
 import { clearOutbox, enqueue } from '@/src/db/sync';
@@ -34,6 +35,15 @@ const BEN = '00000000-0000-4000-8000-0000000000b1';
 const DOC = 'file:///data/Documents/';
 const SENDER = { username: 'Ana_B', display_name: 'Ana B' };
 const BYTES = new Uint8Array([0xff, 0xd8, 7, 7, 7]);
+
+/** A promise the test opens when it chooses. */
+function gate<T>() {
+  let open!: (value: T) => void;
+  const promise = new Promise<T>((resolve) => {
+    open = resolve;
+  });
+  return { promise, open };
+}
 
 let db: SQLiteDatabase;
 let fake: FakeSupabase;
@@ -169,6 +179,26 @@ describe('createSend', () => {
       sentTo: [{ id: ANA, username: 'ana', display_name: 'Ana' }],
       failed: { to: { id: BEN, username: 'ben', display_name: null }, message: 'you can only send to friends' },
     });
+  });
+
+  it('a lost create_send answer after the send went in counts as sent and keeps its photos', async () => {
+    const one = await backedUpSpot('Library rail', 1);
+    fake.rpcHandlers.create_send = (args) => {
+      fake.tables.sends.push({ id: args?.p_id, sender: ME, recipient: args?.p_recipient });
+      return { data: null, error: { message: 'network request failed' } };
+    };
+    const result = await createSend(db, client(), ME, { spotIds: [one.spot.id], recipientIds: [ANA], sender: SENDER });
+    expect(result).toEqual({ sentTo: [{ id: ANA, username: 'ana', display_name: 'Ana' }] });
+    expect(kinds()).not.toContain('remove');
+  });
+
+  it('a create_send error when the send can’t be checked leaves the copies (account-delete sweeps staged ones)', async () => {
+    const one = await backedUpSpot('Library rail', 1);
+    fake.failNext('rpc', { message: 'network request failed' }, 'create_send');
+    fake.failSelect((s) => s.table === 'sends', { message: 'offline' });
+    const result = await createSend(db, client(), ME, { spotIds: [one.spot.id], recipientIds: [ANA], sender: SENDER });
+    expect(result?.failed?.message).toBe('network request failed');
+    expect(kinds()).not.toContain('remove');
   });
 
   it('a spot that is not backed up (waiting, failed or parked; a photo of it waiting; phone-only; another account’s) refuses before any call', async () => {
@@ -405,7 +435,7 @@ describe('saveSend', () => {
     const result = await saveSend(db, client(), ME, itemFor(SEND_1));
 
     expect(result).toEqual({ status: 'saved', saved: 2, failedPhotos: 0 });
-    expect(rpcArgs('mark_send_saved')).toEqual([{ p_id: SEND_1 }]);
+    expect(rpcArgs('mark_send_saved')).toEqual([{ p_id: SEND_1, p_token: expect.any(String) }]);
     expect(filesWhenMarked).toBe(3);
 
     const spots = await ownedSpots();
@@ -455,7 +485,7 @@ describe('saveSend', () => {
     const spots = await ownedSpots();
     expect(spots.map((s) => s.generated_name)).toEqual(['Fremont']);
     expect(await getAllMedia(db)).toHaveLength(1);
-    expect(rpcArgs('mark_send_saved')).toEqual([{ p_id: SEND_1 }]);
+    expect(rpcArgs('mark_send_saved')).toEqual([{ p_id: SEND_1, p_token: expect.any(String) }]);
   });
 
   it('Save into a new hit list also makes an owned list named From @Ana_B holding the copies', async () => {
@@ -512,12 +542,64 @@ describe('saveSend', () => {
     expect(useInboxStore.getState().items).toEqual([]);
   });
 
-  it('a lost answer after the server saved it (saved_at set) still inserts the copies, once', async () => {
-    fake.failNext('rpc', { message: 'network request failed' }, 'mark_send_saved');
-    fake.tables.sends[0].saved_at = '2026-10-22 12:00:00+00';
-    const result = await saveSend(db, client(), ME, itemFor(SEND_1));
-    expect(result).toEqual({ status: 'saved', saved: 2, failedPhotos: 0 });
+  /** mark_send_saved as the server answers it: once per send, the same token again succeeds (a retry after a lost answer). */
+  function serverMark({ loseFirstAnswer = false } = {}) {
+    let savedWith: unknown = null;
+    let calls = 0;
+    fake.rpcHandlers.mark_send_saved = (args) => {
+      calls += 1;
+      if (savedWith === null) savedWith = args?.p_token;
+      else if (savedWith !== args?.p_token) return { data: null, error: { message: 'saved already', code: '55000' } };
+      return loseFirstAnswer && calls === 1
+        ? { data: null, error: { message: 'network request failed' } }
+        : { data: null, error: null };
+    };
+  }
+
+  it('a lost answer after the server saved it: the retry sends the same token, saves the copies once, downloads nothing again', async () => {
+    serverMark({ loseFirstAnswer: true });
+
+    const first = await saveSend(db, client(), ME, itemFor(SEND_1));
+    expect(first).toEqual({ status: 'failed' });
+    expect(await countRows('spots')).toBe(0);
+    expect(useInboxStore.getState().items.map((i) => i.id)).toEqual([SEND_1]);
+    const downloaded = fakeFs.__writes();
+    // the files stay for the retry
+    for (const uri of downloaded) expect(fakeFs.__fileExists(uri)).toBe(true);
+
+    const second = await saveSend(db, client(), ME, itemFor(SEND_1));
+    expect(second).toEqual({ status: 'saved', saved: 2, failedPhotos: 0 });
+    const [a, b] = rpcArgs('mark_send_saved');
+    expect(b.p_token).toBe(a.p_token);
+    expect(fakeFs.__writes()).toEqual(downloaded);
     expect(await countRows('spots')).toBe(2);
+    expect(await countRows('media')).toBe(3);
+    expect(useInboxStore.getState().items).toEqual([]);
+  });
+
+  it('a stale item saved on another phone (a lost answer, then 55000 with this phone’s token) saves nothing', async () => {
+    fake.tables.sends[0].saved_at = '2026-10-22 12:00:00+00';
+    fake.failNext('rpc', { message: 'network request failed' }, 'mark_send_saved');
+    expect(await saveSend(db, client(), ME, itemFor(SEND_1))).toEqual({ status: 'failed' });
+    fake.failNext('rpc', { message: 'saved already', code: '55000' }, 'mark_send_saved');
+    expect(await saveSend(db, client(), ME, itemFor(SEND_1))).toEqual({ status: 'already_saved' });
+    expect(await countRows('spots')).toBe(0);
+    for (const uri of fakeFs.__writes()) expect(fakeFs.__fileExists(uri)).toBe(false);
+  });
+
+  it('an insert failing after the send was marked saved keeps the save: the retry inserts each copy once', async () => {
+    serverMark();
+    const insertMediaSpy = jest.spyOn(dbModule, 'insertMedia').mockRejectedValueOnce(new Error('database is locked'));
+
+    await expect(saveSend(db, client(), ME, itemFor(SEND_1))).resolves.toEqual({ status: 'failed' });
+    expect(useInboxStore.getState().items.map((i) => i.id)).toEqual([SEND_1]);
+    insertMediaSpy.mockRestore();
+
+    const retry = await saveSend(db, client(), ME, itemFor(SEND_1));
+    expect(retry).toEqual({ status: 'saved', saved: 2, failedPhotos: 0 });
+    expect(await countRows('spots')).toBe(2);
+    expect(await countRows('media')).toBe(3);
+    for (const m of await getAllMedia(db)) expect(fakeFs.__fileBytes(`${DOC}${m.file_path}`)).toEqual(BYTES);
   });
 
   it('a send the sender took back (no longer readable) inserts nothing and drops the item', async () => {
@@ -530,12 +612,13 @@ describe('saveSend', () => {
     expect(useInboxStore.getState().items).toEqual([]);
   });
 
-  it('any other error with the send still unsaved inserts nothing and keeps the item to try again', async () => {
+  it('any other error with the send still unsaved inserts nothing and keeps the item; the retry saves', async () => {
     fake.failNext('rpc', { message: 'timeout' }, 'mark_send_saved');
     const result = await saveSend(db, client(), ME, itemFor(SEND_1));
     expect(result).toEqual({ status: 'failed' });
     expect(await countRows('spots')).toBe(0);
     expect(useInboxStore.getState().items.map((i) => i.id)).toEqual([SEND_1]);
+    expect(await saveSend(db, client(), ME, itemFor(SEND_1))).toMatchObject({ status: 'saved', saved: 2 });
   });
 
   it('two saves of one send at once share one save: one rpc, one set of copies', async () => {
@@ -550,11 +633,11 @@ describe('saveSend', () => {
 
   it('a sends load that started before the save cannot put the saved item back', async () => {
     // the load reads the session first and gets it only after the save is done; the server still lists the send
-    fake.auth.getSession.mockImplementationOnce(
-      () => new Promise((resolve) => setTimeout(() => resolve({ data: { session: fakeSession({ userId: ME }) }, error: null }), 30)),
-    );
+    const session = gate<Awaited<ReturnType<FakeSupabase['auth']['getSession']>>>();
+    fake.auth.getSession.mockImplementationOnce(() => session.promise);
     const staleLoad = loadAndApplySends(db, client(), ME);
     await saveSend(db, client(), ME, itemFor(SEND_1));
+    session.open({ data: { session: fakeSession({ userId: ME }) }, error: null });
     await staleLoad;
     expect(useInboxStore.getState().items).toEqual([]);
   });
@@ -572,6 +655,18 @@ describe('dismissSend and withdrawSend', () => {
     useInboxStore.getState().setItems(ME, 'send', [itemFor(SEND_1)]);
     await dismissSend(client(), ME, SEND_1);
     expect(rpcArgs('dismiss_send')).toEqual([{ p_id: SEND_1 }]);
+    expect(useInboxStore.getState().items).toEqual([]);
+  });
+
+  it('a sends load that started before a dismiss cannot put the item back', async () => {
+    serverSend(SEND_1);
+    useInboxStore.getState().setItems(ME, 'send', [itemFor(SEND_1)]);
+    const session = gate<Awaited<ReturnType<FakeSupabase['auth']['getSession']>>>();
+    fake.auth.getSession.mockImplementationOnce(() => session.promise);
+    const staleLoad = loadAndApplySends(db, client(), ME);
+    await dismissSend(client(), ME, SEND_1);
+    session.open({ data: { session: fakeSession({ userId: ME }) }, error: null });
+    await staleLoad;
     expect(useInboxStore.getState().items).toEqual([]);
   });
 

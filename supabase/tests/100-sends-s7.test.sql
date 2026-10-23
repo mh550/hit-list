@@ -4,7 +4,7 @@
 -- create_send refuses an id somebody else staged into. mark_send_saved saves once. spots.from_username is a
 -- username. staged_send_objects is the service role's (account-delete).
 begin;
-select plan(30);
+select plan(34);
 
 -- People ----------------------------------------------------------------------------------------------------------
 select set_config('t.sender', tests.create_user('sender@test.local', 'Ana_B')::text, true);
@@ -149,6 +149,17 @@ select lives_ok($$ select public.mark_send_saved('00000000-0000-0000-0000-000000
                 'the recipient saves a send');
 select throws_ok($$ select public.mark_send_saved('00000000-0000-0000-0000-0000000007b1') $$, '55000', null,
                  'saving a send twice raises 55000');
+select lives_ok($$ select public.mark_send_saved('00000000-0000-0000-0000-0000000007b3',
+                                                 '00000000-0000-0000-0000-0000000007a9') $$,
+                'a phone saves a send with its save token');
+select lives_ok($$ select public.mark_send_saved('00000000-0000-0000-0000-0000000007b3',
+                                                 '00000000-0000-0000-0000-0000000007a9') $$,
+                'the same token again (a retry after a lost answer) succeeds');
+select throws_ok($$ select public.mark_send_saved('00000000-0000-0000-0000-0000000007b3',
+                                                  '00000000-0000-0000-0000-0000000007aa') $$, '55000', null,
+                 'another phone''s token raises 55000');
+select throws_ok($$ select public.mark_send_saved('00000000-0000-0000-0000-0000000007b3') $$, '55000', null,
+                 'no token after a tokened save raises 55000');
 
 -- spots.from_username ----------------------------------------------------------------------------------------------
 select has_column('public', 'spots', 'from_username', 'spots has from_username');

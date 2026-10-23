@@ -18,6 +18,7 @@ jest.mock('@/src/sync/client', () => ({
 
 import { useSentSends } from '@/src/hooks/use-sent-sends';
 import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
+import * as sendsModule from '@/src/sync/sends';
 
 const BEN = '00000000-0000-4000-8000-0000000000b1';
 const SEND = '00000000-0000-4000-8000-000000000601';
@@ -80,4 +81,31 @@ it('signed out it reads nothing', async () => {
   await act(async () => {});
   expect(result.current.sends).toBeNull();
   expect(mockFake!.selects).toEqual([]);
+});
+
+it('an older read that ends after a newer one never replaces it', async () => {
+  const { result } = renderHook(() => useSentSends());
+  await waitFor(() => expect(result.current.sends).not.toBeNull());
+  const sent = (status: 'waiting' | 'withdrawn') => [
+    { id: SEND, to: { id: BEN, username: 'ben', display_name: null }, count: 2, status, created_at: '', photoPaths: [] },
+  ];
+  let openOld!: (value: ReturnType<typeof sent>) => void;
+  const spy = jest
+    .spyOn(sendsModule, 'listSent')
+    .mockImplementationOnce(() => new Promise((resolve) => (openOld = resolve)))
+    .mockResolvedValueOnce(sent('withdrawn'));
+
+  let older!: Promise<void>;
+  act(() => {
+    older = result.current.refresh();
+  });
+  await act(() => result.current.refresh());
+  expect(result.current.sends?.map((s) => s.status)).toEqual(['withdrawn']);
+  await act(async () => {
+    openOld(sent('waiting'));
+    await older;
+  });
+
+  expect(result.current.sends?.map((s) => s.status)).toEqual(['withdrawn']);
+  spy.mockRestore();
 });

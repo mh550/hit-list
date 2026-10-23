@@ -131,7 +131,7 @@ select throws_ok($$ select public.create_send('00000000-0000-0000-0000-000000000
 reset role;
 select ok(not has_function_privilege('anon', p, 'execute'), 'anon cannot execute ' || p)
 from unnest(array['public.create_send(uuid, uuid, jsonb)', 'public.withdraw_send(uuid)',
-                  'public.mark_send_saved(uuid)', 'public.dismiss_send(uuid)', 'public.can_read_send(uuid)',
+                  'public.mark_send_saved(uuid, uuid)', 'public.dismiss_send(uuid)', 'public.can_read_send(uuid)',
                   'public.can_read_photo(text)', 'public.can_write_photo(text, text)']) as p;
 
 -- No direct writes ------------------------------------------------------------------------------------------------

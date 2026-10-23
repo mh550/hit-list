@@ -95,7 +95,8 @@ beforeEach(() => {
   router = { push: jest.fn() };
   jest.mocked(useRouter).mockReturnValue(router as never);
   jest.mocked(useIsFocused).mockReturnValue(true);
-  jest.replaceProperty(AppState, 'currentState', 'active');
+  // react-native's jest mock makes currentState a function; on the phone it is the state string
+  Object.defineProperty(AppState, 'currentState', { value: 'active', configurable: true, writable: true });
   appStateListeners = [];
   jest.spyOn(AppState, 'addEventListener').mockImplementation((type, listener) => {
     if (type === 'change') appStateListeners.push(listener as (state: AppStateStatus) => void);
@@ -248,7 +249,8 @@ describe('Inbox tab signed in', () => {
     signIn();
     await renderTab();
 
-    const row = screen.getByRole('button', { name: '@ana wants to be friends' });
+    // the display name is read with the line
+    const row = screen.getByRole('button', { name: '@ana wants to be friends, Ana B' });
     expect(row.props.accessibilityActions).toEqual([{ name: 'block', label: 'Block @ana' }]);
     fireEvent(row, 'accessibilityAction', { nativeEvent: { actionName: 'block' } });
     expect(lastAlert().title).toBe('Block @ana?');

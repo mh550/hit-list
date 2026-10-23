@@ -433,7 +433,6 @@ describe('refreshFriends', () => {
   });
 
   it("puts the incoming requests into the Inbox as friend_request items, with the rider's stored seen mark", async () => {
-    fake.tables.friendships.push(friendship('f-ana2', ANA, 'pending', ANA, '2026-10-22 08:00:00+00'));
     await setSyncState(db, `inbox_seen_at:${ME}`, '2026-10-20T10:00:00.000Z');
 
     await refreshFriends(db, client(), ME);

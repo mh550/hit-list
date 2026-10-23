@@ -94,6 +94,7 @@ function rowText(row: Row): string {
 
 function FriendsBody({ client, uid }: { client: SupabaseClient; uid: string }) {
   const db = useSQLiteContext();
+  const router = useRouter();
   const friends = useFriendsStore((s) => s.friends);
   const outgoing = useFriendsStore((s) => s.outgoing);
   const blocked = useFriendsStore((s) => s.blocked);
@@ -297,9 +298,11 @@ function FriendsBody({ client, uid }: { client: SupabaseClient; uid: string }) {
       ) : null}
       {loadError ? <Text style={styles.lineError}>{LOAD_FAILED}</Text> : null}
       {incomingCount > 0 ? (
-        <Text style={styles.hint}>
-          {incomingCount === 1 ? '1 friend request in Inbox' : `${incomingCount} friend requests in Inbox`}
-        </Text>
+        <Pressable accessibilityRole="link" onPress={() => router.navigate('/inbox')} hitSlop={spacing.sm}>
+          <Text style={styles.link}>
+            {incomingCount === 1 ? '1 friend request in Inbox' : `${incomingCount} friend requests in Inbox`}
+          </Text>
+        </Pressable>
       ) : null}
     </View>
   );
@@ -379,6 +382,10 @@ const styles = StyleSheet.create({
   hint: {
     ...typography.footnote,
     color: palette.gray[500],
+  },
+  link: {
+    ...typography.subheadline,
+    color: palette.blue[500],
   },
   lineOk: {
     ...typography.subheadline,

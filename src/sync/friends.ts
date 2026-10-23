@@ -3,6 +3,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { getProfiles, upsertProfiles } from '@/src/db/profiles';
 import { useFriendsStore } from '@/src/stores/friends-store';
+import { useInboxStore, type FriendRequestItem } from '@/src/stores/inbox-store';
 import type { FriendProfile } from '@/src/types';
 import { maySync, signedInAs } from './account';
 import { errorMessage } from './errors';
@@ -274,6 +275,14 @@ export async function unblock(client: SupabaseClient, uid: string, userId: strin
   if (error) throw serverError(error);
 }
 
+const requestItem = (row: FriendRow): FriendRequestItem => ({
+  kind: 'friend_request',
+  id: row.friendshipId,
+  created_at: row.created_at,
+  friendshipId: row.friendshipId,
+  from: row.profile,
+});
+
 /** The newest load asked for, per rider: an older one that ends later must not put back what a newer one dropped. */
 const newestTicket = new Map<string, number>();
 let tickets = 0;
@@ -315,6 +324,11 @@ export async function loadAndApplyFriends(
     };
     if (!isNewest() || !(await signedInAs(client, uid))) return;
     useFriendsStore.getState().applyFriends(uid, filled);
+    // the Inbox's friend requests: only the ones asked by others (the badge never counts what the rider sent). The
+    // seen mark loads first: a cold start with a stored session fires no sign-in, so nothing else would read it.
+    const inbox = useInboxStore.getState();
+    await inbox.loadSeen(db, uid);
+    if (isNewest()) inbox.setItems(uid, 'friend_request', filled.incoming.map(requestItem));
   } catch (err) {
     console.warn('[friends] loading friends failed:', errorMessage(err));
     if (isNewest()) useFriendsStore.getState().setLoadError(uid, errorMessage(err));

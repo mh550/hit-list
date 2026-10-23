@@ -12,6 +12,7 @@ import { AddToListSheet } from '@/src/components/AddToListSheet';
 import { SendSheet } from '@/src/components/SendSheet';
 import { ListPickerChips } from '@/src/components/ListPickerChips';
 import { useAuthStore } from '@/src/stores/auth-store';
+import { useRiderId } from '@/src/hooks/use-rider-id';
 import { syncNow } from '@/src/sync/engine';
 import { palette, radius, spacing } from '@/src/constants/theme';
 
@@ -28,7 +29,7 @@ export default function SpotsScreen() {
   const router = useRouter();
   const db = useSQLiteContext();
   const signedIn = useAuthStore((s) => s.status === 'signed_in');
-  const uid = useAuthStore((s) => s.userId);
+  const uid = useRiderId();
   // The spinner is the rider's pull only (syncNow never rejects); background syncs show nothing here.
   const [pulling, setPulling] = useState(false);
   const pullToSync = () => {

@@ -11,7 +11,7 @@ import {
   selectEffectiveSort,
   selectActiveFilterCount,
 } from '@/src/stores';
-import { useAuthStore } from '@/src/stores/auth-store';
+import { useRiderId } from '@/src/hooks/use-rider-id';
 import { useLocationStore } from '@/src/stores/location-store';
 import { useSettingsStore } from '@/src/stores/settings-store';
 import { SpotListItem } from '@/src/components/SpotListItem';
@@ -106,7 +106,7 @@ export function SpotsBrowser({
   const currentLocation = useLocationStore((s) => s.currentLocation);
   const units = useSettingsStore((s) => s.units);
   const mediaBySpot = useMediaStore((s) => s.mediaBySpot);
-  const uid = useAuthStore((s) => s.userId);
+  const uid = useRiderId();
 
   const [filterVisible, setFilterVisible] = useState(false);
   const activeFilterCount = selectActiveFilterCount(filters);

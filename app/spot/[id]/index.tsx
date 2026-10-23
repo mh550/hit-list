@@ -18,6 +18,7 @@ import {
   Tag,
 } from '@/src/components';
 import { useAuthStore } from '@/src/stores/auth-store';
+import { useRiderId } from '@/src/hooks/use-rider-id';
 import { showToast } from '@/src/stores/toast-store';
 import { getSupabase } from '@/src/sync/client';
 import { saveCopy } from '@/src/sync/copy';
@@ -126,6 +127,7 @@ export default function SpotDetailScreen() {
   const spot = useSpotsStore((s) => s.spots.find((sp) => sp.id === id));
   const media = useMediaStore((s) => (id ? s.mediaBySpot[id] : undefined));
   const userId = useAuthStore((s) => s.userId);
+  const riderId = useRiderId();
   const [sending, setSending] = useState(false);
   const sendIds = useMemo(() => (id ? [id] : []), [id]);
   const db = useSQLiteContext();
@@ -153,7 +155,7 @@ export default function SpotDetailScreen() {
   const hasTags = spot.feature_types.length > 0 || spot.stopped;
   // Another rider's spot (S8, D47) is read-only here: no Edit, no Send (D87), no adding photos or filing it; Save a
   // copy instead. Signed out, a phone-only spot keeps Send and the sheet asks to sign in (D37).
-  const othersSpot = isForeign(spot, userId);
+  const othersSpot = isForeign(spot, riderId);
 
   const copyNow = async () => {
     if (copying.current || !userId) return;
@@ -171,7 +173,10 @@ export default function SpotDetailScreen() {
     }
   };
   const askSaveCopy = () =>
-    Alert.alert('Save a copy of this spot?', 'It becomes your own private spot.', [
+    // the copy is the signed-in rider's: signed out (an ended session), sign in first
+    !userId
+      ? router.push('/auth/sign-in')
+      : Alert.alert('Save a copy of this spot?', 'It becomes your own private spot.', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Save', onPress: () => void copyNow() },
     ]);

@@ -9,7 +9,7 @@ import { EMPTY_AREA_COPY, EMPTY_LIST_COPY } from '@/src/components/SpotsBrowser'
 import { palette, spacing } from '@/src/constants/theme';
 import { useHitListActions } from '@/src/hooks/use-hit-list-actions';
 import { selectListSpots, selectMySpots, useHitListsStore, useSpotsStore } from '@/src/stores';
-import { useAuthStore } from '@/src/stores/auth-store';
+import { useRiderId } from '@/src/hooks/use-rider-id';
 import { useSettingsStore } from '@/src/stores/settings-store';
 import { areaLabel, isAreaList } from '@/src/utils/area';
 import { getSpotDisplayName, spotCountLabel } from '@/src/utils/spot-name';
@@ -30,7 +30,7 @@ export default function ListScreen() {
   const list = useHitListsStore((s) => s.lists.find((l) => l.id === id && l.deleted_at === undefined));
   const membershipBySpot = useHitListsStore((s) => s.membershipBySpot);
   const spots = useSpotsStore((s) => s.spots);
-  const uid = useAuthStore((s) => s.userId);
+  const uid = useRiderId();
   const units = useSettingsStore((s) => s.units);
   const { renameList, deleteList, removeSpotFromList } = useHitListActions();
   const [renaming, setRenaming] = useState(false);

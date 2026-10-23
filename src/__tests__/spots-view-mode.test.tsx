@@ -205,6 +205,15 @@ describe("Spots tab: others' spots (S8, D47)", () => {
   afterEach(() => act(() => useAuthStore.setState(SIGNED_OUT)));
   afterAll(() => useHitListsStore.setState({ lists: [], membershipBySpot: {}, activeListId: null }));
 
+  it("signed out, 'My spots' still leaves out a friend's spot still on the phone (the phone's account decides)", () => {
+    act(() => useAuthStore.setState(SIGNED_OUT));
+    useSyncStore.setState({ phoneUserId: 'rider-me' });
+    render(<SpotsScreen />);
+    expect(screen.getByText('My rail')).toBeTruthy();
+    expect(screen.queryByText("Ana's ledge")).toBeNull();
+    useSyncStore.setState(INITIAL_SYNC);
+  });
+
   it("'My spots' leaves a friend's spot out; the shared list's chip shows it with the rider's own", () => {
     render(<SpotsScreen />);
     expect(screen.getByText('My rail')).toBeTruthy();

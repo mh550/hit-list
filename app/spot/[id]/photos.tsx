@@ -15,7 +15,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useMediaStore, useSpotsStore } from '@/src/stores';
-import { useAuthStore } from '@/src/stores/auth-store';
+import { useRiderId } from '@/src/hooks/use-rider-id';
 import { usePhotoUri } from '@/src/hooks/use-photo-uri';
 import { isForeign } from '@/src/utils/ownership';
 import { useSpotActions } from '@/src/hooks/use-spot-actions';
@@ -56,7 +56,7 @@ export default function PhotoViewerScreen() {
   const spot = useSpotsStore((s) => s.spots.find((sp) => sp.id === id));
   const media = useMediaStore((s) => (id ? s.mediaBySpot[id] : undefined));
   const current = useMemo(() => (spot ? spotPhotos(spot, media) : []), [spot, media]);
-  const userId = useAuthStore((s) => s.userId);
+  const userId = useRiderId();
   const readOnly = spot !== undefined && isForeign(spot, userId);
 
   // D29: the order is fixed while the viewer is open (a new primary does not jump to page 1). Removed photos

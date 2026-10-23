@@ -8,6 +8,7 @@ import { selectMySpots, useSpotsStore } from '@/src/stores';
 import { useSettingsStore } from '@/src/stores/settings-store';
 import { useMediaStore } from '@/src/stores/media-store';
 import { useHitListsStore } from '@/src/stores/hit-lists-store';
+import { useSyncStore } from '@/src/stores/sync-store';
 import type { Spot } from '@/src/types';
 import { backfillTowns } from '@/src/utils/reverse-geocode';
 
@@ -68,7 +69,10 @@ export function useDbInit(): { isReady: boolean; upgradeFailed: boolean } {
       // (another rider's spot is read-only here, and its place never goes to Apple; S8). The session may not be read
       // yet, so the account is the phone's (sync_state), not the auth store's.
       void getSyncState(db, 'user_id')
-        .then((uid) => backfillTowns(selectMySpots(spots, uid), setTown))
+        .then((uid) => {
+          useSyncStore.setState({ phoneUserId: uid ?? null });
+          return backfillTowns(selectMySpots(spots, uid), setTown);
+        })
         .catch((err: unknown) => console.warn('[useDbInit] town backfill skipped:', err));
     })();
     // All stable, so this still runs once.

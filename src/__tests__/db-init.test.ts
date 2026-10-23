@@ -5,6 +5,7 @@ import { useSpotsStore } from '@/src/stores';
 import { useSettingsStore } from '@/src/stores/settings-store';
 import { useMediaStore } from '@/src/stores/media-store';
 import { useHitListsStore } from '@/src/stores/hit-lists-store';
+import { useSyncStore } from '@/src/stores/sync-store';
 import { UnitSystem } from '@/src/types';
 import { createTestHitList, createTestMedia, createTestSpot } from './factories';
 
@@ -158,6 +159,8 @@ describe('useDbInit', () => {
     );
     expect(reverseGeocodeAsync).toHaveBeenCalledTimes(2);
     expect(useSpotsStore.getState().spots.find((s) => s.id === anas.id)?.generated_name).toBeUndefined();
+    // the phone's account is known before the session is read: others' spots are read-only from the start
+    expect(useSyncStore.getState().phoneUserId).toBe('u-me');
     mockDb.getFirstAsync.mockResolvedValue(null);
   });
 

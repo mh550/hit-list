@@ -5,7 +5,7 @@ import { Marker } from 'react-native-maps';
 import type NativeMapView from 'react-native-maps';
 
 import { ClusteredMapView } from '@/src/components/ClusteredMapView';
-import { useAuthStore } from '@/src/stores/auth-store';
+import { useRiderId } from '@/src/hooks/use-rider-id';
 import { colors, palette } from '@/src/constants/theme';
 import type { GeoPoint, Spot } from '@/src/types';
 import { clusterPressTarget } from '@/src/utils/cluster-press';
@@ -37,7 +37,7 @@ export function SpotMap({ spots, currentLocation, onOpenSpot }: Props) {
   const [region] = useState(() => initialRegion(spots, currentLocation));
   // Only track the user while this tab is on screen; a mounted-but-hidden map would keep GPS on.
   const focused = useIsFocused();
-  const uid = useAuthStore((s) => s.userId);
+  const uid = useRiderId();
   // preserveClusterPressBehavior stops the library zooming on cluster tap, so SpotMap zooms with its own ref.
   const mapRef = useRef<NativeMapView | null>(null);
   const setMap = useCallback((map: NativeMapView | null) => {

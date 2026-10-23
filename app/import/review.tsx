@@ -16,7 +16,7 @@ import { useSpotActions } from '@/src/hooks/use-spot-actions';
 import { useMediaActions } from '@/src/hooks/use-media-actions';
 import { Chip, ChipGroup } from '@/src/components';
 import { selectMySpots, useMediaStore, useSettingsStore, useSpotsStore } from '@/src/stores';
-import { useAuthStore } from '@/src/stores/auth-store';
+import { useRiderId } from '@/src/hooks/use-rider-id';
 import { newId } from '@/src/utils/id';
 import { formatSpotDate, getSpotDisplayName } from '@/src/utils/spot-name';
 import { NO_LOCATION } from '@/src/utils/geo';
@@ -47,7 +47,7 @@ export default function ImportReviewScreen() {
   const savingRef = useRef(false);
   const [saving, setSaving] = useState(false);
   const allSpots = useSpotsStore((s) => s.spots);
-  const uid = useAuthStore((s) => s.userId);
+  const uid = useRiderId();
   // Only the rider's own spots are offered here: another rider's (S8) never takes photos or goes in a list (D47).
   const spots = useMemo(() => selectMySpots(allSpots, uid), [allSpots, uid]);
   const mediaBySpot = useMediaStore((s) => s.mediaBySpot);

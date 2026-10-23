@@ -617,6 +617,13 @@ describe("removeForeignRows: sign-out takes others' spots off the phone (S8, D86
     expect(useSpotsStore.getState().spots.map((s) => s.id).sort()).toEqual(['a-s1', 'a-s2']);
   });
 
+  it("the sync store follows the phone's account (sync_state.user_id): adopt sets it, Remove clears it", async () => {
+    await adopt(db, B);
+    expect(useSyncStore.getState().phoneUserId).toBe(B);
+    await removeLocalAccountData(db, B);
+    expect(useSyncStore.getState().phoneUserId).toBeNull();
+  });
+
   it('an account switch re-paths the new rider\'s cached photos to photos/… so they download into Documents (S8-02 review #7)', async () => {
     await setSyncState(db, 'user_id', A);
     await insertSpot(db, createTestSpot({ id: 'b-s1', owner_id: B }));

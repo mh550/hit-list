@@ -16,6 +16,12 @@ export interface SyncSnapshot {
    * lists get it as owner (src/sync/owner.ts).
    */
   adoptedUserId: string | null;
+  /**
+   * The phone's account (sync_state.user_id: the last rider adopted here, kept after a sign-out with Keep), loaded at
+   * launch and on every store reload. Whose rows are the rider's own while the session isn't read (offline launch,
+   * an ended session): others' spots stay read-only then too (S8, D47).
+   */
+  phoneUserId: string | null;
 }
 
 export const INITIAL_SYNC: SyncSnapshot = {
@@ -25,6 +31,7 @@ export const INITIAL_SYNC: SyncSnapshot = {
   failedCount: 0,
   lastError: null,
   adoptedUserId: null,
+  phoneUserId: null,
 };
 
 export const useSyncStore = create<SyncSnapshot>(() => ({ ...INITIAL_SYNC }));

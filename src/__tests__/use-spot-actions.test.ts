@@ -301,6 +301,15 @@ describe('useSpotActions', () => {
       expect(useSpotsStore.getState().spots).toEqual([anas]);
     });
 
+    it("signed out (an offline launch, an ended session) the phone's account still decides: others' spots stay read-only", async () => {
+      useAuthStore.setState(SIGNED_OUT);
+      useSyncStore.setState({ phoneUserId: 'u-me' });
+      const { result } = renderHook(() => useSpotActions());
+      await expect(result.current.updateSpot('anas', { name: 'Mine now' })).rejects.toThrow('not your spot');
+      expect(mockUpdateSpot).not.toHaveBeenCalled();
+      useSyncStore.setState(INITIAL_SYNC);
+    });
+
     it("the rider's own and phone-only spots still update", async () => {
       useSpotsStore.setState({ spots: [{ ...anas, owner_id: 'u-me' }, createTestSpot({ id: 'phone' })] });
       const { result } = renderHook(() => useSpotActions());

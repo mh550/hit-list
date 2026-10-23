@@ -1,7 +1,9 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { getAllMedia, getHitLists, getListMemberships, getSpots } from '@/src/db';
+import { getSyncState } from '@/src/db/sync';
 import { useHitListsStore, useMediaStore, useSpotsStore } from '@/src/stores';
+import { useSyncStore } from '@/src/stores/sync-store';
 import { errorMessage } from './errors';
 
 // The stores after a commit outside the action hooks (a pull, adoption, a saved send): out of engine.ts so the
@@ -35,17 +37,19 @@ const storeValues = () => [
 export async function reloadStores(db: SQLiteDatabase): Promise<void> {
   for (let attempt = 0; attempt < RELOAD_TRIES; attempt += 1) {
     const before = storeValues();
-    const [spots, media, lists, memberships] = await Promise.all([
+    const [spots, media, lists, memberships, phoneUserId] = await Promise.all([
       getSpots(db),
       getAllMedia(db),
       getHitLists(db),
       getListMemberships(db),
+      getSyncState(db, 'user_id'),
     ]);
     if (storeValues().some((value, i) => value !== before[i])) continue;
     useSpotsStore.getState().setSpots(spots);
     useMediaStore.getState().setAll(media);
     useHitListsStore.getState().setLists(lists);
     useHitListsStore.getState().setMemberships(memberships);
+    useSyncStore.setState({ phoneUserId: phoneUserId ?? null });
     return;
   }
   console.warn('[sync] the stores kept changing; they reload after the next pull that changes rows');

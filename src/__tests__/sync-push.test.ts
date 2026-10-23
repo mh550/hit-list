@@ -16,6 +16,7 @@ import {
 import { clearOutbox, countPending, enqueue, type OutboxEntity, type OutboxOp } from '@/src/db/sync';
 import { push } from '@/src/sync/push';
 import type { PhotoIO } from '@/src/sync/photos';
+import { FeatureType } from '@/src/types';
 
 const T0 = '2026-10-20T10:00:00.000Z';
 const T1 = '2026-10-21T11:00:00.000Z';
@@ -84,7 +85,7 @@ describe('push: drain the outbox into Supabase (real SQLite, fake client)', () =
       name: 'Courthouse rail',
       generated_name: 'Capitol Hill',
       location: { latitude: 47.61, longitude: -122.33 },
-      feature_types: ['rail', 'ledge'],
+      feature_types: [FeatureType.Rail, FeatureType.Ledge],
       stopped: true,
       natural_speed: 2,
       notes: 'kinked',
@@ -368,7 +369,7 @@ describe('push: drain the outbox into Supabase (real SQLite, fake client)', () =
         kind: 'area',
         area_center: { latitude: 47.6, longitude: -122.3 },
         area_radius_m: 3219,
-        area_filters: { types: ['rail'], stopped: false },
+        area_filters: { types: [FeatureType.Rail], stopped: false },
         area_place: 'Capitol Hill',
         shared: true,
       }),
@@ -383,7 +384,7 @@ describe('push: drain the outbox into Supabase (real SQLite, fake client)', () =
         area_center_lat: 47.6,
         area_center_lng: -122.3,
         area_radius_m: 3219,
-        area_filters: { types: ['rail'], stopped: false },
+        area_filters: { types: [FeatureType.Rail], stopped: false },
         area_place: 'Capitol Hill',
         shared: true,
       },

@@ -114,6 +114,14 @@ describe('src/db/sync.ts: the outbox and sync state (real SQLite)', () => {
       ]);
     });
 
+    it('peekOutbox afterId pages past the rows already seen (a failed backoff row stays in the window)', async () => {
+      for (const id of ['a', 'b', 'c']) await enqueue(db, 'spot', id, 'upsert');
+      const [a] = await peekOutbox(db, 50);
+
+      expect((await peekOutbox(db, 50, { afterId: a.id })).map((r) => r.entity_id)).toEqual(['b', 'c']);
+      expect((await peekOutbox(db, 1, { afterId: a.id })).map((r) => r.entity_id)).toEqual(['b']);
+    });
+
     it('countFailed counts rows with attempts ≥ 10; countPending counts every row', async () => {
       for (const id of ['a', 'b', 'c']) await enqueue(db, 'spot', id, 'upsert');
       const [a, b] = await peekOutbox(db, 50);

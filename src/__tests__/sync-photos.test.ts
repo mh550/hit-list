@@ -33,8 +33,8 @@ jest.mock('expo-image-manipulator', () => {
     ImageManipulator: {
       manipulate: jest.fn((_source: string) => {
         let size = { width: mockImage.width, height: mockImage.height };
-        const context = {
-          resize: jest.fn((next: { width?: number | null; height?: number | null }) => {
+        const context: { resize: jest.Mock; renderAsync: jest.Mock; release: jest.Mock } = {
+          resize: jest.fn((next: { width?: number | null; height?: number | null }): typeof context => {
             mockImage.resizes.push(next);
             const ratio = next.width ? next.width / size.width : next.height! / size.height;
             size = { width: Math.round(size.width * ratio), height: Math.round(size.height * ratio) };

@@ -88,12 +88,13 @@ export async function enqueueMemberships(
 
 /**
  * Up to `limit` waiting rows in id order (never parked ones). `skipFailed` leaves out rows that failed
- * BACKOFF_AFTER_ATTEMPTS times; `minAttempts` ≤ attempts < `maxAttempts` picks a window (the backoff pass).
+ * BACKOFF_AFTER_ATTEMPTS times; `minAttempts` ≤ attempts < `maxAttempts` picks a window (the backoff pass);
+ * `afterId` starts after the rows already seen.
  */
 export async function peekOutbox(
   db: SQLiteDatabase,
   limit: number,
-  opts: { skipFailed?: boolean; minAttempts?: number; maxAttempts?: number } = {},
+  opts: { skipFailed?: boolean; minAttempts?: number; maxAttempts?: number; afterId?: number } = {},
 ): Promise<OutboxRow[]> {
   const where = ['parked = 0'];
   const values: number[] = [];
@@ -108,6 +109,10 @@ export async function peekOutbox(
   if (opts.maxAttempts !== undefined) {
     where.push('attempts < ?');
     values.push(opts.maxAttempts);
+  }
+  if (opts.afterId !== undefined) {
+    where.push('id > ?');
+    values.push(opts.afterId);
   }
   const rows = await db.getAllAsync<OutboxDbRow>(
     `SELECT id, entity, entity_id, op, created_at, attempts, last_error FROM sync_outbox

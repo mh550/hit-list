@@ -7,7 +7,7 @@
 //     from(t).update(v).eq(c, v), optionally .select(cols) to get the updated rows back (else data null); a
 //     thenable { data, error }, PostgrestError has message/details/hint/code)
 //     from(t).upsert(values, { onConflict?, ignoreDuplicates? }), from(t).delete().eq(c, v),
-//     from(t).select(cols).gt(c, v).in(c, values).order(c).limit(n))
+//     from(t).select(cols).gt(c, v).in(c, values).order(c).limit(n), .range(from, to) (both inclusive))
 //   node_modules/@supabase/storage-js/dist/index.d.mts (storage.from(bucket).upload(path, fileBody, fileOptions?) →
 //     { data: { id, path, fullPath }, error: null } | { data: null, error: StorageError };
 //     storage.from(bucket).download(path) → { data: Blob, error: null } | { data: null, error: StorageError };
@@ -20,11 +20,12 @@
 //   jest.mock('@/src/sync/client', () => ({ getSupabase: () => mockFake, isConfigured: () => true }))
 // The fake keeps one session and a `profiles` table; `failNext(method, error, table?)` makes the next call of
 // that method (on that table, or rpc function) answer { data: null, error }; `queryDelayMs` slows every query down.
-// Every upsert, delete, upload, copy, remove and rpc is logged in `calls`, in the order the app awaited them (the push
+// Every upsert, update, delete, upload, copy, remove and rpc is logged in `calls`, in the order the app awaited them (the push
 // and send tests read the order there). Selects answer from `tables`, `profiles` from the `profiles` map (filters, order and limit applied;
 // each select logged in `selects`); `readableProfiles` (a set of ids, null = all) mimics the profiles RLS. rpc calls
 // are logged in `rpcs` and answered by `rpcHandlers[fn]` (no handler: { data: null, error: null }); storage downloads
-// answer from `objects`.
+// answer from `objects`. An update on a table other than `profiles` changes the matching rows of `tables[table]`
+// (`.select(cols)` answers them; `updateAnswers[table]` overrides what it answers, e.g. [] for RLS hiding the row).
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
 
 export type FakeError = { message: string; code?: string; status?: number };
@@ -46,7 +47,9 @@ type FailMethod =
   | 'remove'
   | 'createSignedUrl';
 export type FakeCall =
-  | { kind: 'upsert'; table: string; values: Record<string, unknown>; options?: UpsertOptions }
+  // an array upsert logs its rows in `rows` (and the first one as `values`)
+  | { kind: 'upsert'; table: string; values: Record<string, unknown>; rows?: Record<string, unknown>[]; options?: UpsertOptions }
+  | { kind: 'update'; table: string; values: Record<string, unknown>; filters: [string, unknown][] }
   | { kind: 'delete'; table: string; filters: [string, unknown][] }
   | { kind: 'upload'; bucket: string; path: string; body: unknown; options?: UploadOptions }
   | { kind: 'copy'; bucket: string; from: string; to: string }
@@ -63,6 +66,7 @@ export interface FakeSelect {
   filters: Filter[];
   order: string[];
   limit?: number;
+  range?: [number, number];
 }
 export interface FakeProfile {
   username: string | null;
@@ -106,6 +110,8 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
   const tables: Record<string, Row[]> = {};
   /** Storage objects by `<bucket>/<path>`. */
   const objects = new Map<string, Uint8Array>();
+  /** What an update on a table answers instead of the rows it changed (RLS hiding them: []). */
+  const updateAnswers: Record<string, Row[]> = {};
   /** One-shot select failures picked by what the select asked for (see failSelect). */
   const selectFailures: { match: (select: FakeSelect) => boolean; error: FakeError }[] = [];
 
@@ -127,8 +133,8 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
   type QueryResult = { data: unknown; error: FakeError | null };
   interface FakeQuery extends PromiseLike<QueryResult> {
     select: jest.Mock<FakeQuery, [columns?: string]>;
-    update: jest.Mock<FakeQuery, [values: Partial<FakeProfile>]>;
-    upsert: jest.Mock<FakeQuery, [values: Record<string, unknown>, options?: UpsertOptions]>;
+    update: jest.Mock<FakeQuery, [values: Record<string, unknown>]>;
+    upsert: jest.Mock<FakeQuery, [values: Record<string, unknown> | Record<string, unknown>[], options?: UpsertOptions]>;
     delete: jest.Mock<FakeQuery, [options?: { count?: string }]>;
     eq: jest.Mock<FakeQuery, [column: string, value: unknown]>;
     gt: jest.Mock<FakeQuery, [column: string, value: unknown]>;
@@ -136,6 +142,7 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
     is: jest.Mock<FakeQuery, [column: string, value: null | boolean]>;
     order: jest.Mock<FakeQuery, [column: string, options?: { ascending?: boolean }]>;
     limit: jest.Mock<FakeQuery, [count: number]>;
+    range: jest.Mock<FakeQuery, [from: number, to: number]>;
     maybeSingle: jest.Mock<FakeQuery, []>;
   }
 
@@ -148,7 +155,14 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
       .map(([id, row]) => ({ id, ...row }));
 
   /** A select on `tables[table]` (or the profiles): filters, then order, then limit, columns picked from `columns`. */
-  function selectRows(table: string, columns: string | undefined, filters: Filter[], order: string[], limit?: number) {
+  function selectRows(
+    table: string,
+    columns: string | undefined,
+    filters: Filter[],
+    order: string[],
+    limit?: number,
+    range?: [number, number],
+  ) {
     let rows = (table === 'profiles' ? profileRows() : (tables[table] ?? [])).filter((row) =>
       filters.every(([op, column, value]) => {
         if (op === 'eq') return row[column] === value;
@@ -165,6 +179,7 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
       }
       return 0;
     });
+    if (range !== undefined) rows = rows.slice(range[0], range[1] + 1);
     if (limit !== undefined) rows = rows.slice(0, limit);
     if (!columns || columns === '*') return rows.map((row) => ({ ...row }));
     const picked = columns.split(',').map((c) => c.trim());
@@ -174,8 +189,8 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
   // A PostgREST builder: chainable, and awaiting it runs the query against `profiles`.
   function query(table: string): FakeQuery {
     let op: 'select' | 'update' | 'upsert' | 'delete' = 'select';
-    let values: Partial<FakeProfile> = {};
-    let upserted: Record<string, unknown> = {};
+    let values: Record<string, unknown> = {};
+    let upserted: Record<string, unknown> | Record<string, unknown>[] = {};
     let upsertOptions: UpsertOptions | undefined;
     let one = false;
     // update(…).select(): answer the updated rows (only `id`: the app asks for nothing else).
@@ -185,12 +200,22 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
     const selectFilters: Filter[] = [];
     const order: string[] = [];
     let limit: number | undefined;
+    let range: [number, number] | undefined;
+    let returnColumns: string | undefined;
 
     const run = (): QueryResult => {
-      if (op === 'upsert') calls.push({ kind: 'upsert', table, values: upserted, options: upsertOptions });
+      if (op === 'upsert') {
+        calls.push(
+          Array.isArray(upserted)
+            ? { kind: 'upsert', table, values: upserted[0] ?? {}, rows: upserted, options: upsertOptions }
+            : { kind: 'upsert', table, values: upserted, options: upsertOptions },
+        );
+      }
       if (op === 'delete') calls.push({ kind: 'delete', table, filters: [...filters] });
+      if (op === 'update' && table !== 'profiles') calls.push({ kind: 'update', table, values, filters: [...filters] });
       if (op === 'select') {
         const select: FakeSelect = { table, columns, filters: [...selectFilters], order: [...order], limit };
+        if (range) select.range = range;
         selects.push(select);
         const failure = selectFailures.findIndex(({ match }) => match(select));
         if (failure >= 0) return { data: null, error: selectFailures.splice(failure, 1)[0].error };
@@ -198,30 +223,43 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
       const error = takeFailure(op, table);
       if (error) return { data: null, error };
       if (op === 'upsert' || op === 'delete') return { data: null, error: null };
+      if (op === 'update' && table !== 'profiles') {
+        const rows = (tables[table] ?? []).filter((row) => filters.every(([column, value]) => row[column] === value));
+        for (const row of rows) Object.assign(row, values);
+        if (!returning) return { data: null, error: null };
+        const answer = updateAnswers[table] ?? rows;
+        if (!returnColumns || returnColumns === '*') return { data: answer.map((row) => ({ ...row })), error: null };
+        const picked = returnColumns.split(',').map((c) => c.trim());
+        return { data: answer.map((row) => Object.fromEntries(picked.map((c) => [c, row[c]]))), error: null };
+      }
       if (op === 'update') {
         const rows = profileRows().filter((row) => filters.every(([column, value]) => row[column] === value));
-        for (const row of rows) profiles.set(row.id as string, { ...profiles.get(row.id as string)!, ...values });
+        for (const row of rows) {
+          profiles.set(row.id as string, { ...profiles.get(row.id as string)!, ...(values as Partial<FakeProfile>) });
+        }
         return { data: returning ? rows.map(({ id }) => ({ id })) : null, error: null };
       }
-      const rows = selectRows(table, columns, selectFilters, order, limit);
+      const rows = selectRows(table, columns, selectFilters, order, limit, range);
       return { data: one ? (rows[0] ?? null) : rows, error: null };
     };
 
     const builder: FakeQuery = {
       select: jest.fn((cols?: string) => {
-        if (op === 'update') returning = true;
-        else {
+        if (op === 'update') {
+          returning = true;
+          returnColumns = cols;
+        } else {
           op = 'select';
           columns = cols;
         }
         return builder;
       }),
-      update: jest.fn((next: Partial<FakeProfile>) => {
+      update: jest.fn((next: Record<string, unknown>) => {
         op = 'update';
         values = next;
         return builder;
       }),
-      upsert: jest.fn((next: Record<string, unknown>, options?: UpsertOptions) => {
+      upsert: jest.fn((next: Record<string, unknown> | Record<string, unknown>[], options?: UpsertOptions) => {
         op = 'upsert';
         upserted = next;
         upsertOptions = options;
@@ -254,6 +292,10 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
       }),
       limit: jest.fn((count: number) => {
         limit = count;
+        return builder;
+      }),
+      range: jest.fn((from: number, to: number) => {
+        range = [from, to];
         return builder;
       }),
       maybeSingle: jest.fn(() => {
@@ -370,6 +412,7 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
     rpcs,
     rpcHandlers,
     tables,
+    updateAnswers,
     /** The profile ids this session may read (the profiles RLS); null = every profile. */
     readableProfiles: null as Set<string> | null,
     objects,

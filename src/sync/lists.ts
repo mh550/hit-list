@@ -237,16 +237,25 @@ export async function respondInvite(
       await deleteMember(db, listId, uid);
       throw new NotAllowedError(INVITATION_WITHDRAWN);
     }
-    await upsertMembers(db, rows.map(memberFromServer));
+    await mirrorAnswer(() => upsertMembers(db, rows.map(memberFromServer)));
   } else {
     const { error } = await client.from('hit_list_members').delete().eq('list_id', listId).eq('user_id', uid);
     if (error) throw fail(error);
     loads.take(uid);
     removeItem();
-    await deleteMember(db, listId, uid);
+    await mirrorAnswer(() => deleteMember(db, listId, uid));
   }
   await reload(db);
   return true;
+}
+
+/** The server took the answer: a failed mirror write only warns (the next pull's full members read rewrites it). */
+async function mirrorAnswer(write: () => Promise<unknown>): Promise<void> {
+  try {
+    await write();
+  } catch (err) {
+    console.warn('[lists] the answer is in; mirroring it failed:', errorMessage(err));
+  }
 }
 
 interface InvitationRow {

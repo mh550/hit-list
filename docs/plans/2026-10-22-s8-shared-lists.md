@@ -322,6 +322,7 @@ tab's 'Shared with me' shows each invitation with a 'Join' chip calling the same
 | Foreign detail | "@ana's spot" (fallback "A friend's spot") · 'Save a copy' |
 | Save a copy confirm | 'Save a copy of this spot?' + 'It becomes your own private spot.' · Cancel / Save |
 | Inbox | '@ana invited you to Downtown (12 spots)' · 'Join' · 'Decline' · 'Joined Downtown' + 'Open' · section 'Invitations' |
+| Lists tab invitation (S8-06) | 'Downtown' · '@ana invited you · 12 spots' · 'Join' · toast 'Joined Downtown' / 'This invitation was withdrawn.' |
 | Lists tab | 'Shared with me' · '@ana · 12 spots' · 'Join' |
 | Not allowed (42501) | "You can't do that in this list any more." |
 | Members screen, extra | 'Invited rider' (a member's view of an invited row) · 'Add friend' · 'Withdraw invitation' |
@@ -650,6 +651,38 @@ grants, count = `can_read_spot`).
 | 7 | Minor | the hook didn't check the list side | fixed: `assertCanAdd` (RED: view, unjoined, area) |
 | 8 | Minor | test gaps | added: double tap, retry after Cancel / failure, saved answer, no mirror row, LIKE escape; not added: an adopt-level D90 case (forgetAccount is covered and called on all three paths) |
 | 9 | Product | 'Everyone in Downtown (1)' when nobody joined yet | left: D84 count; S8-09 / Michael may reword |
+
+## As built (S8-06)
+
+- **`src/sync/join.ts` `joinList(db, client, uid, listId)`** → `'joined' | 'withdrawn' | 'failed'`, never rejects:
+  `respondInvite(…, 'join')`, then `syncNow` without waiting (its pull's fill brings the list and spots). Single-flight
+  per rider and list across both tabs (a second caller gets the same promise); `isJoining` lets the Inbox's Decline wait
+  for a running join. `NotAllowedError` (0 rows or 42501) → 'withdrawn' and the item leaves; an error or `false`
+  (no session / not adopted) → 'failed', item kept.
+- **Inbox** (`app/(tabs)/inbox.tsx`): 'Invitations' rows '@ana invited you to Downtown (12 spots)' with Join / Decline
+  (confirm 'Decline the invitation to Downtown?', Cancel / Decline), long press Block (`confirmBlock`), spinner
+  'Joining' / 'Answering' (never 'Sending', D34). Join's line 'Joined Downtown' (announced) with **Open** shown only
+  while the list is held and live; 'This invitation was withdrawn.' (`INVITATION_WITHDRAWN` in lists.ts); failure →
+  "Couldn't reach the server". The tab loads invitations on focus and pull-to-refresh with friends and sends; a Block
+  from an invitation reloads invitations and friends (a load started before it loses its ticket).
+- **Lists tab:** 'Shared with me' lists the signed-in rider's invitations first: 'Downtown', '@ana invited you · 12
+  spots' (`inviteSpotCount`: '1 spot', 'no spots yet') and a **Join** chip (same `joinList`; toast 'Joined Downtown' or
+  the withdrawn line). An invitation alone shows the section (no empty state). Signed out: none.
+- `respondInvite`: once the server answered, a failing mirror write only warns (the next pull rewrites the mirror), so
+  a Join isn't reported failed with nothing left to retry.
+- Tests 1896 → 1924 (RED first: 15 failed, then 5 for the review).
+
+### S8-06 review (Opus, diff 8371b39~1..182b570): no Critical
+
+| # | Severity | Finding | Outcome |
+|---|---|---|---|
+| 1 | Important | Block from an invitation took no invites ticket: a load in flight put the row back; Friends stale until next sync | fixed: after an invite action, `loadAndApplyInvites` + `refreshFriends` (RED) |
+| 2 | Minor | invite spinner read 'Sending your answer' (D34) | fixed: 'Answering' (RED) |
+| 3 | Minor | Decline in the Inbox while a Join from the Lists tab waits | fixed: `isJoining` → Decline does nothing, the join wins (RED) |
+| 4 | Minor | a local mirror failure after the server join read 'failed' and skipped the sync | fixed: `mirrorAnswer` warns only (RED) |
+| 5 | Minor | `false` (adoption pending) and a Decline 42501 read "Couldn't reach the server" | left: same copy as friend requests and sends; adoption retries on 'active' |
+| 6 | Minor | Lists tab invite subtitle '@ana invited you · 12 spots' vs the copy table's '@ana · 12 spots' (joined lists) | kept: an invitation must read as one; copy table row added below |
+| 7 | Minor | test gaps | added: Decline failure/false, Block reload, Decline during Join, Open hidden for a deleted list, mirror failure; not added: account switch mid-join on the Lists tab (the toast names the list only; `joinList` and the Inbox key on the uid) |
 
 ## Unresolved questions
 

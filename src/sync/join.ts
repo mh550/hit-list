@@ -17,6 +17,11 @@ export type JoinResult = 'joined' | 'withdrawn' | 'failed';
 
 const joining = new Map<string, Promise<JoinResult>>();
 
+/** Whether a join of `listId` by `uid` is waiting for the server (a Decline then waits: the join wins). */
+export function isJoining(uid: string, listId: string): boolean {
+  return joining.has(`${uid}:${listId}`);
+}
+
 /** Joins `listId`; resolves once the server answered, without waiting for the sync. Never rejects: a failure warns. */
 export function joinList(db: SQLiteDatabase, client: SupabaseClient, uid: string, listId: string): Promise<JoinResult> {
   const key = `${uid}:${listId}`;

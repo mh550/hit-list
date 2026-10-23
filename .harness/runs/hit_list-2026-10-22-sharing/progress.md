@@ -20,6 +20,15 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 17:30 · S8-06 · passes
+
+- Inbox 'Invitations' rows read '@ana invited you to Downtown (12 spots)' with Join, Decline (confirm) and long-press Block. Join calls `respondInvite` then `syncNow`. It then shows 'Joined Downtown' (announced), plus 'Open' once the list is on the phone. A withdrawn invitation reads 'This invitation was withdrawn.' The tab also loads invitations on focus and on pull-to-refresh.
+- The Lists tab's 'Shared with me' lists invitations first ('@ana invited you · 12 spots') with a 'Join' chip. Both tabs use the new `src/sync/join.ts` `joinList`, one join per list at a time. `respondInvite` now only warns when the local mirror write fails after the server answered.
+- Tests 1896 → 1924, RED first (15 failed, then 5 for the review). `check.sh` green, `npx jest --ci` shows 0 console.error. The badge test for unseen invitations passes in both inbox-store and inbox-tab.
+- Opus review: 1 Important, 6 Minor. Fixed with RED tests: #1, a Block from an invitation now reloads invitations and friends (a stale load had put the row back). Also fixed: #2 (spinner said 'Sending', now 'Answering', D34), #3 (Decline while a Lists-tab Join runs) and #4. #5 (copy) and #6 (subtitle wording, kept, now in the copy table) are left. Table under 'S8-06 review' in the plan.
+- Next session (S8-07, integration): `joinList` is the app-level join. In node tests, call `respondInvite` + `pullAll` directly; `syncNow` needs the app's stores.
+- No new D and no questions. Proposed change: none.
+
 ### 2026-10-23 16:20 · S8-05 · passes
 
 - Every §1 marker. New `SharedBadge` (`person.2.fill` + D84 count, VoiceOver 'Shared with 4') on Lists tab rows, picker chips (`Chip` `accessory`), detail 'In lists' chips and Add-to-list rows. The Lists tab has 'Shared with me' ('@ana · 12 spots'). New in `src/utils/members.ts`: `isShared` and `myRole`.

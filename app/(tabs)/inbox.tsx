@@ -34,7 +34,7 @@ import {
 import { getSupabase } from '@/src/sync/client';
 import { errorMessage } from '@/src/sync/errors';
 import { block, refreshFriends, respond } from '@/src/sync/friends';
-import { joinList } from '@/src/sync/join';
+import { isJoining, joinList } from '@/src/sync/join';
 import { INVITATION_WITHDRAWN, loadAndApplyInvites, respondInvite } from '@/src/sync/lists';
 import { PHOTOS_BUCKET } from '@/src/sync/photos';
 import { dismissSend, hasPendingSave, loadAndApplySends, saveSend, type SaveResult } from '@/src/sync/sends';
@@ -59,6 +59,8 @@ const SECTION_TITLES: Record<InboxKind, string> = {
 };
 
 const ANSWERING = 'Sending your answer';
+/** An invitation's spinner: a Share row never says Send (D34). */
+const ANSWERING_INVITE = 'Answering';
 const SAVE_FAILED = "Couldn't save these spots. Try again.";
 /** How long a send's thumbnail URL stays valid, in seconds. */
 const THUMBNAIL_TTL = 600;
@@ -201,6 +203,11 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
     // Free the row now: the load waits its turn on the sync queue, behind a backup that may take minutes.
     release(item);
     if (item.kind === 'friend_request') void refreshFriends(db, client, uid);
+    if (item.kind === 'invite') {
+      // a Block also ends the friendship, and an invitations load that started before it would put the row back
+      void refreshFriends(db, client, uid);
+      void loadAndApplyInvites(db, client, uid);
+    }
   };
 
   /** Saves `item` (all, into a new list, or the picked spots); saveSend takes it off the Inbox unless it failed. */
@@ -245,7 +252,13 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
   };
 
   const askBlock = (item: FriendRequestItem | InviteItem, handle: string) =>
-    confirmBlock(handle, () => void runAction(item, ANSWERING, () => block(client, uid, item.from.id)));
+    confirmBlock(
+      handle,
+      () =>
+        void runAction(item, item.kind === 'invite' ? ANSWERING_INVITE : ANSWERING, () =>
+          block(client, uid, item.from.id),
+        ),
+    );
 
   const renderRequest = (item: FriendRequestItem) => {
     const handle = item.from.username ? `@${item.from.username}` : 'this rider';
@@ -387,10 +400,13 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
       {
         text: 'Decline',
         style: 'destructive',
-        onPress: () =>
-          void runAction(item, ANSWERING, async () => {
+        onPress: () => {
+          // a Join of it from the Lists tab is waiting for the server: that answer wins, the row leaves with it
+          if (isJoining(uid, item.listId)) return;
+          void runAction(item, ANSWERING_INVITE, async () => {
             if (!(await respondInvite(db, client, uid, item.listId, 'decline'))) throw new Error('not signed in');
-          }),
+          });
+        },
       },
     ]);
 

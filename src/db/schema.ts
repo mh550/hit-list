@@ -440,6 +440,49 @@ async function migration7(db: SQLiteDatabase): Promise<void> {
   `);
 }
 
+const listOwner = (row: 'NEW' | 'OLD') => `(SELECT owner_id FROM hit_lists WHERE id = ${row}.list_id)`;
+const spotOwner = (row: 'NEW' | 'OLD') => `(SELECT owner_id FROM spots WHERE id = ${row}.spot_id)`;
+
+/**
+ * Version 8: shared lists (S8, docs/plans/2026-10-22-s8-shared-lists.md "Migration 8"). `hit_list_members` mirrors the
+ * server's member rows of the lists the rider owns, joined or is invited to (no FK: an invitation's list isn't held
+ * until Join; never pushed, so no trigger, like `profiles`). The membership triggers are recreated so a member's
+ * writes queue too: an add queues when the spot is the rider's and the list has an owner (theirs or a friend's); a
+ * delete queues when the list is the rider's and the spot has an owner (the owner removes any spot, D42) or the spot
+ * is the rider's and the list has an owner. A phone-only (NULL-owned) list or spot still never queues (adoption queues
+ * those), nor does a pulled row (rev set) or a delete marked `rev = -1`.
+ */
+async function migration8(db: SQLiteDatabase): Promise<void> {
+  await db.execAsync(`
+    CREATE TABLE hit_list_members (
+      list_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'add' CHECK (role IN ('add', 'view')),
+      status TEXT NOT NULL DEFAULT 'invited' CHECK (status IN ('invited', 'member')),
+      joined_at TEXT,
+      PRIMARY KEY (list_id, user_id)
+    );
+    CREATE INDEX idx_hit_list_members_user ON hit_list_members(user_id);
+
+    DROP TRIGGER hit_list_spots_outbox_ins;
+    DROP TRIGGER hit_list_spots_outbox_del;
+    CREATE TRIGGER hit_list_spots_outbox_ins AFTER INSERT ON hit_list_spots
+      WHEN NEW.rev IS NULL AND ${spotOwner('NEW')} = ${ME} AND ${listOwner('NEW')} IS NOT NULL
+      BEGIN
+        INSERT INTO sync_outbox (entity, entity_id, op, created_at)
+          VALUES ('hit_list_spot', NEW.list_id || '/' || NEW.spot_id, 'upsert', ${NOW_ISO});
+      END;
+    CREATE TRIGGER hit_list_spots_outbox_del AFTER DELETE ON hit_list_spots
+      WHEN OLD.rev IS NOT -1 AND (
+        (${listOwner('OLD')} = ${ME} AND ${spotOwner('OLD')} IS NOT NULL)
+        OR (${spotOwner('OLD')} = ${ME} AND ${listOwner('OLD')} IS NOT NULL))
+      BEGIN
+        INSERT INTO sync_outbox (entity, entity_id, op, created_at)
+          VALUES ('hit_list_spot', OLD.list_id || '/' || OLD.spot_id, 'delete', ${NOW_ISO});
+      END;
+  `);
+}
+
 /** MIGRATIONS[i] takes the DB from version i to i + 1. */
 export const MIGRATIONS: readonly Migration[] = [
   migration1,
@@ -449,6 +492,7 @@ export const MIGRATIONS: readonly Migration[] = [
   migration5,
   migration6,
   migration7,
+  migration8,
 ];
 export const LATEST_SCHEMA_VERSION = MIGRATIONS.length;
 

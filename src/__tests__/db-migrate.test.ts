@@ -1,6 +1,18 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { createTestDb } from './helpers/node-sqlite-db';
-import { insertSpot, getSpot, getSpots, getSpotLegacy, insertMedia, getMediaForSpot } from '@/src/db';
+import {
+  insertSpot,
+  getSpot,
+  getSpots,
+  getSpotLegacy,
+  insertMedia,
+  getMediaForSpot,
+  insertHitList,
+  addSpotsToList,
+  removeSpotFromList,
+} from '@/src/db';
+import { clearOutbox } from '@/src/db/sync';
+import { ME, adoptPhoneFor, outboxOps } from './helpers/outbox';
 import {
   migrateDb,
   MIGRATIONS,
@@ -12,7 +24,7 @@ import {
   type SpotRowV2,
 } from '@/src/db/schema';
 import { FeatureType, type Spot } from '@/src/types';
-import { createTestMedia, createTestSpot } from './factories';
+import { createTestHitList, createTestMedia, createTestSpot } from './factories';
 // v2 rows in the old nested model, kept as data so the removed field names stay out of TS code (M1-04 step 1).
 import V2_SPOTS from './fixtures/v2-spots.json';
 
@@ -86,6 +98,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
 
     expect(await getSchemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
     expect(await tables(db)).toEqual([
+      'hit_list_members',
       'hit_list_spots',
       'hit_lists',
       'media',
@@ -935,18 +948,13 @@ describe('migrateDb (PRAGMA user_version)', () => {
     const schemaSql = async (db: SQLiteDatabase) =>
       db.getAllAsync(`SELECT type, name, sql FROM sqlite_master WHERE name <> 'spots' ORDER BY name`);
 
-    it('is the last migration', () => {
-      expect(MIGRATIONS).toHaveLength(7);
-      expect(LATEST_SCHEMA_VERSION).toBe(7);
-    });
-
     it('adds copied_from_send and from_username (TEXT, nullable) to spots and changes no other table', async () => {
       const db = await v6Db();
       const spotColumnsBefore = await columnNames(db, 'spots');
       const mediaColumnsBefore = await columnNames(db, 'media');
       const restBefore = await schemaSql(db);
 
-      await migrateDb(db);
+      await migrateDb(db, MIGRATIONS.slice(0, 7));
 
       expect(await getSchemaVersion(db)).toBe(7);
       expect(await columnNames(db, 'spots')).toEqual([...spotColumnsBefore, 'copied_from_send', 'from_username']);
@@ -1003,7 +1011,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
         photo.created_at,
       );
 
-      await migrateDb(db);
+      await migrateDb(db, MIGRATIONS.slice(0, 7));
 
       expect(await getSchemaVersion(db)).toBe(7);
       expect(await getSpot(db, full.id)).toMatchObject({ stopped: true, natural_speed: 3, notes: 'hello' });
@@ -1013,14 +1021,167 @@ describe('migrateDb (PRAGMA user_version)', () => {
 
     it('migrating a v7 DB again changes nothing', async () => {
       const db = await v6Db();
-      await migrateDb(db);
+      await migrateDb(db, MIGRATIONS.slice(0, 7));
       const spot = createTestSpot({ copied_from_send: 'send-1', from_username: 'ana' });
       await insertSpot(db, spot);
 
-      await migrateDb(db);
+      await migrateDb(db, MIGRATIONS.slice(0, 7));
 
       expect(await getSchemaVersion(db)).toBe(7);
       expect(await getSpot(db, spot.id)).toMatchObject({ copied_from_send: 'send-1', from_username: 'ana' });
+    });
+  });
+
+  describe('migration 8 (hit_list_members mirror, member-aware membership triggers, S8)', () => {
+    const OTHER = 'rider-other';
+    /** A DB as S7's builds left it: at version 7. */
+    const v7Db = async () => {
+      const db = createTestDb();
+      await migrateDb(db, MIGRATIONS.slice(0, 7));
+      expect(await getSchemaVersion(db)).toBe(7);
+      return db;
+    };
+    const columnNames = async (db: SQLiteDatabase, table: string) =>
+      (await db.getAllAsync<{ name: string }>(`PRAGMA table_info(${table})`)).map((c) => c.name);
+    /** A migrated phone that is ME's, with my list, OTHER's list, my spot, OTHER's spot and a phone-only list. */
+    const sharedPhone = async () => {
+      const db = createTestDb();
+      await migrateDb(db);
+      await adoptPhoneFor(db);
+      await insertSpot(db, createTestSpot({ id: 'mine', owner_id: ME }));
+      await insertSpot(db, createTestSpot({ id: 'theirs', owner_id: OTHER }));
+      await insertHitList(db, createTestHitList({ id: 'my-list', owner_id: ME }));
+      await insertHitList(db, createTestHitList({ id: 'their-list', owner_id: OTHER, shared: true }));
+      await insertHitList(db, createTestHitList({ id: 'phone-list' }));
+      await clearOutbox(db);
+      return db;
+    };
+    const membershipOps = async (db: SQLiteDatabase) =>
+      (await outboxOps(db)).filter(([entity]) => entity === 'hit_list_spot');
+
+    it('is the last migration', () => {
+      expect(MIGRATIONS).toHaveLength(8);
+      expect(LATEST_SCHEMA_VERSION).toBe(8);
+    });
+
+    it('adds hit_list_members (list_id, user_id, role, status, joined_at) with its index and no trigger', async () => {
+      const db = await v7Db();
+      const before = Object.fromEntries(
+        await Promise.all(
+          ['spots', 'media', 'hit_lists', 'hit_list_spots'].map(async (t) => [t, await columnNames(db, t)] as const),
+        ),
+      );
+
+      await migrateDb(db);
+
+      expect(await getSchemaVersion(db)).toBe(8);
+      const info = await db.getAllAsync<{ name: string; type: string; notnull: number; dflt_value: unknown; pk: number }>(
+        'PRAGMA table_info(hit_list_members)',
+      );
+      expect(info.map(({ name, type, notnull, dflt_value, pk }) => ({ name, type, notnull, dflt_value, pk }))).toEqual([
+        { name: 'list_id', type: 'TEXT', notnull: 1, dflt_value: null, pk: 1 },
+        { name: 'user_id', type: 'TEXT', notnull: 1, dflt_value: null, pk: 2 },
+        { name: 'role', type: 'TEXT', notnull: 1, dflt_value: "'add'", pk: 0 },
+        { name: 'status', type: 'TEXT', notnull: 1, dflt_value: "'invited'", pk: 0 },
+        { name: 'joined_at', type: 'TEXT', notnull: 0, dflt_value: null, pk: 0 },
+      ]);
+      const indexes = await db.getAllAsync<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'hit_list_members' AND sql IS NOT NULL",
+      );
+      expect(indexes.map((i) => i.name)).toEqual(['idx_hit_list_members_user']);
+      const triggers = await db.getAllAsync<{ name: string }>(
+        "SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'hit_list_members'",
+      );
+      expect(triggers).toEqual([]);
+      for (const [table, columns] of Object.entries(before)) expect(await columnNames(db, table)).toEqual(columns);
+    });
+
+    it('rejects a role or status the server does not know', async () => {
+      const db = await v7Db();
+      await migrateDb(db);
+      await expect(
+        db.runAsync("INSERT INTO hit_list_members (list_id, user_id, role) VALUES ('l', 'u', 'owner')"),
+      ).rejects.toThrow(/CHECK/);
+      await expect(
+        db.runAsync("INSERT INTO hit_list_members (list_id, user_id, status) VALUES ('l', 'u', 'left')"),
+      ).rejects.toThrow(/CHECK/);
+    });
+
+    it('keeps the outbox rows a v7 phone had queued', async () => {
+      const db = await v7Db();
+      await adoptPhoneFor(db);
+      await insertSpot(db, createTestSpot({ id: 'mine', owner_id: ME }));
+
+      await migrateDb(db);
+
+      expect(await outboxOps(db)).toEqual([['spot', 'mine', 'upsert']]);
+    });
+
+    it("queues my own spot added to a friend's list (a member's add) and its removal", async () => {
+      const db = await sharedPhone();
+
+      await addSpotsToList(db, 'their-list', ['mine']);
+      await removeSpotFromList(db, 'their-list', 'mine');
+
+      expect(await membershipOps(db)).toEqual([
+        ['hit_list_spot', 'their-list/mine', 'upsert'],
+        ['hit_list_spot', 'their-list/mine', 'delete'],
+      ]);
+    });
+
+    it("queues the owner removing a member's spot from the owner's list (D42), but never a pulled row", async () => {
+      const db = await sharedPhone();
+      // pulled: the member's spot in my list, with the server's rev
+      await db.runAsync(
+        "INSERT INTO hit_list_spots (list_id, spot_id, added_by, added_at, rev) VALUES ('my-list', 'theirs', ?, ?, 9)",
+        OTHER,
+        '2026-10-23T00:00:00.000Z',
+      );
+      expect(await membershipOps(db)).toEqual([]);
+
+      await removeSpotFromList(db, 'my-list', 'theirs');
+
+      expect(await membershipOps(db)).toEqual([['hit_list_spot', 'my-list/theirs', 'delete']]);
+    });
+
+    it('still queues my spot in my list, as migration 5 did', async () => {
+      const db = await sharedPhone();
+      await addSpotsToList(db, 'my-list', ['mine']);
+      expect(await membershipOps(db)).toEqual([['hit_list_spot', 'my-list/mine', 'upsert']]);
+    });
+
+    it("never queues a phone-only list or spot, someone else's spot in someone else's list, or a rev = -1 delete", async () => {
+      const db = await sharedPhone();
+      await insertSpot(db, createTestSpot({ id: 'phone-spot' }));
+      await clearOutbox(db);
+
+      await addSpotsToList(db, 'phone-list', ['mine']);
+      await addSpotsToList(db, 'my-list', ['phone-spot']);
+      await addSpotsToList(db, 'their-list', ['phone-spot']);
+      await db.runAsync(
+        "INSERT INTO hit_list_spots (list_id, spot_id, added_at, rev) VALUES ('their-list', 'theirs', ?, 5)",
+        '2026-10-23T00:00:00.000Z',
+      );
+      await removeSpotFromList(db, 'phone-list', 'mine');
+      await removeSpotFromList(db, 'their-list', 'theirs');
+      await addSpotsToList(db, 'their-list', ['mine']);
+      await clearOutbox(db);
+      await db.runAsync("UPDATE hit_list_spots SET rev = -1 WHERE list_id = 'their-list' AND spot_id = 'mine'");
+      await removeSpotFromList(db, 'their-list', 'mine');
+
+      expect(await membershipOps(db)).toEqual([]);
+    });
+
+    it('migrating a v8 DB again changes nothing', async () => {
+      const db = await sharedPhone();
+      await db.runAsync("INSERT INTO hit_list_members (list_id, user_id, role, status) VALUES ('their-list', ?, 'view', 'member')", ME);
+
+      await migrateDb(db);
+
+      expect(await getSchemaVersion(db)).toBe(8);
+      expect(await db.getAllAsync('SELECT list_id, user_id, role, status FROM hit_list_members')).toEqual([
+        { list_id: 'their-list', user_id: ME, role: 'view', status: 'member' },
+      ]);
     });
   });
 

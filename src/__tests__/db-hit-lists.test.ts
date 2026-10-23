@@ -347,13 +347,13 @@ describe('hit lists in SQLite (src/db/hit-lists.ts)', () => {
       expect(await outboxOps(db)).toEqual([]);
     });
 
-    it("a membership in another rider's list appends nothing", async () => {
+    it("my spot in another rider's list queues (a member's add, migration 8)", async () => {
       const theirs = createTestHitList({ owner_id: 'someone-else' });
       await insertHitList(db, theirs);
 
       await addSpotsToList(db, theirs.id, [s1.id]);
 
-      expect(await outboxOps(db)).toEqual([]);
+      expect(await outboxOps(db)).toEqual([['hit_list_spot', `${theirs.id}/${s1.id}`, 'upsert']]);
     });
 
     it('a membership written with a rev (a pull) appends nothing; deleting one marked rev = -1 appends nothing', async () => {

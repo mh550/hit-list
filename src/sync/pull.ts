@@ -357,6 +357,8 @@ async function reconcileReadableSpots(db: SQLiteDatabase, client: SupabaseClient
 
   const ids = JSON.stringify(gone);
   const theirs = `SELECT id FROM spots WHERE id IN (SELECT value FROM json_each(?)) AND owner_id IS NOT NULL AND owner_id <> ?`;
+  // rev = -1 first: the owner's delete of a member's spot from their own list would queue a server DELETE (migration 8)
+  await db.runAsync(`UPDATE hit_list_spots SET rev = -1 WHERE spot_id IN (${theirs})`, ids, uid);
   await db.runAsync(`DELETE FROM hit_list_spots WHERE spot_id IN (${theirs})`, ids, uid);
   await db.runAsync(`DELETE FROM media WHERE spot_id IN (${theirs})`, ids, uid);
   const { changes } = await db.runAsync(`DELETE FROM spots WHERE id IN (${theirs})`, ids, uid);

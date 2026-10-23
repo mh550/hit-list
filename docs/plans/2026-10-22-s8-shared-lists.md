@@ -530,6 +530,50 @@ grants, count = `can_read_spot`).
 | 8 | Minor | `removeLocally` uses `withTransactionAsync` during normal use (CLAUDE.md exception is for adopt) | left for S8-09: the plan asks for one transaction (Global constraints); either document the exception or split into idempotent single statements |
 | 9 | Minor | pgTAP 110 covers only invitee-blocks-owner | left for S8-07 (stack run): add an owner-blocks-invitee case |
 
+## As built (S8-03)
+
+- **Whose spot:** `isForeign(row, uid)` / `ownerLabel` in `src/utils/ownership.ts` (pure); `riderId()` (src/sync/owner.ts)
+  and `useRiderId()` = the signed-in rider, else the **phone's account** (`sync_state.user_id` → sync store
+  `phoneUserId`, loaded by `useDbInit` and every `reloadStores`), so others' spots stay read-only on an offline launch
+  or after a session ended (review #1). `assertOwn(row, 'spot' | 'list')` throws 'not your spot' / 'not your list'.
+- **Stores:** `selectMySpots(spots, uid)` (uid null → all); an area list holds a spot when either side is phone-only or
+  both owners match (looser than the plan's strict equality: a list made signed out after Keep still shows the kept
+  spots; review #5 left for S8-09). `getSpots`/`getSpot` read `owner_username` from the profiles mirror (never stored,
+  not in `SpotUpdate`).
+- **Guards:** `useSpotActions` update/setTown/remove, `useMediaActions` save/remove, `useHitListActions`
+  rename/update/delete (lists) and addSpotsToList (spots) reject before touching the store. Quick Add / import
+  nearby offers, the area picker, the select bar (Send/Add to list take own spots; the header counts every checked
+  row), a list's 'Send these spots' (own only, counted, hidden at 0, D87) and the launch town backfill (phone
+  account's own) use `selectMySpots`.
+- **Detail / viewer:** '@ana's spot' (or "A friend's spot") under the title, empty header, no Add photos tile,
+  'In lists' as plain text, **Save a copy** (Alert → `saveCopy` → `router.replace` + toast 'Saved a copy' /
+  "· 1 photo couldn't be copied" / "Couldn't save a copy"; signed out → `/auth/sign-in`). The viewer has no options
+  for a foreign spot.
+- **`src/sync/copy.ts`** `saveCopy(db, client, uid, spotId, io = defaultCopyIO)` → `{ spotId, missingPhotos }`;
+  refuses unless `currentOwnerId() === uid` (review #4) and unless the spot is another rider's.
+- **Photos:** `resolvePhotoUri` maps `cache/…` to `Paths.cache`; `photoFolder(filePath)`; `defaultPhotoIO.write`
+  makes the folder under the right root; `cachedPhotoUri(client, media, io)` single-flight per media id, rejects on
+  any download error, and writes nothing when a cache delete ran meanwhile (generation counter, review #6);
+  `usePhotoUri(media | undefined)`; `PhotoGrid` tiles, `SpotsBrowser` rows (`SpotRow`) and viewer pages
+  (`ViewerPhoto`) use it; a failed tile shows `photo-placeholder`. `'photo': 'image'` in the icon MAPPING.
+- **Sign-out (D86):** Keep = server sign-out, then `removeForeignRows(db, uid)` (runExclusive + one transaction:
+  `forgetList` per foreign list, memberships at rev -1, foreign media/spots, cursors restart; whole `Paths.cache/photos`
+  after the commit); it resolves null and removes nothing while a change waits. Sign out anyway leaves others' rows
+  (read-only through the phone account). An account switch re-paths the new rider's `cache/` media to `photos/`
+  (S8-02 review #7).
+- Tests 1760 → 1808; every change RED first (counts in the commit messages).
+
+### S8-03 review (Opus, diff 98cbf78..cd1d35a)
+
+| # | Severity | Finding | Outcome |
+|---|---|---|---|
+| 1 | Important | read-only checks used only the auth `userId`: offline launch / ended session made others' spots editable | fixed: `riderId()`/`useRiderId` fall back to the phone's account (RED: 4 cases) |
+| 2 | Important | `removeForeignRows` on Sign out anyway dropped pending membership changes (forgetList) | fixed: refuses while a change waits; Sign out anyway doesn't call it (RED) |
+| 3 | Minor | removal before the server sign-out: a sync could pull the rows back | fixed: server sign-out first (RED) |
+| 4 | Minor | `saveCopy` owner = auth uid while adoption pending: copy never queued | fixed: refuses until `currentOwnerId() === uid` (RED) |
+| 5 | Minor | area owner rule looser than the plan (phone-only rows during the adoption window) | left for S8-09: strict rule would hide kept spots in a list made signed out after Keep |
+| 6 | Minor | a download running across a cache delete recreated the file | fixed: generation counter (RED) |
+
 ## Unresolved questions
 
 - D83–D91 are defaults (§9 Q44–Q52). Q11 (blocking inside a shared list) stays as D50: nothing changes in lists you

@@ -53,11 +53,15 @@ export interface InviteItem extends InboxItemBase {
 
 export type InboxItem = FriendRequestItem | SendItem | InviteItem;
 
+/** An invitation's spot count: '12 spots', '1 spot', 'no spots yet'. */
+export function inviteSpotCount(item: InviteItem): string {
+  return item.spotCount === 0 ? 'no spots yet' : item.spotCount === 1 ? '1 spot' : `${item.spotCount} spots`;
+}
+
 /** '@ana invited you to Downtown (12 spots)' (D83: the count, never the spots). */
 export function inviteLine(item: InviteItem): string {
   const who = item.from.username ? `@${item.from.username}` : 'A friend';
-  const count = item.spotCount === 0 ? 'no spots yet' : item.spotCount === 1 ? '1 spot' : `${item.spotCount} spots`;
-  return `${who} invited you to ${item.listName} (${count})`;
+  return `${who} invited you to ${item.listName} (${inviteSpotCount(item)})`;
 }
 
 type ItemsOf<K extends InboxKind> = Extract<InboxItem, { kind: K }>[];

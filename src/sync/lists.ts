@@ -41,6 +41,9 @@ export class ListNotBackedUpError extends Error {
   }
 }
 
+/** What Join reads when the owner withdrew the invitation (or the server no longer lets the rider join). */
+export const INVITATION_WITHDRAWN = 'This invitation was withdrawn.';
+
 const fail = (error: ServerError): Error => (error.code === '42501' ? new NotAllowedError() : serverError(error));
 
 type Row = Record<string, unknown>;
@@ -232,7 +235,7 @@ export async function respondInvite(
     removeItem();
     if (rows.length === 0) {
       await deleteMember(db, listId, uid);
-      throw new NotAllowedError('This invitation was withdrawn.');
+      throw new NotAllowedError(INVITATION_WITHDRAWN);
     }
     await upsertMembers(db, rows.map(memberFromServer));
   } else {

@@ -20,6 +20,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { AccountsNotSetUp, Button, confirmBlock, PickSpotsSheet } from '@/src/components';
 import { palette, radius, spacing, typography } from '@/src/constants/theme';
 import { useAuthStore } from '@/src/stores/auth-store';
+import { useHitListsStore } from '@/src/stores/hit-lists-store';
 import {
   INBOX_KINDS,
   inviteLine,
@@ -33,6 +34,8 @@ import {
 import { getSupabase } from '@/src/sync/client';
 import { errorMessage } from '@/src/sync/errors';
 import { block, refreshFriends, respond } from '@/src/sync/friends';
+import { joinList } from '@/src/sync/join';
+import { INVITATION_WITHDRAWN, loadAndApplyInvites, respondInvite } from '@/src/sync/lists';
 import { PHOTOS_BUCKET } from '@/src/sync/photos';
 import { dismissSend, hasPendingSave, loadAndApplySends, saveSend, type SaveResult } from '@/src/sync/sends';
 import { frozenSpotTitle } from '@/src/utils/send-payload';
@@ -42,8 +45,9 @@ import { spotCountLabel } from '@/src/utils/spot-name';
  * The Inbox tab (S6-04, docs/plans/2026-10-22-s6-friends.md "Inbox tab"): everything addressed to the rider, one
  * section per kind in a fixed order (friend requests, sends (S7-05), S8 invitations). Focused while the app is active,
  * it marks every item seen (D75), which clears the tab's badge. Every row's actions are single-flight: Accept /
- * Decline / Block, and a send's Save all / Save into a new hit list / Pick spots / Dismiss
- * (docs/plans/2026-10-22-s7-send.md "Inbox"). A save's outcome shows as one line at the top until the next action.
+ * Decline / Block, a send's Save all / Save into a new hit list / Pick spots / Dismiss
+ * (docs/plans/2026-10-22-s7-send.md "Inbox") and an invitation's Join / Decline / Block (S8-06). A save's or a join's
+ * outcome shows as one line at the top until the next action; a join's line offers Open once the list is on the phone.
  */
 
 const EMPTY_BODY = 'Spots friends send you, hit list invitations and friend requests show up here.';
@@ -58,6 +62,12 @@ const ANSWERING = 'Sending your answer';
 const SAVE_FAILED = "Couldn't save these spots. Try again.";
 /** How long a send's thumbnail URL stays valid, in seconds. */
 const THUMBNAIL_TTL = 600;
+
+/** The line at the top of the Inbox, and the list a Join opens from it. */
+interface Notice {
+  text: string;
+  list?: { id: string; name: string };
+}
 
 const photosLabel = (n: number) => (n === 1 ? '1 photo' : `${n} photos`);
 
@@ -120,14 +130,16 @@ const newestFirst = (a: InboxItem, b: InboxItem) => b.created_at.localeCompare(a
 
 function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
   const db = useSQLiteContext();
+  const router = useRouter();
   const items = useInboxStore((s) => s.items);
+  const lists = useHitListsStore((s) => s.lists);
   const isFocused = useIsFocused();
   const appActive = useAppActive();
 
   /** The rows with an action running, each with what its spinner reads. */
   const [busy, setBusy] = useState<ReadonlyMap<string, string>>(new Map());
   const [refreshing, setRefreshing] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<Notice | null>(null);
   const [picking, setPicking] = useState<SendItem | null>(null);
   // A second tap can land before the busy state renders: checked synchronously.
   const busyKeys = useRef(new Map<string, string>());
@@ -139,6 +151,7 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
     if (!isFocused) return;
     void refreshFriends(db, client, uid);
     void loadAndApplySends(db, client, uid);
+    void loadAndApplyInvites(db, client, uid);
     // a save's line is for this visit only
     return () => setNotice(null);
   }, [isFocused, db, client, uid]);
@@ -201,18 +214,37 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
       line = SAVE_FAILED;
     }
     release(item);
+    showNotice({ text: line });
+  };
+
+  /** Shows `next` at the top, announced; not when the tab lost focus meanwhile (the line is for this visit). */
+  const showNotice = (next: Notice) => {
     if (!focused.current) return;
-    setNotice(line);
-    AccessibilityInfo.announceForAccessibility(line);
+    setNotice(next);
+    AccessibilityInfo.announceForAccessibility(next.text);
+  };
+
+  /** Joins the list; the row leaves, and the line offers Open once the sync brought the list. */
+  const runJoin = async (item: InviteItem) => {
+    if (!claim(item, 'Joining')) return;
+    const result = await joinList(db, client, uid, item.listId);
+    release(item);
+    if (result === 'failed') Alert.alert("Couldn't reach the server", 'Try again.');
+    else if (result === 'withdrawn') showNotice({ text: INVITATION_WITHDRAWN });
+    else showNotice({ text: `Joined ${item.listName}`, list: { id: item.listId, name: item.listName } });
   };
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await Promise.all([refreshFriends(db, client, uid), loadAndApplySends(db, client, uid)]);
+    await Promise.all([
+      refreshFriends(db, client, uid),
+      loadAndApplySends(db, client, uid),
+      loadAndApplyInvites(db, client, uid),
+    ]);
     setRefreshing(false);
   };
 
-  const askBlock = (item: FriendRequestItem, handle: string) =>
+  const askBlock = (item: FriendRequestItem | InviteItem, handle: string) =>
     confirmBlock(handle, () => void runAction(item, ANSWERING, () => block(client, uid, item.from.id)));
 
   const renderRequest = (item: FriendRequestItem) => {
@@ -349,16 +381,63 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
     );
   };
 
-  // S8-06 adds Join / Decline; until then the invitation reads as its line
+  const askDecline = (item: InviteItem) =>
+    Alert.alert(`Decline the invitation to ${item.listName}?`, undefined, [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Decline',
+        style: 'destructive',
+        onPress: () =>
+          void runAction(item, ANSWERING, async () => {
+            if (!(await respondInvite(db, client, uid, item.listId, 'decline'))) throw new Error('not signed in');
+          }),
+      },
+    ]);
+
   const renderInvite = (item: InviteItem) => {
     const line = inviteLine(item);
+    const handle = item.from.username ? `@${item.from.username}` : 'this rider';
+    const busyLabel = busy.get(keyOf(item));
     return (
-      <View style={styles.row} accessible accessibilityLabel={line}>
-        <View style={styles.rowText}>
-          <Text style={styles.title} numberOfLines={2}>
+      <View style={styles.row}>
+        <Pressable
+          style={({ pressed }) => [styles.rowText, pressed && styles.rowPressed]}
+          onLongPress={() =>
+            Alert.alert(item.from.username ? handle : 'A friend', undefined, [
+              { text: `Block ${handle}`, style: 'destructive', onPress: () => askBlock(item, handle) },
+              { text: 'Cancel', style: 'cancel' },
+            ])
+          }
+          disabled={busyLabel !== undefined}
+          accessibilityLabel={line}
+          accessibilityHint="Long press to block"
+          accessibilityActions={[{ name: 'block', label: `Block ${handle}` }]}
+          onAccessibilityAction={(event) => {
+            if (event.nativeEvent.actionName === 'block') askBlock(item, handle);
+          }}>
+          <Text style={styles.title} numberOfLines={3}>
             {line}
           </Text>
-        </View>
+        </Pressable>
+        {busyLabel ? (
+          <ActivityIndicator color={palette.gray[500]} accessibilityLabel={busyLabel} />
+        ) : (
+          <View style={styles.actions}>
+            <Button
+              title="Join"
+              size="sm"
+              accessibilityLabel={`Join ${item.listName}`}
+              onPress={() => void runJoin(item)}
+            />
+            <Button
+              title="Decline"
+              variant="secondary"
+              size="sm"
+              accessibilityLabel={`Decline the invitation to ${item.listName}`}
+              onPress={() => askDecline(item)}
+            />
+          </View>
+        )}
       </View>
     );
   };
@@ -394,8 +473,19 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
         )}
         ListHeaderComponent={
           notice ? (
-            // announced when set (VoiceOver has no live regions); no live region, so Android says it once
-            <Text style={styles.notice}>{notice}</Text>
+            <View style={styles.notice}>
+              {/* announced when set (VoiceOver has no live regions); no live region, so Android says it once */}
+              <Text style={styles.noticeText}>{notice.text}</Text>
+              {notice.list && lists.some((l) => l.id === notice.list?.id && l.deleted_at === undefined) ? (
+                <Button
+                  title="Open"
+                  variant="secondary"
+                  size="sm"
+                  accessibilityLabel={`Open ${notice.list.name}`}
+                  onPress={() => router.push(`/list/${notice.list?.id}`)}
+                />
+              ) : null}
+            </View>
           ) : null
         }
         ListEmptyComponent={
@@ -515,11 +605,17 @@ const styles = StyleSheet.create({
     minHeight: 32,
   },
   notice: {
-    ...typography.callout,
-    color: palette.gray[900],
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
     backgroundColor: palette.gray[100],
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
+  },
+  noticeText: {
+    ...typography.callout,
+    flex: 1,
+    color: palette.gray[900],
   },
   separator: {
     height: StyleSheet.hairlineWidth,

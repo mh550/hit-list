@@ -1,47 +1,92 @@
-import { useMemo, useState } from 'react';
-import { Alert, Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
+import { useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useSQLiteContext } from 'expo-sqlite';
 
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { EmptyState, NameListSheet, SharedBadge, sharedLabel } from '@/src/components';
+import { Button, EmptyState, NameListSheet, SharedBadge, sharedLabel } from '@/src/components';
 import { palette, spacing } from '@/src/constants/theme';
 import { useHitListActions } from '@/src/hooks/use-hit-list-actions';
 import { useRiderId } from '@/src/hooks/use-rider-id';
 import {
   selectListCounts,
+  selectInvitations,
   selectListsByName,
   selectSharedWithMe,
   useHitListsStore,
   useSpotsStore,
 } from '@/src/stores';
+import { useAuthStore } from '@/src/stores/auth-store';
+import { inviteSpotCount, useInboxStore, type InviteItem } from '@/src/stores/inbox-store';
 import { useSettingsStore } from '@/src/stores/settings-store';
+import { showToast } from '@/src/stores/toast-store';
+import { getSupabase } from '@/src/sync/client';
+import { joinList } from '@/src/sync/join';
+import { INVITATION_WITHDRAWN } from '@/src/sync/lists';
 import type { HitList } from '@/src/types';
 import { areaLabel, isAreaList } from '@/src/utils/area';
 import { handleOf } from '@/src/utils/members';
 import { isForeign } from '@/src/utils/ownership';
 import { spotCountLabel } from '@/src/utils/spot-name';
 
+/** A row: a list, or an invitation to one (S8-06), which holds no spots until Join (D83). */
+type Row = { type: 'list'; list: HitList } | { type: 'invite'; invite: InviteItem };
+
+const rowKey = (row: Row) => (row.type === 'list' ? row.list.id : `invite:${row.invite.listId}`);
+
 export default function ListsScreen() {
   const router = useRouter();
+  const db = useSQLiteContext();
   const lists = useHitListsStore((s) => s.lists);
   const membershipBySpot = useHitListsStore((s) => s.membershipBySpot);
   const spots = useSpotsStore((s) => s.spots);
   const units = useSettingsStore((s) => s.units);
   const uid = useRiderId();
+  const authStatus = useAuthStore((s) => s.status);
+  const authUserId = useAuthStore((s) => s.userId);
+  const inboxUserId = useInboxStore((s) => s.userId);
+  const inboxItems = useInboxStore((s) => s.items);
+  const client = getSupabase();
+  /** The invitations with a Join running; the ref answers a second tap before the spinner renders. */
+  const [joining, setJoining] = useState<ReadonlySet<string>>(new Set());
+  const joiningIds = useRef(new Set<string>());
   const { createList } = useHitListActions();
   const [naming, setNaming] = useState(false);
 
   const counts = useMemo(() => selectListCounts(lists, spots, membershipBySpot), [lists, spots, membershipBySpot]);
-  // Mine (owned or phone-only), then others' lists the rider joined (S8); a section only shows when it has rows.
+  // Only the signed-in rider's invitations, while a client can answer them.
+  const signedInAs = client && authStatus === 'signed_in' ? authUserId : null;
+  const invitations = useMemo(
+    () => (signedInAs && inboxUserId === signedInAs ? selectInvitations(inboxItems) : []),
+    [signedInAs, inboxUserId, inboxItems],
+  );
+  // Mine (owned or phone-only), then the invitations and others' lists the rider joined (S8); a section only shows
+  // when it has rows.
   const sections = useMemo(() => {
     const live = lists.filter((l) => l.deleted_at === undefined);
+    const asRows = (ls: HitList[]): Row[] => ls.map((list) => ({ type: 'list', list }));
     const mine = selectListsByName(live.filter((l) => !isForeign(l, uid)));
     const theirs = uid ? selectSharedWithMe(live, uid) : [];
     return [
-      { title: 'My hit lists', data: mine },
-      { title: 'Shared with me', data: theirs },
+      { title: 'My hit lists', data: asRows(mine) },
+      {
+        title: 'Shared with me',
+        data: [...invitations.map((invite): Row => ({ type: 'invite', invite })), ...asRows(theirs)],
+      },
     ].filter((section) => section.data.length > 0);
-  }, [lists, uid]);
+  }, [lists, uid, invitations]);
+
+  /** Join, as the Inbox's: the row leaves once the server answered; the list shows once the sync brought it. */
+  const handleJoin = async (invite: InviteItem) => {
+    if (!client || !signedInAs || joiningIds.current.has(invite.listId)) return;
+    joiningIds.current.add(invite.listId);
+    setJoining(new Set(joiningIds.current));
+    const result = await joinList(db, client, signedInAs, invite.listId);
+    joiningIds.current.delete(invite.listId);
+    setJoining(new Set(joiningIds.current));
+    if (result === 'failed') Alert.alert("Couldn't reach the server", 'Try again.');
+    else showToast(result === 'joined' ? `Joined ${invite.listName}` : INVITATION_WITHDRAWN);
+  };
 
   const handleCreate = async (name: string) => {
     try {
@@ -55,7 +100,33 @@ export default function ListsScreen() {
     }
   };
 
-  const renderItem = ({ item }: { item: HitList }) => {
+  const renderInvite = (invite: InviteItem) => {
+    const subtitle = `${handleOf(invite.from.username, 'A friend')} invited you · ${inviteSpotCount(invite)}`;
+    return (
+      <View style={styles.row}>
+        <View style={styles.rowText} accessible accessibilityLabel={`${invite.listName}, ${subtitle}`}>
+          <Text style={styles.rowName} numberOfLines={1}>
+            {invite.listName}
+          </Text>
+          <Text style={styles.rowCount}>{subtitle}</Text>
+        </View>
+        {joining.has(invite.listId) ? (
+          <ActivityIndicator color={palette.gray[500]} accessibilityLabel="Joining" />
+        ) : (
+          <Button
+            title="Join"
+            size="sm"
+            accessibilityLabel={`Join ${invite.listName}`}
+            onPress={() => void handleJoin(invite)}
+          />
+        )}
+      </View>
+    );
+  };
+
+  const renderItem = ({ item: row }: { item: Row }) => {
+    if (row.type === 'invite') return renderInvite(row.invite);
+    const item = row.list;
     const spotCount = spotCountLabel(counts[item.id] ?? 0);
     // Another rider's list names its owner: '@ana · 12 spots'.
     const count = isForeign(item, uid) ? `${handleOf(item.owner_username, 'A friend')} · ${spotCount}` : spotCount;
@@ -111,7 +182,7 @@ export default function ListsScreen() {
       ) : (
         <SectionList
           sections={sections}
-          keyExtractor={(l) => l.id}
+          keyExtractor={rowKey}
           renderItem={renderItem}
           renderSectionHeader={({ section }) => (
             <Text style={styles.sectionHeader} accessibilityRole="header">

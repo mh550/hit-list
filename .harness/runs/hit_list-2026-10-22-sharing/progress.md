@@ -20,6 +20,13 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 · S9-06 · passes
+
+- New `docs/plans/2026-10-22-s9-what-michael-will-see.md`: from-scratch renders of the Send sheet link mode (chips, D44 line, failure), Sent `Links` rows (Active/Active until/Expired/Revoked + Revoke alert), members invite-link rows + role alert, Inbox `Paste a link` (closed/open/joined/gone/not a link/error), and the web page's send/invite/gone/error states (jsdom text). Plus "What to tap" (copy, Safari over Tailscale, revoke, invite link, paste as the other rider) and where to host.
+- Temporary dump tests (copies of the screen tests + a tree walker) deleted; `git status` showed only the plan and `feature_list.json`.
+- Verified: `npx jest --silent` 107 suites / 2065 tests, 0 `console.error`; `test:integration` 7 suites / 77 passed (`db:stop` after, no hit-list container); `npx expo export --platform ios` exit 0, 5.4 MB; `check.sh` green.
+- Next: S9-07 (declare `jsdom` + `@types/jsdom` devDependencies; token in `?t=` gateway-log note). No new questions or proposed changes.
+
 ### 2026-10-23 · S9-05 · passes
 
 - New `src/__integration__/links.test.ts` (9 cases): send link via `createLinkSend` + `createSendLink '7d'` → no-auth 200 with 2 spots; `web/share/` served by `node:http`, opened with `JSDOM.fromURL` → `2 spots from @ana_…`, two photos fetch 200; `revokeLink` and a forced-past expiry → byte-identical 404 gone; `makeSendLink` → `revokeSentLink` kills the link and its photo URLs; invite link: anon 42501, B joins and pulls Downtown's spots, B again → same id (D60), C → `LinkGoneError`, A sees it `used` by B. Jest stays 2065 (integration-only).

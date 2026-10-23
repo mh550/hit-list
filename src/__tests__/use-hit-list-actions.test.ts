@@ -7,6 +7,9 @@ import { useHitListsStore } from '@/src/stores';
 import { FeatureType } from '@/src/types';
 import { CITIES, createTestHitList, createTestSpot } from './factories';
 import { createMigratedTestDb } from './helpers/node-sqlite-db';
+import { ME, adoptPhoneFor, outboxOps } from './helpers/outbox';
+import { INITIAL_SYNC, useSyncStore } from '@/src/stores/sync-store';
+import type { HitList } from '@/src/types';
 
 let mockDb: SQLiteDatabase;
 jest.mock('expo-sqlite', () => ({
@@ -362,5 +365,36 @@ describe('useHitListActions', () => {
     });
     expect(store().membershipBySpot).toEqual({});
     consoleSpy.mockRestore();
+  });
+
+  describe('owner of a new list (S5-06)', () => {
+    afterEach(() => useSyncStore.setState(INITIAL_SYNC));
+
+    it("a list made once the rider's rows are adopted is theirs, and queues its upsert", async () => {
+      await adoptPhoneFor(mockDb, ME);
+      useSyncStore.setState({ adoptedUserId: ME });
+      const { result } = renderHook(() => useHitListActions());
+
+      let list: HitList | undefined;
+      await act(async () => {
+        list = await result.current.createList('Night');
+      });
+
+      expect(list?.owner_id).toBe(ME);
+      expect((await getHitLists(mockDb))[0].owner_id).toBe(ME);
+      expect(await outboxOps(mockDb)).toEqual([['hit_list', list!.id, 'upsert']]);
+    });
+
+    it('signed out (no adopted rider) the list stays phone-only', async () => {
+      await adoptPhoneFor(mockDb, ME); // Keep: the account's rows are still here
+      const { result } = renderHook(() => useHitListActions());
+
+      await act(async () => {
+        await result.current.createList('Night');
+      });
+
+      expect((await getHitLists(mockDb))[0].owner_id).toBeUndefined();
+      expect(await outboxOps(mockDb)).toEqual([]);
+    });
   });
 });

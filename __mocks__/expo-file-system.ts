@@ -1,7 +1,7 @@
 // In-memory fake of expo-file-system 57. Member names and signatures are copied from
 // node_modules/expo-file-system/build/{Paths,File,Directory,Directory.types}.d.ts and
 // build/internal/NativeFileSystem.types.d.ts. Only what src/utils/photo-storage.ts and src/sync/photos.ts use
-// (bytes(): Promise<Uint8Array>, write(content), delete(), Paths.cache).
+// (bytes(): Promise<Uint8Array>, write(content), delete(), Directory delete(), Paths.cache).
 type Part = string | FakeFile | FakeDirectory;
 
 let documentUri = 'file:///data/Documents/';
@@ -41,6 +41,13 @@ class FakeDirectory {
       parent.create({ intermediates: true, idempotent: true });
     }
     dirs.add(this.uri);
+  }
+  /** Deletes the directory and everything in it. */
+  delete(): void {
+    if (!this.exists) throw new Error(`Directory ${this.uri} does not exist`);
+    for (const dir of [...dirs]) if (dir.startsWith(this.uri)) dirs.delete(dir);
+    for (const uri of [...files.keys()]) if (uri.startsWith(this.uri)) files.delete(uri);
+    writes.push(this.uri);
   }
 }
 

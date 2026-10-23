@@ -2,6 +2,10 @@ import { renderHook, act } from '@testing-library/react-native';
 import { useSpotActions } from '@/src/hooks/use-spot-actions';
 import { useSpotsStore } from '@/src/stores';
 import { createTestSpot } from './factories';
+import { INITIAL_SYNC, useSyncStore } from '@/src/stores/sync-store';
+import { geocodeTown } from '@/src/utils/reverse-geocode';
+
+jest.mock('@/src/utils/reverse-geocode', () => ({ geocodeTown: jest.fn().mockResolvedValue(undefined) }));
 
 const mockInsertSpot = jest.fn().mockResolvedValue(undefined);
 const mockUpdateSpot = jest.fn().mockResolvedValue(undefined);
@@ -219,6 +223,62 @@ describe('useSpotActions', () => {
       });
 
       expect(mockSoftDeleteSpot).toHaveBeenCalledWith(expect.anything(), 's1', NOW.toISOString());
+    });
+  });
+
+  describe('owner and town (S5-06)', () => {
+    afterEach(() => useSyncStore.setState(INITIAL_SYNC));
+
+    it('addSpot gives a new spot the adopted rider as owner, in the store and the DB', async () => {
+      useSyncStore.setState({ adoptedUserId: 'rider-me' });
+      const { result } = renderHook(() => useSpotActions());
+
+      await act(async () => {
+        await result.current.addSpot(createTestSpot({ id: 'n1' }));
+      });
+
+      expect(mockInsertSpot).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ id: 'n1', owner_id: 'rider-me' }));
+      expect(useSpotsStore.getState().spots[0].owner_id).toBe('rider-me');
+    });
+
+    it('with no adopted rider (signed out, or adoption not done yet) a new spot has no owner', async () => {
+      const { result } = renderHook(() => useSpotActions());
+
+      await act(async () => {
+        await result.current.addSpot(createTestSpot({ id: 'n1' }));
+      });
+
+      expect(mockInsertSpot.mock.calls[0][1].owner_id).toBeUndefined();
+    });
+
+    it("the new spot's town keeps its updated_at, so it never outranks a newer edit from another phone", async () => {
+      jest.mocked(geocodeTown).mockResolvedValueOnce('Seattle');
+      const spot = createTestSpot({ id: 'n1', updated_at: '2026-10-20T10:00:00.000Z' });
+      const { result } = renderHook(() => useSpotActions());
+
+      await act(async () => {
+        await result.current.addSpot(spot);
+      });
+
+      expect(mockUpdateSpot).toHaveBeenCalledWith(expect.anything(), 'n1', {
+        generated_name: 'Seattle',
+        updated_at: '2026-10-20T10:00:00.000Z',
+      });
+    });
+
+    it("setTown (the launch backfill) keeps the spot's current updated_at", async () => {
+      useSpotsStore.setState({ spots: [createTestSpot({ id: 's1', updated_at: '2026-10-21T09:00:00.000Z' })] });
+      const { result } = renderHook(() => useSpotActions());
+
+      await act(async () => {
+        await result.current.setTown('s1', 'Tacoma');
+      });
+
+      expect(mockUpdateSpot).toHaveBeenCalledWith(expect.anything(), 's1', {
+        generated_name: 'Tacoma',
+        updated_at: '2026-10-21T09:00:00.000Z',
+      });
+      expect(useSpotsStore.getState().spots[0].generated_name).toBe('Tacoma');
     });
   });
 });

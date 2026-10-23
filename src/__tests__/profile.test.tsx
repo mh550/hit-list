@@ -17,12 +17,20 @@ import { SESSION_STORAGE_KEY, sessionStorage } from '@/src/sync/session-storage'
 import { useSettingsStore } from '@/src/stores/settings-store';
 import { UnitSystem } from '@/src/types';
 import { saveUserSettings } from '@/src/db';
-import { resetFailed } from '@/src/db/sync';
+import { countPending, resetFailed } from '@/src/db/sync';
 import { syncNow } from '@/src/sync/engine';
+import { releaseAccountData, removeLocalAccountData } from '@/src/sync/adopt';
 import { INITIAL_SYNC, useSyncStore } from '@/src/stores/sync-store';
 
 jest.mock('@/src/sync/engine', () => ({ syncNow: jest.fn().mockResolvedValue(undefined) }));
-jest.mock('@/src/db/sync', () => ({ resetFailed: jest.fn().mockResolvedValue(undefined) }));
+jest.mock('@/src/db/sync', () => ({
+  resetFailed: jest.fn().mockResolvedValue(undefined),
+  countPending: jest.fn().mockResolvedValue(0),
+}));
+jest.mock('@/src/sync/adopt', () => ({
+  removeLocalAccountData: jest.fn().mockResolvedValue(true),
+  releaseAccountData: jest.fn().mockResolvedValue(undefined),
+}));
 
 jest.mock('expo-sqlite', () => ({
   useSQLiteContext: () => ({
@@ -228,6 +236,18 @@ describe('Profile account section (S4-05)', () => {
     alert.mockRestore();
   });
 
+  /** Presses Sign out (its backup runs), then one button of the alert that follows. */
+  async function signOutVia(text: string) {
+    await act(async () => {
+      fireEvent.press(screen.getByRole('button', { name: 'Sign out' }));
+    });
+    const button = lastAlertButtons(alert).find((b) => b.text === text);
+    if (!button) throw new Error(`no ${text} button`);
+    await act(async () => {
+      button.onPress?.();
+    });
+  }
+
   /** Opens the Delete account alert and presses one of its buttons. */
   async function pressInDeleteAlert(text: 'Delete' | 'Cancel') {
     fireEvent.press(screen.getByRole('button', { name: 'Delete account' }));
@@ -292,15 +312,12 @@ describe('Profile account section (S4-05)', () => {
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy();
   });
 
-  it('Sign out signs out of Supabase and returns to the signed-out state (no Keep/Remove prompt in S4, D62)', async () => {
+  it('Sign out, then Keep, signs out of Supabase and returns to the signed-out state', async () => {
     useAuthStore.setState(ANA);
     render(<ProfileScreen />);
-    await act(async () => {
-      fireEvent.press(screen.getByRole('button', { name: 'Sign out' }));
-    });
+    await signOutVia('Keep');
     expect(mockFake!.auth.signOut).toHaveBeenCalledTimes(1);
     expect(mockFake!.auth.signOut).toHaveBeenCalledWith();
-    expect(alert).not.toHaveBeenCalled();
     expect(useAuthStore.getState()).toMatchObject(SIGNED_OUT);
     expect(screen.getByText('Sign in to back up your spots and share them')).toBeTruthy();
   });
@@ -310,9 +327,7 @@ describe('Profile account section (S4-05)', () => {
     mockFake!.failNext('signOut', { message: 'Network request failed' });
     const remove = jest.spyOn(sessionStorage, 'removeItem');
     render(<ProfileScreen />);
-    await act(async () => {
-      fireEvent.press(screen.getByRole('button', { name: 'Sign out' }));
-    });
+    await signOutVia('Keep');
     expect(mockFake!.auth.signOut).toHaveBeenCalledTimes(1);
     expect(remove).toHaveBeenCalledWith(SESSION_STORAGE_KEY);
     expect(useAuthStore.getState()).toMatchObject(SIGNED_OUT);
@@ -324,9 +339,7 @@ describe('Profile account section (S4-05)', () => {
     mockFake!.auth.signOut.mockRejectedValueOnce(new Error('boom'));
     const remove = jest.spyOn(sessionStorage, 'removeItem');
     render(<ProfileScreen />);
-    await act(async () => {
-      fireEvent.press(screen.getByRole('button', { name: 'Sign out' }));
-    });
+    await signOutVia('Keep');
     expect(remove).toHaveBeenCalledWith(SESSION_STORAGE_KEY);
     expect(useAuthStore.getState()).toMatchObject(SIGNED_OUT);
     remove.mockRestore();
@@ -340,9 +353,7 @@ describe('Profile account section (S4-05)', () => {
     mockFake!.auth.signOut.mockResolvedValueOnce(offline as never);
     const remove = jest.spyOn(sessionStorage, 'removeItem');
     render(<ProfileScreen />);
-    await act(async () => {
-      fireEvent.press(screen.getByRole('button', { name: 'Sign out' }));
-    });
+    await signOutVia('Keep');
     expect(mockFake!.auth.signOut).toHaveBeenCalledTimes(1);
     expect(remove).toHaveBeenCalledWith(SESSION_STORAGE_KEY);
     expect(useAuthStore.getState()).toMatchObject(SIGNED_OUT);
@@ -353,9 +364,7 @@ describe('Profile account section (S4-05)', () => {
     useAuthStore.setState(ANA);
     const remove = jest.spyOn(sessionStorage, 'removeItem');
     render(<ProfileScreen />);
-    await act(async () => {
-      fireEvent.press(screen.getByRole('button', { name: 'Sign out' }));
-    });
+    await signOutVia('Keep');
     expect(remove).not.toHaveBeenCalled();
     remove.mockRestore();
   });
@@ -579,5 +588,248 @@ describe('Profile backup status (S5-05)', () => {
     render(<ProfileScreen />);
 
     expect(screen.queryByText(/backed up ·|not backed up/i)).toBeNull();
+  });
+});
+
+describe('Profile sign out and delete: Keep / Remove from this phone (S5-06, D38, D51, D69)', () => {
+  let alert: jest.SpyInstance;
+
+  beforeEach(() => {
+    useSettingsStore.setState({ units: UnitSystem.Imperial, batch_import_radius: 50 });
+    useSyncStore.setState(INITIAL_SYNC);
+    jest.mocked(syncNow).mockReset().mockResolvedValue(undefined);
+    jest.mocked(countPending).mockReset().mockResolvedValue(0);
+    jest.mocked(removeLocalAccountData).mockReset().mockResolvedValue(true);
+    jest.mocked(releaseAccountData).mockReset().mockResolvedValue(undefined);
+    alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    alert.mockRestore();
+    jest.useRealTimers();
+  });
+
+  const pressSignOut = () =>
+    act(async () => {
+      fireEvent.press(screen.getByRole('button', { name: 'Sign out' }));
+    });
+  const pressInAlert = async (text: string) => {
+    const button = lastAlertButtons(alert).find((b) => b.text === text);
+    if (!button) throw new Error(`no ${text} button`);
+    await act(async () => {
+      button.onPress?.();
+    });
+  };
+
+  it('Sign out backs up first, then asks "Keep spots on this phone?" with Keep, Remove from this phone and Cancel', async () => {
+    useAuthStore.setState(ANA);
+    render(<ProfileScreen />);
+
+    await pressSignOut();
+
+    expect(syncNow).toHaveBeenCalledTimes(1);
+    expect(jest.mocked(syncNow).mock.invocationCallOrder[0]).toBeLessThan(
+      jest.mocked(countPending).mock.invocationCallOrder[0],
+    );
+    expect(alert).toHaveBeenCalledWith(
+      'Keep spots on this phone?',
+      "They're backed up in your account either way.",
+      expect.any(Array),
+    );
+    expect(lastAlertButtons(alert).map((b) => [b.text, b.style])).toEqual([
+      ['Keep', 'default'],
+      ['Remove from this phone', 'destructive'],
+      ['Cancel', 'cancel'],
+    ]);
+    expect(mockFake!.auth.signOut).not.toHaveBeenCalled();
+  });
+
+  it('Keep signs out and leaves the rows on the phone', async () => {
+    useAuthStore.setState(ANA);
+    render(<ProfileScreen />);
+    await pressSignOut();
+
+    await pressInAlert('Keep');
+
+    expect(removeLocalAccountData).not.toHaveBeenCalled();
+    expect(mockFake!.auth.signOut).toHaveBeenCalledTimes(1);
+    expect(useAuthStore.getState()).toMatchObject(SIGNED_OUT);
+  });
+
+  it("Remove from this phone removes the rider's rows and photos, then signs out", async () => {
+    useAuthStore.setState(ANA);
+    render(<ProfileScreen />);
+    await pressSignOut();
+
+    await pressInAlert('Remove from this phone');
+
+    expect(removeLocalAccountData).toHaveBeenCalledWith(expect.anything(), ANA.userId);
+    expect(jest.mocked(removeLocalAccountData).mock.invocationCallOrder[0]).toBeLessThan(
+      mockFake!.auth.signOut.mock.invocationCallOrder[0],
+    );
+    expect(useAuthStore.getState()).toMatchObject(SIGNED_OUT);
+  });
+
+  it('a change that appeared before Remove ran: nothing removed, still signed in, says so', async () => {
+    jest.mocked(removeLocalAccountData).mockResolvedValueOnce(false);
+    useAuthStore.setState(ANA);
+    render(<ProfileScreen />);
+    await pressSignOut();
+
+    await pressInAlert('Remove from this phone');
+
+    expect(mockFake!.auth.signOut).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().status).toBe('signed_in');
+    expect(screen.getByText("Some changes aren't backed up yet, so nothing was removed.")).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Sign out' }).props.accessibilityState).toMatchObject({
+      disabled: false,
+    });
+  });
+
+  it('a Remove that fails warns, stays signed in and says so', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.mocked(removeLocalAccountData).mockRejectedValueOnce(new Error('disk full'));
+    useAuthStore.setState(ANA);
+    render(<ProfileScreen />);
+    await pressSignOut();
+
+    await pressInAlert('Remove from this phone');
+
+    expect(warn).toHaveBeenCalled();
+    expect(mockFake!.auth.signOut).not.toHaveBeenCalled();
+    expect(screen.getByText("Couldn't remove the spots from this phone. Try again.")).toBeTruthy();
+    warn.mockRestore();
+  });
+
+  it("changes still waiting: '3 changes aren't backed up yet' with Cancel and Sign out anyway, no Remove", async () => {
+    jest.mocked(countPending).mockResolvedValue(3);
+    useAuthStore.setState(ANA);
+    render(<ProfileScreen />);
+    await pressSignOut();
+
+    expect(alert).toHaveBeenCalledWith(
+      "3 changes aren't backed up yet",
+      "Sign out anyway and they'll back up next time you sign in to this account.",
+      expect.any(Array),
+    );
+    expect(lastAlertButtons(alert).map((b) => [b.text, b.style])).toEqual([
+      ['Cancel', 'cancel'],
+      ['Sign out anyway', 'destructive'],
+    ]);
+
+    await pressInAlert('Sign out anyway');
+    expect(removeLocalAccountData).not.toHaveBeenCalled();
+    expect(useAuthStore.getState()).toMatchObject(SIGNED_OUT);
+  });
+
+  it("one change waiting: '1 change isn't backed up yet'", async () => {
+    jest.mocked(countPending).mockResolvedValue(1);
+    useAuthStore.setState(ANA);
+    render(<ProfileScreen />);
+    await pressSignOut();
+
+    expect(alert.mock.calls.at(-1)?.[0]).toBe("1 change isn't backed up yet");
+  });
+
+  it('Cancel keeps the rider signed in and Sign out usable again', async () => {
+    jest.mocked(countPending).mockResolvedValue(3);
+    useAuthStore.setState(ANA);
+    render(<ProfileScreen />);
+    await pressSignOut();
+
+    await pressInAlert('Cancel');
+
+    expect(mockFake!.auth.signOut).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().status).toBe('signed_in');
+    expect(screen.getByRole('button', { name: 'Sign out' }).props.accessibilityState).toMatchObject({
+      disabled: false,
+    });
+  });
+
+  it("shows 'Signing out…' while the last backup runs, and asks after 10 s even if it never finishes (offline)", async () => {
+    jest.useFakeTimers();
+    jest.mocked(syncNow).mockReturnValue(new Promise(() => {}));
+    useAuthStore.setState(ANA);
+    render(<ProfileScreen />);
+    await pressSignOut();
+
+    expect(screen.getByRole('button', { name: 'Signing out…' }).props.accessibilityState).toMatchObject({
+      disabled: true,
+    });
+    expect(alert).not.toHaveBeenCalled();
+
+    await act(async () => {
+      jest.advanceTimersByTime(10_000);
+    });
+    expect(alert).toHaveBeenCalledWith('Keep spots on this phone?', expect.any(String), expect.any(Array));
+  });
+
+  it('a count that fails is treated as changes waiting: no Remove offered', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.mocked(countPending).mockRejectedValue(new Error('locked'));
+    useAuthStore.setState(ANA);
+    render(<ProfileScreen />);
+    await pressSignOut();
+
+    expect(alert.mock.calls.at(-1)?.[0]).toBe("Some changes aren't backed up yet");
+    expect(lastAlertButtons(alert).map((b) => b.text)).toEqual(['Cancel', 'Sign out anyway']);
+    warn.mockRestore();
+  });
+
+  /** Delete account → Delete → the function succeeds. */
+  async function deleteAccountNow() {
+    fireEvent.press(screen.getByRole('button', { name: 'Delete account' }));
+    await pressInAlert('Delete');
+  }
+
+  it('Delete account ends signed out with "Your account is deleted. Keep the spots on this phone?" (D51)', async () => {
+    useAuthStore.setState(ANA);
+    render(<ProfileScreen />);
+
+    await deleteAccountNow();
+
+    expect(useAuthStore.getState()).toMatchObject(SIGNED_OUT);
+    expect(alert).toHaveBeenLastCalledWith(
+      'Account deleted',
+      'Your account is deleted. Keep the spots on this phone?',
+      expect.any(Array),
+    );
+    expect(lastAlertButtons(alert).map((b) => [b.text, b.style])).toEqual([
+      ['Keep', 'default'],
+      ['Remove from this phone', 'destructive'],
+    ]);
+  });
+
+  it('Keep after Delete account makes the spots phone-only (D67)', async () => {
+    useAuthStore.setState(ANA);
+    render(<ProfileScreen />);
+    await deleteAccountNow();
+
+    await pressInAlert('Keep');
+
+    expect(releaseAccountData).toHaveBeenCalledWith(expect.anything(), ANA.userId);
+    expect(removeLocalAccountData).not.toHaveBeenCalled();
+  });
+
+  it('Remove after Delete account removes them, waiting changes too (they have no account left to reach)', async () => {
+    useAuthStore.setState(ANA);
+    render(<ProfileScreen />);
+    await deleteAccountNow();
+
+    await pressInAlert('Remove from this phone');
+
+    expect(removeLocalAccountData).toHaveBeenCalledWith(expect.anything(), ANA.userId, { discardPending: true });
+    expect(releaseAccountData).not.toHaveBeenCalled();
+  });
+
+  it('a failed delete asks nothing about the phone', async () => {
+    mockFake!.failNext('invoke', { message: 'boom' });
+    useAuthStore.setState(ANA);
+    render(<ProfileScreen />);
+
+    await deleteAccountNow();
+
+    expect(alert).toHaveBeenCalledTimes(1);
+    expect(releaseAccountData).not.toHaveBeenCalled();
   });
 });

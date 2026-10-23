@@ -640,7 +640,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
       const db = await v3Db();
       const spot = createTestSpot();
       await insertV3Spot(db, spot);
-      await migrateDb(db);
+      await migrateDb(db, MIGRATIONS.slice(0, 4));
       await db.runAsync(
         `INSERT INTO hit_lists (id, name, created_at, updated_at) VALUES ('L', 'Downtown', 'x', 'x')`,
       );
@@ -651,9 +651,9 @@ describe('migrateDb (PRAGMA user_version)', () => {
         counts: await counts(db),
       };
 
-      await migrateDb(db);
+      await migrateDb(db, MIGRATIONS.slice(0, 4));
 
-      expect(await getSchemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
+      expect(await getSchemaVersion(db)).toBe(4);
       expect({
         lists: await db.getAllAsync('SELECT * FROM hit_lists'),
         members: await db.getAllAsync('SELECT * FROM hit_list_spots'),
@@ -808,7 +808,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
       });
     });
 
-    it('the v2 fixture rows migrate 2 → 5 with their spots, media and memberships intact', async () => {
+    it('the v2 fixture rows migrate 2 → 5 with their spots and media intact', async () => {
       const db = createTestDb();
       await migrateDb(db, MIGRATIONS.slice(0, 2));
       const asColumns = (old: { status: string; feature: object; inRun: object; landing: object; metadata: object }): OldColumns => ({
@@ -842,18 +842,25 @@ describe('migrateDb (PRAGMA user_version)', () => {
       expect(await db.getFirstAsync('SELECT COUNT(*) AS n FROM sync_outbox')).toEqual({ n: 0 });
     });
 
-    it('migrating a v5 DB again changes nothing', async () => {
+    it('migrating a v5 DB again changes nothing (rows, outbox and sync state stay)', async () => {
       const db = await v4Db();
       await migrateDb(db);
-      const spot = createTestSpot();
-      await insertV3Spot(db, spot);
-      const before = await db.getAllAsync('SELECT * FROM spots');
+      await db.runAsync("INSERT INTO sync_state (key, value) VALUES ('user_id', 'u1')");
+      await insertSpot(db, createTestSpot({ owner_id: 'u1' }));
+      const snapshot = async () => ({
+        spots: await db.getAllAsync('SELECT * FROM spots'),
+        outbox: await db.getAllAsync('SELECT * FROM sync_outbox'),
+        state: await db.getAllAsync('SELECT * FROM sync_state'),
+      });
+      const before = await snapshot();
+      expect(before.outbox).toHaveLength(1);
 
       await migrateDb(db);
 
       expect(await getSchemaVersion(db)).toBe(5);
-      expect(await db.getAllAsync('SELECT * FROM spots')).toEqual(before);
+      expect(await snapshot()).toEqual(before);
     });
+  });
   });
 
   it('rolls back a failing migration and stays at the previous version', async () => {

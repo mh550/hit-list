@@ -390,5 +390,22 @@ describe('spots against real SQLite', () => {
         ['spot', s.id, 'upsert'],
       ]);
     });
+
+    it('deleting a spot twice queues one delete and keeps the first deleted_at', async () => {
+      const s = createTestSpot({ owner_id: ME });
+      await insertSpot(db, s);
+
+      await softDeleteSpot(db, s.id, '2026-10-23T01:00:00.000Z');
+      await softDeleteSpot(db, s.id, '2026-10-23T02:00:00.000Z');
+
+      expect(await outboxOps(db)).toEqual([
+        ['spot', s.id, 'upsert'],
+        ['spot', s.id, 'delete'],
+      ]);
+      expect(await db.getFirstAsync('SELECT deleted_at, updated_at FROM spots WHERE id = ?', s.id)).toEqual({
+        deleted_at: '2026-10-23T01:00:00.000Z',
+        updated_at: '2026-10-23T01:00:00.000Z',
+      });
+    });
   });
 });

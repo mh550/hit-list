@@ -362,6 +362,7 @@ describe('hit lists in SQLite (src/db/hit-lists.ts)', () => {
         mine.id,
         s1.id,
       );
+      expect(await outboxOps(db)).toEqual([]);
       await addSpotsToList(db, mine.id, [s2.id]);
       await db.runAsync('DELETE FROM sync_outbox');
 
@@ -375,6 +376,31 @@ describe('hit lists in SQLite (src/db/hit-lists.ts)', () => {
       await expect(addSpotsToList(db, mine.id, [s1.id, 'missing'])).rejects.toThrow();
 
       expect(await memberRows(db)).toEqual([]);
+      expect(await outboxOps(db)).toEqual([]);
+    });
+
+    it('deleting a list twice queues one delete and keeps the first deleted_at', async () => {
+      await softDeleteHitList(db, mine.id, '2026-10-23T01:00:00.000Z');
+      await softDeleteHitList(db, mine.id, '2026-10-23T02:00:00.000Z');
+
+      expect(await outboxOps(db)).toEqual([['hit_list', mine.id, 'delete']]);
+      expect(await db.getFirstAsync('SELECT deleted_at, updated_at FROM hit_lists WHERE id = ?', mine.id)).toEqual({
+        deleted_at: '2026-10-23T01:00:00.000Z',
+        updated_at: '2026-10-23T01:00:00.000Z',
+      });
+    });
+
+    it('a hard delete of an owned spot or list cascades its memberships and queues no membership delete', async () => {
+      await addSpotsToList(db, mine.id, [s1.id, s2.id]);
+      const other = createTestHitList({ owner_id: ME });
+      await insertHitList(db, other);
+      await addSpotsToList(db, other.id, [s3.id]);
+      await db.runAsync('DELETE FROM sync_outbox');
+
+      await db.runAsync('DELETE FROM spots WHERE id = ?', s1.id);
+      await db.runAsync('DELETE FROM hit_lists WHERE id = ?', other.id);
+
+      expect(await memberRows(db)).toEqual([expect.objectContaining({ list_id: mine.id, spot_id: s2.id })]);
       expect(await outboxOps(db)).toEqual([]);
     });
   });

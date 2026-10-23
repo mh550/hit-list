@@ -110,6 +110,9 @@ it can **Save a copy** (it becomes their own private spot, with "From @name" on 
 | D58 | **A display name is at most 50 characters** *default* | A `profiles` check constraint; usernames stay 3–20 (D39). Removing a friend also withdraws pending list invitations between the two (an invitation needs a friendship). | S3-05 Opus review: an unbounded display name is downloaded by every friend, co-member and `find_profile` caller (§9 Q19) |
 | D59 | **Blocking hides the blocked rider's sends to you; your own pending sends to them stay** *default* | When you block someone, the sends *they* sent you disappear from your Inbox (and can't be saved), and come back unchanged if you unblock them while they are still pending. Sends *you* had sent them stay readable by them until you withdraw them (Sent → Withdraw). Unfriending without a block leaves sends alone. | S3-06 Opus review: the simplest reading of D50 (§9 Q20) |
 | D60 | **An invite link lets any signed-in rider who holds it join once; it dies with the list's sharing** *default* | No friendship is needed to join by link (holding it is the owner's consent; the in-app invite still needs a friend). The owner, or someone already a member, opening the link changes nothing and doesn't use it up. Stopping sharing or deleting the list revokes its open invite links, so sharing again later doesn't bring them back. An invite link asked for longer than 7 days is cut to 7 (D44). | S3-07 (§9 Q21) |
+| D61 | **The session is stored in the iOS keychain, large sessions encrypted** *default* | Supabase's LargeSecureStore pattern: a session up to 2048 bytes lives in `expo-secure-store`; a larger one is AES-256-GCM encrypted (expo-crypto, a fresh key per write) into AsyncStorage with the key in SecureStore. A key with no ciphertext (app reinstalled) reads as signed out. | S4 plan (`docs/plans/2026-10-22-s4-accounts.md`): SecureStore caps a value at 2048 bytes and a Supabase session is usually larger (§9 Q22) |
+| D62 | **Sign out in S4 is plain; the Keep / Remove prompt (D38) arrives with S5** *default* | S4 signs out (falling back to a local sign-out when offline) and leaves every spot on the phone. S5, which backs spots up first, adds "Keep spots on this phone?". | S4 plan: before S5 nothing is on the server, so "Remove from this phone" would lose data (§9 Q23) |
+| D63 | **A display name is optional** *default* | Onboarding asks for an @username (required) and a display name (optional, ≤ 50, D58); without one, Profile and friends see only @username. | S4 plan: one fewer step to get in (§9 Q24) |
 
 ---
 
@@ -369,6 +372,11 @@ it stops at a milestone boundary; S9 (links) is last among the features because 
 21. **Invite links (D60).** Default: anyone with an account who has the link can join the list once (they don't
     have to be your friend first), and stopping sharing or deleting the list kills its open invite links. Should an
     invite link work only for your friends?
+22. **Where the sign-in lives on the phone (D61).** Default: in the iPhone keychain, with a large session encrypted
+    and its key in the keychain. OK, or should signing in last only until the app is closed?
+23. **Signing out before backup exists (D62).** Default: in S4, Sign out just signs out and keeps every spot on the
+    phone; the Keep / Remove question (Q3) comes with S5. OK?
+24. **Display name (D63).** Default: optional; friends see @username when you leave it empty. Should it be required?
 
 ---
 

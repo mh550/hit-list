@@ -44,3 +44,33 @@ The migrations in `supabase/migrations/` are the whole server schema. Pushing th
 - **Undo:** migrations only go forward. Before any real user exists, the clean undo is to delete the cloud project
   and create a new one (nothing else depends on it). After real users exist, undo is a new migration that reverses
   the change; never edit a pushed file.
+
+## S4 — accounts on the phone (local stack over Tailscale)
+
+Works from S4-05 on (sign-in, username, Profile). Nothing here touches a cloud project. Plan:
+`docs/plans/2026-10-22-s4-accounts.md`.
+
+- [ ] **Start the stack** on the box: `npm run db:start`, then `npm run db:reset` for a clean database. Check:
+      `curl -s http://100.88.90.97:54321/auth/v1/health` from the box (or the phone's browser) answers with JSON. If
+      it doesn't, the ports are bound to 127.0.0.1 only: tell the run, don't change Docker by hand.
+- [ ] **Point the app at it:** `cp .env.example .env.local`, then set `EXPO_PUBLIC_SUPABASE_URL=http://100.88.90.97:54321`
+      and `EXPO_PUBLIC_SUPABASE_ANON_KEY=` the `ANON_KEY` from `npx supabase status` (a local demo key; `.env.local` is
+      git-ignored, never commit it). Check: `git status` doesn't list `.env.local`.
+- [ ] **Run it:** `npm run start:tailscale` (restart Metro after any `.env.local` change; `EXPO_PUBLIC_` values are read
+      when the bundle is built), open it in Expo Go. Check: Profile shows "Sign in to back up your spots and share
+      them" (not "Accounts aren't set up in this build").
+- [ ] **Sign in:** Profile → Sign in → your email → Send code. Read the 6-digit code in Mailpit at
+      `http://100.88.90.97:54324` (any address works locally; nothing is really emailed). Type it; pick an @username.
+      Check: Profile shows `@you`, your display name and email. If Mailpit's email has only a link and no code, the
+      local magic-link template needs `{{ .Token }}`: note it in INBOX.md for the run.
+- [ ] **Stay signed in:** close Expo Go fully and reopen. Check: still signed in on Profile.
+- [ ] **Sign out / back in:** Sign out (spots stay on the phone, D62), sign in again with the same email. Check: same
+      @username, not asked again.
+- [ ] **Delete account** (needs the `account-delete` function, served by the local stack): Profile → Delete account →
+      Delete. Check: back to signed out; in Studio (`http://100.88.90.97:54323`) Authentication shows no user for that
+      email; spots on the phone are untouched.
+- [ ] **Stop:** `npm run db:stop`. **Undo:** delete `.env.local` (the app goes back to signed-out only);
+      `npm run db:reset` wipes every local account.
+- [ ] **Later, for a cloud project** (not before the §10 cloud step): in the dashboard, Authentication → Email: OTP
+      length **6**, and the "Magic Link" and "Confirm signup" templates must contain `{{ .Token }}` (the app asks for a
+      code, never a link); `npx supabase functions deploy account-delete`; check a request without a token gets 401.

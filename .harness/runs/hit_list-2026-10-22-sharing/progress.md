@@ -20,6 +20,15 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 · S4-01 · passes
+
+- Deps via `npx expo install`: `@supabase/supabase-js` ^2.118.0, `expo-secure-store` ~57.0.4 (+ its app.json plugin), `@react-native-async-storage/async-storage` 2.2.0; own commit `803a4fa chore:`; no dedupe needed. **No url-polyfill** (README 2.118 doesn't ask; Expo's winter runtime installs a WHATWG URL) and **no aes-js**: expo-crypto 57 has native AES-GCM, which D61 uses.
+- `npx expo export --platform ios` exit 0 (4.4 MB); a reverted probe that imports all three packages also bundles (5.0 MB). `.env.example` (empty values), `.gitignore` `.env`/`.env.*`/`!.env.example`; `git ls-files '.env*'` → only `.env.example`.
+- Plan `docs/plans/2026-10-22-s4-accounts.md`: client, session storage, auth store + `resolveAuthState`, the three screens' exact copy, Profile states, sign out, account-delete function, fake (cited .d.ts), integration harness, RED test list per feature, review focus. Live checklist gains the S4 phone steps (`.env.local`, 100.88.90.97:54321, Mailpit :54324). Tests 924 → 924, check.sh green.
+- Next session (S4-02) must know: never await supabase inside `onAuthStateChange` (defer with setTimeout); a profile fetch error is `signed_in`, never `needs_username`; extend the expo-crypto mock in jest.setup.ts with AES backed by Node aes-256-gcm; `tsconfig`/eslint must exclude `supabase/functions` once S4-05 adds Deno code.
+- Questions for Michael (spec §9): Q22 / D61 session in the keychain, large sessions encrypted; Q23 / D62 plain sign out until S5 adds Keep / Remove; Q24 / D63 display name optional.
+- Proposed change: S4-05's signed-out copy "Signing in uploads the spots already on this phone…" is only true from S5; keep it (S4 and S5 ship in one run), but S4-07 should say so to Michael.
+
 ### 2026-10-23 · verify S3
 
 39 steps re-run; 8 features hold, 0 fail. Build-only policy vs the brief: the brief explicitly allows the local supabase_*_hit-list stack, which the steps need; it was stopped afterwards.

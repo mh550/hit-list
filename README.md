@@ -41,6 +41,11 @@ three-filter list (M5), the review screens (M6) and the import radius in your un
   'Delete list' (spots stay in your library). Add a spot from its page ('In lists' chips, '+ Add to hit list') or
   select several on the Spots tab (long press or 'Select', then 'Add to list'); a chip row above the Spots tab
   ('My spots', then each list) scopes both views. A spot can be in many lists. Local only, no accounts yet.
+- Area lists (S2): Lists → '+ Area list' opens 'Pick an area' (a map with a fixed centre pin and a circle, radius
+  chips in your units (0.25–25 mi / 0.5–50 km), place search, 'Use my location', the filters and a live count).
+  'Save as hit list' → 'Just these N spots' (a normal list of the spots inside now) or 'Keep it updated' (an area
+  list: every spot of yours inside the circle that passes its filters, now and later, computed, never stored).
+  Its row reads 'Area · 2 mi'; its screen has 'Edit area'. Spots with no location are never in an area.
 - Unnamed spots read `Untitled · Seattle · Oct 13, 2:22 PM` (town from Apple's geocoder, which needs internet).
 - Profile: Imperial or Metric units; the import radius is shown and typed in them (50 m reads 164 ft), and the
   import screen says '(within 164 ft)'.

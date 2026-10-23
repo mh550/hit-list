@@ -43,7 +43,11 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   checkbox rows, '<N> selected', 'Add to list (N)' → `AddToListSheet`; select mode never navigates),
   `(tabs)/lists.tsx` 'My hit lists' (rows with live spot counts, '+ New hit list' → `NameListSheet` → `/list/<id>`),
   `list/[id]/` one list (`SpotsBrowser` scoped to its spots, Rename, long-press 'Remove from list', 'Delete list',
-  a 'This list is gone' state), `(tabs)/profile.tsx`,
+  a 'This list is gone' state; an area list (S2) shows 'Area · 2 mi of <place>' under its title and 'Edit area', no
+  Remove), `area/index.tsx` 'Pick an area' (`fullScreenModal`: MapView with a fixed centre pin + `Circle`, radius chips,
+  'Search a place' (`geocodeAsync` on submit only, never on a region change), 'Use my location', the shared filters, a
+  live count; 'Save as hit list' → 'Just these N' (manual list) / 'Keep it updated' (area list); `?listId` = edit mode,
+  'Save area'), `(tabs)/profile.tsx`,
   `add/` Quick Add (camera → review: photos, name, an 'Add details' link that reveals `SpotTagFields` (one way), an
   'Already have this spot?' card of up to three `nearbySpots` rows with 'Add photos there' (saves to that spot, D30), Save),
   `import/` batch import (review: per group a 'New spot' / 'Add photos to <name>' chip choice when an existing spot is
@@ -79,14 +83,16 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   `stopped` (undefined = Any, true, false), Natural speed `natural_speed_min`/`_max` (inclusive range, unrated spots kept;
   `selectActiveFilterCount` counts each set filter once, 0–3), a separate `searchQuery`, sort, `viewMode`; filtering and sorting live in its selectors), media (`mediaBySpot`), settings, location,
   hit lists (`lists`, `membershipBySpot`, `activeListId` = the picker, not persisted; pure selectors `selectListSpots`,
-  `selectSpotLists`, `selectListCounts`, `selectListsByName`, all skipping soft-deleted spots; `useMemo` them, never
+  `selectSpotLists` (takes the spot), `selectListCounts`, `selectListsByName`, `selectAreaSpots`, all skipping soft-deleted spots; `useMemo` them, never
   build an array inside `useStore`). The filters, search, sort and List | Map are one set shared by the Spots tab and
   every list screen (D52).
 - `src/hooks/` `useDbInit` (migrate, then load spots/media/hit lists + memberships/settings even if the migration threw, background town backfill),
-  `useSpotActions`, `useHitListActions` (create/rename/delete a list, add/remove spots: store first, then the DB, revert + rethrow on failure), `useMediaActions` (photo save and remove, also used for adding photos from edit: `savePhotos` resolves the `Media[]` it actually saved; removal deletes the row only, D3), `useCurrentLocation`.
+  `useSpotActions`, `useHitListActions` (create (`createList(name, NewHitList)`)/rename/`updateHitList`/delete a list, add/remove spots: store first, then the DB, revert + rethrow on failure), `useMediaActions` (photo save and remove, also used for adding photos from edit: `savePhotos` resolves the `Media[]` it actually saved; removal deletes the row only, D3), `useCurrentLocation`.
 - `src/utils/` pure logic: geo (`NO_LOCATION`, `isKnownLocation`, haversine), exif,
   photo-storage, reverse-geocode, spot-name (D4 label), map-region, import-clustering, nearby-spots (`nearbySpots`:
-  live known-location spots within a radius, nearest first; `nearbyLabel` 'Near <name> · 16 ft'), gallery-gestures (the viewer's
+  live known-location spots within a radius, nearest first; `nearbyLabel` 'Near <name> · 16 ft'), area (S2:
+  `RADIUS_STEPS_M` per unit in whole metres, `DEFAULT_AREA_RADIUS_M`, `spotsInCircle` (boundary inclusive, never
+  `NO_LOCATION`), `nearestStep`, `radiusLabel`/`areaLabel` 'Area · 2 mi of Capitol Hill', `circleRegion`, `keepsPlace`), gallery-gestures (the viewer's
   pure maths: `clampScale`, `toggleZoom`, `clampPan`, `pagingEnabled`, `shouldClose`, `focalZoom`, `pinchPan`, `doubleTapZoom`,
   `dragDown`), legacy-details (`formatLegacyDetails(legacy, units)` →
   labelled 'Older details' rows: fixed key order, lengths in the user's units, unknown keys humanised, never throws).
@@ -111,8 +117,12 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   lists). Deleting a list is a soft delete (`deleted_at`; its `hit_list_spots` rows stay) and **never deletes a spot**;
   soft-deleting a spot leaves its memberships and the selectors hide it. The area columns (`kind`, `area_center_*`,
   `area_radius_m`, `area_filters_json`, `area_place`) and `owner_id`/`added_by`/`shared` are reserved for S2 and later:
-  S1 writes `kind = 'manual'` and NULLs. Lists show in name order (`selectListsByName`). Plan:
-  `docs/plans/2026-10-22-s1-hit-lists.md`; spec `docs/specs/2026-10-22-accounts-and-sharing.md`.
+  S1 writes `kind = 'manual'` and NULLs. Lists show in name order (`selectListsByName`). **Area lists (S2)**:
+  `kind = 'area'` with the `area_*` columns set; their spots are **computed, never stored** (no `hit_list_spots`
+  rows): the live spots inside the circle that pass `area_filters`, via the one `selectAreaSpots` (picker count, list
+  screen, counts, detail chips, sheet all use it). Never call `addSpotsToList`/`removeSpotFromList` for one; the sheet
+  shows them read-only. Plans: `docs/plans/2026-10-22-s1-hit-lists.md`, `docs/plans/2026-10-22-s2-area.md`; spec
+  `docs/specs/2026-10-22-accounts-and-sharing.md`.
 - **Import radius** (`batch_import_radius`) is stored in whole **metres**; convert only at the edges with `units.ts`
   (`radiusToDisplay` / `radiusFromInput` / `radiusUnitLabel`: 50 m shows as 164 ft); grouping and `nearbySpots` take metres.
 - **No location** is stored as `(0, 0)` (`NO_LOCATION`); always test with `isKnownLocation` (map,

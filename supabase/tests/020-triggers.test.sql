@@ -1,7 +1,7 @@
 -- S3-02: the rev counter (one sequence for every synced table), the D48 updated_at guard, the profile-on-signup
 -- trigger and the username rules (D39).
 begin;
-select plan(19);
+select plan(33);
 
 -- Users (the profile trigger fires on the auth.users insert inside tests.create_user).
 select set_config('t.owner', tests.create_user('owner@test.local')::text, true);
@@ -70,7 +70,11 @@ values ('00000000-0000-0000-0000-0000000000c1', current_setting('t.other')::uuid
 select isnt((select rev from public.hit_list_members where list_id = '00000000-0000-0000-0000-0000000000c1'), null,
             'a hit_list_members insert sets rev');
 
--- D48: an update older than the stored row is skipped and does not bump rev.
+-- D48: an update older than the stored row is skipped and does not bump rev (the guard runs before the rev
+-- trigger, so it doesn't even take a number from the sequence).
+reset role; -- no client role may read sync_rev
+select set_config('t.seq', (select last_value::text from public.sync_rev), true);
+select tests.authenticate_as_service_role();
 update public.spots set name = 'Stale name', updated_at = '2026-10-22T12:01:00Z'
 where id = '00000000-0000-0000-0000-0000000000b1';
 select is(
@@ -83,6 +87,19 @@ select is(
   current_setting('t.rev2')::bigint,
   'an update with an older updated_at does not bump rev'
 );
+reset role;
+select is((select last_value from public.sync_rev), current_setting('t.seq')::bigint,
+          'a skipped update takes no number from sync_rev');
+select tests.authenticate_as_service_role();
+
+update public.media set storage_path = 'stale', updated_at = now() - interval '1 day'
+where id = '00000000-0000-0000-0000-0000000000d1';
+select is((select storage_path from public.media where id = '00000000-0000-0000-0000-0000000000d1'), 'x/y/z.jpg',
+          'a stale media update is skipped');
+update public.hit_lists set name = 'Stale', updated_at = now() - interval '1 day'
+where id = '00000000-0000-0000-0000-0000000000c1';
+select is((select name from public.hit_lists where id = '00000000-0000-0000-0000-0000000000c1'), 'Weekend',
+          'a stale hit_lists update is skipped');
 update public.spots set name = 'Same time', updated_at = '2026-10-22T12:05:00Z'
 where id = '00000000-0000-0000-0000-0000000000b1';
 select is(
@@ -102,6 +119,22 @@ select cmp_ok(
 );
 
 reset role;
+
+-- Every synced table has the rev trigger (insert and update); spots, media and hit_lists have the stale guard.
+select trigger_is('public', t, 't20_rev', 'public', 'bump_rev', t || ' has t20_rev')
+from unnest(array['profiles', 'spots', 'media', 'hit_lists', 'hit_list_spots', 'hit_list_members']) as t;
+select trigger_is('public', t, 't10_stale_guard', 'public', 'skip_stale_update', t || ' has t10_stale_guard')
+from unnest(array['spots', 'media', 'hit_lists']) as t;
+select set_config('t.prof_rev', (select rev::text from public.profiles where id = current_setting('t.owner')::uuid),
+                  true);
+update public.profiles set display_name = 'Owner' where id = current_setting('t.owner')::uuid;
+select cmp_ok((select rev from public.profiles where id = current_setting('t.owner')::uuid), '>',
+              current_setting('t.prof_rev')::bigint, 'a profile update bumps rev');
+select set_config('t.hlm_rev', (select rev::text from public.hit_list_members
+                                where list_id = '00000000-0000-0000-0000-0000000000c1'), true);
+update public.hit_list_members set status = 'member' where list_id = '00000000-0000-0000-0000-0000000000c1';
+select cmp_ok((select rev from public.hit_list_members where list_id = '00000000-0000-0000-0000-0000000000c1'), '>',
+              current_setting('t.hlm_rev')::bigint, 'a hit_list_members update bumps rev');
 
 -- Usernames (D39): 3–20 of letters, digits, '_' and '.', unique case-insensitively.
 select throws_ok(

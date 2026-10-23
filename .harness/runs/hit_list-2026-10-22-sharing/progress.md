@@ -20,6 +20,13 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-22 23:10 · S3-02 · passes
+
+- Changed: `supabase/migrations/20261023015403_schema.sql` (the only migration: 10 tables, RLS on + no policies, postgis/citext in `extensions`, `sync_rev`, `t20_rev` / `t10_stale_guard` / `on_auth_user_created` triggers, username check, privileges), `supabase/seed.sql` (`tests.create_user`, `authenticate_as`, `authenticate_as_service_role`, `clear_auth`), `supabase/tests/010-schema.test.sql` (47) + `020-triggers.test.sql` (33). RED commit `1981ed4` (no migration: all failed). Jest 924 → 924 (SQL only); pgTAP 0 → 80.
+- Verified: `npx supabase start` → `db reset` → `npm run test:db` exit 0, `Files=2, Tests=80, Result: PASS` → `supabase stop` exit 0; `docker ps` = the same 7 n8n-*/dj-* containers, no `supabase_*`. `check.sh` green (924). An Opus review found 2 Important + 6 Minor; all fixed test-first except the rev-ordering race (S5's problem, written into the plan). Findings table is under Review in `docs/plans/2026-10-22-s3-backend.md`.
+- Next session must know: **a new `public` function has EXECUTE for nobody but `service_role`**. Every S3-03+ migration must `grant execute … to authenticated` for each function a client calls. `bump_rev` is security definer and no client role has any privilege on `sync_rev`, because Supabase's default grants would let `authenticated` `setval` it. To act as service_role after `authenticate_as`, run `reset role` first. pgTAP files carry values with `set_config('t.x', …, true)`, not `\gset`.
+- Proposed changes: S5 (sync pull) should add a step for out-of-order rev commits, e.g. "a row whose transaction commits after a later rev was pulled is still pulled next time". The plan's Schema → Triggers section has the details. `hit_lists_area_shape` now also requires a manual list's area columns to be NULL. S1's local rows already satisfy that.
+
 ### 2026-10-22 22:05 · S3-01 · passes
 
 - Changed: `supabase` CLI **2.121.0** pinned exact (devDependency, `d1d1030 chore: pin supabase CLI`); scripts `db:start`/`db:stop`/`db:reset`/`test:db`; `supabase/config.toml` (`project_id = "hit-list"`, default ports, email OTP 6 digits), `supabase/README.md` (commands + the Docker rule verbatim), `.gitignore` (`supabase/.temp/`, `.branches/`); `docs/plans/2026-10-22-s3-backend.md` (schema, functions, policies, storage, pgTAP harness, the §3.3 Case table → 8 test files with exact test names); `docs/plans/2026-10-22-live-checklist.md` (spec §10 + S3's staged `db push`). Tests 924 → 924 (docs/config only).

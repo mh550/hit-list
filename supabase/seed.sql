@@ -35,7 +35,8 @@ begin
 end;
 $$;
 
--- Act as the service role (RLS bypassed; preview_link's caller).
+-- Act as the service role (RLS bypassed; preview_link's caller). Call it as postgres: after authenticate_as, run
+-- `reset role` first (authenticated may not switch to service_role).
 create or replace function tests.authenticate_as_service_role()
 returns void
 language plpgsql

@@ -36,16 +36,23 @@ const SHARE_SUBTITLE = "live: they'll see new spots too";
  */
 function MemberStrip({
   list,
-  ownerName,
+  uid,
+  username,
   onOpen,
   onInvite,
 }: {
   list: HitList;
-  ownerName: string | null | undefined;
+  uid: string | null;
+  /** The rider's own name: the profiles mirror holds others' only. */
+  username: string | null;
   onOpen: () => void;
   onInvite?: () => void;
 }) {
-  const names = [ownerName, ...joinedMembers(list).map((m) => m.username)];
+  const nameOf = (id: string | undefined, mirrored: string | undefined) => (id === uid && username ? username : mirrored);
+  const names = [
+    nameOf(list.owner_id, list.owner_username),
+    ...joinedMembers(list).map((m) => nameOf(m.user_id, m.username)),
+  ];
   const shown = names.slice(0, STRIP_CIRCLES);
   const more = names.length - shown.length;
   const count = memberCount(list);
@@ -224,7 +231,8 @@ export default function ListScreen() {
   const strip = list.shared ? (
     <MemberStrip
       list={list}
-      ownerName={owner ? username : list.owner_username}
+      uid={uid}
+      username={username}
       onOpen={() => router.push(`/list/${list.id}/members`)}
       onInvite={owner ? () => setShareMode('invite') : undefined}
     />

@@ -78,6 +78,8 @@ export default function MembersScreen() {
 
   const owner = !isForeign(list, uid);
   const ownerName = owner ? username : list.owner_username;
+  // The profiles mirror holds others' names only: the rider's own row takes theirs from the account.
+  const withName = (m: HitListMember): HitListMember => (m.user_id === uid && username ? { ...m, username } : m);
   const spotsOf = (userId: string) => listSpots.filter((s) => s.owner_id === userId).length;
 
   /** Runs one server call; a refusal (42501) reads as its own line, anything else as `failed`. */
@@ -176,7 +178,7 @@ export default function MembersScreen() {
     ]);
   };
 
-  const rows = (list.members ?? []).map((m) => {
+  const rows = (list.members ?? []).map(withName).map((m) => {
     const text = rowText(m, owner);
     const invited = m.status === 'invited';
     const content = (

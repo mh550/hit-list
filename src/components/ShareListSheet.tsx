@@ -270,15 +270,16 @@ function ShareBody({
       ) : null;
       const already = inList.get(friend.id);
       if (already) {
+        const tag = already === 'member' ? 'In the list' : 'Invited';
         return (
-          <View key={friend.id} style={styles.row} accessible accessibilityLabel={handle}>
+          <View key={friend.id} style={styles.row} accessible accessibilityLabel={`${handle}, ${tag}`}>
             <View style={styles.rowLabel}>
               <Text style={styles.rowText} numberOfLines={1}>
                 {handle}
               </Text>
               {label}
             </View>
-            <Text style={styles.rowTag}>{already === 'member' ? 'In the list' : 'Invited'}</Text>
+            <Text style={styles.rowTag}>{tag}</Text>
           </View>
         );
       }

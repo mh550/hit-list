@@ -20,6 +20,39 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 · verify S6
+
+All 26 steps hold; no live stack run (build-only), integration counts read from the plan.
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| S6-01 | 1 | read docs/plans/2026-10-22-s6-friends.md headings | Has Data, Local cache (D72 default), Screens (Friends, Inbox), Tab bar (D49), Copy table, Test list per feature | yes |
+| S6-01 | 2 | grep live-checklist for S6 | Section 'S6 — friends and Inbox' (line 129): two riders, two emails, sign out/in switch | yes |
+| S6-01 | 3 | check.sh | green, 1495 tests (lint+tsc+jest) | yes |
+| S6-02 | 1 | read schema.ts MIGRATIONS; ran db-migrate + db-profiles tests | 6 migrations (migration6 creates profiles id/username/display_name); both suites pass; profiles.ts exists | yes |
+| S6-02 | 2 | ran sync-friends.test.ts; read case names | passes; covers normalisation (p_username 'ana'), not-found sends nothing, P0002, .in-only profile select, mirror upsert | yes |
+| S6-02 | 3 | ran sync-engine.test.ts | passes; 'loads friends after the pull and fills the friends store (S6)' | yes |
+| S6-02 | 4 | check.sh; jest on 9 S6 suites | green; 223 tests pass, no console.error lines | yes |
+| S6-03 | 1 | read app/friends/index.tsx, _layout.tsx:67, profile.tsx FriendsRow; ran friends-screen.test.tsx | registered 'Friends'; row 'Friends · N' pushes; tests assert signed-out line, sections, Add result lines, long-press Remove/Block, confirm text, single-flight; pass | yes |
+| S6-03 | 2 | read HINT constant and test line 169 | Hint text matches exactly; test asserts it | yes |
+| S6-03 | 3 | check.sh / jest | green, zero console.error | yes |
+| S6-04 | 1 | read tabs layout lines 44-45; ran tabs-layout.test.tsx | order Spots,Lists,Inbox,Profile; tray.fill; badge undefined at 0, '2' at two unseen; pass | yes |
+| S6-04 | 2 | ran inbox-tab.test.tsx | signed out, empty, two requests with Accept/Decline, mark-seen on focus all asserted; pass (unconfigured line: covered in same screen copy) | yes |
+| S6-04 | 3 | ran inbox-store.test.ts | typed kinds, selectUnseenCount cases (created_at > mark); pass | yes |
+| S6-04 | 4 | check.sh | green | yes |
+| S6-05 | 1 | read src/__integration__/friends.test.ts cases (6); did not run (build-only: no containers) | BEN case-insens, accept, block, nobody -> found:false, cleanup deleteRider; recorded run 35 pass (friends 6) in plan 'As built' | yes |
+| S6-05 | 2 | read plan As built; docker ps --format | recorded db:reset, test:db 569, integration 35 pass, stop; docker ps now has no supabase_* container | yes |
+| S6-05 | 3 | check.sh | green | yes |
+| S6-06 | 1 | read docs/plans/2026-10-22-s6-what-michael-will-see.md | Friends signed out/with friends, result lines, Inbox empty/two requests, tab bar badge 2 all listed | yes |
+| S6-06 | 2 | read 'What to tap' | 7 steps: add, accept, block, name vanishes from find, undo | yes |
+| S6-06 | 3 | read Verification record | jest 1487 tests, 0 console.error; integration 35 pass; expo export exit 0, 5.2 MB | yes |
+| S6-06 | 4 | check.sh | green | yes |
+| S6-07 | 1 | ls reviews/s6.diff; read plan '## Review (S6-07)' | s6.diff 4279 lines, tracked, matches diff a07aec5..HEAD (same 32 files as 986ee98); findings table has severity/file:line/fix; RED/GREEN commits listed | yes |
+| S6-07 | 2 | read five written answers; checked tests exist by name in grep | all five answered with named tests (normalise, profiles .in, P0002, incoming only, single-flight); present | yes |
+| S6-07 | 3 | git log | refactor commit 526dd6f present | yes |
+| S6-07 | 4 | grep CLAUDE.md, README | CLAUDE.md names app/friends, inbox.tsx, friends.ts, stores, profiles.ts; README has 'Friends and Inbox (S6)' | yes |
+| S6-07 | 5 | check.sh | green, zero console.error | yes |
+
 ### 2026-10-23 12:10 · S6-07 · passes
 
 - Review of S6 (`reviews/s6.diff`, 4279 lines, two Opus reviewers: data path, screens): 1 Important fixed (Friends: Remove / Cancel / Block / Unblock left the row live until the queued friends load, maybe minutes behind a backup; now the friends store's `dropFriendship` / `noteBlocked` / `noteUnblocked` take it off at once, a failed action keeps it), RED `5595ba9` (8 fail) → GREEN `b6a45b9`. 6 Minor left with reasons in the plan's new 'Review (S6-07)' section (with the RED-first table and five written answers, proving tests checked by grep).

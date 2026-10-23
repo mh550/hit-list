@@ -36,6 +36,7 @@ npm run db:start               # supabase start: the local stack (need Docker; n
 npm run db:reset               # supabase db reset: migrations + seed.sql on a fresh database
 npm run test:db                # supabase test db: every supabase/tests/*.test.sql (pgTAP)
 npm run db:stop                # supabase stop: always stop the stack after use
+npm run test:integration       # src/__integration__ against the local stack (needs the local stack: db:start + db:reset first)
 ```
 
 CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch push.
@@ -105,6 +106,21 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   pgTAP (`NNN-*.test.sql`; every RLS policy and function has its cases there), `seed.sql` = the `tests` schema only
   (`create_user`, `authenticate_as`, `clear_auth`; runs on `db reset`, never pushed). The CLI is the pinned `supabase`
   devDependency (`npx supabase …`).
+  `functions/` Edge Functions (Deno, outside tsc/eslint): `account-delete/index.ts` (the uid comes only from the caller's
+  JWT via `auth.getUser`, never the body; 401 without one; removes Storage under `<uid>/` and `sends/<id>/` of every
+  send from or to the rider, then `auth.admin.deleteUser`), `_shared/cors.ts`. The local edge runtime does not reload an edited
+  function: `docker restart supabase_edge_runtime_hit-list`.
+- Accounts (S4, plan `docs/plans/2026-10-22-s4-accounts.md`): `src/sync/client.ts` (`getSupabase()` = one client, or
+  `null` unless both `EXPO_PUBLIC_SUPABASE_URL`/`_ANON_KEY` are set; `isConfigured()`; AppState drives
+  `startAutoRefresh`/`stopAutoRefresh`; fixed `storageKey: 'hitlist.auth.session'`), `src/sync/session-storage.ts`
+  (D61 LargeSecureStore: an AES key in expo-secure-store, the session ciphertext in AsyncStorage), `src/sync/auth.ts`
+  (`sendSignInCode`, `verifySignInCode`, `saveProfile`, `signOutOfAccount` (clears the stored session itself when
+  offline), `deleteAccount`), `src/stores/auth-store.ts` (`status` `'unconfigured' | 'signed_out' | 'needs_username' |
+  'signed_in'`, `userId`, `username`, `displayName`, `email`), `src/hooks/use-auth-init.ts` (mounted in
+  `DBInitializer`; mirrors the session, the profile fetch is deferred out of `onAuthStateChange`), `app/auth/`
+  (`sign-in` modal → `code` (six digits auto-verify) → `username` (no back, no swipe; the tabs `<Redirect>` there
+  while `needs_username`)), Profile's `Account` section. Tests use `src/__tests__/helpers/fake-supabase.ts`;
+  `src/__integration__/` (helpers `createRider`/`deleteRider`) runs only under `npm run test:integration`.
 
 ## Conventions that are easy to get wrong
 
@@ -147,6 +163,12 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   Apple; ≤ 10 sequential backfills per launch).
 - expo-router 57 has no `@react-navigation/*` dependencies; import from `expo-router` /
   `expo-router/js-tabs`.
+- **Accounts are optional**: every screen that needs a session checks `useAuthStore` status and shows a one-line
+  Sign in prompt, never a disabled control; an unconfigured build (no `EXPO_PUBLIC_SUPABASE_*`) shows 'Accounts
+  aren't set up in this build' and everything local still works.
+- **.env**: only `.env.example` (empty values) is committed; real values go in the git-ignored `.env.local` (the local
+  stack's URL and anon key from `npx supabase status`). Never commit a key or URL; tests and
+  `scripts/supabase-env.mjs` pass keys through the environment only, never a file.
 - **Docker** (the Supabase stack): Only containers named supabase_*_hit-list belong to this project; never touch dj-*, n8n-* or any other container; never docker system prune; never docker compose in another directory.
 
 ## Testing

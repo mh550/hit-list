@@ -90,6 +90,15 @@ takes a little while; later loads are quick.
 5. **Leave a spot unnamed** and come back to the list a few seconds later: it should read
    `Untitled · <your town> · <time>`.
 
+## With accounts (local stack over Tailscale)
+
+Without a `.env.local` the app runs signed out only (Profile: 'Accounts aren't set up in this build'). To try
+sign-in, the box runs the local Supabase stack (`npm run db:start`), `.env.local` points the app at
+`http://100.88.90.97:54321` with the anon key from `npx supabase status`, and the 6-digit code shows up in Mailpit at
+`http://100.88.90.97:54324` (nothing is really emailed). Restart Metro after editing `.env.local`. Every step, with what
+to check and how to undo it: the S4 section of [`docs/plans/2026-10-22-live-checklist.md`](plans/2026-10-22-live-checklist.md).
+Stop the stack afterwards with `npm run db:stop`.
+
 ## Reload, logs, stopping
 
 - Shake the phone (or three-finger long-press) for the Expo menu → **Reload**. Saving a file on the

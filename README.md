@@ -50,6 +50,11 @@ three-filter list (M5), the review screens (M6) and the import radius in your un
 - Profile: Imperial or Metric units; the import radius is shown and typed in them (50 m reads 164 ft), and the
   import screen says '(within 164 ft)'.
 - Offline-first SQLite storage with versioned migrations.
+- Accounts (S4), optional: Profile → Sign in → your email → a 6-digit code (no password) → pick an @username
+  (and an optional display name). Profile then shows `@you`, Sign out and Delete account (removes the account, its
+  photos and sends from the server; spots on the phone stay). A build without the two `EXPO_PUBLIC_SUPABASE_*` values
+  says 'Accounts aren't set up in this build' and works as before. The backend is the local Supabase stack only
+  (`supabase/README.md`); nothing is backed up or shared yet (S5 on).
 
 ## Run it
 
@@ -62,6 +67,7 @@ Full phone instructions: [`docs/RUNNING-ON-PHONE.md`](docs/RUNNING-ON-PHONE.md).
 
 ```bash
 npm run typecheck && npm run lint && npx jest --ci
+npm run db:start && npm run db:reset && npm run test:integration && npm run db:stop   # needs Docker
 npx expo export --platform ios --output-dir /tmp/hl-export
 ```
 
@@ -69,7 +75,7 @@ npx expo export --platform ios --output-dir /tmp/hl-export
 
 - Moving a spot's pin in the edit screen.
 - Spots saved without GPS can't be placed on the map yet (they stay in the list).
-- Cloud sync, accounts, sharing, crews, folders; video; offline map tiles (needs a dev build).
+- Cloud sync and backup, sharing, crews, folders; a cloud Supabase project; video; offline map tiles (needs a dev build).
 - A build that runs without the desktop (an EAS preview or production build through TestFlight, or
   EAS Update; a dev build still loads from Metro); today the app needs Metro running on the desktop.
 

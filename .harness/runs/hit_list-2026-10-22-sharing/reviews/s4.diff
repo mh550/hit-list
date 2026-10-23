@@ -1,0 +1,3918 @@
+diff --git a/.env.example b/.env.example
+new file mode 100644
+index 0000000..52946ec
+--- /dev/null
++++ b/.env.example
+@@ -0,0 +1,6 @@
++# Supabase for the app (S4). Copy to .env.local and fill in; never commit a filled-in copy.
++# With either value empty the app runs signed-out only ("Accounts aren't set up in this build").
++# Local stack: `npm run db:start`, then `npx supabase status` prints the API URL (port 54321) and the anon key.
++# On the phone use the box's Tailscale address instead of 127.0.0.1 (docs/plans/2026-10-22-live-checklist.md).
++EXPO_PUBLIC_SUPABASE_URL=
++EXPO_PUBLIC_SUPABASE_ANON_KEY=
+diff --git a/.gitignore b/.gitignore
+index 90e86f7..4cd8cad 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -30,8 +30,10 @@ yarn-error.*
+ .DS_Store
+ *.pem
+ 
+-# local env files
+-.env*.local
++# env files: only the empty template is tracked
++.env
++.env.*
++!.env.example
+ 
+ # typescript
+ *.tsbuildinfo
+diff --git a/app/(tabs)/_layout.tsx b/app/(tabs)/_layout.tsx
+index 24a92d1..34d0490 100644
+--- a/app/(tabs)/_layout.tsx
++++ b/app/(tabs)/_layout.tsx
+@@ -1,44 +1,48 @@
+-import { Tabs } from 'expo-router';
++import { Redirect, Tabs } from 'expo-router';
+ import React from 'react';
+ 
+ import { HapticTab } from '@/components/haptic-tab';
+ import { IconSymbol } from '@/components/ui/icon-symbol';
+ import { Colors } from '@/constants/theme';
++import { useAuthStore } from '@/src/stores/auth-store';
+ 
+ export default function TabLayout() {
++  const status = useAuthStore((s) => s.status);
++
+   return (
+-    <Tabs
+-      screenOptions={{
+-        tabBarActiveTintColor: Colors.light.tint,
+-        headerShown: true,
+-        tabBarButton: HapticTab,
+-      }}>
+-      <Tabs.Screen
+-        name="index"
+-        options={{
+-          title: 'Spots',
+-          tabBarIcon: ({ color }) => (
+-            <IconSymbol size={28} name="mappin.and.ellipse" color={color} />
+-          ),
+-        }}
+-      />
+-      <Tabs.Screen
+-        name="lists"
+-        options={{
+-          title: 'Lists',
+-          headerTitle: 'Hit lists',
+-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="list.bullet" color={color} />,
+-        }}
+-      />
+-      <Tabs.Screen
+-        name="profile"
+-        options={{
+-          title: 'Profile',
+-          tabBarIcon: ({ color }) => (
+-            <IconSymbol size={28} name="person.fill" color={color} />
+-          ),
+-        }}
+-      />
+-    </Tabs>
++    <>
++      {/* Signed in without an @username yet: onboarding first, whichever way the rider gets back to the tabs. The
++          Redirect fires only while the tabs are focused; the Tabs stay mounted under the sign-in sheets. */}
++      {status === 'needs_username' ? <Redirect href="/auth/username" /> : null}
++      <Tabs
++        screenOptions={{
++          tabBarActiveTintColor: Colors.light.tint,
++          headerShown: true,
++          tabBarButton: HapticTab,
++        }}>
++        <Tabs.Screen
++          name="index"
++          options={{
++            title: 'Spots',
++            tabBarIcon: ({ color }) => <IconSymbol size={28} name="mappin.and.ellipse" color={color} />,
++          }}
++        />
++        <Tabs.Screen
++          name="lists"
++          options={{
++            title: 'Lists',
++            headerTitle: 'Hit lists',
++            tabBarIcon: ({ color }) => <IconSymbol size={28} name="list.bullet" color={color} />,
++          }}
++        />
++        <Tabs.Screen
++          name="profile"
++          options={{
++            title: 'Profile',
++            tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.fill" color={color} />,
++          }}
++        />
++      </Tabs>
++    </>
+   );
+ }
+diff --git a/app/(tabs)/profile.tsx b/app/(tabs)/profile.tsx
+index 6ea41f8..b442b8f 100644
+--- a/app/(tabs)/profile.tsx
++++ b/app/(tabs)/profile.tsx
+@@ -1,8 +1,13 @@
+-import { useState } from 'react';
+-import { StyleSheet, ScrollView, View, Text, TextInput, Pressable } from 'react-native';
++import { useRef, useState } from 'react';
++import { Alert, StyleSheet, ScrollView, View, Text, TextInput, Pressable } from 'react-native';
++import { useRouter } from 'expo-router';
+ 
++import { AuthError, Button } from '@/src/components';
+ import { useSettingsStore } from '@/src/stores/settings-store';
++import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
+ import { useSettingsActions } from '@/src/hooks/use-settings-actions';
++import { getSupabase } from '@/src/sync/client';
++import { deleteAccount, signOutOfAccount } from '@/src/sync/auth';
+ import { palette, spacing, radius } from '@/src/constants/theme';
+ import { UnitSystem } from '@/src/types';
+ import { radiusFromInput, radiusToDisplay, radiusUnitLabel } from '@/src/utils/units';
+@@ -11,10 +16,92 @@ function SectionHeader({ title }: { title: string }) {
+   return <Text style={styles.sectionHeader}>{title}</Text>;
+ }
+ 
++const DELETE_FAILED = "Couldn't delete the account. Try again.";
++
++// The account in its three states (§3.1, §5.6): a build without Supabase values, signed out, signed in. The tabs
++// redirect a 'needs_username' account to the username screen, so it shows here only for a moment, as signed in.
++function AccountSection() {
++  const router = useRouter();
++  const status = useAuthStore((s) => s.status);
++  const email = useAuthStore((s) => s.email);
++  const username = useAuthStore((s) => s.username);
++  const displayName = useAuthStore((s) => s.displayName);
++  const setAuth = useAuthStore((s) => s.setAuth);
++  const [busy, setBusy] = useState<'signing_out' | 'deleting' | null>(null);
++  const [error, setError] = useState<string | null>(null);
++  // An alert's Delete or a second tap can land before the disabled state renders.
++  const inFlight = useRef(false);
++
++  const client = getSupabase();
++  if (!client || status === 'unconfigured') {
++    return <Text style={styles.accountBody}>Accounts aren&apos;t set up in this build</Text>;
++  }
++
++  if (status === 'signed_out') {
++    return (
++      <View style={styles.account}>
++        <Text style={styles.accountTitle}>Sign in to back up your spots and share them</Text>
++        <Text style={styles.fieldHint}>
++          Signing in uploads the spots already on this phone to your account. Nothing is deleted.
++        </Text>
++        <Button title="Sign in" onPress={() => router.push('/auth/sign-in')} />
++      </View>
++    );
++  }
++
++  const run = async (kind: 'signing_out' | 'deleting') => {
++    if (inFlight.current) return;
++    inFlight.current = true;
++    setBusy(kind);
++    setError(null);
++    const deleted = kind === 'signing_out' || (await deleteAccount(client));
++    if (deleted) {
++      await signOutOfAccount(client);
++      setAuth(SIGNED_OUT);
++    } else {
++      setError(DELETE_FAILED);
++    }
++    inFlight.current = false;
++    setBusy(null);
++  };
++
++  const confirmDelete = () =>
++    Alert.alert(
++      'Delete your account?',
++      'Your spots, photos, hit lists and sends are deleted from the server. Spots on this phone stay until you remove them.',
++      [
++        { text: 'Cancel', style: 'cancel' },
++        { text: 'Delete', style: 'destructive', onPress: () => void run('deleting') },
++      ],
++    );
++
++  return (
++    <View style={styles.account}>
++      {username ? <Text style={styles.accountTitle}>@{username}</Text> : null}
++      {displayName ? <Text style={styles.accountBody}>{displayName}</Text> : null}
++      {email ? <Text style={styles.fieldHint}>{email}</Text> : null}
++      <AuthError message={error} />
++      <Button
++        title={busy === 'signing_out' ? 'Signing out…' : 'Sign out'}
++        variant="secondary"
++        onPress={() => void run('signing_out')}
++        disabled={busy !== null}
++      />
++      <Button
++        title={busy === 'deleting' ? 'Deleting…' : 'Delete account'}
++        variant="destructive"
++        onPress={confirmDelete}
++        disabled={busy !== null}
++      />
++    </View>
++  );
++}
++
+ export default function ProfileScreen() {
+   const units = useSettingsStore((s) => s.units);
+   const batchRadius = useSettingsStore((s) => s.batch_import_radius);
+   const { setUnits, setBatchImportRadius } = useSettingsActions();
++  const userId = useAuthStore((s) => s.userId);
+ 
+   // D23: the radius is stored in metres; the field shows it in the user's unit. `typed` holds the text only while
+   // the user is typing, so a units switch or a store update re-renders the field from the stored metres.
+@@ -39,6 +126,10 @@ export default function ProfileScreen() {
+       style={styles.container}
+       contentContainerStyle={styles.content}
+       keyboardShouldPersistTaps="handled">
++      <SectionHeader title="Account" />
++      {/* A new account (or none) starts with a fresh section: no error or busy state from the one before. */}
++      <AccountSection key={userId ?? 'signed-out'} />
++
+       <SectionHeader title="Units" />
+       <View style={styles.unitsRow}>
+         <Pressable
+@@ -99,6 +190,18 @@ const styles = StyleSheet.create({
+     color: palette.gray[900],
+     marginTop: spacing.lg,
+   },
++  account: {
++    gap: spacing.sm,
++  },
++  accountTitle: {
++    fontSize: 17,
++    fontWeight: '600',
++    color: palette.gray[900],
++  },
++  accountBody: {
++    fontSize: 15,
++    color: palette.gray[700],
++  },
+   unitsRow: {
+     flexDirection: 'row',
+     gap: spacing.sm,
+diff --git a/app/_layout.tsx b/app/_layout.tsx
+index f6c7661..3230467 100644
+--- a/app/_layout.tsx
++++ b/app/_layout.tsx
+@@ -8,6 +8,7 @@ import 'react-native-reanimated';
+ 
+ import { DB_NAME } from '@/src/db';
+ import { DBInitializer } from '@/src/components/DBInitializer';
++import { useAuthInit } from '@/src/hooks/use-auth-init';
+ import { palette } from '@/src/constants/theme';
+ 
+ function LoadingScreen() {
+@@ -18,6 +19,12 @@ function LoadingScreen() {
+   );
+ }
+ 
++// Mirrors the Supabase session into the auth store; inside DBInitializer, so it starts once the DB is ready.
++function AuthInit() {
++  useAuthInit();
++  return null;
++}
++
+ // Light only (app.json userInterfaceStyle "light"): the screens use light-theme colours and set no
+ // backgrounds, so DarkTheme's near-black would hide their text.
+ // GestureHandlerRootView wraps everything so any screen (the photo viewer) can use gesture-handler.
+@@ -28,6 +35,7 @@ export default function RootLayout() {
+         <Suspense fallback={<LoadingScreen />}>
+           <SQLiteProvider databaseName={DB_NAME} useSuspense>
+             <DBInitializer>
++              <AuthInit />
+               <Stack>
+                 <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                 <Stack.Screen name="spot/[id]/index" options={{ title: 'Spot Details' }} />
+@@ -51,6 +59,12 @@ export default function RootLayout() {
+                   name="area/index"
+                   options={{ presentation: 'fullScreenModal', title: 'Pick an area' }}
+                 />
++                <Stack.Screen name="auth/sign-in" options={{ presentation: 'modal', title: 'Sign in' }} />
++                <Stack.Screen name="auth/code" options={{ title: 'Enter code' }} />
++                <Stack.Screen
++                  name="auth/username"
++                  options={{ title: 'Your username', headerBackVisible: false, gestureEnabled: false }}
++                />
+               </Stack>
+             </DBInitializer>
+           </SQLiteProvider>
+diff --git a/app/auth/code.tsx b/app/auth/code.tsx
+new file mode 100644
+index 0000000..9c027a2
+--- /dev/null
++++ b/app/auth/code.tsx
+@@ -0,0 +1,133 @@
++import { useEffect, useRef, useState } from 'react';
++import { StyleSheet, Text, View } from 'react-native';
++import { useLocalSearchParams, useRouter } from 'expo-router';
++
++import { AccountsNotSetUp, AuthError, AuthScreen, Button, FormInput } from '@/src/components';
++import { palette, spacing, typography } from '@/src/constants/theme';
++import { useAuthStore } from '@/src/stores/auth-store';
++import { getSupabase } from '@/src/sync/client';
++import { sendSignInCode, verifySignInCode } from '@/src/sync/auth';
++
++const CODE_LENGTH = 6;
++/** How long 'Sent' shows after a resend. */
++const SENT_MS = 3000;
++
++// Sign in step two: the 6-digit code from the email. Six digits submit on their own, once; a rider with no
++// @username yet goes on to pick one, anyone else goes back to the tab that opened sign-in.
++export default function CodeScreen() {
++  const router = useRouter();
++  const params = useLocalSearchParams<{ email?: string }>();
++  const email = typeof params.email === 'string' ? params.email : '';
++  const setAuth = useAuthStore((s) => s.setAuth);
++  const [code, setCode] = useState('');
++  const [checking, setChecking] = useState(false);
++  const [resending, setResending] = useState(false);
++  const [sent, setSent] = useState(false);
++  const [error, setError] = useState<string | null>(null);
++  // Verifying spends the code: a second submit (a re-typed or re-rendered six) would fail after a success. The field
++  // stays editable while checking, so the keyboard is still up for the next try after a wrong code.
++  const verifying = useRef(false);
++
++  useEffect(() => {
++    if (!sent) return;
++    const timer = setTimeout(() => setSent(false), SENT_MS);
++    return () => clearTimeout(timer);
++  }, [sent]);
++
++  const client = getSupabase();
++  if (!client) return <AccountsNotSetUp />;
++  // Opened without an email (a stray link): there is no code to check.
++  if (!email) {
++    return (
++      <AuthScreen>
++        <Text style={styles.body}>Start from Sign in to get a code.</Text>
++        <Button title="Back to Sign in" size="lg" onPress={() => router.replace('/auth/sign-in')} />
++      </AuthScreen>
++    );
++  }
++
++  const verify = async (token: string) => {
++    if (verifying.current) return;
++    verifying.current = true;
++    setChecking(true);
++    setError(null);
++    const account = await verifySignInCode(client, email, token);
++    if (!account) {
++      verifying.current = false;
++      setChecking(false);
++      setCode('');
++      setError("That code didn't work. Try again or resend.");
++      return;
++    }
++    // Stays 'verifying' after a success: the screen is leaving.
++    setAuth(account);
++    if (account.status === 'needs_username') router.replace('/auth/username');
++    else router.dismissAll();
++  };
++
++  // Digits only, so a pasted '123 456' is 123456.
++  const changeCode = (text: string) => {
++    const digits = text.replace(/\D/g, '').slice(0, CODE_LENGTH);
++    setCode(digits);
++    if (digits.length === CODE_LENGTH) void verify(digits);
++  };
++
++  const resend = async () => {
++    setResending(true);
++    setError(null);
++    const message = await sendSignInCode(client, email);
++    setResending(false);
++    if (message) setError(message);
++    else setSent(true);
++  };
++
++  return (
++    <AuthScreen>
++      <Text style={styles.body}>{`Enter the code we sent to ${email}`}</Text>
++      <FormInput
++        value={code}
++        onChangeText={changeCode}
++        accessibilityLabel="Code"
++        placeholder="123456"
++        keyboardType="number-pad"
++        maxLength={CODE_LENGTH}
++        textContentType="oneTimeCode"
++        autoComplete="one-time-code"
++        autoFocus
++        style={styles.code}
++      />
++      {checking ? <Text style={styles.status}>Checking…</Text> : null}
++      <AuthError message={error} />
++      <View style={styles.actions}>
++        <Button
++          title={sent ? 'Sent' : resending ? 'Sending…' : 'Resend code'}
++          variant="ghost"
++          onPress={() => void resend()}
++          disabled={sent || resending || checking}
++        />
++        <Button title="Use a different email" variant="ghost" onPress={() => router.back()} disabled={checking} />
++      </View>
++    </AuthScreen>
++  );
++}
++
++const styles = StyleSheet.create({
++  body: {
++    ...typography.body,
++    color: palette.gray[700],
++  },
++  code: {
++    fontSize: 28,
++    letterSpacing: 8,
++    fontVariant: ['tabular-nums'],
++    textAlign: 'center',
++  },
++  status: {
++    ...typography.subheadline,
++    color: palette.gray[500],
++  },
++  actions: {
++    gap: spacing.xs,
++    alignItems: 'flex-start',
++  },
++});
+diff --git a/app/auth/sign-in.tsx b/app/auth/sign-in.tsx
+new file mode 100644
+index 0000000..d0dd409
+--- /dev/null
++++ b/app/auth/sign-in.tsx
+@@ -0,0 +1,86 @@
++import { useEffect, useRef, useState } from 'react';
++import { StyleSheet, Text } from 'react-native';
++import { useRouter } from 'expo-router';
++
++import { AccountsNotSetUp, AuthError, AuthScreen, Button, FormInput } from '@/src/components';
++import { palette, typography } from '@/src/constants/theme';
++import { getSupabase } from '@/src/sync/client';
++import { sendSignInCode } from '@/src/sync/auth';
++
++// Sign in step one: the rider's email; Supabase emails a 6-digit code (no password), then the code screen.
++export default function SignInScreen() {
++  const router = useRouter();
++  const [text, setText] = useState('');
++  const [sending, setSending] = useState(false);
++  const [error, setError] = useState<string | null>(null);
++  // A second tap can land before the disabled state renders.
++  const inFlight = useRef(false);
++  // The rider can close the sheet while the code is sending: then nothing opens.
++  const mounted = useRef(true);
++  useEffect(() => {
++    mounted.current = true;
++    return () => {
++      mounted.current = false;
++    };
++  }, []);
++
++  const client = getSupabase();
++  if (!client) return <AccountsNotSetUp />;
++  const canSend = !sending && text.trim().includes('@');
++
++  const send = async () => {
++    if (inFlight.current) return;
++    inFlight.current = true;
++    setSending(true);
++    setError(null);
++    const email = text.trim().toLowerCase();
++    const message = await sendSignInCode(client, email);
++    if (!mounted.current) return;
++    inFlight.current = false;
++    setSending(false);
++    if (message) setError(message);
++    else router.push({ pathname: '/auth/code', params: { email } });
++  };
++
++  return (
++    <AuthScreen>
++      <Text style={styles.heading} accessibilityRole="header">
++        Sign in to HitList
++      </Text>
++      <Text style={styles.body}>We&apos;ll email you a 6-digit code. No password.</Text>
++      <FormInput
++        value={text}
++        onChangeText={setText}
++        accessibilityLabel="Email"
++        placeholder="you@example.com"
++        keyboardType="email-address"
++        autoCapitalize="none"
++        autoCorrect={false}
++        autoComplete="email"
++        textContentType="emailAddress"
++        returnKeyType="send"
++        onSubmitEditing={() => {
++          if (canSend) void send();
++        }}
++      />
++      <AuthError message={error} />
++      <Button
++        title={sending ? 'Sending…' : 'Send code'}
++        size="lg"
++        onPress={() => void send()}
++        disabled={!canSend}
++      />
++    </AuthScreen>
++  );
++}
++
++const styles = StyleSheet.create({
++  heading: {
++    ...typography.title2,
++    color: palette.gray[900],
++  },
++  body: {
++    ...typography.body,
++    color: palette.gray[600],
++  },
++});
+diff --git a/app/auth/username.tsx b/app/auth/username.tsx
+new file mode 100644
+index 0000000..592a5dd
+--- /dev/null
++++ b/app/auth/username.tsx
+@@ -0,0 +1,161 @@
++import { useRef, useState } from 'react';
++import { StyleSheet, Text, View, type TextInput } from 'react-native';
++import { useRouter } from 'expo-router';
++
++import { AccountsNotSetUp, AuthError, AuthScreen, Button, FormInput } from '@/src/components';
++import { palette, spacing, typography } from '@/src/constants/theme';
++import { useAuthStore } from '@/src/stores/auth-store';
++import { getSupabase } from '@/src/sync/client';
++import { saveProfile } from '@/src/sync/auth';
++import { normalizeUsername, validateUsername } from '@/src/utils/username';
++
++/** The server's display-name limit (D58), in characters; maxLength counts UTF-16 units, so emoji get fewer. */
++const DISPLAY_NAME_MAX = 50;
++
++const SAVE_ERRORS = {
++  taken: 'That username is taken',
++  // The server's format check: the same rule the field already shows, so only a client/server mismatch lands here.
++  invalid: 'Only letters, numbers, _ and .',
++  failed: "Couldn't save. Try again.",
++} as const;
++
++// Onboarding after the first sign-in: an @username (required, D39) and a display name (optional, D63). The Stack
++// gives it no back button and no swipe, and the tabs redirect here while the account is 'needs_username'.
++export default function UsernameScreen() {
++  const router = useRouter();
++  const userId = useAuthStore((s) => s.userId);
++  const setProfile = useAuthStore((s) => s.setProfile);
++  const [text, setText] = useState('');
++  // No message before the first keystroke.
++  const [touched, setTouched] = useState(false);
++  const [displayName, setDisplayName] = useState('');
++  const [saving, setSaving] = useState(false);
++  const [error, setError] = useState<string | null>(null);
++  // A second tap can land before the disabled state renders.
++  const inFlight = useRef(false);
++  const displayNameInput = useRef<TextInput>(null);
++
++  const client = getSupabase();
++  if (!client) return <AccountsNotSetUp />;
++  if (!userId) {
++    return (
++      <AuthScreen>
++        <Text style={styles.body}>Sign in first to pick a username.</Text>
++        <Button title="Sign in" size="lg" onPress={() => router.replace('/auth/sign-in')} />
++      </AuthScreen>
++    );
++  }
++
++  const invalid = validateUsername(text);
++  const canSave = !saving && !invalid;
++
++  const changeText = (next: string) => {
++    // The field already shows the '@'.
++    setText(next.replace(/^\s*@+/, ''));
++    setTouched(true);
++    setError(null);
++  };
++
++  const save = async () => {
++    if (inFlight.current || invalid) return;
++    inFlight.current = true;
++    setSaving(true);
++    setError(null);
++    const username = normalizeUsername(text);
++    const name = displayName.trim() || null;
++    const result = await saveProfile(client, userId, username, name);
++    inFlight.current = false;
++    setSaving(false);
++    if (result === 'saved') {
++      setProfile(username, name);
++      // From the code screen the root stack is [(tabs), auth/sign-in, auth/username]: drop back to those tabs (a
++      // replace would open a second (tabs) as a sheet over Sign in). Redirected here at launch, this is the only
++      // screen, so it becomes the tabs.
++      if (router.canDismiss()) router.dismissTo('/(tabs)/profile');
++      else router.replace('/(tabs)/profile');
++    } else {
++      setError(SAVE_ERRORS[result]);
++    }
++  };
++  const submit = () => {
++    if (canSave) void save();
++  };
++
++  return (
++    <AuthScreen>
++      <Text style={styles.heading} accessibilityRole="header">
++        Pick your @username
++      </Text>
++      <View style={styles.usernameRow}>
++        <Text style={styles.at} accessibilityElementsHidden importantForAccessibility="no">
++          @
++        </Text>
++        <View style={styles.usernameField}>
++          <FormInput
++            value={text}
++            onChangeText={changeText}
++            accessibilityLabel="Username"
++            placeholder="username"
++            autoCapitalize="none"
++            autoCorrect={false}
++            autoComplete="username-new"
++            textContentType="username"
++            returnKeyType="next"
++            submitBehavior="submit"
++            autoFocus
++            onSubmitEditing={() => displayNameInput.current?.focus()}
++          />
++        </View>
++      </View>
++      {touched && invalid ? (
++        <Text style={styles.hint} accessibilityLiveRegion="polite">
++          {invalid}
++        </Text>
++      ) : null}
++      <FormInput
++        ref={displayNameInput}
++        label="Display name"
++        hideLabel
++        value={displayName}
++        onChangeText={setDisplayName}
++        accessibilityLabel="Display name"
++        placeholder="Ana B"
++        maxLength={DISPLAY_NAME_MAX}
++        autoCapitalize="words"
++        textContentType="nickname"
++        returnKeyType="done"
++        onSubmitEditing={submit}
++      />
++      <Text style={styles.hint}>Optional. Shown to friends.</Text>
++      <AuthError message={error} />
++      <Button title={saving ? 'Saving…' : 'Done'} size="lg" onPress={submit} disabled={!canSave} />
++    </AuthScreen>
++  );
++}
++
++const styles = StyleSheet.create({
++  heading: {
++    ...typography.title2,
++    color: palette.gray[900],
++  },
++  body: {
++    ...typography.body,
++    color: palette.gray[600],
++  },
++  usernameRow: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    gap: spacing.sm,
++  },
++  at: {
++    ...typography.title3,
++    color: palette.gray[500],
++  },
++  usernameField: {
++    flex: 1,
++  },
++  hint: {
++    ...typography.subheadline,
++    color: palette.gray[500],
++  },
++});
+diff --git a/jest.integration.config.js b/jest.integration.config.js
+new file mode 100644
+index 0000000..a23d0a9
+--- /dev/null
++++ b/jest.integration.config.js
+@@ -0,0 +1,11 @@
++// `npm run test:integration` (S4-06): src/__integration__ against the local Supabase stack, never part of `npx jest`.
++// Plain Node (no jest-expo preset, no React Native); Node 24 has fetch and WebSocket. The URL and keys come from
++// scripts/supabase-env.mjs. Plan: docs/plans/2026-10-22-s4-accounts.md, "Integration harness".
++module.exports = {
++  rootDir: '.',
++  testEnvironment: 'node',
++  testMatch: ['<rootDir>/src/__integration__/**/*.test.ts'],
++  transform: { '^.+\\.ts$': ['babel-jest', { presets: ['babel-preset-expo'] }] },
++  moduleNameMapper: { '^@/(.*)$': '<rootDir>/$1' },
++  testTimeout: 30000,
++};
+diff --git a/package.json b/package.json
+index d2a57b8..2cabc62 100644
+--- a/package.json
++++ b/package.json
+@@ -16,7 +16,8 @@
+     "db:start": "supabase start",
+     "db:stop": "supabase stop",
+     "db:reset": "supabase db reset",
+-    "test:db": "supabase test db"
++    "test:db": "supabase test db",
++    "test:integration": "node scripts/supabase-env.mjs jest --config jest.integration.config.js --runInBand"
+   },
+   "jest": {
+     "preset": "jest-expo",
+@@ -34,12 +35,15 @@
+       "**/*.test.ts?(x)"
+     ],
+     "testPathIgnorePatterns": [
+-      "/node_modules/"
++      "/node_modules/",
++      "/src/__integration__/"
+     ]
+   },
+   "dependencies": {
+     "@expo/vector-icons": "^15.0.3",
++    "@react-native-async-storage/async-storage": "2.2.0",
+     "@shopify/flash-list": "2.0.2",
++    "@supabase/supabase-js": "^2.118.0",
+     "expo": "~57.0.31",
+     "expo-camera": "~57.0.6",
+     "expo-constants": "~57.0.21",
+@@ -52,6 +56,7 @@
+     "expo-linking": "~57.0.13",
+     "expo-location": "~57.0.22",
+     "expo-router": "~57.0.29",
++    "expo-secure-store": "~57.0.4",
+     "expo-splash-screen": "~57.0.10",
+     "expo-sqlite": "~57.0.4",
+     "expo-status-bar": "~57.0.1",
+diff --git a/scripts/supabase-env.mjs b/scripts/supabase-env.mjs
+new file mode 100644
+index 0000000..25ea572
+--- /dev/null
++++ b/scripts/supabase-env.mjs
+@@ -0,0 +1,45 @@
++#!/usr/bin/env node
++// Runs a command with the local Supabase stack's URL and keys in its environment (S4-06, used by
++// `npm run test:integration`). They are read from `npx supabase status -o json` at run time and handed to the command
++// only, so no key is ever written to a file. Exits 2 when the stack isn't running; otherwise with the command's code.
++//
++//   node scripts/supabase-env.mjs <command> [args…]
++import { spawnSync } from 'node:child_process';
++
++function notRunning() {
++  console.error('Start the stack first: npm run db:start');
++  process.exit(2);
++}
++
++// A hung Docker daemon would hang `status`; after a minute it counts as not running.
++const status = spawnSync('npx', ['supabase', 'status', '-o', 'json'], { encoding: 'utf8', timeout: 60000 });
++if (status.error || status.status !== 0) notRunning();
++
++let parsed;
++try {
++  parsed = JSON.parse(status.stdout);
++} catch {
++  notRunning();
++}
++const { API_URL, ANON_KEY, SERVICE_ROLE_KEY } = parsed ?? {};
++if (!API_URL || !ANON_KEY || !SERVICE_ROLE_KEY) notRunning();
++
++const [command, ...args] = process.argv.slice(2);
++if (!command) {
++  console.error('Usage: node scripts/supabase-env.mjs <command> [args…]');
++  process.exit(2);
++}
++const result = spawnSync(command, args, {
++  stdio: 'inherit',
++  env: {
++    ...process.env,
++    SUPABASE_URL: API_URL,
++    SUPABASE_ANON_KEY: ANON_KEY,
++    SUPABASE_SERVICE_ROLE_KEY: SERVICE_ROLE_KEY,
++  },
++});
++if (result.error) {
++  console.error(`Could not run ${command}: ${result.error.message}`);
++  process.exit(1);
++}
++process.exit(result.status ?? 1);
+diff --git a/src/__integration__/accounts.test.ts b/src/__integration__/accounts.test.ts
+new file mode 100644
+index 0000000..fe6edbb
+--- /dev/null
++++ b/src/__integration__/accounts.test.ts
+@@ -0,0 +1,220 @@
++/**
++ * Accounts against the local stack (S4-06): sign up, the username rules, sign out and back in, and the account-delete
++ * Edge Function run for real (docs/plans/2026-10-22-s4-accounts.md, "Integration harness"). Needs the stack:
++ * npm run db:start, then npm run test:integration.
++ */
++import { randomUUID } from 'node:crypto';
++
++import {
++  adminClient,
++  anonClient,
++  anonKey,
++  createRider,
++  deleteRider,
++  emailCode,
++  signInAgain,
++  supabaseUrl,
++  uniqueUsername,
++  type Rider,
++} from './helpers';
++
++const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0xff, 0xd9]);
++
++let one: Rider;
++let two: Rider;
++
++beforeAll(async () => {
++  one = await createRider(uniqueUsername('one'));
++  two = await createRider(uniqueUsername('two'));
++});
++
++afterAll(async () => {
++  await Promise.all([one, two].filter(Boolean).map((rider) => deleteRider(rider.userId)));
++});
++
++describe('signing up', () => {
++  it('gives each rider their own user id', () => {
++    expect(one.userId).toMatch(/^[0-9a-f-]{36}$/);
++    expect(two.userId).toMatch(/^[0-9a-f-]{36}$/);
++    expect(one.userId).not.toBe(two.userId);
++  });
++
++  it('leaves each rider with a session for their own user', async () => {
++    for (const rider of [one, two]) {
++      const { data, error } = await rider.client.auth.getSession();
++      expect(error).toBeNull();
++      expect(data.session?.user.id).toBe(rider.userId);
++      expect(data.session?.access_token).toEqual(expect.any(String));
++    }
++  });
++
++  it('saves the username on the profile row', async () => {
++    const { data, error } = await one.client.from('profiles').select('username').eq('id', one.userId).single();
++    expect(error).toBeNull();
++    expect(data?.username).toBe(one.username);
++  });
++});
++
++describe('signing out and back in', () => {
++  it('ends the session, and a new email code restores one for the same user', async () => {
++    const rider = await createRider(uniqueUsername('again'));
++    try {
++      const { error: signOutError } = await rider.client.auth.signOut();
++      expect(signOutError).toBeNull();
++      expect((await rider.client.auth.getSession()).data.session).toBeNull();
++
++      const token = await emailCode(rider.email);
++      const { data, error } = await rider.client.auth.verifyOtp({ email: rider.email, token, type: 'email' });
++      expect(error).toBeNull();
++      expect(data.user?.id).toBe(rider.userId);
++      expect((await rider.client.auth.getSession()).data.session?.user.id).toBe(rider.userId);
++    } finally {
++      await deleteRider(rider.userId);
++    }
++  });
++
++  it('a used code does not sign in a second time', async () => {
++    const rider = await createRider(uniqueUsername('used'));
++    try {
++      const token = await emailCode(rider.email);
++      const first = await signInAgainWith(rider.email, token);
++      expect(first.error).toBeNull();
++      const second = await signInAgainWith(rider.email, token);
++      expect(second.error).not.toBeNull();
++      expect(second.data.session).toBeNull();
++    } finally {
++      await deleteRider(rider.userId);
++    }
++  });
++});
++
++/** verifyOtp with a given code on a fresh client. */
++function signInAgainWith(email: string, token: string) {
++  return anonClient().auth.verifyOtp({ email, token, type: 'email' });
++}
++
++describe('usernames', () => {
++  it("the second rider cannot take the first's username (23505)", async () => {
++    const { data, error } = await two.client
++      .from('profiles')
++      .update({ username: one.username })
++      .eq('id', two.userId)
++      .select('id');
++    expect(error?.code).toBe('23505');
++    expect(data).toBeNull();
++  });
++
++  it('nor the same name in other letter case (citext)', async () => {
++    const { error } = await two.client
++      .from('profiles')
++      .update({ username: one.username.toUpperCase() })
++      .eq('id', two.userId)
++      .select('id');
++    expect(error?.code).toBe('23505');
++  });
++
++  it('a malformed username is refused by the format check (23514)', async () => {
++    const { error } = await two.client.from('profiles').update({ username: 'an-a' }).eq('id', two.userId).select('id');
++    expect(error?.code).toBe('23514');
++  });
++
++  it('the first rider finds the second by username, in any case', async () => {
++    const { data, error } = await one.client.rpc('find_profile', { p_username: two.username.toUpperCase() });
++    expect(error).toBeNull();
++    expect(data).toEqual([{ id: two.userId, username: two.username, display_name: null }]);
++  });
++});
++
++describe('account-delete', () => {
++  const functionUrl = () => `${supabaseUrl()}/functions/v1/account-delete`;
++
++  it('refuses a request with no rider JWT (401)', async () => {
++    const response = await fetch(functionUrl(), {
++      method: 'POST',
++      headers: { apikey: anonKey(), 'Content-Type': 'application/json' },
++      body: '{}',
++    });
++    expect(response.status).toBe(401);
++    // The function's own answer: the local gateway lets a request with no Authorization header through.
++    expect(await response.json()).toEqual({ error: 'unauthorized' });
++  });
++
++  it('refuses a request whose bearer is the anon key, not a rider (401)', async () => {
++    const response = await fetch(functionUrl(), {
++      method: 'POST',
++      headers: { apikey: anonKey(), Authorization: `Bearer ${anonKey()}` },
++    });
++    expect(response.status).toBe(401);
++    expect(await response.json()).toEqual({ error: 'unauthorized' });
++  });
++
++  describe('as rider two, naming rider one in the body', () => {
++    const spotId = randomUUID();
++    const mediaId = randomUUID();
++    const photoPath = () => `${two.userId}/${spotId}/${mediaId}.jpg`;
++    let result: { data: unknown; error: unknown };
++
++    // A failed delete would leave the photo behind; deleting the user (the outer afterAll) never removes files.
++    afterAll(async () => {
++      await adminClient().storage.from('photos').remove([photoPath()]);
++    });
++
++    beforeAll(async () => {
++      const { error: spotError } = await two.client.from('spots').insert({
++        id: spotId,
++        owner_id: two.userId,
++        lat: 47.6,
++        lng: -122.3,
++        updated_at: new Date().toISOString(),
++      });
++      if (spotError) throw spotError;
++      const { error: uploadError } = await two.client.storage
++        .from('photos')
++        .upload(photoPath(), JPEG, { contentType: 'image/jpeg' });
++      if (uploadError) throw uploadError;
++      const listed = await adminClient().storage.from('photos').list(`${two.userId}/${spotId}`);
++      expect(listed.data?.map((entry) => entry.name)).toEqual([`${mediaId}.jpg`]);
++
++      result = await two.client.functions.invoke('account-delete', { body: { user_id: one.userId } });
++    });
++
++    it('answers { ok: true }', () => {
++      expect(result.error).toBeNull();
++      expect(result.data).toEqual({ ok: true });
++    });
++
++    it('deletes rider two', async () => {
++      const { data, error } = await adminClient().auth.admin.getUserById(two.userId);
++      expect(data.user).toBeNull();
++      expect(error?.status).toBe(404);
++    });
++
++    it("cascades away rider two's profile and spot", async () => {
++      const admin = adminClient();
++      const profiles = await admin.from('profiles').select('id').eq('id', two.userId);
++      expect(profiles.data).toEqual([]);
++      const spots = await admin.from('spots').select('id').eq('id', spotId);
++      expect(spots.data).toEqual([]);
++    });
++
++    it("removes rider two's photo from Storage", async () => {
++      const { data, error } = await adminClient().storage.from('photos').list(`${two.userId}/${spotId}`);
++      expect(error).toBeNull();
++      expect(data).toEqual([]);
++    });
++
++    it("rider one's find_profile no longer finds rider two", async () => {
++      const { data, error } = await one.client.rpc('find_profile', { p_username: two.username });
++      expect(error).toBeNull();
++      expect(data).toEqual([]);
++    });
++
++    it('leaves rider one, whom the body named, untouched', async () => {
++      const { data } = await adminClient().auth.admin.getUserById(one.userId);
++      expect(data.user?.id).toBe(one.userId);
++      const fresh = await signInAgain(one.email);
++      const { data: profile } = await fresh.from('profiles').select('username').eq('id', one.userId).single();
++      expect(profile?.username).toBe(one.username);
++    });
++  });
++});
+diff --git a/src/__integration__/helpers.ts b/src/__integration__/helpers.ts
+new file mode 100644
+index 0000000..c1825ca
+--- /dev/null
++++ b/src/__integration__/helpers.ts
+@@ -0,0 +1,100 @@
++/**
++ * Riders against the local stack (S4-06). Run only by `npm run test:integration`, which reads the URL and keys from
++ * `npx supabase status -o json` (scripts/supabase-env.mjs); nothing here is a key.
++ *
++ * A rider signs in the way the app does (an email code), but the code comes from the Auth admin API instead of the
++ * mailbox: `auth.admin.generateLink({ type: 'magiclink', email })` returns it as `properties.email_otp`. Member names
++ * are from node_modules/@supabase/auth-js/dist/module/lib/types.d.ts (`GenerateLinkProperties.email_otp`, l.849) and
++ * node_modules/@supabase/auth-js/dist/module/GoTrueAdminApi.d.ts (`generateLink` l.249, `createUser` l.330,
++ * `getUserById` l.430, `deleteUser` l.608).
++ */
++import { randomUUID } from 'node:crypto';
++
++import { createClient, type SupabaseClient } from '@supabase/supabase-js';
++
++export type Rider = { client: SupabaseClient; userId: string; username: string; email: string };
++
++function env(name: 'SUPABASE_URL' | 'SUPABASE_ANON_KEY' | 'SUPABASE_SERVICE_ROLE_KEY'): string {
++  const values = {
++    SUPABASE_URL: process.env.SUPABASE_URL,
++    SUPABASE_ANON_KEY: process.env.SUPABASE_ANON_KEY,
++    SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
++  };
++  const value = values[name];
++  if (!value) throw new Error(`${name} is not set: run these tests with npm run test:integration`);
++  return value;
++}
++
++/** No session is stored and none is refreshed in the background, so a test run leaves no timers behind. */
++const NO_PERSIST = { auth: { persistSession: false, autoRefreshToken: false } };
++
++export const supabaseUrl = () => env('SUPABASE_URL');
++export const anonKey = () => env('SUPABASE_ANON_KEY');
++
++export function adminClient(): SupabaseClient {
++  return createClient(env('SUPABASE_URL'), env('SUPABASE_SERVICE_ROLE_KEY'), NO_PERSIST);
++}
++
++export function anonClient(): SupabaseClient {
++  return createClient(env('SUPABASE_URL'), env('SUPABASE_ANON_KEY'), NO_PERSIST);
++}
++
++/** A fresh 6-digit email code for an existing user, as if read from the mail. */
++export async function emailCode(email: string): Promise<string> {
++  const { data, error } = await adminClient().auth.admin.generateLink({ type: 'magiclink', email });
++  if (error) throw error;
++  return data.properties.email_otp;
++}
++
++/** Signs `client` in with a fresh email code; resolves the user id of the session. */
++export async function verifyWithCode(client: SupabaseClient, email: string): Promise<string> {
++  const token = await emailCode(email);
++  const { data, error } = await client.auth.verifyOtp({ email, token, type: 'email' });
++  if (error) throw error;
++  if (!data.session || !data.user) throw new Error(`verifyOtp gave no session for ${email}`);
++  return data.user.id;
++}
++
++/** A fresh anon client signed in as `email` with a new code. */
++export async function signInAgain(email: string): Promise<SupabaseClient> {
++  const client = anonClient();
++  await verifyWithCode(client, email);
++  return client;
++}
++
++/**
++ * A new rider: an auth user (email already confirmed), signed in on their own anon client with an email code, with
++ * `username` set on their profile row (made by the handle_new_user trigger) as the username screen does.
++ */
++export async function createRider(username: string): Promise<Rider> {
++  const email = `${username}-${randomUUID().slice(0, 8)}@example.test`;
++  const { data: created, error: createError } = await adminClient().auth.admin.createUser({
++    email,
++    email_confirm: true,
++  });
++  if (createError) throw createError;
++
++  // A rider half made (no session, no username) is deleted here: the caller never gets an id to clean up with.
++  try {
++    const client = anonClient();
++    const userId = await verifyWithCode(client, email);
++    const { data, error } = await client.from('profiles').update({ username }).eq('id', userId).select('id');
++    if (error) throw error;
++    if (data.length !== 1) throw new Error(`no profile row was updated for ${email}`);
++    return { client, userId, username, email };
++  } catch (error) {
++    await deleteRider(created.user.id);
++    throw error;
++  }
++}
++
++/** Deletes a rider left by a test; a rider already gone is fine. */
++export async function deleteRider(userId: string): Promise<void> {
++  const { error } = await adminClient().auth.admin.deleteUser(userId);
++  if (error && error.status !== 404) throw error;
++}
++
++/** A unique username for a test run (D39: 3–20 of a–z 0–9 _ .). */
++export function uniqueUsername(prefix: string): string {
++  return `${prefix}_${randomUUID().replace(/-/g, '').slice(0, 8)}`;
++}
+diff --git a/src/__tests__/auth-code.test.tsx b/src/__tests__/auth-code.test.tsx
+new file mode 100644
+index 0000000..4c359c1
+--- /dev/null
++++ b/src/__tests__/auth-code.test.tsx
+@@ -0,0 +1,211 @@
++// The code screen (S4-03): six digits auto-submit verifyOtp once; errors show in place; 'Resend code';
++// success resolves the account and goes to the username screen or back to where sign-in was opened.
++import { act, fireEvent, render, screen } from '@testing-library/react-native';
++import { useLocalSearchParams, useRouter } from 'expo-router';
++
++import { createFakeSupabase, type FakeSupabase } from './helpers/fake-supabase';
++
++let mockFake: FakeSupabase | null = null;
++jest.mock('@/src/sync/client', () => ({
++  getSupabase: () => mockFake,
++  isConfigured: () => mockFake !== null,
++}));
++
++import CodeScreen from '@/app/auth/code';
++import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
++
++let router: { push: jest.Mock; back: jest.Mock; replace: jest.Mock; dismissAll: jest.Mock };
++
++beforeEach(() => {
++  mockFake = createFakeSupabase({ userId: 'user-ana' });
++  useAuthStore.setState({ ...SIGNED_OUT });
++  router = { push: jest.fn(), back: jest.fn(), replace: jest.fn(), dismissAll: jest.fn() };
++  jest.mocked(useRouter).mockReturnValue(router as never);
++  jest.mocked(useLocalSearchParams).mockReturnValue({ email: 'ana@example.com' });
++});
++
++afterEach(() => {
++  jest.useRealTimers();
++  jest.mocked(useLocalSearchParams).mockReturnValue({});
++});
++
++const codeField = () => screen.getByLabelText('Code');
++
++async function typeCode(text: string) {
++  await act(async () => {
++    fireEvent.changeText(codeField(), text);
++  });
++}
++
++describe('CodeScreen', () => {
++  it('names the email and shows a 6-digit number field', () => {
++    render(<CodeScreen />);
++    expect(screen.getByText('Enter the code we sent to ana@example.com')).toBeTruthy();
++    expect(codeField().props.keyboardType).toBe('number-pad');
++    expect(codeField().props.maxLength).toBe(6);
++    expect(codeField().props.textContentType).toBe('oneTimeCode');
++  });
++
++  it('auto-submits six digits once with verifyOtp', async () => {
++    mockFake!.profiles.set('user-ana', { username: 'ana', display_name: 'Ana B' });
++    render(<CodeScreen />);
++    await typeCode('12345');
++    expect(mockFake!.auth.verifyOtp).not.toHaveBeenCalled();
++    await typeCode('123456');
++    expect(mockFake!.auth.verifyOtp).toHaveBeenCalledTimes(1);
++    expect(mockFake!.auth.verifyOtp).toHaveBeenCalledWith({ email: 'ana@example.com', token: '123456', type: 'email' });
++  });
++
++  it('keeps digits only, so a pasted "123 456" verifies once as 123456', async () => {
++    mockFake!.profiles.set('user-ana', { username: 'ana', display_name: null });
++    render(<CodeScreen />);
++    await typeCode('123 456');
++    expect(mockFake!.auth.verifyOtp).toHaveBeenCalledTimes(1);
++    expect(mockFake!.auth.verifyOtp).toHaveBeenCalledWith({ email: 'ana@example.com', token: '123456', type: 'email' });
++  });
++
++  it('does not verify again on a re-render or the same six digits while one is in flight', async () => {
++    let finish!: () => void;
++    mockFake!.auth.verifyOtp.mockImplementationOnce(
++      () => new Promise((resolve) => {
++        finish = () => resolve({ data: { user: null, session: null }, error: { message: 'Token has expired or is invalid' } });
++      }),
++    );
++    const { rerender } = render(<CodeScreen />);
++    await typeCode('123456');
++    expect(screen.getByText('Checking…')).toBeTruthy();
++    rerender(<CodeScreen />);
++    await typeCode('123456');
++    expect(mockFake!.auth.verifyOtp).toHaveBeenCalledTimes(1);
++    await act(async () => finish());
++  });
++
++  it('verifies once when a second six lands before the field is disabled', async () => {
++    mockFake!.profiles.set('user-ana', { username: 'ana', display_name: null });
++    render(<CodeScreen />);
++    const { onChangeText } = codeField().props;
++    await act(async () => {
++      onChangeText('123456');
++      onChangeText('123456');
++    });
++    expect(mockFake!.auth.verifyOtp).toHaveBeenCalledTimes(1);
++    expect(router.dismissAll).toHaveBeenCalledTimes(1);
++  });
++
++  it("shows 'That code didn't work. Try again or resend.' on an error and clears the field", async () => {
++    mockFake!.failNext('verifyOtp', { message: 'Token has expired or is invalid', status: 403, code: 'otp_expired' });
++    render(<CodeScreen />);
++    await typeCode('123456');
++    expect(screen.getByRole('alert')).toHaveTextContent("That code didn't work. Try again or resend.", { exact: true });
++    expect(codeField().props.value).toBe('');
++    expect(router.replace).not.toHaveBeenCalled();
++    expect(router.dismissAll).not.toHaveBeenCalled();
++    // A second try verifies again.
++    mockFake!.profiles.set('user-ana', { username: 'ana', display_name: null });
++    await typeCode('654321');
++    expect(mockFake!.auth.verifyOtp).toHaveBeenCalledTimes(2);
++    expect(mockFake!.auth.verifyOtp).toHaveBeenLastCalledWith({ email: 'ana@example.com', token: '654321', type: 'email' });
++  });
++
++  it("'Resend code' calls signInWithOtp again and shows 'Sent' for a moment", async () => {
++    jest.useFakeTimers();
++    render(<CodeScreen />);
++    await act(async () => {
++      fireEvent.press(screen.getByRole('button', { name: 'Resend code' }));
++    });
++    expect(mockFake!.auth.signInWithOtp).toHaveBeenCalledTimes(1);
++    expect(mockFake!.auth.signInWithOtp).toHaveBeenCalledWith({
++      email: 'ana@example.com',
++      options: { shouldCreateUser: true },
++    });
++    expect(screen.getByText('Sent')).toBeTruthy();
++    act(() => {
++      jest.advanceTimersByTime(3000);
++    });
++    expect(screen.queryByText('Sent')).toBeNull();
++    expect(screen.getByRole('button', { name: 'Resend code' })).toBeTruthy();
++  });
++
++  it("shows a resend error's message only", async () => {
++    mockFake!.failNext('signInWithOtp', { message: 'Email rate limit exceeded', status: 429 });
++    render(<CodeScreen />);
++    await act(async () => {
++      fireEvent.press(screen.getByRole('button', { name: 'Resend code' }));
++    });
++    expect(screen.getByRole('alert')).toHaveTextContent('Email rate limit exceeded', { exact: true });
++    expect(screen.queryByText('Sent')).toBeNull();
++  });
++
++  it("'Use a different email' goes back", () => {
++    render(<CodeScreen />);
++    fireEvent.press(screen.getByRole('button', { name: 'Use a different email' }));
++    expect(router.back).toHaveBeenCalledTimes(1);
++  });
++
++  it('a verified account without a username replaces the route with /auth/username', async () => {
++    mockFake!.profiles.set('user-ana', { username: null, display_name: null });
++    render(<CodeScreen />);
++    await typeCode('123456');
++    expect(router.replace).toHaveBeenCalledWith('/auth/username');
++    expect(router.dismissAll).not.toHaveBeenCalled();
++    expect(useAuthStore.getState()).toMatchObject({ status: 'needs_username', userId: 'user-ana', email: 'ana@example.com' });
++  });
++
++  it('a verified account with a username dismisses back to the tab that opened sign-in', async () => {
++    mockFake!.profiles.set('user-ana', { username: 'ana', display_name: 'Ana B' });
++    render(<CodeScreen />);
++    await typeCode('123456');
++    expect(router.dismissAll).toHaveBeenCalledTimes(1);
++    expect(router.replace).not.toHaveBeenCalled();
++    expect(useAuthStore.getState()).toMatchObject({
++      status: 'signed_in',
++      userId: 'user-ana',
++      username: 'ana',
++      displayName: 'Ana B',
++    });
++  });
++
++  it('keeps the field editable while checking, so the keyboard stays up after a wrong code', async () => {
++    let finish!: () => void;
++    mockFake!.auth.verifyOtp.mockImplementationOnce(
++      () => new Promise((resolve) => {
++        finish = () => resolve({ data: { user: null, session: null }, error: { message: 'Token has expired or is invalid' } });
++      }),
++    );
++    render(<CodeScreen />);
++    await typeCode('123456');
++    expect(codeField().props.editable).not.toBe(false);
++    // Typing while one is in flight never verifies a second time.
++    await typeCode('654321');
++    expect(mockFake!.auth.verifyOtp).toHaveBeenCalledTimes(1);
++    await act(async () => finish());
++    expect(screen.getByRole('alert')).toHaveTextContent("That code didn't work. Try again or resend.");
++  });
++
++  it("treats a verifyOtp that throws as a code that didn't work", async () => {
++    mockFake!.auth.verifyOtp.mockRejectedValueOnce(new Error('boom'));
++    render(<CodeScreen />);
++    await typeCode('123456');
++    expect(screen.getByRole('alert')).toHaveTextContent("That code didn't work. Try again or resend.", { exact: true });
++    expect(router.dismissAll).not.toHaveBeenCalled();
++  });
++
++  it('with no email to check sends nothing and offers the way back to Sign in', async () => {
++    jest.mocked(useLocalSearchParams).mockReturnValue({});
++    render(<CodeScreen />);
++    expect(screen.queryByLabelText('Code')).toBeNull();
++    expect(screen.queryByRole('button', { name: 'Resend code' })).toBeNull();
++    fireEvent.press(screen.getByRole('button', { name: 'Back to Sign in' }));
++    expect(router.replace).toHaveBeenCalledWith('/auth/sign-in');
++    expect(mockFake!.auth.signInWithOtp).not.toHaveBeenCalled();
++    expect(mockFake!.auth.verifyOtp).not.toHaveBeenCalled();
++  });
++
++  it("shows only 'Accounts aren't set up in this build' when the client is unconfigured", () => {
++    mockFake = null;
++    render(<CodeScreen />);
++    expect(screen.getByText("Accounts aren't set up in this build")).toBeTruthy();
++    expect(screen.queryByLabelText('Code')).toBeNull();
++    expect(screen.queryByRole('button')).toBeNull();
++  });
++});
+diff --git a/src/__tests__/auth-sign-in.test.tsx b/src/__tests__/auth-sign-in.test.tsx
+new file mode 100644
+index 0000000..cd77724
+--- /dev/null
++++ b/src/__tests__/auth-sign-in.test.tsx
+@@ -0,0 +1,158 @@
++// The sign-in screen (S4-03): an email field and 'Send code' (signInWithOtp), then the code screen.
++// The client is the hand-written fake (helpers/fake-supabase.ts); null = a build without Supabase values.
++import { act, fireEvent, render, screen } from '@testing-library/react-native';
++import { AccessibilityInfo } from 'react-native';
++import { useRouter } from 'expo-router';
++import { AuthRetryableFetchError } from '@supabase/supabase-js';
++
++import { createFakeSupabase, type FakeSupabase } from './helpers/fake-supabase';
++
++let mockFake: FakeSupabase | null = null;
++jest.mock('@/src/sync/client', () => ({
++  getSupabase: () => mockFake,
++  isConfigured: () => mockFake !== null,
++}));
++
++import SignInScreen from '@/app/auth/sign-in';
++
++let push: jest.Mock;
++
++beforeEach(() => {
++  mockFake = createFakeSupabase();
++  push = jest.fn();
++  jest.mocked(useRouter).mockReturnValue({ push, back: jest.fn(), replace: jest.fn(), dismissAll: jest.fn() } as never);
++});
++
++const sendButton = () => screen.getByRole('button', { name: 'Send code' });
++
++describe('SignInScreen', () => {
++  it('shows the heading, the explanation and an email field', () => {
++    render(<SignInScreen />);
++    expect(screen.getByText('Sign in to HitList')).toBeTruthy();
++    expect(screen.getByText("We'll email you a 6-digit code. No password.")).toBeTruthy();
++    const email = screen.getByLabelText('Email');
++    expect(email.props.keyboardType).toBe('email-address');
++    expect(email.props.autoCapitalize).toBe('none');
++  });
++
++  it("keeps 'Send code' disabled until the text contains '@'", () => {
++    render(<SignInScreen />);
++    expect(sendButton()).toBeDisabled();
++    fireEvent.changeText(screen.getByLabelText('Email'), 'ana');
++    expect(sendButton()).toBeDisabled();
++    fireEvent.changeText(screen.getByLabelText('Email'), 'ana@example.com');
++    expect(sendButton()).toBeEnabled();
++  });
++
++  it('sends the code and opens the code screen with the email', async () => {
++    render(<SignInScreen />);
++    fireEvent.changeText(screen.getByLabelText('Email'), 'ana@example.com');
++    await act(async () => {
++      fireEvent.press(sendButton());
++    });
++    expect(mockFake!.auth.signInWithOtp).toHaveBeenCalledTimes(1);
++    expect(mockFake!.auth.signInWithOtp).toHaveBeenCalledWith({
++      email: 'ana@example.com',
++      options: { shouldCreateUser: true },
++    });
++    expect(push).toHaveBeenCalledWith({ pathname: '/auth/code', params: { email: 'ana@example.com' } });
++  });
++
++  it('sends the email trimmed and lowercased, as riders type it', async () => {
++    render(<SignInScreen />);
++    fireEvent.changeText(screen.getByLabelText('Email'), '  Ana@Example.COM ');
++    await act(async () => {
++      fireEvent.press(sendButton());
++    });
++    expect(mockFake!.auth.signInWithOtp).toHaveBeenCalledWith({
++      email: 'ana@example.com',
++      options: { shouldCreateUser: true },
++    });
++    expect(push).toHaveBeenCalledWith({ pathname: '/auth/code', params: { email: 'ana@example.com' } });
++  });
++
++  it('shows an error message in place and stays on the screen', async () => {
++    mockFake!.failNext('signInWithOtp', { message: 'Email rate limit exceeded', status: 429, code: 'over_email_send_rate_limit' });
++    render(<SignInScreen />);
++    fireEvent.changeText(screen.getByLabelText('Email'), 'ana@example.com');
++    await act(async () => {
++      fireEvent.press(sendButton());
++    });
++    const alert = screen.getByRole('alert');
++    // The message only, never the whole error object.
++    expect(alert).toHaveTextContent('Email rate limit exceeded', { exact: true });
++    expect(push).not.toHaveBeenCalled();
++    expect(sendButton()).toBeEnabled();
++  });
++
++  it("shows 'Sending…' and sends once while the request is in flight", async () => {
++    let finish!: () => void;
++    mockFake!.auth.signInWithOtp.mockImplementationOnce(
++      () => new Promise((resolve) => {
++        finish = () => resolve({ data: { user: null, session: null }, error: null });
++      }),
++    );
++    render(<SignInScreen />);
++    fireEvent.changeText(screen.getByLabelText('Email'), 'ana@example.com');
++    act(() => {
++      // The return key lands before the disabled state renders.
++      fireEvent.press(sendButton());
++      fireEvent(screen.getByLabelText('Email'), 'submitEditing');
++    });
++    expect(screen.getByRole('button', { name: 'Sending…' })).toBeDisabled();
++    await act(async () => finish());
++    expect(mockFake!.auth.signInWithOtp).toHaveBeenCalledTimes(1);
++    expect(push).toHaveBeenCalledTimes(1);
++  });
++
++  it('does not open the code screen when the rider closed sign-in while the code was sending', async () => {
++    let finish!: () => void;
++    mockFake!.auth.signInWithOtp.mockImplementationOnce(
++      () => new Promise((resolve) => {
++        finish = () => resolve({ data: { user: null, session: null }, error: null });
++      }),
++    );
++    const { unmount } = render(<SignInScreen />);
++    fireEvent.changeText(screen.getByLabelText('Email'), 'ana@example.com');
++    fireEvent.press(sendButton());
++    unmount();
++    await act(async () => finish());
++    expect(push).not.toHaveBeenCalled();
++  });
++
++  it("shows fixed copy, not auth-js's text, when the phone is offline", async () => {
++    mockFake!.auth.signInWithOtp.mockResolvedValueOnce({
++      data: { user: null, session: null },
++      error: new AuthRetryableFetchError('Network request failed', 0),
++    } as never);
++    render(<SignInScreen />);
++    fireEvent.changeText(screen.getByLabelText('Email'), 'ana@example.com');
++    await act(async () => {
++      fireEvent.press(sendButton());
++    });
++    expect(screen.getByRole('alert')).toHaveTextContent("Couldn't send the code. Check your connection and try again.", {
++      exact: true,
++    });
++  });
++
++  it('announces an error to VoiceOver', async () => {
++    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
++    mockFake!.failNext('signInWithOtp', { message: 'Email rate limit exceeded', status: 429 });
++    render(<SignInScreen />);
++    fireEvent.changeText(screen.getByLabelText('Email'), 'ana@example.com');
++    await act(async () => {
++      fireEvent.press(sendButton());
++    });
++    expect(announce).toHaveBeenCalledWith('Email rate limit exceeded');
++    announce.mockRestore();
++  });
++
++  it("shows only 'Accounts aren't set up in this build' when the client is unconfigured", () => {
++    mockFake = null;
++    render(<SignInScreen />);
++    expect(screen.getByText("Accounts aren't set up in this build")).toBeTruthy();
++    expect(screen.queryByText('Sign in to HitList')).toBeNull();
++    expect(screen.queryByLabelText('Email')).toBeNull();
++    expect(screen.queryByRole('button')).toBeNull();
++  });
++});
+diff --git a/src/__tests__/auth-store.test.ts b/src/__tests__/auth-store.test.ts
+new file mode 100644
+index 0000000..698e72e
+--- /dev/null
++++ b/src/__tests__/auth-store.test.ts
+@@ -0,0 +1,302 @@
++// useAuthInit mirrors the Supabase session into the auth store (status, userId, email, username,
++// displayName). The client is the hand-written fake (helpers/fake-supabase.ts).
++import { AppState, type AppStateStatus } from 'react-native';
++import { act, renderHook, waitFor } from '@testing-library/react-native';
++import { AuthRetryableFetchError } from '@supabase/supabase-js';
++
++import { createFakeSupabase, fakeSession, type FakeSupabase } from './helpers/fake-supabase';
++
++let mockFake: FakeSupabase | null = null;
++jest.mock('@/src/sync/client', () => ({
++  getSupabase: () => mockFake,
++  isConfigured: () => mockFake !== null,
++}));
++
++import { useAuthStore, SIGNED_OUT } from '@/src/stores/auth-store';
++import { useAuthInit } from '@/src/hooks/use-auth-init';
++
++const ana = fakeSession({ userId: 'user-ana', email: 'ana@example.com' });
++
++let appStateListeners: ((state: AppStateStatus) => void)[];
++
++beforeEach(() => {
++  mockFake = createFakeSupabase();
++  useAuthStore.setState({ ...SIGNED_OUT });
++  appStateListeners = [];
++  jest.spyOn(AppState, 'addEventListener').mockImplementation((type, listener) => {
++    if (type === 'change') appStateListeners.push(listener as (state: AppStateStatus) => void);
++    return { remove: jest.fn() } as unknown as ReturnType<typeof AppState.addEventListener>;
++  });
++});
++
++afterEach(() => {
++  jest.useRealTimers();
++  jest.restoreAllMocks();
++});
++
++describe('useAuthStore', () => {
++  it('starts signed out with no user', () => {
++    useAuthStore.setState({ ...SIGNED_OUT });
++    expect(useAuthStore.getState()).toMatchObject({
++      status: 'signed_out',
++      userId: null,
++      email: null,
++      username: null,
++      displayName: null,
++    });
++  });
++
++  it('setProfile sets the username and display name and marks the rider signed in', () => {
++    useAuthStore.getState().setAuth({ ...SIGNED_OUT, status: 'needs_username', userId: 'u1', email: 'a@b.c' });
++
++    useAuthStore.getState().setProfile('ana', 'Ana B');
++
++    expect(useAuthStore.getState()).toMatchObject({
++      status: 'signed_in',
++      userId: 'u1',
++      email: 'a@b.c',
++      username: 'ana',
++      displayName: 'Ana B',
++    });
++  });
++});
++
++describe('useAuthInit', () => {
++  it("is 'unconfigured' when the build has no Supabase values", async () => {
++    mockFake = null;
++
++    renderHook(() => useAuthInit());
++
++    await waitFor(() => expect(useAuthStore.getState().status).toBe('unconfigured'));
++    expect(useAuthStore.getState().userId).toBeNull();
++  });
++
++  it("is 'signed_out' when there is no stored session", async () => {
++    useAuthStore.setState({ ...SIGNED_OUT, status: 'unconfigured' });
++
++    renderHook(() => useAuthInit());
++
++    await waitFor(() => expect(useAuthStore.getState().status).toBe('signed_out'));
++    expect(mockFake!.auth.getSession).toHaveBeenCalledTimes(1);
++  });
++
++  it("is 'needs_username' with the user id when the profile has no username", async () => {
++    mockFake!.setSession(ana);
++    mockFake!.profiles.set('user-ana', { username: null, display_name: null });
++
++    renderHook(() => useAuthInit());
++
++    await waitFor(() => expect(useAuthStore.getState().status).toBe('needs_username'));
++    expect(useAuthStore.getState()).toMatchObject({ userId: 'user-ana', email: 'ana@example.com', username: null });
++  });
++
++  it("is 'signed_in' with the username and display name when the profile has them", async () => {
++    mockFake!.setSession(ana);
++    mockFake!.profiles.set('user-ana', { username: 'ana', display_name: 'Ana B' });
++
++    renderHook(() => useAuthInit());
++
++    await waitFor(() => expect(useAuthStore.getState().status).toBe('signed_in'));
++    expect(useAuthStore.getState()).toMatchObject({
++      userId: 'user-ana',
++      email: 'ana@example.com',
++      username: 'ana',
++      displayName: 'Ana B',
++    });
++    expect(mockFake!.from).toHaveBeenCalledWith('profiles');
++  });
++
++  it("is 'signed_in' with no username when the profile fetch fails (offline launch), never 'needs_username'", async () => {
++    mockFake!.setSession(ana);
++    mockFake!.profiles.set('user-ana', { username: null, display_name: null });
++    mockFake!.failNext('select', { message: 'Network request failed' });
++
++    renderHook(() => useAuthInit());
++
++    await waitFor(() => expect(useAuthStore.getState().status).toBe('signed_in'));
++    expect(useAuthStore.getState()).toMatchObject({ userId: 'user-ana', username: null });
++  });
++
++  it("is 'signed_in' with no username when the profile row is missing", async () => {
++    mockFake!.setSession(ana);
++
++    renderHook(() => useAuthInit());
++
++    await waitFor(() => expect(useAuthStore.getState().status).toBe('signed_in'));
++    expect(useAuthStore.getState()).toMatchObject({ userId: 'user-ana', username: null });
++  });
++
++  it('keeps the account when the app becomes active offline with an expired token', async () => {
++    // auth-js keeps the stored session and answers { session: null, error: AuthRetryableFetchError }.
++    mockFake!.setSession(ana);
++    mockFake!.failNext('select', { message: 'Network request failed' });
++    renderHook(() => useAuthInit());
++    await waitFor(() => expect(useAuthStore.getState().status).toBe('signed_in'));
++    mockFake!.failNext('getSession', new AuthRetryableFetchError('Network request failed', 0));
++
++    act(() => appStateListeners.forEach((listener) => listener('active')));
++    await act(async () => {
++      await new Promise((resolve) => setTimeout(resolve, 10));
++    });
++
++    expect(useAuthStore.getState()).toMatchObject({ status: 'signed_in', userId: 'user-ana' });
++  });
++
++  it('picks the account up from TOKEN_REFRESHED after an offline launch with an expired token', async () => {
++    useAuthStore.setState({ ...SIGNED_OUT, status: 'unconfigured' });
++    mockFake!.profiles.set('user-ana', { username: 'ana', display_name: null });
++    mockFake!.failNext('getSession', new AuthRetryableFetchError('Network request failed', 0));
++    renderHook(() => useAuthInit());
++    await waitFor(() => expect(mockFake!.auth.getSession).toHaveBeenCalled());
++    await act(async () => {
++      await new Promise((resolve) => setTimeout(resolve, 10));
++    });
++    // Not known yet: the stored session is still there, so this is not a sign-out.
++    expect(useAuthStore.getState().status).not.toBe('signed_in');
++
++    // Back online, the refresh ticker refreshes the stored session.
++    act(() => mockFake!.emit('TOKEN_REFRESHED', ana));
++
++    await waitFor(() => expect(useAuthStore.getState().status).toBe('signed_in'));
++    expect(useAuthStore.getState().username).toBe('ana');
++  });
++
++  it("is 'signed_out' when getSession fails for good", async () => {
++    mockFake!.failNext('getSession', { message: 'Invalid Refresh Token: Refresh Token Not Found', status: 400 });
++
++    renderHook(() => useAuthInit());
++
++    await waitFor(() => expect(mockFake!.auth.getSession).toHaveBeenCalled());
++    await waitFor(() => expect(useAuthStore.getState().status).toBe('signed_out'));
++  });
++
++  it("refetches a profile that failed to load when the app becomes active", async () => {
++    mockFake!.setSession(ana);
++    mockFake!.profiles.set('user-ana', { username: 'ana', display_name: null });
++    mockFake!.failNext('select', { message: 'Network request failed' });
++    renderHook(() => useAuthInit());
++    await waitFor(() => expect(useAuthStore.getState().status).toBe('signed_in'));
++    expect(useAuthStore.getState().username).toBeNull();
++
++    act(() => appStateListeners.forEach((listener) => listener('active')));
++
++    await waitFor(() => expect(useAuthStore.getState().username).toBe('ana'));
++  });
++
++  it("is 'signed_out' with no user fields after SIGNED_OUT", async () => {
++    mockFake!.setSession(ana);
++    mockFake!.profiles.set('user-ana', { username: 'ana', display_name: 'Ana B' });
++    renderHook(() => useAuthInit());
++    await waitFor(() => expect(useAuthStore.getState().status).toBe('signed_in'));
++
++    act(() => mockFake!.emit('SIGNED_OUT', null));
++
++    await waitFor(() => expect(useAuthStore.getState().status).toBe('signed_out'));
++    expect(useAuthStore.getState()).toMatchObject({
++      userId: null,
++      email: null,
++      username: null,
++      displayName: null,
++    });
++  });
++
++  it('follows SIGNED_IN after launch', async () => {
++    renderHook(() => useAuthInit());
++    await waitFor(() => expect(mockFake!.auth.getSession).toHaveBeenCalled());
++    mockFake!.profiles.set('user-ana', { username: 'ana', display_name: null });
++
++    act(() => mockFake!.emit('SIGNED_IN', ana));
++
++    await waitFor(() => expect(useAuthStore.getState().status).toBe('signed_in'));
++    expect(useAuthStore.getState().username).toBe('ana');
++  });
++
++  it('keeps the latest event when an earlier profile fetch finishes after it', async () => {
++    mockFake!.setSession(ana);
++    mockFake!.profiles.set('user-ana', { username: 'ana', display_name: null });
++    mockFake!.queryDelayMs = 5;
++    renderHook(() => useAuthInit());
++
++    // SIGNED_OUT lands while the launch's profile fetch is still in flight.
++    act(() => mockFake!.emit('SIGNED_OUT', null));
++
++    await waitFor(() => expect(mockFake!.from).toHaveBeenCalled());
++    await act(async () => {
++      await new Promise((resolve) => setTimeout(resolve, 20));
++    });
++    expect(useAuthStore.getState().status).toBe('signed_out');
++  });
++
++  it('keeps a username saved during onboarding when an older profile fetch (no username yet) lands after it', async () => {
++    mockFake!.setSession(ana);
++    mockFake!.profiles.set('user-ana', { username: null, display_name: null });
++    mockFake!.queryDelayMs = 200;
++    useAuthStore.setState({ ...SIGNED_OUT, status: 'needs_username', userId: 'user-ana', email: 'ana@example.com' });
++    renderHook(() => useAuthInit());
++    await waitFor(() => expect(mockFake!.from).toHaveBeenCalled());
++
++    // The username screen saves while the launch's fetch (which reads the row as it was, no username) is in flight.
++    act(() => useAuthStore.getState().setProfile('ana', 'Ana B'));
++    expect(useAuthStore.getState().status).toBe('signed_in');
++    await act(async () => {
++      await new Promise((resolve) => setTimeout(resolve, 300));
++    });
++
++    expect(useAuthStore.getState()).toMatchObject({ status: 'signed_in', userId: 'user-ana', username: 'ana' });
++  });
++
++  it("still shows 'needs_username' for a different account signing in", async () => {
++    useAuthStore.setState({ ...SIGNED_OUT, status: 'signed_in', userId: 'user-bo', username: 'bo' });
++    mockFake!.profiles.set('user-ana', { username: null, display_name: null });
++    renderHook(() => useAuthInit());
++    await waitFor(() => expect(mockFake!.auth.getSession).toHaveBeenCalled());
++
++    act(() => mockFake!.emit('SIGNED_IN', ana));
++
++    await waitFor(() => expect(useAuthStore.getState().status).toBe('needs_username'));
++    expect(useAuthStore.getState().userId).toBe('user-ana');
++  });
++
++  it('ignores TOKEN_REFRESHED for the account it already shows (no profile refetch)', async () => {
++    mockFake!.setSession(ana);
++    mockFake!.profiles.set('user-ana', { username: 'ana', display_name: null });
++    renderHook(() => useAuthInit());
++    await waitFor(() => expect(useAuthStore.getState().status).toBe('signed_in'));
++    const fetches = mockFake!.from.mock.calls.length;
++
++    act(() => mockFake!.emit('TOKEN_REFRESHED', ana));
++    await act(async () => {
++      await new Promise((resolve) => setTimeout(resolve, 10));
++    });
++
++    expect(mockFake!.from.mock.calls.length).toBe(fetches);
++  });
++
++  it('never awaits supabase inside the auth callback: it returns undefined and defers the fetch', async () => {
++    renderHook(() => useAuthInit());
++    await waitFor(() => expect(useAuthStore.getState().status).toBe('signed_out'));
++    mockFake!.profiles.set('user-ana', { username: 'ana', display_name: null });
++    const callback = mockFake!.auth.onAuthStateChange.mock.calls[0][0];
++    const fetches = mockFake!.from.mock.calls.length;
++    jest.useFakeTimers();
++
++    const returned = callback('SIGNED_IN', ana);
++
++    expect(returned).toBeUndefined();
++    expect(mockFake!.from.mock.calls.length).toBe(fetches);
++    act(() => jest.runOnlyPendingTimers());
++    expect(mockFake!.from.mock.calls.length).toBe(fetches + 1);
++  });
++
++  it('unsubscribes from auth changes on unmount', async () => {
++    const { unmount } = renderHook(() => useAuthInit());
++    await waitFor(() => expect(useAuthStore.getState().status).toBe('signed_out'));
++    expect(mockFake!.listenerCount()).toBe(1);
++    const { subscription } = mockFake!.auth.onAuthStateChange.mock.results[0].value.data;
++
++    unmount();
++
++    expect(subscription.unsubscribe).toHaveBeenCalledTimes(1);
++    expect(mockFake!.listenerCount()).toBe(0);
++  });
++});
+diff --git a/src/__tests__/auth-username.test.tsx b/src/__tests__/auth-username.test.tsx
+new file mode 100644
+index 0000000..e677659
+--- /dev/null
++++ b/src/__tests__/auth-username.test.tsx
+@@ -0,0 +1,321 @@
++// The username screen (S4-04): after the first sign-in the rider picks an @username (required) and a display name
++// (optional, D63). Live validation under the field, 'Done' only when valid, a taken name reported in place; success
++// marks the account signed in and lands on the Profile tab.
++import { TextInput } from 'react-native';
++import { act, fireEvent, render, screen } from '@testing-library/react-native';
++import { useRouter } from 'expo-router';
++
++import { createFakeSupabase, type FakeSupabase } from './helpers/fake-supabase';
++
++let mockFake: FakeSupabase | null = null;
++jest.mock('@/src/sync/client', () => ({
++  getSupabase: () => mockFake,
++  isConfigured: () => mockFake !== null,
++}));
++
++import UsernameScreen from '@/app/auth/username';
++import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
++
++let router: {
++  push: jest.Mock;
++  back: jest.Mock;
++  replace: jest.Mock;
++  dismissAll: jest.Mock;
++  dismissTo: jest.Mock;
++  canDismiss: jest.Mock;
++};
++
++beforeEach(() => {
++  mockFake = createFakeSupabase({ userId: 'user-ana' });
++  mockFake.profiles.set('user-ana', { username: null, display_name: null });
++  useAuthStore.setState({
++    ...SIGNED_OUT,
++    status: 'needs_username',
++    userId: 'user-ana',
++    email: 'ana@example.com',
++  });
++  // Reached from the code screen: the root stack is [(tabs), auth/sign-in, auth/username].
++  router = {
++    push: jest.fn(),
++    back: jest.fn(),
++    replace: jest.fn(),
++    dismissAll: jest.fn(),
++    dismissTo: jest.fn(),
++    canDismiss: jest.fn(() => true),
++  };
++  jest.mocked(useRouter).mockReturnValue(router as never);
++});
++
++const usernameField = () => screen.getByLabelText('Username');
++const displayNameField = () => screen.getByLabelText('Display name');
++const doneButton = () => screen.getByRole('button', { name: 'Done' });
++
++function type(field: ReturnType<typeof usernameField>, text: string) {
++  fireEvent.changeText(field, text);
++}
++
++async function pressDone() {
++  await act(async () => {
++    fireEvent.press(doneButton());
++  });
++}
++
++describe('UsernameScreen', () => {
++  it('asks for an @username and an optional display name', () => {
++    render(<UsernameScreen />);
++    expect(screen.getByText('Pick your @username')).toBeTruthy();
++    // A visual prefix; VoiceOver reads the field's label instead.
++    expect(screen.getByText('@', { includeHiddenElements: true })).toBeTruthy();
++    expect(usernameField().props.autoCapitalize).toBe('none');
++    expect(usernameField().props.autoCorrect).toBe(false);
++    expect(displayNameField().props.maxLength).toBe(50);
++    expect(screen.getByText('Optional. Shown to friends.')).toBeTruthy();
++  });
++
++  it('shows the validation message under the field as the rider types, none when valid', () => {
++    render(<UsernameScreen />);
++    // Nothing to complain about before the first keystroke.
++    expect(screen.queryByText('Pick a username')).toBeNull();
++    type(usernameField(), 'ab');
++    expect(screen.getByText('At least 3 characters')).toBeTruthy();
++    type(usernameField(), 'an-a');
++    expect(screen.getByText('Only letters, numbers, _ and .')).toBeTruthy();
++    type(usernameField(), 'a'.repeat(21));
++    expect(screen.getByText('At most 20 characters')).toBeTruthy();
++    type(usernameField(), '');
++    expect(screen.getByText('Pick a username')).toBeTruthy();
++    type(usernameField(), 'ana');
++    for (const message of ['Pick a username', 'At least 3 characters', 'At most 20 characters', 'Only letters, numbers, _ and .']) {
++      expect(screen.queryByText(message)).toBeNull();
++    }
++  });
++
++  it('announces the validation message politely', () => {
++    render(<UsernameScreen />);
++    type(usernameField(), 'ab');
++    expect(screen.getByText('At least 3 characters').props.accessibilityLiveRegion).toBe('polite');
++  });
++
++  it("keeps 'Done' disabled while the username is invalid", () => {
++    render(<UsernameScreen />);
++    expect(doneButton()).toBeDisabled();
++    type(usernameField(), 'ab');
++    expect(doneButton()).toBeDisabled();
++    type(usernameField(), 'ana');
++    expect(doneButton()).not.toBeDisabled();
++  });
++
++  it('drops an @ the rider types in front, since the field already shows one', () => {
++    render(<UsernameScreen />);
++    type(usernameField(), '@ana');
++    expect(usernameField().props.value).toBe('ana');
++    expect(doneButton()).not.toBeDisabled();
++  });
++
++  it('saves the normalized username and the trimmed display name to their profile', async () => {
++    render(<UsernameScreen />);
++    type(usernameField(), '  Ana.B ');
++    type(displayNameField(), '  Ana B ');
++    await pressDone();
++
++    expect(mockFake!.from).toHaveBeenCalledWith('profiles');
++    const query = mockFake!.from.mock.results[0].value;
++    expect(query.update).toHaveBeenCalledWith({ username: 'ana.b', display_name: 'Ana B' });
++    expect(query.eq).toHaveBeenCalledWith('id', 'user-ana');
++    // The updated row comes back, so an update that changed nothing is not taken for a save.
++    expect(query.select).toHaveBeenCalledWith('id');
++    expect(mockFake!.profiles.get('user-ana')).toEqual({ username: 'ana.b', display_name: 'Ana B' });
++  });
++
++  it('saves a blank display name as null', async () => {
++    render(<UsernameScreen />);
++    type(usernameField(), 'ana');
++    type(displayNameField(), '   ');
++    await pressDone();
++
++    const query = mockFake!.from.mock.results[0].value;
++    expect(query.update).toHaveBeenCalledWith({ username: 'ana', display_name: null });
++  });
++
++  it('marks the account signed in and drops back to the Profile tab under sign-in', async () => {
++    render(<UsernameScreen />);
++    type(usernameField(), 'ana');
++    type(displayNameField(), 'Ana B');
++    await pressDone();
++
++    expect(useAuthStore.getState()).toMatchObject({
++      status: 'signed_in',
++      userId: 'user-ana',
++      email: 'ana@example.com',
++      username: 'ana',
++      displayName: 'Ana B',
++    });
++    // replace would put a second (tabs) above the Sign in sheet; dismissTo pops to the tabs already there.
++    expect(router.dismissTo).toHaveBeenCalledWith('/(tabs)/profile');
++    expect(router.replace).not.toHaveBeenCalled();
++    expect(router.back).not.toHaveBeenCalled();
++  });
++
++  it('replaces the route with the Profile tab when it is the only screen (the tabs redirected here at launch)', async () => {
++    router.canDismiss.mockReturnValue(false);
++    render(<UsernameScreen />);
++    type(usernameField(), 'ana');
++    await pressDone();
++
++    expect(router.replace).toHaveBeenCalledWith('/(tabs)/profile');
++    expect(router.dismissTo).not.toHaveBeenCalled();
++  });
++
++  it("shows 'Couldn't save. Try again.' when the update changed no row (no profile, or the session is gone)", async () => {
++    mockFake!.profiles.delete('user-ana');
++    render(<UsernameScreen />);
++    type(usernameField(), 'ana');
++    await pressDone();
++
++    expect(screen.getByRole('alert')).toHaveTextContent("Couldn't save. Try again.");
++    expect(useAuthStore.getState().status).toBe('needs_username');
++    expect(router.dismissTo).not.toHaveBeenCalled();
++    expect(router.replace).not.toHaveBeenCalled();
++  });
++
++  it("shows the format rule when the server rejects the name's format (23514)", async () => {
++    mockFake!.failNext('update', {
++      message: 'new row for relation "profiles" violates check constraint "profiles_username_format"',
++      code: '23514',
++    });
++    render(<UsernameScreen />);
++    type(usernameField(), 'ana');
++    await pressDone();
++
++    expect(screen.getByRole('alert')).toHaveTextContent('Only letters, numbers, _ and .');
++    expect(useAuthStore.getState().status).toBe('needs_username');
++  });
++
++  it("shows 'Couldn't save. Try again.' offline (postgrest answers a fetch error, code '')", async () => {
++    mockFake!.failNext('update', { message: 'TypeError: Network request failed', code: '' });
++    render(<UsernameScreen />);
++    type(usernameField(), 'ana');
++    await pressDone();
++
++    expect(screen.getByRole('alert')).toHaveTextContent("Couldn't save. Try again.");
++    expect(screen.queryByText(/Network request failed/)).toBeNull();
++  });
++
++  it("reports a taken username (23505) in place as 'That username is taken' and stays", async () => {
++    mockFake!.failNext('update', {
++      message: 'duplicate key value violates unique constraint "profiles_username_key"',
++      code: '23505',
++    });
++    render(<UsernameScreen />);
++    type(usernameField(), 'ana');
++    await pressDone();
++
++    const alert = screen.getByRole('alert');
++    expect(alert).toHaveTextContent('That username is taken');
++    expect(screen.queryByText(/duplicate key/)).toBeNull();
++    expect(useAuthStore.getState().status).toBe('needs_username');
++    expect(router.dismissTo).not.toHaveBeenCalled();
++    // The rider can pick another and try again.
++    expect(doneButton()).not.toBeDisabled();
++  });
++
++  it('clears the taken message once the rider edits the name', async () => {
++    mockFake!.failNext('update', { message: 'duplicate key', code: '23505' });
++    render(<UsernameScreen />);
++    type(usernameField(), 'ana');
++    await pressDone();
++    expect(screen.getByText('That username is taken')).toBeTruthy();
++
++    type(usernameField(), 'ana2');
++    expect(screen.queryByText('That username is taken')).toBeNull();
++  });
++
++  it("shows 'Couldn't save. Try again.' for any other error, never its message", async () => {
++    mockFake!.failNext('update', { message: 'permission denied for table profiles', code: '42501' });
++    render(<UsernameScreen />);
++    type(usernameField(), 'ana');
++    await pressDone();
++
++    expect(screen.getByRole('alert')).toHaveTextContent("Couldn't save. Try again.");
++    expect(screen.queryByText(/permission denied/)).toBeNull();
++    expect(useAuthStore.getState().status).toBe('needs_username');
++    expect(router.replace).not.toHaveBeenCalled();
++  });
++
++  it("shows 'Couldn't save. Try again.' when the request throws", async () => {
++    mockFake!.from.mockImplementationOnce(() => {
++      throw new TypeError('Network request failed');
++    });
++    render(<UsernameScreen />);
++    type(usernameField(), 'ana');
++    await pressDone();
++
++    expect(screen.getByRole('alert')).toHaveTextContent("Couldn't save. Try again.");
++    expect(doneButton()).not.toBeDisabled();
++  });
++
++  it("shows 'Saving…' and saves once when Done is pressed twice", async () => {
++    mockFake!.queryDelayMs = 50;
++    jest.useFakeTimers();
++    try {
++      render(<UsernameScreen />);
++      type(usernameField(), 'ana');
++      await act(async () => {
++        fireEvent.press(doneButton());
++        fireEvent.press(doneButton());
++      });
++      expect(screen.getByRole('button', { name: 'Saving…' })).toBeDisabled();
++      await act(async () => {
++        await jest.advanceTimersByTimeAsync(50);
++      });
++      expect(mockFake!.from).toHaveBeenCalledTimes(1);
++      expect(router.dismissTo).toHaveBeenCalledTimes(1);
++    } finally {
++      jest.useRealTimers();
++    }
++  });
++
++  it("goes on to the display name from the username's return key, without saving", async () => {
++    render(<UsernameScreen />);
++    const displayName = screen.UNSAFE_getAllByType(TextInput).find((n) => n.props.accessibilityLabel === 'Display name');
++    const focus = jest.spyOn(displayName!.instance as { focus: () => void }, 'focus');
++    type(usernameField(), 'ana');
++    expect(usernameField().props.returnKeyType).toBe('next');
++    await act(async () => {
++      fireEvent(usernameField(), 'submitEditing');
++    });
++    expect(mockFake!.from).not.toHaveBeenCalled();
++    expect(focus).toHaveBeenCalledTimes(1);
++  });
++
++  it("saves from the display name's return key only when the username is valid", async () => {
++    render(<UsernameScreen />);
++    type(usernameField(), 'ab');
++    await act(async () => {
++      fireEvent(displayNameField(), 'submitEditing');
++    });
++    expect(mockFake!.from).not.toHaveBeenCalled();
++
++    type(usernameField(), 'ana');
++    await act(async () => {
++      fireEvent(displayNameField(), 'submitEditing');
++    });
++    expect(mockFake!.from).toHaveBeenCalledTimes(1);
++  });
++
++  it('asks to sign in first when there is no account (opened by a stray link)', () => {
++    useAuthStore.setState({ ...SIGNED_OUT });
++    render(<UsernameScreen />);
++    expect(screen.queryByLabelText('Username')).toBeNull();
++    expect(screen.getByText('Sign in first to pick a username.')).toBeTruthy();
++    fireEvent.press(screen.getByRole('button', { name: 'Sign in' }));
++    expect(router.replace).toHaveBeenCalledWith('/auth/sign-in');
++  });
++
++  it("shows only 'Accounts aren't set up in this build' when the client is unconfigured", () => {
++    mockFake = null;
++    render(<UsernameScreen />);
++    expect(screen.getByText("Accounts aren't set up in this build")).toBeTruthy();
++    expect(screen.queryByLabelText('Username')).toBeNull();
++  });
++});
+diff --git a/src/__tests__/helpers/fake-supabase.ts b/src/__tests__/helpers/fake-supabase.ts
+new file mode 100644
+index 0000000..722bf41
+--- /dev/null
++++ b/src/__tests__/helpers/fake-supabase.ts
+@@ -0,0 +1,176 @@
++// A hand-written stand-in for the supabase-js client: only the members the app uses, with the names
++// and { data, error } shapes copied from
++//   node_modules/@supabase/auth-js/dist/module/GoTrueClient.d.ts (getSession, onAuthStateChange →
++//     { data: { subscription: { unsubscribe } } }, signInWithOtp, verifyOtp → { data: { user, session } },
++//     signOut(options?), startAutoRefresh, stopAutoRefresh; Session/User in lib/types.d.ts)
++//   node_modules/@supabase/postgrest-js/dist/index.d.mts (from(t).select(cols).eq(c, v).maybeSingle(),
++//     from(t).update(v).eq(c, v), optionally .select(cols) to get the updated rows back (else data null); a
++//     thenable { data, error }, PostgrestError has message/details/hint/code)
++//   node_modules/@supabase/functions-js/dist/module/FunctionsClient.d.ts (functions.invoke(name, options?))
++// Every member is a jest.fn. Screens get it with
++//   jest.mock('@/src/sync/client', () => ({ getSupabase: () => mockFake, isConfigured: () => true }))
++// The fake keeps one session and a `profiles` table; `failNext(method, error)` makes the next call of
++// that method answer { data: null, error }; `queryDelayMs` slows every query down.
++import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
++
++export type FakeError = { message: string; code?: string; status?: number };
++type Listener = (event: AuthChangeEvent, session: Session | null) => void;
++type FailMethod = 'getSession' | 'signInWithOtp' | 'verifyOtp' | 'signOut' | 'select' | 'update' | 'invoke';
++export interface FakeProfile {
++  username: string | null;
++  display_name: string | null;
++}
++
++export function fakeSession({ userId = 'user-ana', email = 'ana@example.com' } = {}): Session {
++  return {
++    access_token: `access-${userId}`,
++    refresh_token: `refresh-${userId}`,
++    expires_in: 3600,
++    expires_at: 4102444800,
++    token_type: 'bearer',
++    user: {
++      id: userId,
++      email,
++      aud: 'authenticated',
++      app_metadata: {},
++      user_metadata: {},
++      created_at: '2026-10-23T00:00:00.000Z',
++    },
++  };
++}
++
++export function createFakeSupabase(opts: { session?: Session | null; userId?: string } = {}) {
++  let session: Session | null = opts.session ?? null;
++  const listeners = new Set<Listener>();
++  const failures = new Map<FailMethod, FakeError>();
++  const profiles = new Map<string, FakeProfile>();
++
++  const takeFailure = (method: FailMethod) => {
++    const error = failures.get(method);
++    failures.delete(method);
++    return error;
++  };
++  const emit = (event: AuthChangeEvent, next: Session | null) => {
++    for (const listener of [...listeners]) listener(event, next);
++  };
++
++  type QueryResult = { data: unknown; error: FakeError | null };
++  interface FakeQuery extends PromiseLike<QueryResult> {
++    select: jest.Mock<FakeQuery, [columns?: string]>;
++    update: jest.Mock<FakeQuery, [values: Partial<FakeProfile>]>;
++    eq: jest.Mock<FakeQuery, [column: string, value: unknown]>;
++    maybeSingle: jest.Mock<FakeQuery, []>;
++  }
++
++  // A PostgREST builder: chainable, and awaiting it runs the query against `profiles`.
++  function query(table: string): FakeQuery {
++    let op: 'select' | 'update' = 'select';
++    let values: Partial<FakeProfile> = {};
++    let one = false;
++    // update(…).select(): answer the updated rows (only `id`: the app asks for nothing else).
++    let returning = false;
++    const filters: [string, unknown][] = [];
++
++    const run = (): QueryResult => {
++      const error = takeFailure(op);
++      if (error) return { data: null, error };
++      if (table !== 'profiles') return { data: one ? null : [], error: null };
++      const rows = [...profiles.entries()]
++        .map(([id, row]) => ({ id, ...row }))
++        .filter((row) => filters.every(([column, value]) => row[column as keyof typeof row] === value));
++      if (op === 'update') {
++        for (const row of rows) profiles.set(row.id, { ...profiles.get(row.id)!, ...values });
++        return { data: returning ? rows.map(({ id }) => ({ id })) : null, error: null };
++      }
++      return { data: one ? (rows[0] ?? null) : rows, error: null };
++    };
++
++    const builder: FakeQuery = {
++      select: jest.fn((_columns?: string) => {
++        if (op === 'update') returning = true;
++        else op = 'select';
++        return builder;
++      }),
++      update: jest.fn((next: Partial<FakeProfile>) => {
++        op = 'update';
++        values = next;
++        return builder;
++      }),
++      eq: jest.fn((column: string, value: unknown) => {
++        filters.push([column, value]);
++        return builder;
++      }),
++      maybeSingle: jest.fn(() => {
++        one = true;
++        return builder;
++      }),
++      then(resolve, reject) {
++        const wait = fake.queryDelayMs > 0 ? new Promise((done) => setTimeout(done, fake.queryDelayMs)) : Promise.resolve();
++        return wait.then(run).then(resolve, reject);
++      },
++    };
++    return builder;
++  }
++
++  const fake = {
++    auth: {
++      getSession: jest.fn(async () => {
++        const error = takeFailure('getSession');
++        if (error) return { data: { session: null }, error };
++        return { data: { session }, error: null };
++      }),
++      onAuthStateChange: jest.fn((callback: Listener) => {
++        listeners.add(callback);
++        return { data: { subscription: { id: 'fake', callback, unsubscribe: jest.fn(() => listeners.delete(callback)) } } };
++      }),
++      signInWithOtp: jest.fn(async (_credentials: { email: string; options?: { shouldCreateUser?: boolean } }) => {
++        const error = takeFailure('signInWithOtp');
++        if (error) return { data: { user: null, session: null }, error };
++        return { data: { user: null, session: null }, error: null };
++      }),
++      verifyOtp: jest.fn(async ({ email }: { email: string; token: string; type: 'email' }) => {
++        const error = takeFailure('verifyOtp');
++        if (error) return { data: { user: null, session: null }, error };
++        session = fakeSession({ userId: opts.userId ?? 'user-ana', email });
++        emit('SIGNED_IN', session);
++        return { data: { user: session.user, session }, error: null };
++      }),
++      signOut: jest.fn(async (_options?: { scope?: 'global' | 'local' | 'others' }) => {
++        const error = takeFailure('signOut');
++        if (error) return { error };
++        session = null;
++        emit('SIGNED_OUT', null);
++        return { error: null };
++      }),
++      startAutoRefresh: jest.fn(async () => {}),
++      stopAutoRefresh: jest.fn(async () => {}),
++    },
++    from: jest.fn((table: string) => query(table)),
++    functions: {
++      invoke: jest.fn(async (_name: string, _options?: { body?: unknown }) => {
++        const error = takeFailure('invoke');
++        if (error) return { data: null, error };
++        return { data: { ok: true }, error: null };
++      }),
++    },
++
++    // Test hooks.
++    profiles,
++    /** Makes every query answer after this many ms (an in-flight fetch racing an auth event). */
++    queryDelayMs: 0,
++    listenerCount: () => listeners.size,
++    setSession(next: Session | null) {
++      session = next;
++    },
++    emit(event: AuthChangeEvent, next: Session | null) {
++      session = next;
++      emit(event, next);
++    },
++    failNext(method: FailMethod, error: FakeError) {
++      failures.set(method, error);
++    },
++  };
++  return fake;
++}
++
++export type FakeSupabase = ReturnType<typeof createFakeSupabase>;
+diff --git a/src/__tests__/profile.test.tsx b/src/__tests__/profile.test.tsx
+index faac05d..12003c0 100644
+--- a/src/__tests__/profile.test.tsx
++++ b/src/__tests__/profile.test.tsx
+@@ -1,6 +1,19 @@
+ import React from 'react';
++import { Alert, type AlertButton } from 'react-native';
+ import { act, render, screen, fireEvent } from '@testing-library/react-native';
++import { useRouter } from 'expo-router';
++
++import { createFakeSupabase, type FakeSupabase } from './helpers/fake-supabase';
++
++let mockFake: FakeSupabase | null = null;
++jest.mock('@/src/sync/client', () => ({
++  getSupabase: () => mockFake,
++  isConfigured: () => mockFake !== null,
++}));
++
+ import ProfileScreen from '@/app/(tabs)/profile';
++import { SIGNED_OUT, useAuthStore, type AuthSnapshot } from '@/src/stores/auth-store';
++import { SESSION_STORAGE_KEY, sessionStorage } from '@/src/sync/session-storage';
+ import { useSettingsStore } from '@/src/stores/settings-store';
+ import { UnitSystem } from '@/src/types';
+ import { saveUserSettings } from '@/src/db';
+@@ -21,6 +34,11 @@ jest.mock('@/src/db', () => ({
+   getUserSettings: jest.fn().mockResolvedValue(null),
+ }));
+ 
++beforeEach(() => {
++  mockFake = createFakeSupabase();
++  useAuthStore.setState(SIGNED_OUT);
++});
++
+ describe('ProfileScreen', () => {
+   beforeEach(() => {
+     useSettingsStore.setState({
+@@ -164,3 +182,295 @@ describe('Import Photos entry point', () => {
+     expect(screen.queryByLabelText(/import photos/i)).toBeNull();
+   });
+ });
++
++const ANA: AuthSnapshot = {
++  status: 'signed_in',
++  userId: 'user-ana',
++  email: 'ana@example.com',
++  username: 'ana',
++  displayName: 'Ana B',
++};
++
++const DELETE_TITLE = 'Delete your account?';
++const DELETE_MESSAGE =
++  'Your spots, photos, hit lists and sends are deleted from the server. Spots on this phone stay until you remove them.';
++
++/** The Units and Import radius sections, which every account state keeps. */
++function expectSettingsSections() {
++  expect(screen.getByText('Units')).toBeTruthy();
++  expect(screen.getByText('Imperial')).toBeTruthy();
++  expect(screen.getByLabelText('Import radius in feet')).toBeTruthy();
++}
++
++/** The buttons of the last Alert.alert call. */
++function lastAlertButtons(spy: jest.SpyInstance): AlertButton[] {
++  return (spy.mock.calls.at(-1)?.[2] ?? []) as AlertButton[];
++}
++
++describe('Profile account section (S4-05)', () => {
++  let router: { push: jest.Mock };
++  let alert: jest.SpyInstance;
++
++  beforeEach(() => {
++    useSettingsStore.setState({ units: UnitSystem.Imperial, batch_import_radius: 50 });
++    router = { push: jest.fn() };
++    jest.mocked(useRouter).mockReturnValue(router as never);
++    alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
++  });
++
++  afterEach(() => {
++    alert.mockRestore();
++  });
++
++  /** Opens the Delete account alert and presses one of its buttons. */
++  async function pressInDeleteAlert(text: 'Delete' | 'Cancel') {
++    fireEvent.press(screen.getByRole('button', { name: 'Delete account' }));
++    expect(alert).toHaveBeenLastCalledWith(DELETE_TITLE, DELETE_MESSAGE, expect.any(Array));
++    const button = lastAlertButtons(alert).find((b) => b.text === text);
++    await act(async () => {
++      button?.onPress?.();
++    });
++  }
++
++  it('says accounts are not set up in a build without Supabase values, with no Sign in', () => {
++    mockFake = null;
++    useAuthStore.setState({ ...SIGNED_OUT, status: 'unconfigured' });
++    render(<ProfileScreen />);
++    expect(screen.getByText('Account')).toBeTruthy();
++    expect(screen.getByText("Accounts aren't set up in this build")).toBeTruthy();
++    expect(screen.queryByRole('button', { name: 'Sign in' })).toBeNull();
++    expect(screen.queryByText('Sign in to back up your spots and share them')).toBeNull();
++    expectSettingsSections();
++  });
++
++  it('treats a missing client as unconfigured even before the auth store has caught up', () => {
++    mockFake = null;
++    render(<ProfileScreen />);
++    expect(screen.getByText("Accounts aren't set up in this build")).toBeTruthy();
++    expect(screen.queryByRole('button', { name: 'Sign in' })).toBeNull();
++  });
++
++  it('signed out: explains signing in and pushes the sign-in screen', () => {
++    render(<ProfileScreen />);
++    expect(screen.getByText('Account')).toBeTruthy();
++    expect(screen.getByText('Sign in to back up your spots and share them')).toBeTruthy();
++    expect(
++      screen.getByText('Signing in uploads the spots already on this phone to your account. Nothing is deleted.'),
++    ).toBeTruthy();
++    fireEvent.press(screen.getByRole('button', { name: 'Sign in' }));
++    expect(router.push).toHaveBeenCalledWith('/auth/sign-in');
++    expect(screen.queryByRole('button', { name: 'Sign out' })).toBeNull();
++    expect(screen.queryByRole('button', { name: 'Delete account' })).toBeNull();
++    expectSettingsSections();
++  });
++
++  it('signed in: shows the @username, display name and email with Sign out and Delete account', () => {
++    useAuthStore.setState(ANA);
++    render(<ProfileScreen />);
++    expect(screen.getByText('Account')).toBeTruthy();
++    expect(screen.getByText('@ana')).toBeTruthy();
++    expect(screen.getByText('Ana B')).toBeTruthy();
++    expect(screen.getByText('ana@example.com')).toBeTruthy();
++    expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy();
++    expect(screen.getByRole('button', { name: 'Delete account' })).toBeTruthy();
++    expect(screen.queryByRole('button', { name: 'Sign in' })).toBeNull();
++    expect(screen.queryByText("Accounts aren't set up in this build")).toBeNull();
++    expectSettingsSections();
++  });
++
++  it('signed in with no username or display name (profile not loaded) shows the email and no @', () => {
++    useAuthStore.setState({ ...ANA, username: null, displayName: null });
++    render(<ProfileScreen />);
++    expect(screen.getByText('ana@example.com')).toBeTruthy();
++    expect(screen.queryByText(/^@/)).toBeNull();
++    expect(screen.getByRole('button', { name: 'Sign out' })).toBeTruthy();
++  });
++
++  it('Sign out signs out of Supabase and returns to the signed-out state (no Keep/Remove prompt in S4, D62)', async () => {
++    useAuthStore.setState(ANA);
++    render(<ProfileScreen />);
++    await act(async () => {
++      fireEvent.press(screen.getByRole('button', { name: 'Sign out' }));
++    });
++    expect(mockFake!.auth.signOut).toHaveBeenCalledTimes(1);
++    expect(mockFake!.auth.signOut).toHaveBeenCalledWith();
++    expect(alert).not.toHaveBeenCalled();
++    expect(useAuthStore.getState()).toMatchObject(SIGNED_OUT);
++    expect(screen.getByText('Sign in to back up your spots and share them')).toBeTruthy();
++  });
++
++  it('signs out of this phone when the server sign out fails (offline)', async () => {
++    useAuthStore.setState(ANA);
++    mockFake!.failNext('signOut', { message: 'Network request failed' });
++    render(<ProfileScreen />);
++    await act(async () => {
++      fireEvent.press(screen.getByRole('button', { name: 'Sign out' }));
++    });
++    expect(mockFake!.auth.signOut).toHaveBeenCalledTimes(2);
++    expect(mockFake!.auth.signOut).toHaveBeenLastCalledWith({ scope: 'local' });
++    expect(useAuthStore.getState()).toMatchObject(SIGNED_OUT);
++  });
++
++  it('signs out of this phone even when signOut throws', async () => {
++    useAuthStore.setState(ANA);
++    mockFake!.auth.signOut.mockRejectedValueOnce(new Error('boom'));
++    render(<ProfileScreen />);
++    await act(async () => {
++      fireEvent.press(screen.getByRole('button', { name: 'Sign out' }));
++    });
++    expect(mockFake!.auth.signOut).toHaveBeenLastCalledWith({ scope: 'local' });
++    expect(useAuthStore.getState()).toMatchObject(SIGNED_OUT);
++  });
++
++  it('clears the stored session itself when auth-js cannot (offline with an expired access token)', async () => {
++    // auth-js 2.118: the session read fails (the refresh is offline), so both signOut() and signOut({ scope:
++    // 'local' }) return that error before removing anything, and the stored session would sign the rider back in.
++    useAuthStore.setState(ANA);
++    const offline = { error: { name: 'AuthRetryableFetchError', message: 'Network request failed', status: 0 } };
++    mockFake!.auth.signOut.mockResolvedValueOnce(offline as never).mockResolvedValueOnce(offline as never);
++    const remove = jest.spyOn(sessionStorage, 'removeItem');
++    render(<ProfileScreen />);
++    await act(async () => {
++      fireEvent.press(screen.getByRole('button', { name: 'Sign out' }));
++    });
++    expect(mockFake!.auth.signOut).toHaveBeenLastCalledWith({ scope: 'local' });
++    expect(remove).toHaveBeenCalledWith(SESSION_STORAGE_KEY);
++    expect(useAuthStore.getState()).toMatchObject(SIGNED_OUT);
++    remove.mockRestore();
++  });
++
++  it('leaves the stored session to auth-js when a sign out works', async () => {
++    useAuthStore.setState(ANA);
++    const remove = jest.spyOn(sessionStorage, 'removeItem');
++    render(<ProfileScreen />);
++    await act(async () => {
++      fireEvent.press(screen.getByRole('button', { name: 'Sign out' }));
++    });
++    expect(remove).not.toHaveBeenCalled();
++    remove.mockRestore();
++  });
++
++  it('does not show an old delete error after signing out and back in', async () => {
++    useAuthStore.setState(ANA);
++    mockFake!.failNext('invoke', { message: 'boom' });
++    render(<ProfileScreen />);
++    await pressInDeleteAlert('Delete');
++    expect(screen.getByText("Couldn't delete the account. Try again.")).toBeTruthy();
++    // Signed out from elsewhere (a revoked refresh token), then in again while the tab stays mounted.
++    act(() => useAuthStore.getState().setAuth(SIGNED_OUT));
++    act(() => useAuthStore.getState().setAuth(ANA));
++    expect(screen.queryByText("Couldn't delete the account. Try again.")).toBeNull();
++  });
++
++  it('Delete account asks first, with a destructive Delete and a Cancel', () => {
++    useAuthStore.setState(ANA);
++    render(<ProfileScreen />);
++    fireEvent.press(screen.getByRole('button', { name: 'Delete account' }));
++    expect(alert).toHaveBeenCalledWith(DELETE_TITLE, DELETE_MESSAGE, expect.any(Array));
++    const buttons = lastAlertButtons(alert);
++    expect(buttons.map((b) => b.text)).toEqual(['Cancel', 'Delete']);
++    expect(buttons.find((b) => b.text === 'Cancel')?.style).toBe('cancel');
++    expect(buttons.find((b) => b.text === 'Delete')?.style).toBe('destructive');
++  });
++
++  it('Cancel in the delete alert calls nothing', async () => {
++    useAuthStore.setState(ANA);
++    render(<ProfileScreen />);
++    await pressInDeleteAlert('Cancel');
++    expect(mockFake!.functions.invoke).not.toHaveBeenCalled();
++    expect(mockFake!.auth.signOut).not.toHaveBeenCalled();
++    expect(useAuthStore.getState().status).toBe('signed_in');
++  });
++
++  it('Delete calls the account-delete function, then signs out', async () => {
++    useAuthStore.setState(ANA);
++    render(<ProfileScreen />);
++    await pressInDeleteAlert('Delete');
++    expect(mockFake!.functions.invoke).toHaveBeenCalledTimes(1);
++    expect(mockFake!.functions.invoke.mock.calls[0][0]).toBe('account-delete');
++    expect(mockFake!.auth.signOut).toHaveBeenCalledTimes(1);
++    expect(mockFake!.functions.invoke.mock.invocationCallOrder[0]).toBeLessThan(
++      mockFake!.auth.signOut.mock.invocationCallOrder[0],
++    );
++    expect(useAuthStore.getState()).toMatchObject(SIGNED_OUT);
++    expect(screen.getByText('Sign in to back up your spots and share them')).toBeTruthy();
++  });
++
++  it('a function error shows "Couldn\'t delete the account. Try again." and stays signed in', async () => {
++    useAuthStore.setState(ANA);
++    mockFake!.failNext('invoke', { message: 'Edge Function returned a non-2xx status code' });
++    render(<ProfileScreen />);
++    await pressInDeleteAlert('Delete');
++    expect(screen.getByText("Couldn't delete the account. Try again.")).toBeTruthy();
++    expect(screen.queryByText(/non-2xx/)).toBeNull();
++    expect(mockFake!.auth.signOut).not.toHaveBeenCalled();
++    expect(useAuthStore.getState()).toMatchObject(ANA);
++    expect(screen.getByRole('button', { name: 'Delete account' })).toBeTruthy();
++  });
++
++  it('an answer without ok: true counts as a failure', async () => {
++    useAuthStore.setState(ANA);
++    mockFake!.functions.invoke.mockResolvedValueOnce({ data: { error: 'delete failed' }, error: null } as never);
++    render(<ProfileScreen />);
++    await pressInDeleteAlert('Delete');
++    expect(screen.getByText("Couldn't delete the account. Try again.")).toBeTruthy();
++    expect(mockFake!.auth.signOut).not.toHaveBeenCalled();
++  });
++
++  it('a thrown invoke counts as a failure', async () => {
++    useAuthStore.setState(ANA);
++    mockFake!.functions.invoke.mockRejectedValueOnce(new Error('offline'));
++    render(<ProfileScreen />);
++    await pressInDeleteAlert('Delete');
++    expect(screen.getByText("Couldn't delete the account. Try again.")).toBeTruthy();
++    expect(mockFake!.auth.signOut).not.toHaveBeenCalled();
++  });
++
++  it('shows Deleting… while the function runs and ignores a second Delete', async () => {
++    useAuthStore.setState(ANA);
++    let finish: (value: { data: unknown; error: null }) => void = () => {};
++    mockFake!.functions.invoke.mockImplementationOnce(
++      () => new Promise((resolve) => (finish = resolve)) as never,
++    );
++    render(<ProfileScreen />);
++    fireEvent.press(screen.getByRole('button', { name: 'Delete account' }));
++    const del = lastAlertButtons(alert).find((b) => b.text === 'Delete');
++    await act(async () => {
++      del?.onPress?.();
++    });
++    const deleting = screen.getByRole('button', { name: 'Deleting…' });
++    expect(deleting.props.accessibilityState).toMatchObject({ disabled: true });
++    expect(screen.getByRole('button', { name: 'Sign out' }).props.accessibilityState).toMatchObject({
++      disabled: true,
++    });
++    // The alert's Delete again (a stale alert, a double tap) starts no second delete.
++    await act(async () => {
++      del?.onPress?.();
++    });
++    expect(mockFake!.functions.invoke).toHaveBeenCalledTimes(1);
++    await act(async () => {
++      finish({ data: { ok: true }, error: null });
++    });
++    expect(useAuthStore.getState()).toMatchObject(SIGNED_OUT);
++  });
++
++  it('a retry after a failed delete clears the error and can succeed', async () => {
++    useAuthStore.setState(ANA);
++    mockFake!.failNext('invoke', { message: 'boom' });
++    render(<ProfileScreen />);
++    await pressInDeleteAlert('Delete');
++    expect(screen.getByText("Couldn't delete the account. Try again.")).toBeTruthy();
++    // The retry is still running: the old error is already gone.
++    let finish: (value: { data: unknown; error: null }) => void = () => {};
++    mockFake!.functions.invoke.mockImplementationOnce(
++      () => new Promise((resolve) => (finish = resolve)) as never,
++    );
++    await pressInDeleteAlert('Delete');
++    expect(screen.getByRole('button', { name: 'Deleting…' })).toBeTruthy();
++    expect(screen.queryByText("Couldn't delete the account. Try again.")).toBeNull();
++    await act(async () => {
++      finish({ data: { ok: true }, error: null });
++    });
++    expect(useAuthStore.getState()).toMatchObject(SIGNED_OUT);
++  });
++});
+diff --git a/src/__tests__/root-layout.test.tsx b/src/__tests__/root-layout.test.tsx
+index 713ff1e..a53a3de 100644
+--- a/src/__tests__/root-layout.test.tsx
++++ b/src/__tests__/root-layout.test.tsx
+@@ -1,6 +1,6 @@
+ import React from 'react';
+ import { Text, View } from 'react-native';
+-import { render, screen } from '@testing-library/react-native';
++import { render, screen, waitFor } from '@testing-library/react-native';
+ import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
+ import { fireGestureHandler, getByGestureTestId } from 'react-native-gesture-handler/jest-utils';
+ 
+@@ -22,12 +22,24 @@ jest.mock('expo-router', () => {
+ jest.mock('expo-sqlite', () => ({
+   SQLiteProvider: ({ children }: { children: React.ReactNode }) => children,
+ }));
++// DBInitializer renders its children only once the DB is ready; mockDbReady stands in for that.
++let mockDbReady = true;
+ jest.mock('@/src/components/DBInitializer', () => ({
+-  DBInitializer: ({ children }: { children: React.ReactNode }) => children,
++  DBInitializer: ({ children }: { children: React.ReactNode }) => (mockDbReady ? children : null),
+ }));
++// The hand-written fake client (helpers/fake-supabase.ts) stands in for Supabase.
++let mockFake: FakeSupabase;
++jest.mock('@/src/sync/client', () => ({ getSupabase: () => mockFake, isConfigured: () => true }));
++
++import { createFakeSupabase, type FakeSupabase } from './helpers/fake-supabase';
++import { useAuthStore, SIGNED_OUT } from '@/src/stores/auth-store';
+ 
+ import RootLayout from '@/app/_layout';
+ 
++beforeEach(() => {
++  mockFake = createFakeSupabase();
++});
++
+ describe('RootLayout', () => {
+   it('wraps the whole tree in a flex-1 GestureHandlerRootView', () => {
+     render(<RootLayout />);
+@@ -60,6 +72,28 @@ describe('RootLayout: area picker', () => {
+   });
+ });
+ 
++describe('RootLayout: sign-in screens', () => {
++  it("registers auth/sign-in as a modal titled 'Sign in' and auth/code titled 'Enter code'", () => {
++    render(<RootLayout />);
++
++    expect(screen.UNSAFE_getAllByProps({ name: 'auth/sign-in' })[0].props.options).toEqual({
++      presentation: 'modal',
++      title: 'Sign in',
++    });
++    expect(screen.UNSAFE_getAllByProps({ name: 'auth/code' })[0].props.options).toEqual({ title: 'Enter code' });
++  });
++
++  it("registers auth/username titled 'Your username' with no back button and no swipe to dismiss", () => {
++    render(<RootLayout />);
++
++    expect(screen.UNSAFE_getAllByProps({ name: 'auth/username' })[0].props.options).toEqual({
++      title: 'Your username',
++      headerBackVisible: false,
++      gestureEnabled: false,
++    });
++  });
++});
++
+ describe("gesture-handler's jest setup", () => {
+   it('lets a test drive a gesture through jest-utils', () => {
+     const onEnd = jest.fn();
+@@ -88,3 +122,27 @@ describe('RootLayout: hit list screen', () => {
+     expect(list.props.options).toEqual({ title: 'Hit list' });
+   });
+ });
++
++describe('RootLayout: auth', () => {
++  beforeEach(() => {
++    mockDbReady = true;
++    useAuthStore.setState({ ...SIGNED_OUT, status: 'unconfigured' });
++  });
++
++  it('starts auth (useAuthInit) once the DB is ready', async () => {
++    render(<RootLayout />);
++
++    await waitFor(() => expect(useAuthStore.getState().status).toBe('signed_out'));
++    expect(mockFake.auth.getSession).toHaveBeenCalledTimes(1);
++    expect(mockFake.auth.onAuthStateChange).toHaveBeenCalledTimes(1);
++  });
++
++  it('does not start auth before DBInitializer lets its children render', () => {
++    mockDbReady = false;
++
++    render(<RootLayout />);
++
++    expect(mockFake.auth.getSession).not.toHaveBeenCalled();
++    expect(useAuthStore.getState().status).toBe('unconfigured');
++  });
++});
+diff --git a/src/__tests__/session-storage.test.ts b/src/__tests__/session-storage.test.ts
+new file mode 100644
+index 0000000..142cf73
+--- /dev/null
++++ b/src/__tests__/session-storage.test.ts
+@@ -0,0 +1,172 @@
++// The session store (D61): SecureStore holds a small session; a large one is AES-GCM encrypted into
++// AsyncStorage with a fresh key in SecureStore. Both stores are mocked in jest.setup.ts with the members
++// of node_modules/expo-secure-store/build/SecureStore.d.ts (getItemAsync, setItemAsync, deleteItemAsync)
++// and the package's own @react-native-async-storage/async-storage/jest/async-storage-mock.
++import * as SecureStore from 'expo-secure-store';
++import AsyncStorage from '@react-native-async-storage/async-storage';
++
++import { sessionStorage } from '@/src/sync/session-storage';
++
++const KEY = 'sb-127-auth-token';
++const secure = (SecureStore as unknown as { __store: Map<string, string> }).__store;
++
++beforeEach(async () => {
++  secure.clear();
++  await AsyncStorage.clear();
++});
++
++describe('sessionStorage', () => {
++  it('stores a 100-byte value in SecureStore only', async () => {
++    const value = 'a'.repeat(100);
++
++    await sessionStorage.setItem(KEY, value);
++
++    expect(secure.get(KEY)).toBe(value);
++    expect(await AsyncStorage.getItem(KEY)).toBeNull();
++    expect(await sessionStorage.getItem(KEY)).toBe(value);
++  });
++
++  it('encrypts a 5000-byte value into AsyncStorage with a random key in SecureStore', async () => {
++    const value = JSON.stringify({ access_token: 'x'.repeat(4980) });
++
++    await sessionStorage.setItem(KEY, value);
++
++    expect(secure.get(KEY)).toMatch(/^aes256gcm:/);
++    expect(secure.get(KEY)).not.toContain('xxxx');
++    const stored = await AsyncStorage.getItem(KEY);
++    expect(stored).not.toBeNull();
++    expect(stored).not.toBe(value);
++    expect(stored).not.toContain('access_token');
++    expect(await sessionStorage.getItem(KEY)).toBe(value);
++  });
++
++  it('uses a fresh key on every large write', async () => {
++    const value = 'b'.repeat(5000);
++
++    await sessionStorage.setItem(KEY, value);
++    const first = secure.get(KEY);
++    await sessionStorage.setItem(KEY, value);
++
++    expect(secure.get(KEY)).not.toBe(first);
++    expect(await sessionStorage.getItem(KEY)).toBe(value);
++  });
++
++  it('drops the ciphertext when a large value is replaced by a small one', async () => {
++    await sessionStorage.setItem(KEY, 'c'.repeat(5000));
++    await sessionStorage.setItem(KEY, 'small');
++
++    expect(await AsyncStorage.getItem(KEY)).toBeNull();
++    expect(await sessionStorage.getItem(KEY)).toBe('small');
++  });
++
++  it('removeItem clears both stores', async () => {
++    await sessionStorage.setItem(KEY, 'd'.repeat(5000));
++
++    await sessionStorage.removeItem(KEY);
++
++    expect(secure.has(KEY)).toBe(false);
++    expect(await AsyncStorage.getItem(KEY)).toBeNull();
++    expect(await sessionStorage.getItem(KEY)).toBeNull();
++  });
++
++  it('returns null for a missing key', async () => {
++    expect(await sessionStorage.getItem('nothing-here')).toBeNull();
++  });
++
++  it('reads a key with no ciphertext (after a reinstall) as signed out and clears it', async () => {
++    await sessionStorage.setItem(KEY, 'e'.repeat(5000));
++    // The iOS keychain outlives the app; AsyncStorage does not.
++    await AsyncStorage.removeItem(KEY);
++
++    expect(await sessionStorage.getItem(KEY)).toBeNull();
++    expect(secure.has(KEY)).toBe(false);
++  });
++
++  it('reads tampered ciphertext as signed out without throwing', async () => {
++    await sessionStorage.setItem(KEY, 'f'.repeat(5000));
++    const stored = (await AsyncStorage.getItem(KEY)) as string;
++    const bytes = Buffer.from(stored, 'base64');
++    bytes[20] ^= 0xff;
++    await AsyncStorage.setItem(KEY, bytes.toString('base64'));
++
++    await expect(sessionStorage.getItem(KEY)).resolves.toBeNull();
++    expect(secure.has(KEY)).toBe(false);
++    expect(await AsyncStorage.getItem(KEY)).toBeNull();
++  });
++
++  it('counts UTF-8 bytes, not characters: 1500 multibyte characters (é, an emoji) are encrypted', async () => {
++    const value = 'é'.repeat(1499) + '😀';
++    expect(value.length).toBeLessThan(2048);
++
++    await sessionStorage.setItem(KEY, value);
++
++    expect(secure.get(KEY)).toMatch(/^aes256gcm:/);
++    expect(await sessionStorage.getItem(KEY)).toBe(value);
++  });
++
++  it('keeps a value of exactly 2048 bytes in SecureStore', async () => {
++    const value = 'g'.repeat(2048);
++
++    await sessionStorage.setItem(KEY, value);
++
++    expect(secure.get(KEY)).toBe(value);
++    expect(await AsyncStorage.getItem(KEY)).toBeNull();
++  });
++
++  it('writes SecureStore entries readable after first unlock (background refresh)', async () => {
++    await sessionStorage.setItem(KEY, 'h');
++
++    expect(SecureStore.setItemAsync).toHaveBeenLastCalledWith(KEY, 'h', {
++      keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK,
++    });
++
++    await sessionStorage.setItem(KEY, 'h'.repeat(5000));
++
++    expect(SecureStore.setItemAsync).toHaveBeenLastCalledWith(KEY, expect.stringMatching(/^aes256gcm:/), {
++      keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK,
++    });
++  });
++
++  it('ends with a readable session when two large writes overlap', async () => {
++    const first = 'i'.repeat(5000);
++    const second = 'j'.repeat(5000);
++    // The first write's ciphertext lands late, after the second write has finished.
++    const realSetItem = jest.mocked(AsyncStorage.setItem).getMockImplementation()!;
++    jest.mocked(AsyncStorage.setItem).mockImplementationOnce(async (key, value) => {
++      await new Promise((resolve) => setTimeout(resolve, 10));
++      return realSetItem(key, value);
++    });
++
++    await Promise.all([sessionStorage.setItem(KEY, first), sessionStorage.setItem(KEY, second)]);
++
++    expect(await sessionStorage.getItem(KEY)).toBe(second);
++  });
++
++  it('a read during a large write waits for it instead of wiping the session', async () => {
++    await sessionStorage.setItem(KEY, 'l'.repeat(5000));
++    const next = 'm'.repeat(5000);
++
++    const write = sessionStorage.setItem(KEY, next);
++    const read = sessionStorage.getItem(KEY);
++    await write;
++
++    expect(await read).toBe(next);
++    expect(await sessionStorage.getItem(KEY)).toBe(next);
++  });
++
++  it('keeps the session when AsyncStorage fails to read for a moment', async () => {
++    const value = 'k'.repeat(5000);
++    await sessionStorage.setItem(KEY, value);
++    jest.mocked(AsyncStorage.getItem).mockRejectedValueOnce(new Error('disk busy'));
++
++    expect(await sessionStorage.getItem(KEY)).toBeNull();
++
++    expect(await sessionStorage.getItem(KEY)).toBe(value);
++  });
++
++  it('never throws when the keychain read fails', async () => {
++    jest.mocked(SecureStore.getItemAsync).mockRejectedValueOnce(new Error('keychain locked'));
++
++    await expect(sessionStorage.getItem(KEY)).resolves.toBeNull();
++  });
++});
+diff --git a/src/__tests__/supabase-env.test.ts b/src/__tests__/supabase-env.test.ts
+new file mode 100644
+index 0000000..a0dca66
+--- /dev/null
++++ b/src/__tests__/supabase-env.test.ts
+@@ -0,0 +1,115 @@
++/**
++ * scripts/supabase-env.mjs (S4-06): runs a command with the local stack's URL and keys in its environment, read from
++ * `npx supabase status -o json` at run time so no key is ever written to a file. The script is run for real with a
++ * fake `npx` first on PATH (a shell script that prints canned output), so these tests never need Docker.
++ */
++import { spawnSync } from 'node:child_process';
++import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import { join, resolve } from 'node:path';
++
++const SCRIPT = resolve(__dirname, '../../scripts/supabase-env.mjs');
++const STATUS = {
++  API_URL: 'http://127.0.0.1:54321',
++  ANON_KEY: 'anon-key-value',
++  SERVICE_ROLE_KEY: 'service-role-key-value',
++};
++/** Prints the three variables the script hands to its command, one per line. */
++const PRINT_ENV = [
++  'node',
++  '-e',
++  "for (const k of ['SUPABASE_URL','SUPABASE_ANON_KEY','SUPABASE_SERVICE_ROLE_KEY']) console.log(k + '=' + process.env[k])",
++];
++
++let bin: string;
++
++beforeEach(() => {
++  bin = mkdtempSync(join(tmpdir(), 'supabase-env-'));
++});
++
++afterEach(() => {
++  rmSync(bin, { recursive: true, force: true });
++});
++
++/** A fake `npx` that records its arguments in `<bin>/args`, prints `stdout` and exits with `code`. */
++function fakeNpx(stdout: string, code: number) {
++  writeFileSync(join(bin, 'out'), stdout);
++  const path = join(bin, 'npx');
++  writeFileSync(path, `#!/bin/sh\necho "$@" > "${bin}/args"\ncat "${bin}/out"\nexit ${code}\n`);
++  chmodSync(path, 0o755);
++}
++
++function run(args: string[]) {
++  return spawnSync(process.execPath, [SCRIPT, ...args], {
++    encoding: 'utf8',
++    env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
++  });
++}
++
++describe('scripts/supabase-env.mjs', () => {
++  it('asks the CLI for the status as JSON', () => {
++    fakeNpx(JSON.stringify(STATUS), 0);
++    run(PRINT_ENV);
++    const args = readFileSync(join(bin, 'args'), 'utf8').trim();
++    expect(args).toBe('supabase status -o json');
++  });
++
++  it('runs the command with the URL and both keys from the status', () => {
++    fakeNpx(JSON.stringify(STATUS), 0);
++    const result = run(PRINT_ENV);
++    expect(result.status).toBe(0);
++    expect(result.stdout.trim().split('\n')).toEqual([
++      'SUPABASE_URL=http://127.0.0.1:54321',
++      'SUPABASE_ANON_KEY=anon-key-value',
++      'SUPABASE_SERVICE_ROLE_KEY=service-role-key-value',
++    ]);
++  });
++
++  it('exits with the code of the command it ran', () => {
++    fakeNpx(JSON.stringify(STATUS), 0);
++    expect(run(['node', '-e', 'process.exit(3)']).status).toBe(3);
++  });
++
++  it('exits 2 and says to start the stack when the status fails', () => {
++    fakeNpx('failed to inspect container health', 1);
++    const result = run(PRINT_ENV);
++    expect(result.status).toBe(2);
++    expect(result.stderr).toContain('Start the stack first: npm run db:start');
++    expect(result.stdout).not.toContain('SUPABASE_URL=');
++  });
++
++  it('exits 2 when the status is not JSON', () => {
++    fakeNpx('Stopped services: [supabase_db_hit-list]', 0);
++    const result = run(PRINT_ENV);
++    expect(result.status).toBe(2);
++    expect(result.stderr).toContain('Start the stack first: npm run db:start');
++  });
++
++  it('exits 2 when the status lacks a key', () => {
++    fakeNpx(JSON.stringify({ API_URL: STATUS.API_URL, ANON_KEY: STATUS.ANON_KEY }), 0);
++    const result = run(PRINT_ENV);
++    expect(result.status).toBe(2);
++    expect(result.stderr).toContain('Start the stack first: npm run db:start');
++  });
++});
++
++describe('the integration tests are their own run', () => {
++  const pkg = require('../../package.json');
++
++  it('npm run test:integration runs them through supabase-env', () => {
++    expect(pkg.scripts['test:integration']).toBe(
++      'node scripts/supabase-env.mjs jest --config jest.integration.config.js --runInBand',
++    );
++  });
++
++  it('the default Jest run skips src/__integration__, so npx jest --ci never needs Docker', () => {
++    expect(pkg.jest.testPathIgnorePatterns).toContain('/src/__integration__/');
++  });
++
++  it('jest.integration.config.js runs only src/__integration__ tests, in node', () => {
++    const config = jest.requireActual<Record<string, unknown>>('../../jest.integration.config.js');
++    expect(config.testEnvironment).toBe('node');
++    expect(config.testMatch).toEqual(['<rootDir>/src/__integration__/**/*.test.ts']);
++    expect(config.preset).toBeUndefined();
++  });
++});
+diff --git a/src/__tests__/sync-client.test.ts b/src/__tests__/sync-client.test.ts
+new file mode 100644
+index 0000000..04c3900
+--- /dev/null
++++ b/src/__tests__/sync-client.test.ts
+@@ -0,0 +1,120 @@
++// getSupabase(): no client without both EXPO_PUBLIC_ values; one cached client with them, whose token
++// refresh follows AppState (Supabase's Expo guide; GoTrueClient.d.ts startAutoRefresh/stopAutoRefresh).
++import { AppState, type AppStateStatus } from 'react-native';
++
++jest.mock('@supabase/supabase-js', () => ({
++  createClient: jest.fn(() => ({
++    auth: { startAutoRefresh: jest.fn(), stopAutoRefresh: jest.fn() },
++  })),
++}));
++
++type ClientModule = typeof import('@/src/sync/client');
++type SupabaseModule = { createClient: jest.Mock };
++
++const URL_VALUE = 'http://127.0.0.1:54321';
++const KEY_VALUE = 'anon-key-for-tests';
++const saved = { url: process.env.EXPO_PUBLIC_SUPABASE_URL, key: process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY };
++
++function setEnv(url: string | undefined, key: string | undefined) {
++  if (url === undefined) delete process.env.EXPO_PUBLIC_SUPABASE_URL;
++  else process.env.EXPO_PUBLIC_SUPABASE_URL = url;
++  if (key === undefined) delete process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY;
++  else process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY = key;
++}
++
++// A fresh module registry per test, so the cached client never leaks between cases.
++function load(): { client: ClientModule; supabase: SupabaseModule } {
++  let client!: ClientModule;
++  let supabase!: SupabaseModule;
++  jest.isolateModules(() => {
++    client = jest.requireActual('@/src/sync/client');
++    supabase = jest.requireMock('@supabase/supabase-js');
++  });
++  return { client, supabase };
++}
++
++let appStateListeners: ((state: AppStateStatus) => void)[];
++
++beforeEach(() => {
++  appStateListeners = [];
++  jest.spyOn(AppState, 'addEventListener').mockImplementation((type, listener) => {
++    if (type === 'change') appStateListeners.push(listener as (state: AppStateStatus) => void);
++    return { remove: jest.fn() } as unknown as ReturnType<typeof AppState.addEventListener>;
++  });
++});
++
++afterEach(() => {
++  setEnv(saved.url, saved.key);
++  jest.restoreAllMocks();
++});
++
++describe('getSupabase', () => {
++  it('returns null and isConfigured() is false when the URL is unset', () => {
++    setEnv(undefined, KEY_VALUE);
++    const { client, supabase } = load();
++
++    expect(client.getSupabase()).toBeNull();
++    expect(client.isConfigured()).toBe(false);
++    expect(supabase.createClient).not.toHaveBeenCalled();
++  });
++
++  it('returns null when only the URL is set', () => {
++    setEnv(URL_VALUE, undefined);
++    const { client } = load();
++
++    expect(client.getSupabase()).toBeNull();
++  });
++
++  it('returns null when a value is only whitespace', () => {
++    setEnv(URL_VALUE, '   ');
++    const { client } = load();
++
++    expect(client.getSupabase()).toBeNull();
++    expect(client.isConfigured()).toBe(false);
++  });
++
++  it('builds one client with the URL, the key and the session options, and returns it every call', () => {
++    setEnv(URL_VALUE, KEY_VALUE);
++    const { client, supabase } = load();
++
++    const first = client.getSupabase();
++    const second = client.getSupabase();
++
++    expect(first).not.toBeNull();
++    expect(second).toBe(first);
++    expect(client.isConfigured()).toBe(true);
++    expect(supabase.createClient).toHaveBeenCalledTimes(1);
++    expect(supabase.createClient).toHaveBeenCalledWith(URL_VALUE, KEY_VALUE, {
++      auth: expect.objectContaining({
++        persistSession: true,
++        autoRefreshToken: true,
++        detectSessionInUrl: false,
++        // A fixed key, so a sign out that auth-js can't finish (offline, expired token) can clear it itself.
++        storageKey: 'hitlist.auth.session',
++        storage: expect.objectContaining({
++          getItem: expect.any(Function),
++          setItem: expect.any(Function),
++          removeItem: expect.any(Function),
++        }),
++      }),
++    });
++  });
++
++  it('starts token refresh when the app is active and stops it in the background', () => {
++    setEnv(URL_VALUE, KEY_VALUE);
++    const { client } = load();
++    const auth = client.getSupabase()!.auth as unknown as { startAutoRefresh: jest.Mock; stopAutoRefresh: jest.Mock };
++
++    expect(appStateListeners).toHaveLength(1);
++    appStateListeners[0]('active');
++    expect(auth.startAutoRefresh).toHaveBeenCalledTimes(1);
++    expect(auth.stopAutoRefresh).not.toHaveBeenCalled();
++
++    appStateListeners[0]('background');
++    expect(auth.stopAutoRefresh).toHaveBeenCalledTimes(1);
++
++    // A second getSupabase() adds no second listener.
++    client.getSupabase();
++    expect(appStateListeners).toHaveLength(1);
++  });
++});
+diff --git a/src/__tests__/tabs-layout.test.tsx b/src/__tests__/tabs-layout.test.tsx
+index bdbab2d..d3bb2cc 100644
+--- a/src/__tests__/tabs-layout.test.tsx
++++ b/src/__tests__/tabs-layout.test.tsx
+@@ -2,14 +2,19 @@ import type { ReactElement, ReactNode } from 'react';
+ import { render, screen } from '@testing-library/react-native';
+ 
+ // The global router mock's Tabs is not renderable; here Tabs renders its children and each Tabs.Screen stays a host
+-// element carrying its props, so the test can read name and options in order.
++// element carrying its props, so the test can read name and options in order. Redirect stays a host element too.
+ jest.mock('expo-router', () => {
+   const Tabs = ({ children }: { children: ReactNode }) => children;
+   Tabs.Screen = 'Tabs.Screen';
+-  return { Tabs };
++  return { Tabs, Redirect: 'Redirect' };
+ });
+ 
+ import TabLayout from '@/app/(tabs)/_layout';
++import { SIGNED_OUT, useAuthStore, type AuthStatus } from '@/src/stores/auth-store';
++
++beforeEach(() => {
++  useAuthStore.setState({ ...SIGNED_OUT });
++});
+ 
+ type TabOptions = { title?: string; tabBarIcon?: (p: { color: string; focused: boolean; size: number }) => ReactElement<{ name: string }> };
+ 
+@@ -36,3 +41,24 @@ describe('TabLayout', () => {
+     expect(icon?.props.name).toBe('list.bullet');
+   });
+ });
++
++describe('TabLayout: onboarding', () => {
++  const redirects = () => screen.UNSAFE_root.findAll((n) => (n.type as unknown) === 'Redirect');
++
++  it("redirects to /auth/username while the account is 'needs_username', keeping the tabs mounted", () => {
++    useAuthStore.setState({ ...SIGNED_OUT, status: 'needs_username', userId: 'user-ana' });
++    render(<TabLayout />);
++
++    expect(redirects().map((n) => n.props.href)).toEqual(['/auth/username']);
++    // Unmounting the Tabs would throw away the tabs under the sign-in sheet (their scroll, the map).
++    expect(tabScreens().map((t) => t.name)).toEqual(['index', 'lists', 'profile']);
++  });
++
++  it.each<AuthStatus>(['signed_in', 'signed_out', 'unconfigured'])('shows the tabs, no redirect, when %s', (status) => {
++    useAuthStore.setState({ ...SIGNED_OUT, status });
++    render(<TabLayout />);
++
++    expect(redirects()).toEqual([]);
++    expect(tabScreens().map((t) => t.name)).toEqual(['index', 'lists', 'profile']);
++  });
++});
+diff --git a/src/__tests__/username.test.ts b/src/__tests__/username.test.ts
+new file mode 100644
+index 0000000..8b09b47
+--- /dev/null
++++ b/src/__tests__/username.test.ts
+@@ -0,0 +1,32 @@
++// @username rules (D39): 3–20 characters of a–z 0–9 _ ., compared case-insensitively. The server enforces the same
++// (profiles_username_format + citext unique); these give the rider the reason before they press Done.
++import { normalizeUsername, validateUsername } from '@/src/utils/username';
++
++describe('normalizeUsername', () => {
++  it('trims and lowercases', () => {
++    expect(normalizeUsername('  Ana.B_1 ')).toBe('ana.b_1');
++  });
++});
++
++describe('validateUsername', () => {
++  it.each(['ana', 'a_b.c', 'a'.repeat(20), 'Ana', ' ana ', 'rider_1.a'])('accepts %p', (name) => {
++    expect(validateUsername(name)).toBeNull();
++  });
++
++  it.each([
++    ['', 'Pick a username'],
++    ['   ', 'Pick a username'],
++    ['ab', 'At least 3 characters'],
++    ['a'.repeat(21), 'At most 20 characters'],
++    ['an-a', 'Only letters, numbers, _ and .'],
++    ['ana b', 'Only letters, numbers, _ and .'],
++    ['@ana', 'Only letters, numbers, _ and .'],
++    ['añá', 'Only letters, numbers, _ and .'],
++  ])('rejects %p with %p', (name, message) => {
++    expect(validateUsername(name)).toBe(message);
++  });
++
++  it('reports a bad character before the length', () => {
++    expect(validateUsername('a-')).toBe('Only letters, numbers, _ and .');
++  });
++});
+diff --git a/src/components/AuthScreen.tsx b/src/components/AuthScreen.tsx
+new file mode 100644
+index 0000000..4f875b4
+--- /dev/null
++++ b/src/components/AuthScreen.tsx
+@@ -0,0 +1,66 @@
++import React, { useEffect } from 'react';
++import { AccessibilityInfo, ScrollView, StyleSheet, Text, View } from 'react-native';
++
++import { palette, spacing, typography } from '@/src/constants/theme';
++
++/** The page the app/auth/* screens share: a scrolling column that keeps the keyboard up for taps. */
++export function AuthScreen({ children }: { children: React.ReactNode }) {
++  return (
++    <ScrollView
++      style={styles.container}
++      contentContainerStyle={styles.content}
++      keyboardShouldPersistTaps="handled"
++      keyboardDismissMode="interactive">
++      {children}
++    </ScrollView>
++  );
++}
++
++/** A build without Supabase values (§3.1): the auth screens show this line and nothing else. */
++export function AccountsNotSetUp() {
++  return (
++    <View style={styles.notSetUp}>
++      <Text style={styles.notSetUpText}>Accounts aren&apos;t set up in this build</Text>
++    </View>
++  );
++}
++
++/** An error shown in place under a form and announced; `message` is a string, never an error object. */
++export function AuthError({ message }: { message: string | null }) {
++  // VoiceOver reads neither the 'alert' role on a Text nor a live region (Android only): say it.
++  useEffect(() => {
++    if (message) AccessibilityInfo.announceForAccessibility(message);
++  }, [message]);
++  if (!message) return null;
++  return (
++    <Text style={styles.error} accessibilityRole="alert" accessibilityLiveRegion="polite">
++      {message}
++    </Text>
++  );
++}
++
++const styles = StyleSheet.create({
++  container: {
++    flex: 1,
++  },
++  content: {
++    padding: spacing.lg,
++    paddingBottom: spacing['3xl'],
++    gap: spacing.md,
++  },
++  notSetUp: {
++    flex: 1,
++    alignItems: 'center',
++    justifyContent: 'center',
++    padding: spacing.lg,
++  },
++  notSetUpText: {
++    ...typography.callout,
++    color: palette.gray[500],
++    textAlign: 'center',
++  },
++  error: {
++    ...typography.subheadline,
++    color: palette.red[700],
++  },
++});
+diff --git a/src/components/FormField.tsx b/src/components/FormField.tsx
+index 212b377..ba8bd5e 100644
+--- a/src/components/FormField.tsx
++++ b/src/components/FormField.tsx
+@@ -32,7 +32,9 @@ export function FormField({ label, hideLabel, children, error }: FormFieldProps)
+ 
+ // ── FormInput ───────────────────────────────────────────
+ 
+-interface FormInputProps extends TextInputProps, Pick<FormFieldProps, 'label' | 'hideLabel' | 'error'> {}
++interface FormInputProps extends TextInputProps, Pick<FormFieldProps, 'label' | 'hideLabel' | 'error'> {
++  ref?: React.Ref<TextInput>;
++}
+ 
+ export function FormInput({ label, hideLabel, error, style, ...props }: FormInputProps) {
+   return (
+diff --git a/src/components/index.ts b/src/components/index.ts
+index 2179a0d..ff6787d 100644
+--- a/src/components/index.ts
++++ b/src/components/index.ts
+@@ -16,3 +16,4 @@ export { AddToListSheet } from './AddToListSheet';
+ export { ListPickerChips } from './ListPickerChips';
+ export { HeaderTextButton } from './HeaderTextButton';
+ export { FilterHeaderButton } from './FilterHeaderButton';
++export { AuthScreen, AccountsNotSetUp, AuthError } from './AuthScreen';
+diff --git a/src/hooks/use-auth-init.ts b/src/hooks/use-auth-init.ts
+new file mode 100644
+index 0000000..11eaf99
+--- /dev/null
++++ b/src/hooks/use-auth-init.ts
+@@ -0,0 +1,73 @@
++import { useEffect } from 'react';
++import { AppState } from 'react-native';
++import { isAuthRetryableFetchError, type Session } from '@supabase/supabase-js';
++
++import { getSupabase } from '@/src/sync/client';
++import { resolveAuthState } from '@/src/sync/auth';
++import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
++
++// Mirrors the Supabase session into the auth store: once at launch (getSession), then on every
++// SIGNED_IN / SIGNED_OUT / USER_UPDATED. INITIAL_SESSION repeats what getSession returned, so it is
++// ignored, and so is TOKEN_REFRESHED for the account already shown. Each change takes a ticket when it
++// happens; a profile fetch that finishes after a newer change is dropped, so the latest event wins.
++// Offline with an expired access token, getSession answers no session and a retryable error while the
++// session stays stored: the store keeps what it shows, and the refresh ticker's TOKEN_REFRESHED, once
++// the phone is back online, brings in an account the store did not know yet.
++export function useAuthInit(): void {
++  const setAuth = useAuthStore((s) => s.setAuth);
++
++  useEffect(() => {
++    const client = getSupabase();
++    if (!client) {
++      setAuth({ ...SIGNED_OUT, status: 'unconfigured' });
++      return;
++    }
++    let mounted = true;
++    let latest = 0;
++    const resolve = (ticket: number, session: Session | null) =>
++      resolveAuthState(client, session).then((snapshot) => {
++        if (!mounted || ticket !== latest) return;
++        // A username is never cleared: 'needs_username' for the account that has one means the profile was read
++        // before the username screen saved it.
++        const shown = useAuthStore.getState();
++        if (snapshot.status === 'needs_username' && snapshot.userId === shown.userId && shown.username) return;
++        setAuth(snapshot);
++      });
++    const fromStoredSession = () => {
++      const ticket = ++latest;
++      client.auth
++        .getSession()
++        .then(({ data, error }) => {
++          if (isAuthRetryableFetchError(error)) return;
++          return resolve(ticket, data.session);
++        })
++        .catch(() => {
++          if (mounted && ticket === latest) setAuth(SIGNED_OUT);
++        });
++    };
++
++    fromStoredSession();
++
++    // auth-js documents that awaiting a supabase call inside this callback can deadlock (a nested
++    // refresh, or any auth call when a custom lock is set), so the callback stays synchronous and
++    // defers the work.
++    const { data } = client.auth.onAuthStateChange((event, session) => {
++      const unknownUser = event === 'TOKEN_REFRESHED' && session?.user.id !== useAuthStore.getState().userId;
++      if (event !== 'SIGNED_IN' && event !== 'SIGNED_OUT' && event !== 'USER_UPDATED' && !unknownUser) return;
++      const ticket = ++latest;
++      setTimeout(() => void resolve(ticket, session), 0);
++    });
++
++    // A profile that failed to load (offline launch) is fetched again when the app comes back.
++    const appState = AppState.addEventListener('change', (state) => {
++      const { status, userId, username } = useAuthStore.getState();
++      if (state === 'active' && status === 'signed_in' && userId && !username) fromStoredSession();
++    });
++
++    return () => {
++      mounted = false;
++      data.subscription.unsubscribe();
++      appState.remove();
++    };
++  }, [setAuth]);
++}
+diff --git a/src/stores/auth-store.ts b/src/stores/auth-store.ts
+new file mode 100644
+index 0000000..3eda14f
+--- /dev/null
++++ b/src/stores/auth-store.ts
+@@ -0,0 +1,34 @@
++import { create } from 'zustand';
++
++// The account as the app sees it, mirrored from the Supabase session by useAuthInit.
++// 'unconfigured': this build has no Supabase values; 'needs_username': signed in, no @username yet.
++export type AuthStatus = 'unconfigured' | 'signed_out' | 'signed_in' | 'needs_username';
++
++export interface AuthSnapshot {
++  status: AuthStatus;
++  userId: string | null;
++  email: string | null;
++  username: string | null;
++  displayName: string | null;
++}
++
++export const SIGNED_OUT: AuthSnapshot = {
++  status: 'signed_out',
++  userId: null,
++  email: null,
++  username: null,
++  displayName: null,
++};
++
++interface AuthState extends AuthSnapshot {
++  setAuth: (snapshot: AuthSnapshot) => void;
++  setProfile: (username: string, displayName: string | null) => void;
++}
++
++export const useAuthStore = create<AuthState>((set) => ({
++  ...SIGNED_OUT,
++
++  setAuth: (snapshot) => set(snapshot),
++
++  setProfile: (username, displayName) => set({ status: 'signed_in', username, displayName }),
++}));
+diff --git a/src/sync/auth.ts b/src/sync/auth.ts
+new file mode 100644
+index 0000000..9021fb4
+--- /dev/null
++++ b/src/sync/auth.ts
+@@ -0,0 +1,136 @@
++import { isAuthRetryableFetchError, type Session, type SupabaseClient } from '@supabase/supabase-js';
++
++import { SIGNED_OUT, type AuthSnapshot } from '@/src/stores/auth-store';
++import { SESSION_STORAGE_KEY, sessionStorage } from '@/src/sync/session-storage';
++
++// The auth store's view of a session. A profile that cannot be read (offline launch, no row yet) is
++// 'signed_in' with no username, never 'needs_username': the rider is not trapped on the username
++// screen, and useAuthInit refetches the profile when the app is next active.
++export async function resolveAuthState(client: SupabaseClient, session: Session | null): Promise<AuthSnapshot> {
++  if (!session) return SIGNED_OUT;
++  const { user } = session;
++  const signedIn: AuthSnapshot = {
++    status: 'signed_in',
++    userId: user.id,
++    email: user.email ?? null,
++    username: null,
++    displayName: null,
++  };
++  try {
++    const { data, error } = await client
++      .from('profiles')
++      .select('username, display_name')
++      .eq('id', user.id)
++      .maybeSingle<{ username: string | null; display_name: string | null }>();
++    if (error || !data) return signedIn;
++    return {
++      ...signedIn,
++      status: data.username ? 'signed_in' : 'needs_username',
++      username: data.username,
++      displayName: data.display_name,
++    };
++  } catch {
++    return signedIn;
++  }
++}
++
++const SEND_FAILED = "Couldn't send the code. Check your connection and try again.";
++
++/**
++ * Emails a 6-digit sign-in code (a new address gets an account). Resolves the message to show, or null when sent:
++ * the error's `message` (fixed copy when offline), never the object.
++ */
++export async function sendSignInCode(client: SupabaseClient, email: string): Promise<string | null> {
++  try {
++    const { error } = await client.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
++    if (!error) return null;
++    // Offline, auth-js's message is the fetch's ('Network request failed').
++    return isAuthRetryableFetchError(error) ? SEND_FAILED : error.message;
++  } catch {
++    return SEND_FAILED;
++  }
++}
++
++/**
++ * Checks an emailed code. Resolves the signed-in account (its profile read as resolveAuthState does), or null when
++ * the code didn't work (wrong, expired, offline).
++ */
++export async function verifySignInCode(
++  client: SupabaseClient,
++  email: string,
++  token: string,
++): Promise<AuthSnapshot | null> {
++  try {
++    const { data, error } = await client.auth.verifyOtp({ email, token, type: 'email' });
++    if (error || !data.session) return null;
++    return await resolveAuthState(client, data.session);
++  } catch {
++    return null;
++  }
++}
++
++/**
++ * What saving the @username came to: 'taken' is the unique index (23505), 'invalid' the format check (23514),
++ * 'failed' anything else, including an update that changed no row.
++ */
++export type SaveProfileResult = 'saved' | 'taken' | 'invalid' | 'failed';
++
++/**
++ * Writes the rider's @username and display name to their profile row (onboarding). The caller passes them already
++ * normalized. RLS lets a rider update only their own row, and filters any other update down to no rows without an
++ * error (the session is gone, the row is missing), so the updated row is read back to tell.
++ */
++export async function saveProfile(
++  client: SupabaseClient,
++  userId: string,
++  username: string,
++  displayName: string | null,
++): Promise<SaveProfileResult> {
++  try {
++    const { data, error } = await client
++      .from('profiles')
++      .update({ username, display_name: displayName })
++      .eq('id', userId)
++      .select('id');
++    if (!error) return data?.length ? 'saved' : 'failed';
++    if (error.code === '23505') return 'taken';
++    return error.code === '23514' ? 'invalid' : 'failed';
++  } catch {
++    return 'failed';
++  }
++}
++
++/**
++ * Signs the rider out (D62: plain sign out until S5 backs spots up and adds Keep / Remove). A server sign out that
++ * fails (offline) or throws falls back to `scope: 'local'`. Offline with an expired access token auth-js can't read
++ * the session (its refresh fails), so both return that error before removing anything; then the stored session is
++ * removed here, or the next token refresh would sign the rider back in. The phone is always signed out afterwards.
++ */
++export async function signOutOfAccount(client: SupabaseClient): Promise<void> {
++  try {
++    const { error } = await client.auth.signOut();
++    if (!error) return;
++  } catch {
++    // Fall through to the local sign out.
++  }
++  try {
++    const { error } = await client.auth.signOut({ scope: 'local' });
++    if (!error) return;
++  } catch {
++    // Fall through to clearing the stored session.
++  }
++  await sessionStorage.removeItem(SESSION_STORAGE_KEY).catch(() => {});
++}
++
++/**
++ * Deletes the rider's account on the server through the account-delete Edge Function (D51), which takes the user
++ * from the session's JWT, never from a body. Resolves true only for its `{ ok: true }`; the caller then signs out.
++ */
++export async function deleteAccount(client: SupabaseClient): Promise<boolean> {
++  try {
++    const { data, error } = await client.functions.invoke<{ ok?: boolean }>('account-delete');
++    return !error && data?.ok === true;
++  } catch {
++    return false;
++  }
++}
+diff --git a/src/sync/client.ts b/src/sync/client.ts
+new file mode 100644
+index 0000000..b01a72d
+--- /dev/null
++++ b/src/sync/client.ts
+@@ -0,0 +1,37 @@
++import { AppState } from 'react-native';
++import { createClient, type SupabaseClient } from '@supabase/supabase-js';
++
++import { SESSION_STORAGE_KEY, sessionStorage } from './session-storage';
++
++// The one Supabase client, built on first use. A build without both EXPO_PUBLIC_ values has none, and the
++// app is the signed-out app (§3.1). Read with the dot form: Expo inlines only process.env.EXPO_PUBLIC_X.
++let client: SupabaseClient | null = null;
++
++export function getSupabase(): SupabaseClient | null {
++  if (client) return client;
++  const url = process.env.EXPO_PUBLIC_SUPABASE_URL?.trim();
++  const anonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY?.trim();
++  if (!url || !anonKey) return null;
++
++  const created = createClient(url, anonKey, {
++    auth: {
++      storage: sessionStorage,
++      // Fixed rather than derived from the URL, so signOutOfAccount can clear it when auth-js can't.
++      storageKey: SESSION_STORAGE_KEY,
++      autoRefreshToken: true,
++      persistSession: true,
++      detectSessionInUrl: false,
++    },
++  });
++  // Refresh tokens only while the app is in the foreground (Supabase's Expo guide).
++  AppState.addEventListener('change', (state) => {
++    if (state === 'active') void created.auth.startAutoRefresh();
++    else void created.auth.stopAutoRefresh();
++  });
++  client = created;
++  return client;
++}
++
++export function isConfigured(): boolean {
++  return getSupabase() !== null;
++}
+diff --git a/src/sync/session-storage.ts b/src/sync/session-storage.ts
+new file mode 100644
+index 0000000..80a446e
+--- /dev/null
++++ b/src/sync/session-storage.ts
+@@ -0,0 +1,73 @@
++import * as SecureStore from 'expo-secure-store';
++import AsyncStorage from '@react-native-async-storage/async-storage';
++import { AESEncryptionKey, AESSealedData, aesDecryptAsync, aesEncryptAsync } from 'expo-crypto';
++
++// The auth-js session store (D61, Supabase's LargeSecureStore pattern on expo-crypto's AES-GCM).
++// A session of at most 2048 UTF-8 bytes (SecureStore's limit) lives in the keychain as is. A larger one
++// is encrypted into AsyncStorage under the same key, with a fresh 256-bit key in the keychain.
++// Signing out goes through removeItem, so the key leaves with the session.
++
++const SECURE_STORE_LIMIT = 2048;
++const KEY_PREFIX = 'aes256gcm:';
++// Readable after the first unlock, so a background token refresh can read it.
++const SECURE_OPTIONS: SecureStore.SecureStoreOptions = { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK };
++
++async function deleteItem(key: string): Promise<void> {
++  await Promise.all([SecureStore.deleteItemAsync(key, SECURE_OPTIONS), AsyncStorage.removeItem(key)]);
++}
++
++async function writeItem(key: string, value: string): Promise<void> {
++  const bytes = new TextEncoder().encode(value);
++  if (bytes.length <= SECURE_STORE_LIMIT) {
++    await SecureStore.setItemAsync(key, value, SECURE_OPTIONS);
++    await AsyncStorage.removeItem(key);
++    return;
++  }
++  const aesKey = await AESEncryptionKey.generate();
++  const sealed = await aesEncryptAsync(bytes, aesKey);
++  await AsyncStorage.setItem(key, await sealed.combined('base64'));
++  await SecureStore.setItemAsync(key, KEY_PREFIX + (await aesKey.encoded('base64')), SECURE_OPTIONS);
++}
++
++// Every operation on a key waits for the one before it: overlapping large writes could otherwise leave one
++// write's key next to the other's ciphertext, and a read between a write's two steps would see the same,
++// both of which read as signed out.
++const queues = new Map<string, Promise<unknown>>();
++function queued<T>(key: string, op: () => Promise<T>): Promise<T> {
++  const next = (queues.get(key) ?? Promise.resolve()).catch(() => {}).then(op);
++  queues.set(key, next);
++  return next;
++}
++
++// A missing ciphertext (after a reinstall the keychain survives, AsyncStorage does not) or one that
++// fails to decrypt reads as signed out: both entries are dropped. A store that fails to read only
++// reads as no session this time. getItem never throws.
++async function readItem(key: string): Promise<string | null> {
++  let stored: string | null;
++  let combined: string | null = null;
++  try {
++    stored = await SecureStore.getItemAsync(key, SECURE_OPTIONS);
++    if (stored === null || !stored.startsWith(KEY_PREFIX)) return stored;
++    combined = await AsyncStorage.getItem(key);
++  } catch {
++    return null;
++  }
++  try {
++    if (combined === null) throw new Error('session ciphertext missing');
++    const aesKey = await AESEncryptionKey.import(stored.slice(KEY_PREFIX.length), 'base64');
++    const plain = await aesDecryptAsync(AESSealedData.fromCombined(combined), aesKey);
++    return new TextDecoder().decode(plain);
++  } catch {
++    await deleteItem(key).catch(() => {});
++    return null;
++  }
++}
++
++/** The one key the client stores its session under (auth-js `storageKey`). */
++export const SESSION_STORAGE_KEY = 'hitlist.auth.session';
++
++export const sessionStorage = {
++  getItem: (key: string) => queued(key, () => readItem(key)),
++  setItem: (key: string, value: string) => queued(key, () => writeItem(key, value)),
++  removeItem: (key: string) => queued(key, () => deleteItem(key)),
++};
+diff --git a/src/utils/username.ts b/src/utils/username.ts
+new file mode 100644
+index 0000000..a49aa36
+--- /dev/null
++++ b/src/utils/username.ts
+@@ -0,0 +1,21 @@
++// @username rules (D39), the same as the server's profiles_username_format check and its citext unique index:
++// 3–20 characters of a–z 0–9 _ ., compared case-insensitively, so the app stores them lowercased.
++
++const BAD_CHARACTER = /[^a-z0-9_.]/;
++const MIN_LENGTH = 3;
++const MAX_LENGTH = 20;
++
++/** The username as it is stored: trimmed and lowercased. */
++export function normalizeUsername(text: string): string {
++  return text.trim().toLowerCase();
++}
++
++/** Why the (normalized) text is not a username, or null when it is one. The first failing rule wins. */
++export function validateUsername(text: string): string | null {
++  const name = normalizeUsername(text);
++  if (!name) return 'Pick a username';
++  if (BAD_CHARACTER.test(name)) return 'Only letters, numbers, _ and .';
++  if (name.length < MIN_LENGTH) return `At least ${MIN_LENGTH} characters`;
++  if (name.length > MAX_LENGTH) return `At most ${MAX_LENGTH} characters`;
++  return null;
++}
+diff --git a/supabase/functions/_shared/cors.ts b/supabase/functions/_shared/cors.ts
+new file mode 100644
+index 0000000..6c61436
+--- /dev/null
++++ b/supabase/functions/_shared/cors.ts
+@@ -0,0 +1,7 @@
++// CORS headers for every Edge Function response. The app (React Native) sends no Origin, so these matter only for a
++// browser caller (Supabase Studio, a future web build); supabase-js sends the headers listed here.
++export const corsHeaders = {
++  'Access-Control-Allow-Origin': '*',
++  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
++  'Access-Control-Allow-Methods': 'POST, OPTIONS',
++};
+diff --git a/supabase/functions/account-delete/index.ts b/supabase/functions/account-delete/index.ts
+new file mode 100644
+index 0000000..9e2a3a1
+--- /dev/null
++++ b/supabase/functions/account-delete/index.ts
+@@ -0,0 +1,112 @@
++// account-delete (S4-05, D51): deletes the calling rider's account. The user comes only from the caller's JWT
++// (Authorization: Bearer <jwt>, resolved by auth.getUser); the request body is never read, so no request can name
++// another user. Order: the rider's Storage objects first (<uid>/… and sends/<id>/… of every send from or to them),
++// then the auth user, whose deletion cascades through profiles to every row they own (S3 schema, `on delete
++// cascade`). Storage goes first so a retry after a later failure still finds the files; the reverse would orphan
++// them, as nothing would point at them any more. A direct DELETE on storage.objects is blocked, so files go through
++// the Storage API. A photo uploaded between the listing and the user delete is left behind (S8 may sweep orphans).
++// Responses: 200 { ok: true }, 401 { error: 'unauthorized' }, 405 { error: 'method not allowed' },
++// 500 { error: 'delete failed' } (the detail only in the function's log). Plan: docs/plans/2026-10-22-s4-accounts.md.
++import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.118.0';
++
++import { corsHeaders } from '../_shared/cors.ts';
++
++const BUCKET = 'photos';
++/** The Storage API's page size for list and its limit for one remove. */
++const PAGE = 1000;
++/** Folders listed in parallel: a rider with thousands of spots has a folder each, and one at a time is too slow. */
++const LISTS_AT_ONCE = 20;
++
++function json(status: number, body: Record<string, unknown>): Response {
++  return new Response(JSON.stringify(body), {
++    status,
++    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
++  });
++}
++
++/** Every entry directly under `prefix`, all pages. A folder has `id` null; a file has an id. */
++async function listAll(admin: SupabaseClient, prefix: string): Promise<{ name: string; id: string | null }[]> {
++  const entries: { name: string; id: string | null }[] = [];
++  for (let offset = 0; ; offset += PAGE) {
++    const { data, error } = await admin.storage.from(BUCKET).list(prefix, { limit: PAGE, offset });
++    if (error) throw error;
++    entries.push(...data);
++    if (data.length < PAGE) return entries;
++  }
++}
++
++/** The paths of every file under the prefixes, down any depth of folders; LISTS_AT_ONCE folders are read at a time. */
++async function filesUnder(admin: SupabaseClient, prefixes: string[]): Promise<string[]> {
++  const paths: string[] = [];
++  for (let i = 0; i < prefixes.length; i += LISTS_AT_ONCE) {
++    const batch = prefixes.slice(i, i + LISTS_AT_ONCE);
++    const listed = await Promise.all(batch.map((prefix) => listAll(admin, prefix)));
++    const folders: string[] = [];
++    listed.forEach((entries, j) => {
++      for (const entry of entries) {
++        const path = `${batch[j]}/${entry.name}`;
++        if (entry.id === null) folders.push(path);
++        else paths.push(path);
++      }
++    });
++    if (folders.length) paths.push(...(await filesUnder(admin, folders)));
++  }
++  return paths;
++}
++
++async function deleteUserData(admin: SupabaseClient, uid: string): Promise<void> {
++  // Sends to the rider go too: their rows cascade away with the account, and then nobody (not even the sender) may
++  // read or remove the files. PostgREST caps a response at max_rows (1000), so the sends are read in pages.
++  const prefixes = [uid];
++  for (let offset = 0; ; offset += PAGE) {
++    const { data: sends, error } = await admin
++      .from('sends')
++      .select('id')
++      .or(`sender.eq.${uid},recipient.eq.${uid}`)
++      .order('id')
++      .range(offset, offset + PAGE - 1);
++    if (error) throw error;
++    prefixes.push(...sends.map((send: { id: string }) => `sends/${send.id}`));
++    if (sends.length < PAGE) break;
++  }
++  const paths = await filesUnder(admin, prefixes);
++
++  for (let i = 0; i < paths.length; i += PAGE) {
++    const { error } = await admin.storage.from(BUCKET).remove(paths.slice(i, i + PAGE));
++    if (error) throw error;
++  }
++
++  const { error: deleteError } = await admin.auth.admin.deleteUser(uid);
++  if (deleteError) throw deleteError;
++}
++
++Deno.serve(async (req: Request) => {
++  if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
++  if (req.method !== 'POST') return json(405, { error: 'method not allowed' });
++
++  const url = Deno.env.get('SUPABASE_URL');
++  const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
++  const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
++  if (!url || !anonKey || !serviceRoleKey) {
++    console.error('account-delete: missing SUPABASE_URL, SUPABASE_ANON_KEY or SUPABASE_SERVICE_ROLE_KEY');
++    return json(500, { error: 'delete failed' });
++  }
++
++  const jwt = req.headers.get('Authorization')?.match(/^Bearer\s+(\S+)$/i)?.[1];
++  if (!jwt) return json(401, { error: 'unauthorized' });
++
++  const noSession = { auth: { persistSession: false, autoRefreshToken: false } };
++  const anon = createClient(url, anonKey, noSession);
++  const { data: userData, error: userError } = await anon.auth.getUser(jwt);
++  const uid = userData?.user?.id;
++  if (userError || !uid) return json(401, { error: 'unauthorized' });
++
++  const admin = createClient(url, serviceRoleKey, noSession);
++  try {
++    await deleteUserData(admin, uid);
++  } catch (error) {
++    console.error('account-delete failed', uid, error);
++    return json(500, { error: 'delete failed' });
++  }
++  return json(200, { ok: true });
++});

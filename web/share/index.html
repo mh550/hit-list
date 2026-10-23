@@ -22,6 +22,7 @@
         --bg: #f2f2f7;
         --line: #d1d1d6;
         --blue: #007aff;
+        --button: #0060df; /* white text on it is 4.5:1 or more, in both schemes */
         --red: #d70015;
       }
       @media (prefers-color-scheme: dark) {
@@ -105,7 +106,7 @@
         font: inherit;
         font-weight: 600;
         color: #fff;
-        background: var(--blue);
+        background: var(--button);
         border: 0;
         border-radius: 10px;
         padding: 12px 16px;
@@ -118,7 +119,7 @@
     <script src="share.js" defer></script>
   </head>
   <body>
-    <main id="app">
+    <main id="app" aria-live="polite">
       <p class="muted">Loading…</p>
     </main>
   </body>

@@ -109,8 +109,7 @@
       urls.forEach(function (url) {
         const img = el('img');
         img.src = url;
-        img.alt = '';
-        img.loading = 'lazy';
+        img.alt = ''; // eager: the signed URLs live 600 s, so don't wait for a scroll
         photos.appendChild(img);
       });
       card.appendChild(photos);
@@ -140,6 +139,7 @@
           return s && typeof s === 'object' && !Array.isArray(s);
         })
       : [];
+    if (!spots.length) return show('gone', [el('h1', GONE)]);
     const from = who(body.sender);
     const count = spots.length + (spots.length === 1 ? ' spot' : ' spots');
     const nodes = [el('h1', from ? count + ' from ' + from : count)];
@@ -152,8 +152,11 @@
     const footer = el('footer');
     const save = el('button', 'Save to my spots');
     save.type = 'button';
+    save.setAttribute('aria-expanded', 'false');
     save.addEventListener('click', function () {
-      if (!footer.querySelector('p')) footer.appendChild(el('p', SAVE_HELP));
+      if (footer.querySelector('p')) return;
+      footer.appendChild(el('p', SAVE_HELP));
+      save.setAttribute('aria-expanded', 'true');
     });
     footer.appendChild(save);
     nodes.push(footer);
@@ -169,9 +172,18 @@
   function main() {
     const token = readToken();
     if (!token) return Promise.resolve(show('gone', [el('h1', GONE)]));
-    return fetch(functionsUrl() + '/share-preview?t=' + token)
+    // A missing or relative functions URL would send the token to this page's own host: never fetch then.
+    const base = functionsUrl();
+    if (!isHttpUrl(base)) return Promise.resolve(show('error', [el('h1', FAILED)]));
+    return fetch(base + '/share-preview?t=' + token)
       .then(function (res) {
-        if (res.status === 404) return { gone: true };
+        // Only the function's own {"error":"gone"} 404 is gone; the gateway's 404 (a wrong URL, not deployed) is not.
+        if (res.status === 404) {
+          return res.json().then(function (body) {
+            if (body && body.error === 'gone') return null;
+            throw new Error('share-preview 404');
+          });
+        }
         if (!res.ok) throw new Error('share-preview ' + res.status);
         return res.json();
       })

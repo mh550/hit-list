@@ -108,7 +108,8 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   Adoption (S5-06): `src/sync/adopt.ts` `adopt` (live NULL-owner rows → the rider, one transaction on `runExclusive`;
   another account's rows leave first with their photo folders, `'needs_confirm'` when they still have pending
   changes), `removeLocalAccountData` (refuses with pending changes unless `discardPending`), `releaseAccountData`
-  (Delete account: runs before asking, rows become phone-only) + `removeReleasedRows`; every one clears `user_id`
+  (rows become phone-only) + `removeReleasedRows`; Profile's Delete account calls `deleteAccountAndRelease` (the server
+  delete and the release as one `runExclusive` task, so no sync pulls in between; runs before asking); every one clears `user_id`
   before deleting so nothing queues a server DELETE. `src/hooks/use-adoption.ts` (in `AuthInit`: adopt → `syncNow`,
   the D66 confirm, retry on `'active'`); `src/sync/owner.ts` `currentOwnerId()` (sync store `adoptedUserId`) is the
   owner of new spots/lists; `useSpotActions.setTown` keeps `updated_at`. Profile Sign out: last backup (10 s) →
@@ -119,7 +120,10 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   `spots.ts`: `getSpots`/`getSpot` select the explicit `SPOT_COLUMNS` (never `legacy_json`); `getSpotLegacy(db, id)` is
   the only reader of the archive (rejects on unreadable JSON, `null` for JSON that is not an object); detail's `OlderDetails` calls it once on mount (effect
   keyed on `[db, spotId]`, not on store updates), `.catch` → `console.warn`, and hides the disclosure when it has no rows.
-- `src/sync/` backup and sync (S5, details in the `src/db/` paragraph above): the outbox lives in `src/db/sync.ts` (filled by the migration 5 triggers), `push.ts` (outbox → server), `photos.ts` (re-encode into the cache, upload, download), `pull.ts` (server → SQLite by `rev`, LWW), `adopt.ts` (sign-in adoption, account switch, Remove, release), `engine.ts` (`syncNow`, `runExclusive`), `account.ts` (`maySync`), `owner.ts`, `time.ts`; accounts (S4) are `client.ts`, `auth.ts`, `session-storage.ts`.
+- `src/sync/` backup and sync (S5, details in the `src/db/` paragraph above): the outbox lives in `src/db/sync.ts` (filled by the migration 5 triggers), `push.ts` (outbox → server), `photos.ts` (re-encode into the cache, upload, download), `pull.ts` (server → SQLite by `rev`, LWW), `adopt.ts` (sign-in adoption, account switch, Remove, release), `engine.ts` (`syncNow`, `runExclusive`, `reloadStoresQuietly`), `account.ts` (`maySync`), `owner.ts`, `time.ts`,
+`errors.ts` (`errorMessage`); push marks a row done only while the rider's session lasts (an anon DELETE answers 204
+for 0 rows); a pull keeps the local row on an `updated_at` tie while a change of it waits in the outbox; media
+`addMany` skips ids already in the store (a reload may have read them first); accounts (S4) are `client.ts`, `auth.ts`, `session-storage.ts`.
 - `src/stores/` zustand: spots (+ the Filter sheet's three filters: What's here `types` (any of), Skate stopped
   `stopped` (undefined = Any, true, false), Natural speed `natural_speed_min`/`_max` (inclusive range, unrated spots kept;
   `selectActiveFilterCount` counts each set filter once, 0–3), a separate `searchQuery`, sort, `viewMode`; filtering and sorting live in its selectors), media (`mediaBySpot`), settings, location,

@@ -41,6 +41,9 @@ interface SpotsBrowserProps {
   aboveList?: ReactNode;
   /** The list's bottom padding, so the last rows can scroll clear of anything floating over it. */
   contentBottomInset?: number;
+  /** Rendered in the header before the Filter button (a screen's own headerRight would replace Filter). */
+  headerActions?: ReactNode;
+  onSpotLongPress?: (id: string) => void;
 }
 
 /**
@@ -55,6 +58,8 @@ export function SpotsBrowser({
   onEmptyAction,
   aboveList,
   contentBottomInset = spacing.md,
+  headerActions,
+  onSpotLongPress,
 }: SpotsBrowserProps) {
   const router = useRouter();
   useCurrentLocation(); // distances in the list and the map's own position (bug 5)
@@ -122,10 +127,11 @@ export function SpotsBrowser({
           naturalSpeed={item.natural_speed}
           distance={getDistance(item)}
           onPress={handleSpotPress}
+          onLongPress={onSpotLongPress}
         />
       );
     },
-    [handleSpotPress, getDistance, mediaBySpot],
+    [handleSpotPress, onSpotLongPress, getDistance, mediaBySpot],
   );
 
   const keyExtractor = useCallback((item: Spot) => item.id, []);
@@ -153,7 +159,16 @@ export function SpotsBrowser({
 
   return (
     <View style={styles.container}>
-      <Stack.Screen options={{ headerRight: () => filterButton }} />
+      <Stack.Screen
+        options={{
+          headerRight: () => (
+            <View style={styles.headerButtons}>
+              {headerActions}
+              {filterButton}
+            </View>
+          ),
+        }}
+      />
       {aboveList}
       <View style={styles.modeBar}>
         <SegmentedControl
@@ -246,6 +261,11 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
+  },
+  headerButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
   },
   filterButton: {
     paddingHorizontal: spacing.sm,

@@ -1,3 +1,4 @@
+import type { ReactElement } from 'react';
 import { act, render, screen, fireEvent } from '@testing-library/react-native';
 import { FlashList } from '@shopify/flash-list';
 import type { StyleProp, ViewStyle } from 'react-native';
@@ -91,5 +92,27 @@ describe('SpotsBrowser', () => {
     render(<SpotsBrowser spots={[pier]} {...EMPTY} aboveList={<Text>Picker row</Text>} />);
 
     expect(screen.getByText('Picker row')).toBeTruthy();
+  });
+
+  it('renders headerActions in the header before Filter', () => {
+    render(<SpotsBrowser spots={[pier]} {...EMPTY} headerActions={<Text>Rename</Text>} />);
+
+    const { options } = screen.UNSAFE_getByType('Stack.Screen' as never).props as {
+      options: { headerRight: () => ReactElement };
+    };
+    const header = render(options.headerRight());
+    const texts = header.UNSAFE_getAllByType(Text).map((t) => t.props.children);
+    expect(texts[0]).toBe('Rename');
+    expect(header.getByLabelText('Filter spots')).toBeTruthy();
+    header.unmount();
+  });
+
+  it('calls onSpotLongPress with the row id', () => {
+    const onSpotLongPress = jest.fn();
+    render(<SpotsBrowser spots={[pier, library]} {...EMPTY} onSpotLongPress={onSpotLongPress} />);
+
+    fireEvent(screen.getByRole('button', { name: /^Library ledge/ }), 'longPress');
+
+    expect(onSpotLongPress).toHaveBeenCalledWith(library.id);
   });
 });

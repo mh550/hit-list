@@ -46,6 +46,7 @@ export default function RootLayout() {
                 <Stack.Screen name="add/review" options={{ title: 'Review Spot' }} />
                 <Stack.Screen name="import/index" options={{ title: 'Import Photos' }} />
                 <Stack.Screen name="import/review" options={{ title: 'Review Import' }} />
+                <Stack.Screen name="list/[id]/index" options={{ title: 'Hit list' }} />
               </Stack>
             </DBInitializer>
           </SQLiteProvider>

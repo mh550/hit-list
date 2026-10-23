@@ -16,6 +16,7 @@ interface SpotListItemProps {
   naturalSpeed?: NaturalSpeed;
   distance?: string;
   onPress: (id: string) => void;
+  onLongPress?: (id: string) => void;
 }
 
 export const SpotListItem = memo(function SpotListItem({
@@ -27,6 +28,7 @@ export const SpotListItem = memo(function SpotListItem({
   naturalSpeed,
   distance,
   onPress,
+  onLongPress,
 }: SpotListItemProps) {
   // VoiceOver reads only the row's label, not the badges inside it, so the label says what they show.
   const label = [
@@ -42,6 +44,7 @@ export const SpotListItem = memo(function SpotListItem({
   return (
     <Pressable
       onPress={() => onPress(id)}
+      onLongPress={onLongPress ? () => onLongPress(id) : undefined}
       style={({ pressed }) => [styles.container, pressed && styles.pressed]}
       accessibilityRole="button"
       accessibilityLabel={label}>

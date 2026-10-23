@@ -88,7 +88,7 @@
         "Opening a list id that does not exist (or was deleted) renders 'This list is gone' and no crash (useLocalSearchParams mocked to an unknown id).",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S1-07",

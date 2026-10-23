@@ -70,3 +70,12 @@ describe("gesture-handler's jest setup", () => {
     expect(onEnd).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('RootLayout: hit list screen', () => {
+  it("registers list/[id]/index titled 'Hit list' until the screen names it", () => {
+    render(<RootLayout />);
+
+    const list = screen.UNSAFE_getAllByProps({ name: 'list/[id]/index' })[0];
+    expect(list.props.options).toEqual({ title: 'Hit list' });
+  });
+});

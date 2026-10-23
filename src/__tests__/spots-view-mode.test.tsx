@@ -211,7 +211,7 @@ describe("Spots tab: others' spots (S8, D47)", () => {
     render(<SpotsScreen />);
     expect(screen.getByText('My rail')).toBeTruthy();
     expect(screen.queryByText("Ana's ledge")).toBeNull();
-    useSyncStore.setState(INITIAL_SYNC);
+    act(() => useSyncStore.setState(INITIAL_SYNC));
   });
 
   it("'My spots' leaves a friend's spot out; the shared list's chip shows it with the rider's own", () => {

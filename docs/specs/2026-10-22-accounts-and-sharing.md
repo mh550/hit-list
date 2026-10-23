@@ -132,6 +132,15 @@ it can **Save a copy** (it becomes their own private spot, with "From @name" on 
 | D80 | **The sender's name on a send is the server's, and "From @name" is frozen** *default* | `create_send` writes the sender's @username and display name into the payload (a forged one is replaced); a saved copy keeps "From @ana" as it was when saved (a later rename doesn't change it) and the name syncs with the spot (server `spots.from_username`). | S7 plan (§9 Q41) |
 | D81 | **Saving some of a send's spots finishes it** *default* | Pick spots → Save saves those and marks the send saved; the rest aren't offered again (ask the sender to send them again). | S7 plan: one saved state per send, as S3 built it (§9 Q42) |
 | D82 | **A dismissed send reads "Waiting" to its sender** *default* | The sender isn't told it was dismissed (Sent shows Waiting and still offers Withdraw). | S7 plan: like D50, nobody is told no (§9 Q43) |
+| D83 | **An invitee sees a shared list's name, owner and spot count, no spots, until Join** *default* | The Inbox and the Lists tab read "@ana invited you to Downtown (12 spots)"; the count comes from a server function `list_invitations()` (row security gives an invitee no spot rows); Join pulls the list and its spots. | S8 plan (`docs/plans/2026-10-22-s8-shared-lists.md`): the invitation has to say how big the list is (§9 Q44) |
+| D84 | **A shared list's member count is its joined members plus the owner** *default* | Invitations show on the members screen with "Invited" but aren't counted; the count beside the two-people icon is the same number everywhere. | S8 plan (`docs/plans/2026-10-22-s8-shared-lists.md`) (§9 Q45) |
+| D85 | **Sharing a list needs it backed up** *default* | The Share sheet syncs first; if the list itself still waits to upload: "This list isn't backed up yet. Try again when you're online." Its spots appear for members as they finish uploading. | S8 plan (`docs/plans/2026-10-22-s8-shared-lists.md`): members can only see what is on the server, like D78 (§9 Q46) |
+| D86 | **Others' spots leave the phone when you sign out** *default* | Signing out (Keep or Remove) and another account signing in remove the spots of shared lists that belong to other riders, and their cached photos; Keep keeps only yours. | S8 plan (`docs/plans/2026-10-22-s8-shared-lists.md`): a signed-out phone can't learn that access was taken away (§9 Q47) |
+| D87 | **Send never sends someone else's spot onward** *default* | From a shared list, a selection or the area picker, Send sends only your own spots; the list's subtitle counts them ("one-time copy of 10 spots"); Save a copy first to send a friend's spot. | S8 plan (`docs/plans/2026-10-22-s8-shared-lists.md`): a copy of a friend's spot sent to a third rider would be a leak the owner never agreed to (§9 Q48) |
+| D88 | **One role per Share batch** *default* | The Share sheet's "Can add spots" / "View only" applies to every friend checked in it; change one member's role later on the members screen. | S8 plan (`docs/plans/2026-10-22-s8-shared-lists.md`): one control, not one per row (§9 Q49) |
+| D89 | **Save a copy downloads the photos first; ones that fail are left out** *default* | The copy is saved with the photos that arrived and the toast says "Saved a copy · 1 photo couldn't be copied". | S8 plan (`docs/plans/2026-10-22-s8-shared-lists.md`), like the S7 save (§9 Q50) |
+| D90 | **The first-add confirmation is once per shared list on this phone** *default* | "Everyone in Downtown (4) will see this spot." shows the first time you add to each shared list (the owner too), remembered on the phone; signing in as another account asks again. | S8 plan (`docs/plans/2026-10-22-s8-shared-lists.md`) (§9 Q51) |
+| D91 | **Others' photos download when first shown and live in the phone's cache** *default* | No prefetch; iOS may clear the cache and they download again; offline and not cached shows a grey tile. Your own photos stay in the app's documents as today. | S8 plan (`docs/plans/2026-10-22-s8-shared-lists.md`): §3.4 "lazily into the cache directory" (§9 Q52) |
 
 ---
 
@@ -434,6 +443,23 @@ it stops at a milestone boundary; S9 (links) is last among the features because 
     Or should the rest stay in the Inbox?
 43. **Dismissing (D82).** Default: the sender still sees "Waiting" after you dismiss (they aren't told). Or should
     Sent say "Dismissed"?
+44. **What an invitation shows (D83).** Default: the list's name, who invited you and how many spots it holds, but
+    no spots until you Join. Should it show nothing but the name?
+45. **Member count (D84).** Default: joined members plus the owner; people who haven't joined yet aren't counted. OK?
+46. **Sharing a list that isn't backed up (D85).** Default: Share tries a backup first and refuses with a message if
+    the list is still waiting (e.g. offline). Or should it wait and share by itself later?
+47. **Friends' spots after you sign out (D86).** Default: they leave the phone (only your own spots are kept). Or
+    keep them readable offline until you sign in again?
+48. **Sending a friend's spot onward (D87).** Default: never; Send from a shared list sends only your own spots, and
+    you can Save a copy first. Or allow sending any spot you can see?
+49. **Roles when sharing (D88).** Default: one role for everyone you pick in the Share sheet; change it per person
+    later. Or a role per person in the sheet?
+50. **Save a copy without some photos (D89).** Default: the copy is saved with the photos that downloaded, and it
+    tells you how many were left out. Or refuse until all of them download?
+51. **The "Everyone in Downtown will see this spot" confirmation (D90).** Default: once per shared list on each phone,
+    the owner included. Every time instead, or never for the owner?
+52. **Friends' photos (D91).** Default: downloaded when you first look at them, kept in the phone's cache (iOS may
+    clear it). Want them downloaded for offline use when you join a list?
 
 ---
 

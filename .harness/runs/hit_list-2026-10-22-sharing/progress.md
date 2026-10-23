@@ -20,6 +20,16 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 06:20 · S3-08 · passes
+
+- Changed: new `supabase/tests/090-review.test.sql` (31: catalog proofs of the six review answers + the fixes), `supabase/migrations/20261023060000_review_fixes.sql` (`block_user` withdraws pair invitations directly, `t05_block_guard_join` on Join, media `uploaded_by` = the uploader), seed.sql revokes `tests.create_user` from client roles; CLAUDE.md (4 db scripts, `supabase/` in Layout, the Docker rule), README/live checklist (never `--include-seed`/`db reset --linked`). RED `cd88475` (5/31 failed), GREEN `3711528`. Jest 924 → 924; pgTAP 538 → 569.
+- Verified: `db:reset` → `test:db`: `Files=9, Tests=569, Result: PASS` → `db:stop`; `docker ps` = the same 7 n8n-*/dj-* containers. Six mutations of the catalog proofs (definer without search_path, dropped indexes, a recursive profiles policy, dropped media rev trigger, a PUBLIC grant) each fail 090. `check.sh` green (924).
+- Opus review (whole S3 diff, `reviews/s3.diff`): no Critical. 2 Minor fixed test-first, 3 Nit fixed or accepted, table + six written answers under Review in the S3 plan. EXPLAIN of `can_read_spot`'s own body: `hit_list_spots_spot_idx`, and `hit_list_members_user_idx (user_id, list_id)` rather than the `(list_id, user_id)` PK (same columns, planner's pick), no Seq Scan.
+- **One Important left unfixed, on purpose:** it is a sync-protocol gap, not a policy or function bug. A row you gain read on (Join, redeem, area edit, new friend) keeps its old `rev`, so a `rev > cursor` pull misses it. Added under Proposed changes for **S5-04**: fetch readable ids that aren't held locally, whatever their rev. If you'd rather count it against S3, tell me and the server-side bump goes in.
+- Next sessions must know: S3 is complete (S3 PR next). S7: don't trust `spots.copied_from_send`. Un-deleting a list brings its members back (accepted; the app never un-deletes).
+- Questions for Michael: none new (D57–D60 still open in §9).
+- Proposed changes: S3-08's step says the plan uses `hit_list_members(list_id, user_id)`; it uses the `(user_id, list_id)` index (both asserted). S5-04: add the readable-id fetch above to its steps.
+
 ### 2026-10-23 05:10 · S3-07 · passes
 
 - Changed: `supabase/migrations/20261023041500_links.sql` (`create_link`, `revoke_link`, `list_my_links`, `preview_link` (service role only, invoker, JWT claim checked), `redeem_invite` (pgcrypto SHA-256 hex, link `for update`, pair lock, block → `'invalid invite'`), trigger `t30_revoke_invite_links`, three links indexes; links keep RLS on with no policies). New `080-links-rls` (116). RED commit `8ddadb5` (died at test 1). Jest 924 → 924; pgTAP 422 → 538.

@@ -125,3 +125,32 @@ Works from S5-06 on. Same setup as S4 (stack up, `.env.local`, `npm run start:ta
 - [ ] **Stop:** `npm run db:stop`. **Undo:** Profile → Sign out → Remove from this phone, then sign in again (everything
       downloads from the account); `npm run db:reset` wipes the server side. A phone that should forget the account
       entirely: Sign out → Keep leaves the rows owned by that account; Delete account (S4) makes them phone-only.
+
+## S6 — friends and Inbox (local stack over Tailscale)
+
+Works from S6-04 on. Same setup as S4/S5 (stack up, `.env.local`, `npm run start:tailscale`). You need **two riders on
+two emails** (codes for both show in the local Mailpit at port 54324); on one phone, switch by Profile → Sign out
+(Keep) → Sign in with the other email. Plan: `docs/plans/2026-10-22-s6-friends.md`.
+
+- [ ] **Server side first:** `npm run test:integration`. Check: the friends suite passes (count in the S6 plan).
+- [ ] **Two riders:** sign in as rider A (e.g. `@ana_test`), sign out (Keep), sign in as rider B (`@ben_test`), pick
+      the username; sign out (Keep).
+- [ ] **Add by username:** as A, Profile → Friends → type `@BEN_TEST` (capitals on purpose) → Add. Check: 'Request
+      sent to @ben_test' and a 'Requests sent' row '@ben_test' with Cancel. Type `@nobody_xyz` → 'No rider named
+      @nobody_xyz'. Type your own name → "That's you".
+- [ ] **Accept on the other side:** sign out (Keep), sign in as B. Check: the tab bar reads Spots · Lists · Inbox ·
+      Profile and Inbox has a badge '1'. Open Inbox: '@ana_test wants to be friends' with Accept / Decline; the badge
+      goes away. Tap Accept once. Check: the row leaves; Profile shows 'Friends · 1' and Friends lists '@ana_test'.
+- [ ] **Both sides:** switch back to A. Check: Friends lists '@ben_test' (no longer under 'Requests sent').
+- [ ] **Block and vanish from find:** as B, long-press '@ana_test' → Block @ana_test → confirm text "They won't be
+      told. They can't send to you or invite you." → Block. Check: A is gone from Friends and under 'Blocked'. Switch
+      to A: B is gone from A's Friends; typing `@ben_test` → 'No rider named @ben_test' (same words as a name that
+      doesn't exist). Switch to B, Unblock: A can find B again (no friendship comes back).
+- [ ] **What to check in Studio** (`http://100.88.90.97:54323`): `friendships` has one row for the pair (`user_a` <
+      `user_b`), `status` `pending` then `accepted`; after the block it is gone and `blocks` has `blocker` = B,
+      `blocked` = A; after Unblock `blocks` is empty.
+- [ ] **Offline:** Airplane mode on, open Friends. Check: "Couldn't reach the server. Pull to try again." and no
+      crash; Airplane off, pull down: the list returns.
+- [ ] **Stop:** `npm run db:stop`. **Undo:** remove friendships from the app (Remove friend / Cancel / Unblock) or
+      `npm run db:reset` to wipe the server side; the phone's name mirror empties when another account signs in.
+- Later (dev build): push notifications for friend requests and an app-icon badge (D75).

@@ -655,7 +655,7 @@
       "after": [
         "S4"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S6-02",

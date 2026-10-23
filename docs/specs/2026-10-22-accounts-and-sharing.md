@@ -121,6 +121,10 @@ it can **Save a copy** (it becomes their own private spot, with "From @name" on 
 | D69 | **Sign out backs up first; Remove only when nothing is waiting** *default* | Sign out tries one sync, then counts every change still waiting (not only those that failed 10 times). Anything waiting → "3 changes aren't backed up yet" · Cancel / Sign out anyway, with no Remove option; nothing waiting → Keep / Remove from this phone (D38). | S5 plan: an offline edit is not yet "failed" but would still be lost by Remove (§9 Q30) |
 | D70 | **Spots deleted before the first sign-in stay on the phone only** *default* | Adoption takes live spots, live photos of live spots and live lists; a spot (or photo) deleted before signing in is never uploaded, and its list memberships aren't either. | S5-06 review: adopting tombstones would upload every photo of every spot deleted since install (privacy, data) (§9 Q31) |
 | D71 | **Delete account keeps the phone's spots first, then asks** *default* | Right after the account is deleted the app makes its spots, photos and lists phone-only (D67); the Keep / Remove question that follows only decides whether to remove them. An unanswered question (app closed) means Keep. | S5-06 review: otherwise the next sign-in would remove them as another account's, with no server copy left (§9 Q32) |
+| D72 | **Friends' names are kept on the phone** *default* | A local `profiles` table (migration 6: id, @username, display name) mirrors the friends and askers the server shows, plus a rider you looked up by username, so names show offline and on things they send or share. It is never uploaded and is emptied when another account signs in, on Remove from this phone and on Delete account. | S6 plan (`docs/plans/2026-10-22-s6-friends.md`): simplest offline names (§9 Q33) |
+| D73 | **A request you sent shows the name only on the phone you sent it from** *default* | The server doesn't show you someone's profile until they accept (S3: you mustn't follow them through a rename), so 'Requests sent' shows '@cal' where you typed it and 'A rider you asked' on another phone, with Cancel either way. | S6 plan (§9 Q34) |
+| D74 | **Friends has a 'Blocked' section with Unblock** *default* | Blocked riders are listed (names from the phone's mirror, D72) with Unblock; unblocking restores nothing (no friendship comes back, D50). | S6 plan: without it a block could never be lifted from the app (§9 Q35) |
+| D75 | **Opening the Inbox marks everything in it seen** *default* | The Inbox tab's badge counts items addressed to you that arrived after you last opened it; no per-row read state; the tab badge only (an app-icon badge needs push notifications, a dev build). | S6 plan (§9 Q36) |
 
 ---
 
@@ -401,6 +405,14 @@ it stops at a milestone boundary; S9 (links) is last among the features because 
     (nor their photos). OK, or should the first sign-in back up deleted spots too?
 32. **Closing the app on "Account deleted · Keep the spots on this phone?" (D71).** Default: Keep (they become
     phone-only spots right away; Remove takes them off). OK?
+33. **Friends' names on the phone (D72).** Default: your friends' @usernames and display names are kept on the phone
+    so they show offline (removed when another account signs in). OK?
+34. **Requests you sent, seen from another phone (D73).** Default: 'A rider you asked' (with Cancel) until they accept,
+    because the server hides their profile until then. Or should a pending request always show the @username you typed
+    (one more server column on the request)?
+35. **Unblocking (D74).** Default: Profile → Friends lists the riders you blocked, each with Unblock. Or should a block
+    be permanent / live in Settings?
+36. **Inbox badge (D75).** Default: opening the Inbox tab clears its badge; no unread dot per row. Want per-row unread?
 
 ---
 

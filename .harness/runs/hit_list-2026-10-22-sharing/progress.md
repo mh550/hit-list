@@ -20,6 +20,16 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 05:10 · S6-01 · passes
+
+- Wrote `docs/plans/2026-10-22-s6-friends.md`: Data (`src/sync/friends.ts` loadFriends/addFriend/respond/removeFriend/block/unblock/refreshFriends + friends store), Local cache (migration 6 `profiles` mirror, D72), Screens (Friends, Inbox tab with a kind-tagged item model for S7/S8, badge = unseen after `inbox_seen_at:<uid>`), Copy table, Tab bar (D49), integration design, Test list per feature. No server migration needed: S3's functions and RLS cover S6.
+- Spec §2 gains D72–D75 *default*, §9 Q33–Q36; live checklist gains "S6 — friends and Inbox" (two emails, switch by sign out/in, Studio checks).
+- Opus plan review: 0 Critical, 5 Important, 5 Minor, all folded into the plan (session guard via `signedInAs` so the 3-client integration test works, `maySync` re-check + `runExclusive` for the mirror write, newest-load-wins ticket, `seenAt` undefined = badge 0 until loaded, a non-vacuous block test).
+- Verified: plan headings present; `check.sh` green, 1332 → 1332 tests (docs only).
+- Next session (S6-02): the fake's `profiles` branch must be rewritten (it skips `selects` and ignores `.in`); rpc args are `p_username`/`p_id`/`p_action`/`p_user`.
+- Questions for Michael: §9 Q33 (friend names kept on the phone), Q34 (a sent request shows 'A rider you asked' on another phone), Q35 (Blocked section with Unblock), Q36 (opening Inbox clears the badge, no per-row unread).
+- Proposed changes: S6-02 step 2 should name rpc args `{ p_username }`, `{ p_id, p_action }`; S6-04 step 2's `setSyncState('inbox_seen_at', now)` → per-rider key storing the newest server `created_at`; S6-03's 'Already friends' copy reads 'Already friends with @dee', and a target *you* blocked reads 'You blocked @dee…' (one who blocked you reads 'No rider named @dee').
+
 ### 2026-10-23 · verify S5
 
 All 9 features hold (43 steps). The local stack was not started (build-only policy), so the two-device integration test was read, not re-run; the recorded run is in the plan.

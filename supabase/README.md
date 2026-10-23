@@ -9,7 +9,7 @@ no cloud project in this run (the live steps are in `docs/plans/2026-10-22-live-
 - `migrations/`: SQL, **append-only** like `src/db/schema.ts` (never edit a shipped one).
 - `tests/`: pgTAP, run by `npm run test:db`.
 - `seed.sql`: only the `tests` schema helpers for pgTAP (`create_user`, `authenticate_as`, `clear_auth`). It runs on
-  `db reset` only and is never pushed by `db push`.
+  `db reset` only and is never pushed by a plain `db push` (never use `--include-seed` or `db reset --linked`).
 
 ## Commands
 

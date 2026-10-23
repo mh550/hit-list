@@ -26,7 +26,8 @@ The migrations in `supabase/migrations/` are the whole server schema. Pushing th
 - [ ] **Link** (once): `npx supabase login`, then `npx supabase link --project-ref <ref>` from this repo. Check:
       `npx supabase migration list` shows every local migration as not yet applied remotely.
 - [ ] **Dry run:** `npx supabase db push --dry-run`. Check: it lists exactly the files in `supabase/migrations/`, in
-      order, and nothing else (`seed.sql` is never pushed).
+      order, and nothing else (`seed.sql` is never pushed). Never add `--include-seed`, never run
+      `npx supabase db reset --linked`: both would put the `tests` schema on the cloud database.
 - [ ] **Push:** `npx supabase db push`. Check in the dashboard: Table editor shows the ten tables, each with "RLS
       enabled"; Storage shows a private bucket `photos` (allowed MIME `image/jpeg`, 10 MB limit) whose Policies tab
       lists `photos_select`, `photos_insert`, `photos_update`, `photos_delete`; Database → Functions lists

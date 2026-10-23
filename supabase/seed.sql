@@ -1,6 +1,6 @@
 -- pgTAP helpers (docs/plans/2026-10-22-s3-backend.md, "pgTAP harness").
--- seed.sql runs only on `supabase start` (fresh volume) and `supabase db reset`; `supabase db push` never sends it,
--- so this schema cannot reach a cloud database.
+-- seed.sql runs only on `supabase start` (fresh volume) and `supabase db reset`; a plain `supabase db push` never
+-- sends it. Never run `db push --include-seed` or `db reset --linked` against a cloud project (both would apply it).
 
 create schema if not exists tests;
 grant usage on schema tests to anon, authenticated, service_role;
@@ -59,3 +59,5 @@ end;
 $$;
 
 grant execute on all functions in schema tests to anon, authenticated, service_role;
+-- create_user writes auth.users as its definer: only the test runner (postgres) calls it, never a client role.
+revoke execute on function tests.create_user(text, text) from public, anon, authenticated, service_role;

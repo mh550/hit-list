@@ -80,7 +80,8 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   is in it, '+ New hit list'), `ListPickerChips` (store-connected, `null` with no lists). `confirmBlock(handle, onBlock)` (S6: the one Block confirm, Friends and Inbox).
   Send (S7-04): `SendSheet` (`{ spotIds, onClose }`, mounted per open; friends with checkboxes, the D34 sentence,
   `syncNow` → `createSend`, can't close while sending; never the word Share in the file, a test reads it), opened from
-  the detail header paper-plane (not on another rider's spot), the select bar 'Send (N)', a list's 'Send these spots'
+  the detail header paper-plane (not on another rider's spot; Cancel works during the `syncNow` before the send, only
+  `createSend` locks the sheet; no username → 'Couldn't load your profile' + `refreshProfile`), the select bar 'Send (N)', a list's 'Send these spots'
   row (+ an empty `ShareListSlot` for S8) and the area picker; `ToastHost` (root layout, and again in any native
   full-screen modal that can toast: the area picker) shows `src/stores/toast-store.ts` `showToast` (3 s, announces
   once; tests `clearToast()`).
@@ -143,7 +144,8 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
 outbox row, D78); `loadSends`/`loadAndApplySends` (engine, after friends; Inbox kind `send`); `saveSend` (download →
 `runExclusive`{`maySync`, `mark_send_saved(p_id, p_token)`, inserts through `src/db`} → reload; single-flight; a save
 the server may have marked stays pending in memory and its retry sends the **same token** and inserts only missing
-rows); `dismissSend`, `withdrawSend`, `listSent`; hook `src/hooks/use-sent-sends.ts`), `reload.ts`
+rows; no photo arrived = nothing marked, and each try downloads the failed ones again; a sends load keeps an item whose
+save waits for Try again); `dismissSend`, `withdrawSend`, `listSent`; hook `src/hooks/use-sent-sends.ts`), `reload.ts`
 (`reloadStores(Quietly)`, re-exported by engine), `PhotoIO.remove`,
 `errors.ts` (`errorMessage`, `serverError` keeps a supabase-js error's `code`), `tickets.ts` (`createTickets()`: per rider, the newest load wins; friends and sends loads each have one); push marks a row done only while the rider's session lasts (an anon DELETE answers 204
 for 0 rows); a pull keeps the local row on an `updated_at` tie while a change of it waits in the outbox; media

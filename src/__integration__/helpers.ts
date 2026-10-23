@@ -94,6 +94,45 @@ export async function deleteRider(userId: string): Promise<void> {
   if (error && error.status !== 404) throw error;
 }
 
+/** Every file under `prefix` in the photos bucket, down any depth of folders (a folder has `id` null). */
+async function photoPaths(admin: SupabaseClient, prefix: string): Promise<string[]> {
+  const { data, error } = await admin.storage.from('photos').list(prefix, { limit: 1000 });
+  if (error) throw error;
+  const paths: string[] = [];
+  for (const entry of data) {
+    const path = `${prefix}/${entry.name}`;
+    if (entry.id === null) paths.push(...(await photoPaths(admin, path)));
+    else paths.push(path);
+  }
+  return paths;
+}
+
+/**
+ * Deletes a rider and their photos the way Delete account does: a fresh session (the test may have ended with the
+ * rider signed out) calls the account-delete Edge Function. When that can't run (no code, the edge runtime down), the
+ * admin API removes the files under `<uid>/` and then the user. Never throws: it runs in afterAll.
+ */
+export async function deleteRiderAndPhotos(email: string, userId: string): Promise<void> {
+  try {
+    const client = await signInAgain(email);
+    const { data, error } = await client.functions.invoke<{ ok?: boolean }>('account-delete');
+    if (!error && data?.ok === true) return;
+  } catch {
+    // Fall through to the admin API.
+  }
+  try {
+    const admin = adminClient();
+    const paths = await photoPaths(admin, userId);
+    if (paths.length) {
+      const { error } = await admin.storage.from('photos').remove(paths);
+      if (error) throw error;
+    }
+    await deleteRider(userId);
+  } catch (error) {
+    console.warn(`could not delete rider ${userId}:`, error);
+  }
+}
+
 /** A unique username for a test run (D39: 3–20 of a–z 0–9 _ .). */
 export function uniqueUsername(prefix: string): string {
   return `${prefix}_${randomUUID().replace(/-/g, '').slice(0, 8)}`;

@@ -155,7 +155,7 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   `DBInitializer`; mirrors the session, the profile fetch is deferred out of `onAuthStateChange`), `app/auth/`
   (`sign-in` modal → `code` (six digits auto-verify) → `username` (no back, no swipe, a `Sign out` (D64); the tabs
   `<Redirect>` there while `needs_username`; S5+ must not assume a signed-in rider has a username)), Profile's `Account` section. Tests use `src/__tests__/helpers/fake-supabase.ts`;
-  `src/__integration__/` (helpers `createRider`/`deleteRider`) runs only under `npm run test:integration`.
+  `src/__integration__/` (helpers `createRider`/`deleteRider`/`deleteRiderAndPhotos`; `sync.test.ts` (S5-07): two phones of one rider and one phone shared by two riders, node:sqlite + real clients, Node `PhotoIO` with no re-encode) runs only under `npm run test:integration`.
 
 ## Conventions that are easy to get wrong
 

@@ -607,7 +607,7 @@
         "The local stack was started with npx supabase start, npm run db:reset, npm run test:db and npm run test:integration all passed (counts recorded in docs/plans/2026-10-22-s5-sync.md), and npx supabase stop was run afterwards; docker ps --format '{{.Names}}' shows no supabase_* container left and never touched any container not matching supabase_*_hit-list.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S5-08",

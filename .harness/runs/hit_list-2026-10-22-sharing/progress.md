@@ -20,6 +20,26 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 12:40 · S5-07 · passes
+
+- **What changed:**
+  - New: `src/__integration__/sync.test.ts` (12 cases) and a 2086-byte JPEG fixture, `src/__tests__/fixtures/photo-2kb.jpg`.
+  - `helpers.ts` gained `deleteRiderAndPhotos`: a fresh sign-in, then `account-delete`, falling back to the admin API for the photos and the user.
+  - Docs: plan "As built (S5-07)", one CLAUDE.md line.
+  - No app code changed. Jest stays at 1324; integration went from 17 to 29.
+- **Verified:**
+  - Stack: `db:start` → `db:reset` → `test:db` (`Files=9, Tests=569, PASS`) → `test:integration` 29/29, twice in a row → `db:stop`.
+  - After every run, `auth.users`, `storage.objects` and `spots` all counted 0.
+  - Cleanup also left 0 behind with a forced failure while X was signed out, and with the edge runtime stopped.
+  - `docker ps`: the same 7 dj-*/n8n-* containers, no `supabase_*`. check.sh green.
+- **Mutations:** the test passed on its first run, because it checks code built in S5-02…06. Instead, 5 of 6 hand mutations were killed: both LWW guards off, switch keeps files, switch keeps cursors, membership delete not sent, no download write. The survivor, pull's SQL LWW guard alone, is backed up by the JS `isOlder` check.
+- **Opus review:** 1 Important, 4 Minor, all fixed. The Important one: cleanup with X signed out left X's photos in storage.
+- **Next (S5-08) must know:**
+  - The integration pass count is 29.
+  - Byte-for-byte equality proves the transport only: the Node PhotoIO doesn't re-encode.
+- **Questions for Michael:** none.
+- **Proposed changes:** none.
+
 ### 2026-10-23 11:40 · S5-06 · passes
 
 - **What changed:**

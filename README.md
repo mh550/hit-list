@@ -60,7 +60,13 @@ three-filter list (M5), the review screens (M6) and the import radius in your un
   the app comes to the foreground, every 5 minutes and on pull-to-refresh on the Spots tab; a second phone of the same
   rider gets them, and the newer edit wins. Profile shows 'Backed up · 3 min ago', or 'N changes not backed up' with
   Retry. Sign out backs up first, then asks Keep / Remove from this phone (Remove only when nothing is pending); a
-  different account signing in never sees the previous account's spots. Nothing is shared with other riders yet (S6 on).
+  different account signing in never sees the previous account's spots.
+- Friends and Inbox (S6): Profile → Friends adds a rider by their exact @username (no search by name; 'BEN' finds
+  @ben), lists your friends, the requests you sent (Cancel) and the riders you blocked (Unblock); long-press a friend
+  for Remove friend or Block (they aren't told: to them you read like a name that doesn't exist). A fourth tab, Inbox
+  (Spots · Lists · Inbox · Profile), shows friend requests with Accept / Decline and a badge with the number you
+  haven't seen; opening it clears the badge. Friends' names are kept on the phone so they show offline. Spots aren't
+  sent or shared yet (S7 on).
 
 ## Run it
 

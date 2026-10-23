@@ -43,9 +43,11 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
 
 ## Layout
 
-- `app/` expo-router screens: tabs Spots · Lists · Profile. `(tabs)/index.tsx` Spots (List | Map via `SpotsBrowser`, a
+- `app/` expo-router screens: tabs Spots · Lists · Inbox · Profile (D49; the Inbox badge is `selectUnseenCount`). `(tabs)/index.tsx` Spots (List | Map via `SpotsBrowser`, a
   `ListPickerChips` row ('My spots' + every hit list) scoping both views, multi-select: long press or 'Select' →
   checkbox rows, '<N> selected', 'Add to list (N)' → `AddToListSheet`; select mode never navigates),
+  `(tabs)/inbox.tsx` (S6-04, see `src/sync/`), `friends/` (`app/friends/index.tsx`, S6-03, from Profile's 'Friends · N' row:
+  Add by exact @username, Friends / Requests sent (Cancel) / Blocked (Unblock), long press Remove friend / Block),
   `(tabs)/lists.tsx` 'My hit lists' (rows with live spot counts, '+ New hit list' → `NameListSheet` → `/list/<id>`),
   `list/[id]/` one list (`SpotsBrowser` scoped to its spots, Rename, long-press 'Remove from list', 'Delete list',
   a 'This list is gone' state; an area list (S2) shows 'Area · 2 mi of <place>' under its title and 'Edit area', no
@@ -114,6 +116,7 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   the D66 confirm, retry on `'active'`); `src/sync/owner.ts` `currentOwnerId()` (sync store `adoptedUserId`) is the
   owner of new spots/lists; `useSpotActions.setTown` keeps `updated_at`. Profile Sign out: last backup (10 s) →
   Keep / Remove / Cancel, or 'N changes aren't backed up yet' (Cancel / Sign out anyway).
+  `profiles.ts` (migration 6, S6-02): `upsertProfiles`/`getProfiles`, the local mirror of friend names (D72).
   `hit-lists.ts` (migration 4): `insertHitList`, `getHitLists` (live only), `updateHitList`, `softDeleteHitList`,
   `addSpotsToList` (one `INSERT OR IGNORE … FROM json_each(?)`, idempotent; no `withTransactionAsync` for app writes: it is a
   plain BEGIN/COMMIT on the shared connection, so two writes at once collide), `removeSpotFromList`, `getListMemberships` (`{ spotId: listId[] }`, live lists).

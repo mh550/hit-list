@@ -10,6 +10,7 @@ import {
   enqueueMemberships,
   getCursor,
   getSyncState,
+  lastOutboxId,
   markDone,
   markFailed,
   parkRow,
@@ -130,6 +131,21 @@ describe('src/db/sync.ts: the outbox and sync state (real SQLite)', () => {
 
       expect(await countFailed(db)).toBe(1);
       expect(await countPending(db)).toBe(3);
+    });
+
+    it('lastOutboxId is the newest row id (0 when empty); countPending(upToId) counts only rows up to it', async () => {
+      expect(await lastOutboxId(db)).toBe(0);
+      for (const id of ['a', 'b']) await enqueue(db, 'spot', id, 'upsert');
+      const upTo = await lastOutboxId(db);
+      await enqueue(db, 'spot', 'c', 'upsert');
+
+      expect(upTo).toBe((await peekOutbox(db, 50))[1].id);
+      expect(await countPending(db, upTo)).toBe(2);
+      expect(await countPending(db)).toBe(3);
+      await clearOutbox(db);
+      // AUTOINCREMENT: ids are never reused, so a row queued later is always above upTo
+      await enqueue(db, 'spot', 'd', 'upsert');
+      expect(await countPending(db, upTo)).toBe(0);
     });
 
     it('parkRow keeps the row with its error but out of peekOutbox, countPending and countFailed', async () => {

@@ -11,10 +11,14 @@ jest.mock('@/src/sync/client', () => ({
 }));
 jest.mock('@/src/sync/push', () => ({ push: jest.fn() }));
 jest.mock('@/src/sync/pull', () => ({ pull: jest.fn() }));
+// getSpots stays real; a test can slip a local change in while the engine's reload reads.
+jest.mock('@/src/db', () => {
+  const actual = jest.requireActual('@/src/db');
+  return { ...actual, getSpots: jest.fn(actual.getSpots) };
+});
 jest.mock('@/src/sync/photos', () => ({ ...jest.requireActual('@/src/sync/photos'), downloadMissingPhotos: jest.fn() }));
 
-import * as dbModule from '@/src/db';
-import { addSpotsToList, insertHitList, insertMedia, insertSpot } from '@/src/db';
+import { addSpotsToList, getSpots, insertHitList, insertMedia, insertSpot } from '@/src/db';
 import { enqueue, getSyncState, setSyncState } from '@/src/db/sync';
 import { push } from '@/src/sync/push';
 import { pull } from '@/src/sync/pull';
@@ -156,8 +160,9 @@ describe('syncNow', () => {
   it('a reload never overwrites a local change made while it read the DB: it reads again', async () => {
     await insertSpot(db, createTestSpot({ id: 'spot-1', name: 'Courthouse rail' }));
     mockPull.mockResolvedValueOnce({ changed: true });
-    const realGetSpots = dbModule.getSpots;
-    const getSpotsSpy = jest.spyOn(dbModule, 'getSpots').mockImplementationOnce(async (d) => {
+    const { getSpots: realGetSpots } = jest.requireActual<typeof import('@/src/db')>('@/src/db');
+    const getSpotsSpy = jest.mocked(getSpots);
+    getSpotsSpy.mockClear().mockImplementationOnce(async (d) => {
       const stale = await realGetSpots(d);
       // the rider saves a spot now: the action hook puts it in the store, then in the DB
       const added = createTestSpot({ id: 'spot-2', name: 'Saved meanwhile' });

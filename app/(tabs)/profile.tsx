@@ -33,6 +33,7 @@ function BackupStatus({ userId }: { userId: string | null }) {
   const mine = useSyncStore((s) => s.userId !== null && s.userId === userId);
   const lastSyncAt = useSyncStore((s) => s.lastSyncAt);
   const failedCount = useSyncStore((s) => s.failedCount);
+  const syncing = useSyncStore((s) => s.syncing);
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const timer = setInterval(() => setNow(Date.now()), BACKUP_LINE_TICK_MS);
@@ -42,7 +43,12 @@ function BackupStatus({ userId }: { userId: string | null }) {
   const ago = mine && lastSyncAt ? relativeTime(lastSyncAt, Math.max(now, Date.parse(lastSyncAt))) : null;
   const failed = mine ? failedCount : 0;
   const retry = async () => {
-    await resetFailed(db);
+    try {
+      await resetFailed(db);
+    } catch (err) {
+      console.warn('[Profile] Retry could not reset the failed changes:', err);
+      return;
+    }
     await syncNow(db);
   };
 
@@ -54,7 +60,7 @@ function BackupStatus({ userId }: { userId: string | null }) {
           <Text style={styles.backupFailedText}>
             {failed === 1 ? '1 change not backed up' : `${failed} changes not backed up`}
           </Text>
-          <Button title="Retry" variant="secondary" size="sm" onPress={() => void retry()} />
+          <Button title="Retry" variant="secondary" size="sm" onPress={() => void retry()} disabled={syncing} />
         </View>
       ) : null}
     </View>

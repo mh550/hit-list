@@ -142,9 +142,15 @@ async function count(db: SQLiteDatabase, where: string, ...values: number[]): Pr
   return row?.n ?? 0;
 }
 
-/** Every row still to push (failed ones too; parked ones never will). */
-export function countPending(db: SQLiteDatabase): Promise<number> {
-  return count(db, 'parked = 0');
+/** Every row still to push (failed ones too; parked ones never will); with `upToId`, only rows queued by then. */
+export function countPending(db: SQLiteDatabase, upToId?: number): Promise<number> {
+  return upToId === undefined ? count(db, 'parked = 0') : count(db, 'parked = 0 AND id <= ?', upToId);
+}
+
+/** The newest outbox row's id, 0 when empty. Ids are AUTOINCREMENT (never reused): a later row has a higher id. */
+export async function lastOutboxId(db: SQLiteDatabase): Promise<number> {
+  const row = await db.getFirstAsync<{ id: number | null }>('SELECT MAX(id) AS id FROM sync_outbox');
+  return row?.id ?? 0;
 }
 
 /** Rows waiting for Retry: FAILED_AFTER_ATTEMPTS failures or more. */

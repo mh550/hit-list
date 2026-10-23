@@ -463,6 +463,24 @@ describe('refreshFriends', () => {
     expect(selectUnseenCount(useInboxStore.getState())).toBe(1);
   });
 
+  it("a seen mark that can't be read warns only: friends and Inbox items still apply, no Friends load error", async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const realLoadSeen = useInboxStore.getState().loadSeen;
+    useInboxStore.setState({ loadSeen: jest.fn().mockRejectedValue(new Error('disk')) });
+    try {
+      await refreshFriends(db, client(), ME);
+    } finally {
+      useInboxStore.setState({ loadSeen: realLoadSeen });
+    }
+
+    expect(useFriendsStore.getState().loadError).toBeNull();
+    expect(useFriendsStore.getState().friends).toHaveLength(1);
+    expect(useInboxStore.getState().items.map((i) => i.id)).toEqual(['f-zed']);
+    // a mark not read stays unloaded: badge 0, never everything
+    expect(selectUnseenCount(useInboxStore.getState())).toBe(0);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('[friends]'), 'disk');
+  });
+
   it('a load that ends after the rider signed out leaves the Inbox empty', async () => {
     const realFrom = fake.from.getMockImplementation()!;
     fake.from.mockImplementation((table: string) => {

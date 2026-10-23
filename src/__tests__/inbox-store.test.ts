@@ -79,6 +79,24 @@ describe('setItems', () => {
   });
 });
 
+describe('removeItem', () => {
+  it('drops one answered item of that kind', () => {
+    useInboxStore.setState({ userId: ME, items: [request('a', T1), request('b', T2)], seenAt: null });
+
+    useInboxStore.getState().removeItem(ME, 'friend_request', 'a');
+
+    expect(useInboxStore.getState().items).toEqual([request('b', T2)]);
+  });
+
+  it("ignores another rider's call", () => {
+    useInboxStore.setState({ userId: ME, items: [request('a', T1)], seenAt: null });
+
+    useInboxStore.getState().removeItem('rider-other', 'friend_request', 'a');
+
+    expect(useInboxStore.getState().items).toEqual([request('a', T1)]);
+  });
+});
+
 describe('loadSeen', () => {
   it("reads the rider's own key; null when never set", async () => {
     await useInboxStore.getState().loadSeen(db, ME);
@@ -136,6 +154,17 @@ describe('markSeen', () => {
     await useInboxStore.getState().markSeen(db, ME);
 
     expect(await getSyncState(db, KEY)).toBeUndefined();
+  });
+
+  it('writes nothing when the rider changes while the stored mark is read', async () => {
+    useInboxStore.setState({ userId: ME, items: [request('a', T1)], seenAt: null });
+
+    const marking = useInboxStore.getState().markSeen(db, ME);
+    signIn('rider-other');
+    await marking;
+
+    expect(await getSyncState(db, KEY)).toBeUndefined();
+    expect(useInboxStore.getState()).toMatchObject({ userId: null, items: [], seenAt: undefined });
   });
 
   it('writes nothing for a rider who is not the one shown', async () => {

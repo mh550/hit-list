@@ -54,7 +54,7 @@ const DATA: FriendsData = {
 const HINT = "Friends are added by exact username or by an invite link. There's no search by name.";
 const NETWORK = "Couldn't reach the server. Try again.";
 
-let router: { push: jest.Mock; navigate: jest.Mock };
+let router: { push: jest.Mock; dismissTo: jest.Mock };
 let alert: jest.SpyInstance;
 let warn: jest.SpyInstance;
 // jest.setup's expo-sqlite mock hands every caller the same db object: the one the screen passes on.
@@ -96,7 +96,7 @@ beforeEach(() => {
   mockFake = createFakeSupabase();
   useAuthStore.setState(SIGNED_OUT);
   useFriendsStore.getState().clearFriends();
-  router = { push: jest.fn(), navigate: jest.fn() };
+  router = { push: jest.fn(), dismissTo: jest.fn() };
   jest.mocked(useRouter).mockReturnValue(router as never);
   alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
   warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
@@ -386,7 +386,8 @@ describe('Friends screen signed in', () => {
     expect(screen.getByText('1 friend request in Inbox')).toBeOnTheScreen();
     expect(screen.queryByText('@eve')).toBeNull();
     fireEvent.press(screen.getByRole('link', { name: '1 friend request in Inbox' }));
-    expect(router.navigate).toHaveBeenCalledWith('/inbox');
+    // back to the tabs under Friends, switched to Inbox; navigate would push a second set of tabs on top
+    expect(router.dismissTo).toHaveBeenCalledWith('/inbox');
   });
 
   it('pull to refresh loads friends again', async () => {

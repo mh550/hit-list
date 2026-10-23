@@ -199,6 +199,30 @@ describe('Inbox tab signed in', () => {
     expect(refreshFriends).toHaveBeenCalledWith(db, mockFake, ME);
   });
 
+  it.each(['Accept', 'Decline'])('an answered request leaves the list at once (%s), before any friends load', async (label) => {
+    signIn();
+    await renderTab();
+
+    await act(async () => {
+      fireEvent.press(screen.getByRole('button', { name: `${label} friend request from @ana` }));
+    });
+
+    // refreshFriends is mocked: nothing reloads, so the row must go on the answer itself (no second answer to it)
+    expect(screen.queryByText('@ana wants to be friends')).toBeNull();
+    expect(screen.getByText('@ben wants to be friends')).toBeOnTheScreen();
+  });
+
+  it('a blocked requester leaves the list at once', async () => {
+    signIn();
+    await renderTab();
+
+    fireEvent(screen.getByText('@ana wants to be friends'), 'longPress');
+    await pressAlertButton('Block @ana');
+    await pressAlertButton('Block');
+
+    expect(screen.queryByText('@ana wants to be friends')).toBeNull();
+  });
+
   it('a double tap on Accept sends one respond', async () => {
     signIn();
     let finish: () => void = () => {};

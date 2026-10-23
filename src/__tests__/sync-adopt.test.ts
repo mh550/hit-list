@@ -533,3 +533,34 @@ describe('the friend names mirror (D72) leaves with the account', () => {
     expect(await count('profiles')).toBe(0);
   });
 });
+
+describe("the Inbox seen mark (S6-04) leaves with the account", () => {
+  const SEEN = '2026-10-22T10:00:00.000Z';
+
+  it("another account signing in clears the last account's mark", async () => {
+    await setSyncState(db, 'user_id', A);
+    await setSyncState(db, `inbox_seen_at:${A}`, SEEN);
+
+    await adopt(db, B);
+
+    expect(await getSyncState(db, `inbox_seen_at:${A}`)).toBeUndefined();
+  });
+
+  it('Remove from this phone clears it', async () => {
+    await setSyncState(db, 'user_id', A);
+    await setSyncState(db, `inbox_seen_at:${A}`, SEEN);
+
+    await removeLocalAccountData(db, A);
+
+    expect(await getSyncState(db, `inbox_seen_at:${A}`)).toBeUndefined();
+  });
+
+  it('Keep after Delete account clears it', async () => {
+    await setSyncState(db, 'user_id', A);
+    await setSyncState(db, `inbox_seen_at:${A}`, SEEN);
+
+    await releaseAccountData(db, A, { exists: () => true });
+
+    expect(await getSyncState(db, `inbox_seen_at:${A}`)).toBeUndefined();
+  });
+});

@@ -15,7 +15,7 @@ import { useSyncStore } from '@/src/stores/sync-store';
 import { deleteSpotPhotos } from '@/src/utils/photo-storage';
 import { reloadStoresQuietly, runExclusive } from './engine';
 import { errorMessage } from './errors';
-import { defaultPhotoIO, type PhotoIO } from './photos';
+import { defaultPhotoIO, deleteCachedPhotos, type PhotoIO } from './photos';
 
 /*
  * Whose rows are on the phone (S5-06, D38, D66, D67; docs/plans/2026-10-22-s5-sync.md "Adoption", "Sign out").
@@ -40,8 +40,9 @@ const ADOPTABLE_MEDIA =
 const ADOPTABLE_LISTS = 'owner_id IS NULL AND deleted_at IS NULL';
 
 /**
- * Deletes every row that came with an account (owner_id set) except `keep`'s, memberships first, and the friend names
- * mirror (D72: they were that account's friends), and returns the removed spots' ids (for their photo folders).
+ * Deletes every row that came with an account (owner_id set) except `keep`'s, memberships first, the friend names
+ * mirror (D72: they were that account's friends) and the members mirror (S8), and returns the removed spots' ids (for
+ * their photo folders and cached photos).
  * `sync_state.user_id` must already be cleared, so no delete trigger queues a server DELETE.
  */
 async function deleteAccountRows(db: SQLiteDatabase, keep: string | null): Promise<string[]> {
@@ -61,6 +62,8 @@ async function deleteAccountRows(db: SQLiteDatabase, keep: string | null): Promi
   await db.runAsync(`DELETE FROM spots WHERE ${owned}`, keep);
   await db.runAsync(`DELETE FROM hit_lists WHERE ${owned}`, keep);
   await clearProfiles(db);
+  // the shared-list members mirror (S8) was that account's view too
+  await db.runAsync('DELETE FROM hit_list_members');
   return spots.map((s) => s.id);
 }
 
@@ -110,6 +113,7 @@ export function adopt(
       await enqueueMemberships(db, memberships);
     });
     deleteSpotPhotos(removed);
+    deleteCachedPhotos(removed);
     await reloadStoresQuietly(db);
     return 'done';
   });
@@ -137,6 +141,7 @@ export function removeLocalAccountData(
       await resetCursors(db);
     });
     deleteSpotPhotos(removed);
+    deleteCachedPhotos(removed);
     await reloadStoresQuietly(db);
     return true;
   });
@@ -213,6 +218,7 @@ async function release(db: SQLiteDatabase, uid: string, io: Pick<PhotoIO, 'exist
     await resetCursors(db);
   });
   deleteSpotPhotos(removed);
+  deleteCachedPhotos(removed);
   await reloadStoresQuietly(db);
   return released;
 }
@@ -241,6 +247,7 @@ export function removeReleasedRows(db: SQLiteDatabase, released: ReleasedRows): 
       await db.runAsync(`DELETE FROM hit_lists WHERE ${phoneOnlyIn}`, lists);
     });
     deleteSpotPhotos(removed);
+    deleteCachedPhotos(removed);
     await reloadStoresQuietly(db);
   });
 }

@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { DEFAULT_FILTERS, type GeoPoint, type HitList, type HitListUpdate, type Spot, type SpotFilters } from '@/src/types';
 import { isAreaList, spotsInCircle } from '@/src/utils/area';
+import type { InboxItem, InviteItem } from './inbox-store';
 import { selectFilteredSpots } from './spots-store';
 
 interface HitListsState {
@@ -155,4 +156,29 @@ export function selectListCounts(
     }
   }
   return counts;
+}
+
+/**
+ * Others' lists the rider joined (S8): an owner that isn't `uid` and a members row of `uid`'s with status 'member'
+ * (an invitation isn't joined, D57), by name.
+ */
+export function selectSharedWithMe(lists: HitList[], uid: string): HitList[] {
+  return selectListsByName(
+    lists.filter(
+      (l) =>
+        l.owner_id !== undefined &&
+        l.owner_id !== uid &&
+        (l.members ?? []).some((m) => m.user_id === uid && m.status === 'member'),
+    ),
+  );
+}
+
+/**
+ * The rider's open invitations (status 'invited'), newest first: the Inbox's invite items, from list_invitations()
+ * (D83: an invited rider doesn't hold the list, only its name and count). Takes the Inbox store's items.
+ */
+export function selectInvitations(items: InboxItem[]): InviteItem[] {
+  return items
+    .filter((i): i is InviteItem => i.kind === 'invite')
+    .sort((a, b) => b.created_at.localeCompare(a.created_at));
 }

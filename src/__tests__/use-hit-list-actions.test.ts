@@ -385,6 +385,26 @@ describe('useHitListActions', () => {
       expect(await outboxOps(mockDb)).toEqual([['hit_list', list!.id, 'upsert']]);
     });
 
+    it('addSpotsToList stamps added_by with the adopted rider (S8: a member add), none signed out', async () => {
+      const { result } = renderHook(() => useHitListActions());
+      const list = createTestHitList();
+      await insertHitList(mockDb, list);
+      await act(async () => {
+        await result.current.addSpotsToList(list.id, ['a']);
+      });
+      useSyncStore.setState({ adoptedUserId: ME });
+      await act(async () => {
+        await result.current.addSpotsToList(list.id, ['b']);
+      });
+
+      expect(
+        await mockDb.getAllAsync('SELECT spot_id, added_by FROM hit_list_spots WHERE list_id = ? ORDER BY spot_id', list.id),
+      ).toEqual([
+        { spot_id: 'a', added_by: null },
+        { spot_id: 'b', added_by: ME },
+      ]);
+    });
+
     it('signed out (no adopted rider) the list stays phone-only', async () => {
       await adoptPhoneFor(mockDb, ME); // Keep: the account's rows are still here
       const { result } = renderHook(() => useHitListActions());

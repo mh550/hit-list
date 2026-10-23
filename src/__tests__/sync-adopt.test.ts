@@ -534,6 +534,39 @@ describe('the friend names mirror (D72) leaves with the account', () => {
   });
 });
 
+describe('the shared-list members mirror (S8) leaves with the account', () => {
+  const mirror = () =>
+    db.runAsync("INSERT INTO hit_list_members (list_id, user_id, role, status) VALUES ('list-1', 'rider-ana', 'add', 'member')");
+
+  it('another account signing in, Remove and Keep after Delete account each empty hit_list_members', async () => {
+    await setSyncState(db, 'user_id', A);
+    await mirror();
+    await adopt(db, B);
+    expect(await count('hit_list_members')).toBe(0);
+
+    await mirror();
+    await removeLocalAccountData(db, B);
+    expect(await count('hit_list_members')).toBe(0);
+
+    await setSyncState(db, 'user_id', A);
+    await mirror();
+    await releaseAccountData(db, A, { exists: () => true });
+    expect(await count('hit_list_members')).toBe(0);
+  });
+
+  it("another account signing in deletes the cached photos of the last account's friends' spots", async () => {
+    fakeFs.__resetFs();
+    await setSyncState(db, 'user_id', A);
+    await insertSpot(db, createTestSpot({ id: 'ana-spot', owner_id: 'rider-ana' }));
+    new Directory(Paths.cache, 'photos', 'ana-spot').create({ intermediates: true });
+    fakeFs.__putFile('file:///data/Caches/photos/ana-spot/p.jpg');
+
+    await adopt(db, B);
+
+    expect(fakeFs.__fileExists('file:///data/Caches/photos/ana-spot/p.jpg')).toBe(false);
+  });
+});
+
 describe("the Inbox seen mark (S6-04) leaves with the account", () => {
   const SEEN = '2026-10-22T10:00:00.000Z';
 

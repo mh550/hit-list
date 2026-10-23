@@ -130,7 +130,7 @@ export function useHitListActions() {
       const added = [...new Set(spotIds)].filter((spotId) => !listsOf(spotId).includes(listId));
       addMemberships(listId, spotIds);
       try {
-        await dbAddSpotsToList(db, listId, spotIds, new Date().toISOString());
+        await dbAddSpotsToList(db, listId, spotIds, new Date().toISOString(), currentOwnerId() ?? null);
       } catch (err) {
         console.error('[useHitListActions] addSpotsToList failed:', err);
         removeMemberships(listId, added);

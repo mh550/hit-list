@@ -6,7 +6,10 @@ import {
   selectSpotLists,
   selectListCounts,
   selectListsByName,
+  selectSharedWithMe,
+  selectInvitations,
 } from '@/src/stores';
+import type { InboxItem } from '@/src/stores/inbox-store';
 import { DEFAULT_FILTERS, FeatureType, type GeoPoint } from '@/src/types';
 import { NO_LOCATION } from '@/src/utils/geo';
 import { CITIES, createTestHitList, createTestSpot } from './factories';
@@ -208,5 +211,86 @@ describe('area lists (computed from the circle and its filters, never stored)', 
     expect(cleared.area_place).toBeUndefined();
     expect('area_place' in cleared).toBe(false);
     expect(cleared.area_radius_m).toBe(8047);
+  });
+});
+
+describe('shared lists (S8)', () => {
+  const ME = 'rider-me';
+  const ANA = 'rider-ana';
+  const joined = createTestHitList({
+    id: 'joined',
+    name: 'Downtown',
+    owner_id: ANA,
+    shared: true,
+    members: [
+      { user_id: ME, role: 'add', status: 'member' },
+      { user_id: 'rider-ben', username: 'ben', role: 'view', status: 'member' },
+    ],
+  });
+  const invitedOnly = createTestHitList({
+    id: 'invited',
+    name: 'Bridges',
+    owner_id: ANA,
+    shared: true,
+    members: [{ user_id: ME, role: 'add', status: 'invited' }],
+  });
+  const mineShared = createTestHitList({
+    id: 'mine',
+    name: 'Crew',
+    owner_id: ME,
+    shared: true,
+    members: [{ user_id: ANA, role: 'add', status: 'member' }],
+  });
+  const phoneOnly = createTestHitList({ id: 'phone', name: 'Apple' });
+  const later = createTestHitList({
+    id: 'later',
+    name: 'apex',
+    owner_id: 'rider-cal',
+    shared: true,
+    members: [{ user_id: ME, role: 'view', status: 'member' }],
+  });
+
+  beforeEach(() => {
+    useHitListsStore.setState(initial, true);
+  });
+
+  it("selectSharedWithMe: others' lists the rider joined (status 'member'), by name; never their own, an invitation or a phone-only list", () => {
+    expect(selectSharedWithMe([joined, invitedOnly, mineShared, phoneOnly, later], ME).map((l) => l.id)).toEqual([
+      'later',
+      'joined',
+    ]);
+    expect(selectSharedWithMe([joined], 'rider-ben').map((l) => l.id)).toEqual(['joined']);
+    expect(selectSharedWithMe([joined], 'rider-cal')).toEqual([]);
+  });
+
+  it('the store keeps each list its members through setLists and an update', () => {
+    useHitListsStore.getState().setLists([mineShared]);
+    useHitListsStore.getState().updateList('mine', { name: 'Crew 2' });
+    expect(useHitListsStore.getState().lists[0].members).toEqual([{ user_id: ANA, role: 'add', status: 'member' }]);
+  });
+
+  it('selectInvitations: the Inbox invite items, newest first, nothing else', () => {
+    const invite = (id: string, created_at: string): InboxItem => ({
+      kind: 'invite',
+      id,
+      created_at,
+      listId: id,
+      listName: id,
+      listKind: 'manual',
+      from: { id: ANA, username: 'ana', display_name: null },
+      role: 'add',
+      spotCount: 3,
+    });
+    const request: InboxItem = {
+      kind: 'friend_request',
+      id: 'r',
+      created_at: '2026-10-23T12:00:00.000Z',
+      friendshipId: 'r',
+      from: { id: 'x', username: 'x', display_name: null },
+    };
+    const items = [invite('old', '2026-10-21T00:00:00.000Z'), request, invite('new', '2026-10-22T00:00:00.000Z')];
+
+    expect(selectInvitations(items).map((i) => i.id)).toEqual(['new', 'old']);
+    expect(items.map((i) => i.id)).toEqual(['old', 'r', 'new']);
   });
 });

@@ -8,6 +8,7 @@ import { newId } from '@/src/utils/id';
 import { isForeign } from '@/src/utils/ownership';
 import { photoFolder, photoRelativePath, resolvePhotoUri } from '@/src/utils/photo-storage';
 import { errorMessage } from './errors';
+import { currentOwnerId } from './owner';
 import { cachedPhotoUri, defaultPhotoIO, type PhotoIO } from './photos';
 import { reloadStoresQuietly } from './reload';
 
@@ -45,6 +46,8 @@ export async function saveCopy(
   spotId: string,
   io: CopyIO = defaultCopyIO,
 ): Promise<CopyResult> {
+  // the copy must be a row the triggers queue for `uid`: not while adoption hasn't made the phone theirs
+  if (currentOwnerId() !== uid) throw new Error("this phone isn't your account yet");
   const source = await getSpot(db, spotId);
   if (!source || !isForeign(source, uid)) throw new Error("not another rider's spot");
 

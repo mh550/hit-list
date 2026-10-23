@@ -3,7 +3,14 @@ import { SaveFormat } from 'expo-image-manipulator';
 import { fakeFs } from './helpers/fake-fs';
 import { createFakeSupabase, fakeSession } from './helpers/fake-supabase';
 import { createTestMedia } from './factories';
-import { cachedPhotoUri, defaultPhotoIO, preparePhoto, uploadPhoto } from '@/src/sync/photos';
+import {
+  cachedPhotoUri,
+  defaultPhotoIO,
+  deleteAllCachedPhotos,
+  deleteCachedPhotos,
+  preparePhoto,
+  uploadPhoto,
+} from '@/src/sync/photos';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 // A stand-in for expo-image-manipulator 57. Member names and signatures from
@@ -237,6 +244,20 @@ describe("cachedPhotoUri: another rider's photo, downloaded into the cache on fi
     const own = createTestMedia({ id: 'm1', spot_id: 's1', owner_id: 'u-me', file_path: 'photos/s1/m1.jpg' });
     await expect(cachedPhotoUri(asClient(fake), own)).resolves.toBe(ORIGINAL);
     expect(downloads()).toHaveLength(1);
+  });
+
+  it('a download still running when its cache is emptied (Leave, a pull removal, sign-out) writes nothing and rejects', async () => {
+    const pending = cachedPhotoUri(asClient(fake), theirs);
+    deleteCachedPhotos(['s9']);
+    await expect(pending).rejects.toThrow('removed while downloading');
+    expect(fakeFs.__fileExists(CACHED)).toBe(false);
+
+    const again = cachedPhotoUri(asClient(fake), theirs);
+    deleteAllCachedPhotos();
+    await expect(again).rejects.toThrow('removed while downloading');
+    expect(fakeFs.__fileExists(CACHED)).toBe(false);
+    // a later show downloads it again
+    await expect(cachedPhotoUri(asClient(fake), theirs)).resolves.toBe(CACHED);
   });
 
   it('defaultPhotoIO.write makes a cache/… folder under Paths.cache', () => {

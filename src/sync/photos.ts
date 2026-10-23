@@ -25,6 +25,9 @@ export interface PhotoIO {
   remove(filePath: string): void;
 }
 
+/** Bumped by every cache delete: a download that started before one doesn't write a photo whose row may be gone. */
+let cacheGeneration = 0;
+
 /** Where another rider's photo is cached on this phone, as their media row's file_path (S8, §3.4: never Paths.document). */
 export const cachedPhotoPath = (spotId: string, mediaId: string) => `cache/photos/${spotId}/${mediaId}.jpg`;
 
@@ -33,6 +36,7 @@ export const cachedPhotoPath = (spotId: string, mediaId: string) => `cache/photo
  * sharing, a pull that lost read). A folder that isn't there is skipped; one that can't be deleted warns.
  */
 export function deleteCachedPhotos(spotIds: readonly string[]): void {
+  cacheGeneration += 1;
   for (const spotId of spotIds) {
     try {
       const dir = new Directory(Paths.cache, 'photos', spotId);
@@ -45,6 +49,7 @@ export function deleteCachedPhotos(spotIds: readonly string[]): void {
 
 /** Deletes the whole cache of others' photos (`Paths.cache/photos/`): sign-out (D86). One that can't go warns. */
 export function deleteAllCachedPhotos(): void {
+  cacheGeneration += 1;
   try {
     const dir = new Directory(Paths.cache, 'photos');
     if (dir.exists) dir.delete();
@@ -55,6 +60,7 @@ export function deleteAllCachedPhotos(): void {
 
 /** Deletes single cached photos (`cache/photos/…` file paths) of rows a pull removed; others' paths are ignored. */
 export function deleteCachedFiles(filePaths: readonly string[]): void {
+  cacheGeneration += 1;
   for (const filePath of filePaths) {
     if (!filePath.startsWith('cache/')) continue;
     try {
@@ -169,12 +175,15 @@ export function cachedPhotoUri(
   if (!media.file_path.startsWith('cache/') || io.exists(media.file_path)) return Promise.resolve(uri);
   const running = cacheDownloads.get(media.id);
   if (running) return running;
+  const generation = cacheGeneration;
   const download = (async () => {
     if (!client) throw new Error('accounts are not set up in this build');
     if (!media.owner_id) throw new Error(`photo ${media.id} has no owner`);
     const { data, error } = await client.storage.from(PHOTOS_BUCKET).download(storagePath(media.owner_id, media));
     if (error) throw new Error(error.message);
-    io.write(media.file_path, await blobBytes(data));
+    const bytes = await blobBytes(data);
+    if (generation !== cacheGeneration) throw new Error(`photo ${media.id} was removed while downloading`);
+    io.write(media.file_path, bytes);
     return uri;
   })().finally(() => cacheDownloads.delete(media.id));
   cacheDownloads.set(media.id, download);

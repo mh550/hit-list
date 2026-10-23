@@ -10,6 +10,7 @@ import { getMediaForSpot, getSpot, getSpots, insertMedia, insertSpot } from '@/s
 import { upsertProfiles } from '@/src/db/profiles';
 import { saveCopy } from '@/src/sync/copy';
 import { useSpotsStore } from '@/src/stores';
+import { INITIAL_SYNC, useSyncStore } from '@/src/stores/sync-store';
 import { FeatureType } from '@/src/types';
 
 const ANA = 'rider-ana';
@@ -63,6 +64,7 @@ beforeEach(async () => {
   fakeFs.__putFile(`${CACHE}photos/${anas.id}/p1.jpg`, BYTES1);
   fake.objects.set(`photos/${ANA}/${anas.id}/p2.jpg`, BYTES2);
   useSpotsStore.setState({ spots: [] });
+  useSyncStore.setState({ ...INITIAL_SYNC, adoptedUserId: ME });
 });
 
 describe('saveCopy (S8, D47/D89): another rider\'s spot becomes the rider\'s own private spot', () => {
@@ -133,5 +135,12 @@ describe('saveCopy (S8, D47/D89): another rider\'s spot becomes the rider\'s own
     await expect(saveCopy(db, client(), ME, 'mine')).rejects.toThrow("not another rider's spot");
     await expect(saveCopy(db, client(), ME, 'gone')).rejects.toThrow("not another rider's spot");
     expect(await outboxOps(db)).toEqual(before);
+  });
+
+  it("refuses while the phone isn't the rider's yet (adoption pending): the copy would never back up", async () => {
+    useSyncStore.setState({ adoptedUserId: null });
+    await expect(saveCopy(db, client(), ME, anas.id)).rejects.toThrow("this phone isn't your account yet");
+    expect(await getSpots(db)).toHaveLength(1);
+    expect(fakeFs.__writes()).toEqual([]);
   });
 });

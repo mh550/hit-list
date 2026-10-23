@@ -212,10 +212,11 @@ describe('a send link', () => {
     expect(text()).not.toContain('Expires');
   });
 
-  it('Save to my spots reveals how to save in the app', async () => {
+  // S10-01 review U1: a pasted send link only reopens this page (D95), so the page must not send riders there
+  it('Save to my spots says saving from a link is not in the app yet', async () => {
     stubFetch({ status: 200, body: sendBody([spot()]) });
     await openPage(`/share/#t=${TOKEN}`);
-    const line = 'You need HitList and an account to save these. Open the app, then Inbox → Paste a link.';
+    const line = "Saving from a link isn't in the app yet. Ask @ana to send these to you as a friend in HitList.";
     expect(text()).not.toContain(line);
     const button = Array.from(document.querySelectorAll('button')).find((b) => b.textContent === 'Save to my spots');
     expect(button).toBeDefined();
@@ -225,6 +226,7 @@ describe('a send link', () => {
     expect(button!.getAttribute('aria-expanded')).toBe('true');
     button!.click();
     expect(text().split(line)).toHaveLength(2); // shown once
+    expect(text()).not.toContain('Paste a link');
   });
 
   it('renders a hostile name as text', async () => {
@@ -303,6 +305,7 @@ describe('an invite link', () => {
     });
     expect(await openPage(`/share/#t=${TOKEN}`)).toBe('invite');
     expect(text()).toContain('@ana invited you to Downtown on HitList — open the app to join');
+    expect(text()).toContain('Copy this link, then in HitList open Inbox → Paste a link.');
     expect(document.querySelectorAll('[data-testid="spot"]')).toHaveLength(0);
     expect(Array.from(document.querySelectorAll('button')).map((b) => b.textContent)).not.toContain(
       'Save to my spots',

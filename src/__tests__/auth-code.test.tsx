@@ -165,6 +165,42 @@ describe('CodeScreen', () => {
     });
   });
 
+  it('keeps the field editable while checking, so the keyboard stays up after a wrong code', async () => {
+    let finish!: () => void;
+    mockFake!.auth.verifyOtp.mockImplementationOnce(
+      () => new Promise((resolve) => {
+        finish = () => resolve({ data: { user: null, session: null }, error: { message: 'Token has expired or is invalid' } });
+      }),
+    );
+    render(<CodeScreen />);
+    await typeCode('123456');
+    expect(codeField().props.editable).not.toBe(false);
+    // Typing while one is in flight never verifies a second time.
+    await typeCode('654321');
+    expect(mockFake!.auth.verifyOtp).toHaveBeenCalledTimes(1);
+    await act(async () => finish());
+    expect(screen.getByRole('alert')).toHaveTextContent("That code didn't work. Try again or resend.");
+  });
+
+  it("treats a verifyOtp that throws as a code that didn't work", async () => {
+    mockFake!.auth.verifyOtp.mockRejectedValueOnce(new Error('boom'));
+    render(<CodeScreen />);
+    await typeCode('123456');
+    expect(screen.getByRole('alert')).toHaveTextContent("That code didn't work. Try again or resend.", { exact: true });
+    expect(router.dismissAll).not.toHaveBeenCalled();
+  });
+
+  it('with no email to check sends nothing and offers the way back to Sign in', async () => {
+    jest.mocked(useLocalSearchParams).mockReturnValue({});
+    render(<CodeScreen />);
+    expect(screen.queryByLabelText('Code')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Resend code' })).toBeNull();
+    fireEvent.press(screen.getByRole('button', { name: 'Back to Sign in' }));
+    expect(router.replace).toHaveBeenCalledWith('/auth/sign-in');
+    expect(mockFake!.auth.signInWithOtp).not.toHaveBeenCalled();
+    expect(mockFake!.auth.verifyOtp).not.toHaveBeenCalled();
+  });
+
   it("shows only 'Accounts aren't set up in this build' when the client is unconfigured", () => {
     mockFake = null;
     render(<CodeScreen />);

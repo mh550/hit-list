@@ -1,7 +1,9 @@
 // The sign-in screen (S4-03): an email field and 'Send code' (signInWithOtp), then the code screen.
 // The client is the hand-written fake (helpers/fake-supabase.ts); null = a build without Supabase values.
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { AccessibilityInfo } from 'react-native';
 import { useRouter } from 'expo-router';
+import { AuthRetryableFetchError } from '@supabase/supabase-js';
 
 import { createFakeSupabase, type FakeSupabase } from './helpers/fake-supabase';
 
@@ -92,12 +94,57 @@ describe('SignInScreen', () => {
     );
     render(<SignInScreen />);
     fireEvent.changeText(screen.getByLabelText('Email'), 'ana@example.com');
-    fireEvent.press(sendButton());
+    act(() => {
+      // The return key lands before the disabled state renders.
+      fireEvent.press(sendButton());
+      fireEvent(screen.getByLabelText('Email'), 'submitEditing');
+    });
     expect(screen.getByRole('button', { name: 'Sending…' })).toBeDisabled();
-    fireEvent.press(screen.getByRole('button', { name: 'Sending…' }));
     await act(async () => finish());
     expect(mockFake!.auth.signInWithOtp).toHaveBeenCalledTimes(1);
     expect(push).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not open the code screen when the rider closed sign-in while the code was sending', async () => {
+    let finish!: () => void;
+    mockFake!.auth.signInWithOtp.mockImplementationOnce(
+      () => new Promise((resolve) => {
+        finish = () => resolve({ data: { user: null, session: null }, error: null });
+      }),
+    );
+    const { unmount } = render(<SignInScreen />);
+    fireEvent.changeText(screen.getByLabelText('Email'), 'ana@example.com');
+    fireEvent.press(sendButton());
+    unmount();
+    await act(async () => finish());
+    expect(push).not.toHaveBeenCalled();
+  });
+
+  it("shows fixed copy, not auth-js's text, when the phone is offline", async () => {
+    mockFake!.auth.signInWithOtp.mockResolvedValueOnce({
+      data: { user: null, session: null },
+      error: new AuthRetryableFetchError('Network request failed', 0),
+    } as never);
+    render(<SignInScreen />);
+    fireEvent.changeText(screen.getByLabelText('Email'), 'ana@example.com');
+    await act(async () => {
+      fireEvent.press(sendButton());
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent("Couldn't send the code. Check your connection and try again.", {
+      exact: true,
+    });
+  });
+
+  it('announces an error to VoiceOver', async () => {
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility');
+    mockFake!.failNext('signInWithOtp', { message: 'Email rate limit exceeded', status: 429 });
+    render(<SignInScreen />);
+    fireEvent.changeText(screen.getByLabelText('Email'), 'ana@example.com');
+    await act(async () => {
+      fireEvent.press(sendButton());
+    });
+    expect(announce).toHaveBeenCalledWith('Email rate limit exceeded');
+    announce.mockRestore();
   });
 
   it("shows only 'Accounts aren't set up in this build' when the client is unconfigured", () => {

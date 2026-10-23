@@ -75,6 +75,12 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   `aboveList`, `headerActions`, `headerTitle`/`headerLeft`, `onSpotPress`/`onSpotLongPress`, `selectedIds`),
   `NameListSheet` (create/rename a list), `HeaderTextButton` (the blue header text button: Filter, Select, Rename), `FilterHeaderButton` ('Filter (2)' from the shared filters; SpotsBrowser and the picker), `AddToListSheet` (a checkbox per manual list, checked when every given spot
   is in it, '+ New hit list'), `ListPickerChips` (store-connected, `null` with no lists). `confirmBlock(handle, onBlock)` (S6: the one Block confirm, Friends and Inbox).
+  Send (S7-04): `SendSheet` (`{ spotIds, onClose }`, mounted per open; friends with checkboxes, the D34 sentence,
+  `syncNow` → `createSend`, can't close while sending; never the word Share in the file, a test reads it), opened from
+  the detail header paper-plane (not on another rider's spot), the select bar 'Send (N)', a list's 'Send these spots'
+  row (+ an empty `ShareListSlot` for S8) and the area picker; `ToastHost` (root layout, and again in any native
+  full-screen modal that can toast: the area picker) shows `src/stores/toast-store.ts` `showToast` (3 s, announces
+  once; tests `clearToast()`).
 - `src/db/` SQLite access. `schema.ts` holds `MIGRATIONS` (versioned by `PRAGMA user_version`):
   **append a migration, never edit a shipped one**; per-connection pragmas (e.g. `foreign_keys`) go
   next to the WAL line in `migrateDb`, not in a migration. Foreign keys are OFF while migrations run and ON for the app

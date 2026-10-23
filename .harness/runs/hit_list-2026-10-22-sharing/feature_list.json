@@ -798,7 +798,7 @@
         "A spot the rider does not own (owner_id set and ≠ uid) does not show Send on detail (S8 adds Save a copy); test with a foreign spot.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S7-05",

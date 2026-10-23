@@ -20,6 +20,15 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 13:30 · S7-04 · passes
+
+- New `src/components/SendSheet.tsx`, `src/components/ToastHost.tsx`, `src/stores/toast-store.ts`; Send on spot detail (paper-plane, hidden on another rider's spot), the select bar 'Send (N)', a list's 'Send these spots · one-time copy of N spots' row (+ empty `ShareListSlot`), the area picker 'Send these N spots'; `ToastHost` in `app/_layout.tsx` and in the area picker.
+- Tests 1589 → 1634 (send-sheet 25, toast-store 6, + detail 3, select 1 net, list 5, area 4, root-layout 1). RED commits 6218f0e, 8bda862 first. Two old "no Send yet" tests (S1 select, S2 area) updated.
+- Verified: `check.sh` green 1634, `npx jest --ci` 0 `console.error`, `grep -n Share src/components/SendSheet.tsx` prints nothing, `npx expo export --platform ios` exit 0.
+- Opus review: 3 Important, 5 Minor, no Critical. Fixed RED-first: the sheet can't close while sending (a late finish closed the next sheet), the area picker gets its own toast (a native modal hides the root one), a friend removed while checked isn't sent to, a failed friends load gets Try again, the toast is announced once. Not changed: 'Sign in' closes the sheet and opens the sign-in modal in one tap; iOS may refuse that, and Jest can't show it, so it's a step on the live checklist. Full table in the S7 plan under 'As built (S7-04)'.
+- Next (S7-05): use `showToast` for the Inbox's 'Saved 3 spots' if it's a toast, and draw a `ToastHost` in any new native full-screen modal. The detail rule for "another rider's spot" is `owner_id` set and ≠ the signed-in uid. Signed out, every spot shows Send and the sheet asks the rider to sign in; S8 may tighten this for others' spots kept on the phone.
+- Questions for Michael: none new.
+
 ### 2026-10-23 10:30 · S7-03 · passes
 
 - Server: append-only migration `20261024010000_sends_s7.sql` (staged send photos D77, `create_send` stamps the sender D80 and refuses another's staged id, `mark_send_saved(p_id, p_token)` saves once with a retry token, `spots.from_username`, `staged_send_objects`); account-delete removes staged leftovers. pgTAP `100-sends-s7` (34) + edits to 060/070.

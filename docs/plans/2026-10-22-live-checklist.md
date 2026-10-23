@@ -175,6 +175,11 @@ Works from S7-05 on (the server migration lands in S7-03). Same setup as S6: sta
       "Share" anywhere in the sheet. Send. Check: 'Sent to @B'.
 - [ ] **Three from multi-select, and a list:** Spots tab → Select → three spots → 'Send (3)' → @B → Send. Open a hit
       list → 'Send these spots · one-time copy of N spots' → @B → Send.
+- [ ] **Area picker and the sheet's edges (S7-04):** Lists → Pick an area → 'Send these N spots' → @B → Send. Check:
+      the 'Sent to @B' line shows **over the picker** (it draws its own). Signed out, open the sheet from a spot →
+      'Sign in'. Check: the sign-in sheet opens (the Send sheet closes in the same tap; if iOS refuses to present it,
+      nothing happens: note it and the sheet needs to push after its close). While 'Sending…', Cancel is grey and a
+      swipe down doesn't close the sheet.
 - [ ] **The copy is frozen:** as A, rename the first sent spot and delete another. Switch to B (Sign out → Keep →
       sign in). Check: Inbox badge, '@A sent you 3 spots' shows the **old** name; Save all. Check: 'Saved 3 spots',
       the spots are in B's Spots tab with 'From @A' on detail, photos included, and Edit works.

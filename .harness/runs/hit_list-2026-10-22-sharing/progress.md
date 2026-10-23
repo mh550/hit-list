@@ -20,6 +20,15 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 02:45 · S4-04 · passes
+
+- New: `src/utils/username.ts` (`normalizeUsername`, `validateUsername`, first failing rule wins), `app/auth/username.tsx` ('Pick your @username', live message once typed, `@` typed in front dropped, Display name ≤ 50 optional, `Saving…`, 23505 → 'That username is taken', 23514 → the format rule, else "Couldn't save. Try again."), `saveProfile` in `src/sync/auth.ts`, tabs `<Redirect href="/auth/username">` while `needs_username`, root Stack `auth/username` (no back, `gestureEnabled: false`), `Redirect` in the global expo-router mock. Tests 990 → 1034.
+- RED 75ac073 (2 suites + 2 tests fail), GREEN; review-fix RED 7d81536 (8 fail), GREEN. check.sh green, full `npx jest --ci` 0 console.error/warn; `npx expo export --platform ios` exit 0, 5 MB hbc. Mutation: dropping the hook's stale-snapshot guard fails its test.
+- Opus review: 1 Critical fixed (success `replace('/(tabs)/profile')` opened a second tabs as a sheet over Sign in → `dismissTo` when `canDismiss()`, else `replace`); 1 Important fixed (an update RLS filtered to 0 rows counted as saved → `.select('id')`, no row = failed); Minors fixed: 23514 mapped, tabs stay mounted under the Redirect, username return key goes to Display name, a stale profile fetch can't undo a saved username. Left (in the plan): only the tabs are guarded (deep links/Android back, for S6/S8 `Stack.Protected`), emoji display names get < 50.
+- Live checklist gains the username phone check. Next session (S4-05): Profile reuses `AccountsNotSetUp`; the fake's `functions.invoke`/`signOut` exist with `failNext('invoke'|'signOut')`.
+- Proposed change (feature step 2 wording): "replaces the route to the Profile tab" is `dismissTo('/(tabs)/profile')` from the code screen (replace only when it's the only screen); the test asserts both.
+- No new questions for Michael.
+
 ### 2026-10-23 01:40 · S4-03 · passes
 
 - New: `app/auth/sign-in.tsx` (email → `signInWithOtp` trimmed + lowercased, `Sending…`, `error.message` in place) and `app/auth/code.tsx` (digits only, six auto-verify once via an in-flight ref, `Checking…`, resend → `Sent` 3 s, `needs_username` → `replace('/auth/username')`, else `dismissAll()`); `sendSignInCode`/`verifySignInCode` in `src/sync/auth.ts`; `src/components/AuthScreen.tsx` (`AuthScreen`, `AccountsNotSetUp`, `AuthError`); root Stack registers `auth/sign-in` (modal) + `auth/code`. Tests 964 → 990.

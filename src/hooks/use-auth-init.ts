@@ -26,7 +26,12 @@ export function useAuthInit(): void {
     let latest = 0;
     const resolve = (ticket: number, session: Session | null) =>
       resolveAuthState(client, session).then((snapshot) => {
-        if (mounted && ticket === latest) setAuth(snapshot);
+        if (!mounted || ticket !== latest) return;
+        // A username is never cleared: 'needs_username' for the account that has one means the profile was read
+        // before the username screen saved it.
+        const shown = useAuthStore.getState();
+        if (snapshot.status === 'needs_username' && snapshot.userId === shown.userId && shown.username) return;
+        setAuth(snapshot);
       });
     const fromStoredSession = () => {
       const ticket = ++latest;

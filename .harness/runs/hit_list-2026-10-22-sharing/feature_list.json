@@ -437,7 +437,7 @@
         "While status is 'needs_username' the tabs layout redirects to /auth/username (src/__tests__/tabs-layout.test.tsx asserts the Redirect/replace with status 'needs_username' and none with 'signed_in').",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S4-05",

@@ -68,6 +68,11 @@ Works from S4-05 on (sign-in, username, Profile). Nothing here touches a cloud p
       code autofill), six digits verify on their own, and a rider who already has a username lands back on the tab
       that opened Sign in with both sheets gone. If the stacked sheets look wrong, note it in INBOX.md (the fix is an
       `app/auth/_layout.tsx` Stack presented as one sheet).
+      Username (S4-04), with a new email: after the code, "Pick your @username" replaces Enter code; no back button,
+      no swipe down. Type `ab` (shows "At least 3 characters"), then a free name; the keyboard's Next goes to Display
+      name; Done. Check: both sheets close and the Profile tab shows, with no second copy of the tabs in a sheet
+      (swiping down must not reveal Sign in again). Try a username another account already has: "That username is
+      taken". Close Expo Go on the username screen and reopen: the tabs send you straight back to it.
 - [ ] **Stay signed in:** close Expo Go fully and reopen. Check: still signed in on Profile.
 - [ ] **Sign out / back in:** Sign out (spots stay on the phone, D62), sign in again with the same email. Check: same
       @username, not asked again.

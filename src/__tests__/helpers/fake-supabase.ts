@@ -4,7 +4,8 @@
 //     { data: { subscription: { unsubscribe } } }, signInWithOtp, verifyOtp → { data: { user, session } },
 //     signOut(options?), startAutoRefresh, stopAutoRefresh; Session/User in lib/types.d.ts)
 //   node_modules/@supabase/postgrest-js/dist/index.d.mts (from(t).select(cols).eq(c, v).maybeSingle(),
-//     from(t).update(v).eq(c, v); a thenable { data, error }, PostgrestError has message/details/hint/code)
+//     from(t).update(v).eq(c, v), optionally .select(cols) to get the updated rows back (else data null); a
+//     thenable { data, error }, PostgrestError has message/details/hint/code)
 //   node_modules/@supabase/functions-js/dist/module/FunctionsClient.d.ts (functions.invoke(name, options?))
 // Every member is a jest.fn. Screens get it with
 //   jest.mock('@/src/sync/client', () => ({ getSupabase: () => mockFake, isConfigured: () => true }))
@@ -66,6 +67,8 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
     let op: 'select' | 'update' = 'select';
     let values: Partial<FakeProfile> = {};
     let one = false;
+    // update(…).select(): answer the updated rows (only `id`: the app asks for nothing else).
+    let returning = false;
     const filters: [string, unknown][] = [];
 
     const run = (): QueryResult => {
@@ -77,14 +80,15 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
         .filter((row) => filters.every(([column, value]) => row[column as keyof typeof row] === value));
       if (op === 'update') {
         for (const row of rows) profiles.set(row.id, { ...profiles.get(row.id)!, ...values });
-        return { data: null, error: null };
+        return { data: returning ? rows.map(({ id }) => ({ id })) : null, error: null };
       }
       return { data: one ? (rows[0] ?? null) : rows, error: null };
     };
 
     const builder: FakeQuery = {
       select: jest.fn((_columns?: string) => {
-        op = 'select';
+        if (op === 'update') returning = true;
+        else op = 'select';
         return builder;
       }),
       update: jest.fn((next: Partial<FakeProfile>) => {

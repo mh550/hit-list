@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View, type TextInput } from 'react-native';
 import { useRouter } from 'expo-router';
 
 import { AccountsNotSetUp, AuthError, AuthScreen, Button, FormInput } from '@/src/components';
@@ -9,8 +9,15 @@ import { getSupabase } from '@/src/sync/client';
 import { saveProfile } from '@/src/sync/auth';
 import { normalizeUsername, validateUsername } from '@/src/utils/username';
 
-/** The server's display-name limit (D58). */
+/** The server's display-name limit (D58), in characters; maxLength counts UTF-16 units, so emoji get fewer. */
 const DISPLAY_NAME_MAX = 50;
+
+const SAVE_ERRORS = {
+  taken: 'That username is taken',
+  // The server's format check: the same rule the field already shows, so only a client/server mismatch lands here.
+  invalid: 'Only letters, numbers, _ and .',
+  failed: "Couldn't save. Try again.",
+} as const;
 
 // Onboarding after the first sign-in: an @username (required, D39) and a display name (optional, D63). The Stack
 // gives it no back button and no swipe, and the tabs redirect here while the account is 'needs_username'.
@@ -26,6 +33,7 @@ export default function UsernameScreen() {
   const [error, setError] = useState<string | null>(null);
   // A second tap can land before the disabled state renders.
   const inFlight = useRef(false);
+  const displayNameInput = useRef<TextInput>(null);
 
   const client = getSupabase();
   if (!client) return <AccountsNotSetUp />;
@@ -60,9 +68,13 @@ export default function UsernameScreen() {
     setSaving(false);
     if (result === 'saved') {
       setProfile(username, name);
-      router.replace('/(tabs)/profile');
+      // From the code screen the root stack is [(tabs), auth/sign-in, auth/username]: drop back to those tabs (a
+      // replace would open a second (tabs) as a sheet over Sign in). Redirected here at launch, this is the only
+      // screen, so it becomes the tabs.
+      if (router.canDismiss()) router.dismissTo('/(tabs)/profile');
+      else router.replace('/(tabs)/profile');
     } else {
-      setError(result === 'taken' ? 'That username is taken' : "Couldn't save. Try again.");
+      setError(SAVE_ERRORS[result]);
     }
   };
   const submit = () => {
@@ -89,8 +101,9 @@ export default function UsernameScreen() {
             autoComplete="username-new"
             textContentType="username"
             returnKeyType="next"
+            submitBehavior="submit"
             autoFocus
-            onSubmitEditing={submit}
+            onSubmitEditing={() => displayNameInput.current?.focus()}
           />
         </View>
       </View>
@@ -100,6 +113,7 @@ export default function UsernameScreen() {
         </Text>
       ) : null}
       <FormInput
+        ref={displayNameInput}
         label="Display name"
         hideLabel
         value={displayName}

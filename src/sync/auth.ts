@@ -68,12 +68,16 @@ export async function verifySignInCode(
   }
 }
 
-/** What saving the @username came to: 'taken' is the unique index (23505), 'failed' is anything else. */
-export type SaveProfileResult = 'saved' | 'taken' | 'failed';
+/**
+ * What saving the @username came to: 'taken' is the unique index (23505), 'invalid' the format check (23514),
+ * 'failed' anything else, including an update that changed no row.
+ */
+export type SaveProfileResult = 'saved' | 'taken' | 'invalid' | 'failed';
 
 /**
  * Writes the rider's @username and display name to their profile row (onboarding). The caller passes them already
- * normalized; RLS lets a rider update only their own row.
+ * normalized. RLS lets a rider update only their own row, and filters any other update down to no rows without an
+ * error (the session is gone, the row is missing), so the updated row is read back to tell.
  */
 export async function saveProfile(
   client: SupabaseClient,
@@ -82,12 +86,14 @@ export async function saveProfile(
   displayName: string | null,
 ): Promise<SaveProfileResult> {
   try {
-    const { error } = await client
+    const { data, error } = await client
       .from('profiles')
       .update({ username, display_name: displayName })
-      .eq('id', userId);
-    if (!error) return 'saved';
-    return error.code === '23505' ? 'taken' : 'failed';
+      .eq('id', userId)
+      .select('id');
+    if (!error) return data?.length ? 'saved' : 'failed';
+    if (error.code === '23505') return 'taken';
+    return error.code === '23514' ? 'invalid' : 'failed';
   } catch {
     return 'failed';
   }

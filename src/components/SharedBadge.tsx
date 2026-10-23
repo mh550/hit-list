@@ -3,11 +3,11 @@ import { StyleSheet, Text, View } from 'react-native';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { palette } from '@/src/constants/theme';
 import type { HitList } from '@/src/types';
-import { memberCount } from '@/src/utils/members';
+import { isShared, memberCount } from '@/src/utils/members';
 
 /** 'Shared with 4' for a shared list (D84 count), for the label of the row or chip that holds the badge; else none. */
 export function sharedLabel(list: Pick<HitList, 'shared' | 'members'>): string | undefined {
-  return list.shared ? `Shared with ${memberCount(list)}` : undefined;
+  return isShared(list) ? `Shared with ${memberCount(list)}` : undefined;
 }
 
 /**
@@ -22,7 +22,7 @@ export function SharedBadge({
   list: Pick<HitList, 'shared' | 'members'>;
   color?: string;
 }) {
-  if (!list.shared) return null;
+  if (!isShared(list)) return null;
   return (
     <View style={styles.badge} accessibilityLabel={sharedLabel(list)}>
       <IconSymbol name="person.2.fill" size={14} color={color} />

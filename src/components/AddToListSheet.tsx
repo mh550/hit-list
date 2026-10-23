@@ -9,8 +9,7 @@ import { useRiderId } from '@/src/hooks/use-rider-id';
 import { selectListSpots, selectListsByName, useHitListsStore, useSpotsStore } from '@/src/stores';
 import type { HitList } from '@/src/types';
 import { palette, radius, spacing } from '@/src/constants/theme';
-import { memberCount } from '@/src/utils/members';
-import { isForeign } from '@/src/utils/ownership';
+import { isShared, memberCount, myRole } from '@/src/utils/members';
 import { NameListSheet } from './NameListSheet';
 import { SharedBadge, sharedLabel } from './SharedBadge';
 
@@ -43,6 +42,8 @@ function AddToListSheetContent({ spotIds, onClose }: Omit<Props, 'visible'>) {
   const [naming, setNaming] = useState(false);
   // The shared lists whose first-add question is being read or shown: a second tap asks nothing more.
   const asking = useRef(new Set<string>());
+  // Said Add in this sheet: the answer counts at once, before its sync_state write lands.
+  const confirmedHere = useRef(new Set<string>());
 
   const rows = useMemo(() => selectListsByName(lists.filter((l) => l.deleted_at === undefined)), [lists]);
   const given = useMemo(() => {
@@ -62,9 +63,11 @@ function AddToListSheetContent({ spotIds, onClose }: Omit<Props, 'visible'>) {
 
   // The answer is kept only once the add went through: a failed add asks again next time.
   const addConfirmed = async (list: HitList) => {
+    confirmedHere.current.add(list.id);
     try {
       await addSpotsToList(list.id, spotIds);
     } catch {
+      confirmedHere.current.delete(list.id);
       Alert.alert("Couldn't update the list", 'Please try again.');
       return;
     }
@@ -77,13 +80,17 @@ function AddToListSheetContent({ spotIds, onClose }: Omit<Props, 'visible'>) {
   const addToShared = async (list: HitList) => {
     if (asking.current.has(list.id)) return;
     asking.current.add(list.id);
-    const confirmed = await getSyncState(db, confirmedListKey(list.id)).catch(() => undefined);
+    const confirmed =
+      confirmedHere.current.has(list.id) ||
+      (await getSyncState(db, confirmedListKey(list.id)).catch(() => undefined));
     if (confirmed) {
       asking.current.delete(list.id);
       await add(list.id);
       return;
     }
-    const what = spotIds.length === 1 ? 'this spot' : `these ${spotIds.length} spots`;
+    // Only the spots that would arrive: one already in the list was seen before.
+    const arriving = new Set(spotIds.filter((id) => !membershipBySpot[id]?.includes(list.id))).size;
+    const what = arriving === 1 ? 'this spot' : `these ${arriving} spots`;
     const release = () => void asking.current.delete(list.id);
     Alert.alert(
       `Everyone in ${list.name} (${memberCount(list)}) will see ${what}.`,
@@ -104,16 +111,15 @@ function AddToListSheetContent({ spotIds, onClose }: Omit<Props, 'visible'>) {
 
   const toggle = (list: HitList) => {
     if (holdsAll(list)) return reportFailure(Promise.all(spotIds.map((id) => removeSpotFromList(list.id, id))));
-    return list.shared ? addToShared(list) : add(list.id);
+    return isShared(list) ? addToShared(list) : add(list.id);
   };
 
   /** Why a row can't be toggled: an area list's spots are its circle's; another rider's list is theirs unless the
    * rider joined it with 'Can add spots'. */
   const hintOf = (list: HitList) => {
     if (list.kind === 'area') return AREA_HINT;
-    if (!isForeign(list, uid)) return undefined;
-    const mine = list.members?.find((m) => m.user_id === uid && m.status === 'member');
-    return mine?.role === 'add' ? undefined : VIEW_ONLY_HINT;
+    const role = myRole(list, uid);
+    return role === 'owner' || role === 'add' ? undefined : VIEW_ONLY_HINT;
   };
 
   const create = async (name: string) => {

@@ -47,7 +47,7 @@ export function Chip({
       accessibilityState={
         role === 'checkbox' || role === 'radio' ? { checked: selected, disabled } : { selected, disabled }
       }>
-      <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+      <Text style={[styles.chipText, accessory != null && styles.chipTextShrink, selected && styles.chipTextSelected]}>
         {label}
       </Text>
       {accessory}
@@ -114,6 +114,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     color: palette.gray[700],
+  },
+  // Beside an accessory a long label wraps rather than pushing it out of the chip.
+  chipTextShrink: {
+    flexShrink: 1,
   },
   chipTextSelected: {
     color: palette.white,

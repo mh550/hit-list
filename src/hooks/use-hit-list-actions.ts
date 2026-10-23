@@ -9,12 +9,24 @@ import {
   removeSpotFromList as dbRemoveSpotFromList,
 } from '@/src/db';
 import { useHitListsStore, useSpotsStore } from '@/src/stores';
-import { assertOwn, currentOwnerId } from '@/src/sync/owner';
+import { assertOwn, currentOwnerId, riderId } from '@/src/sync/owner';
 import type { HitList, HitListUpdate, NewHitList } from '@/src/types';
 import { newId } from '@/src/utils/id';
+import { myRole } from '@/src/utils/members';
 
 const findList = (id: string) => useHitListsStore.getState().lists.find((l) => l.id === id);
 const listsOf = (spotId: string) => useHitListsStore.getState().membershipBySpot[spotId] ?? [];
+
+/**
+ * Spots go into a list by hand only when it is manual, and another rider's only when the rider joined it with
+ * 'Can add spots' (D41, D42); the sheet already offers no other, the server would refuse it (42501).
+ */
+function assertCanAdd(list: HitList | undefined): void {
+  if (!list) return;
+  if (list.kind === 'area') throw new Error("an area list's spots are its circle's");
+  const role = myRole(list, riderId());
+  if (role !== 'owner' && role !== 'add') throw new Error('not your list');
+}
 
 /**
  * List writes, optimistic like useSpotActions.updateSpot: the store changes first so the screen answers at once, then
@@ -133,6 +145,7 @@ export function useHitListActions() {
     async (listId: string, spotIds: string[]) => {
       const spots = useSpotsStore.getState().spots;
       for (const spotId of spotIds) assertOwn(spots.find((s) => s.id === spotId), 'spot');
+      assertCanAdd(findList(listId));
       // A failure takes out only what this call added; spots already in the list stay.
       const added = [...new Set(spotIds)].filter((spotId) => !listsOf(spotId).includes(listId));
       addMemberships(listId, spotIds);

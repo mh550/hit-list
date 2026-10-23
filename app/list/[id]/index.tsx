@@ -22,7 +22,7 @@ import { useAuthStore } from '@/src/stores/auth-store';
 import { useSettingsStore } from '@/src/stores/settings-store';
 import type { HitList } from '@/src/types';
 import { areaLabel, isAreaList } from '@/src/utils/area';
-import { initialOf, joinedMembers, memberCount } from '@/src/utils/members';
+import { initialOf, joinedMembers, memberCount, myRole } from '@/src/utils/members';
 import { isForeign } from '@/src/utils/ownership';
 import { getSpotDisplayName, spotCountLabel } from '@/src/utils/spot-name';
 
@@ -137,12 +137,12 @@ export default function ListScreen() {
 
   const owner = !isForeign(list, uid);
   // A member with 'add' takes out only what they put in; a view-only member nothing (D42). The owner any spot.
-  const myRole = owner ? 'owner' : list.members?.find((m) => m.user_id === uid && m.status === 'member')?.role;
+  const role = myRole(list, uid);
 
   const handleSpotLongPress = (spotId: string) => {
     const spot = listSpots.find((s) => s.id === spotId);
     if (!spot) return;
-    if (myRole !== 'owner' && (myRole !== 'add' || isForeign(spot, uid))) return;
+    if (role !== 'owner' && (role !== 'add' || isForeign(spot, uid))) return;
     Alert.alert(getSpotDisplayName(spot), undefined, [
       {
         text: 'Remove from list',

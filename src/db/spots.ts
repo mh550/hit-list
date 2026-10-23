@@ -21,10 +21,17 @@ interface SpotRow {
   owner_id: string | null;
   copied_from_send: string | null;
   from_username: string | null;
+  owner_username: string | null;
 }
 
 const SPOT_COLUMNS =
   'id, name, generated_name, latitude, longitude, created_at, updated_at, deleted_at, feature_types_json, stopped, natural_speed, notes, primary_photo_id, owner_id, copied_from_send, from_username';
+
+/** What getSpot/getSpots read: the columns plus the owner's @username from the profiles mirror (S8; never stored). */
+const SPOT_READ = `${SPOT_COLUMNS
+  .split(', ')
+  .map((c) => `spots.${c}`)
+  .join(', ')}, (SELECT username FROM profiles WHERE profiles.id = spots.owner_id) AS owner_username`;
 
 /** Only the app writes this column, but one unreadable row must not take the whole list down with it. */
 function parseFeatureTypes(row: SpotRow): FeatureType[] {
@@ -56,6 +63,7 @@ function rowToSpot(row: SpotRow): Spot {
     owner_id: row.owner_id ?? undefined,
     copied_from_send: row.copied_from_send ?? undefined,
     from_username: row.from_username ?? undefined,
+    ...(row.owner_username ? { owner_username: row.owner_username } : {}),
   };
 }
 
@@ -88,7 +96,7 @@ export async function insertSpot(db: SQLiteDatabase, spot: Spot): Promise<void> 
 
 export async function getSpot(db: SQLiteDatabase, id: string): Promise<Spot | null> {
   const row = await db.getFirstAsync<SpotRow>(
-    `SELECT ${SPOT_COLUMNS} FROM spots WHERE id = ? AND deleted_at IS NULL`,
+    `SELECT ${SPOT_READ} FROM spots WHERE id = ? AND deleted_at IS NULL`,
     id,
   );
   return row ? rowToSpot(row) : null;
@@ -96,7 +104,7 @@ export async function getSpot(db: SQLiteDatabase, id: string): Promise<Spot | nu
 
 export async function getSpots(db: SQLiteDatabase): Promise<Spot[]> {
   const rows = await db.getAllAsync<SpotRow>(
-    `SELECT ${SPOT_COLUMNS} FROM spots WHERE deleted_at IS NULL ORDER BY created_at DESC`,
+    `SELECT ${SPOT_READ} FROM spots WHERE deleted_at IS NULL ORDER BY created_at DESC`,
   );
   return rows.map(rowToSpot);
 }

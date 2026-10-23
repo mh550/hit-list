@@ -185,7 +185,12 @@ describe('Spots tab list picker', () => {
 describe("Spots tab: others' spots (S8, D47)", () => {
   const crew = createTestHitList({ id: 'L-crew', name: 'Crew', owner_id: 'rider-ana', shared: true });
   const mine = createTestSpot({ name: 'My rail', owner_id: 'rider-me', location: CITIES.seattle });
-  const anas = createTestSpot({ name: "Ana's ledge", owner_id: 'rider-ana', location: CITIES.portland });
+  const anas = createTestSpot({
+    name: "Ana's ledge",
+    owner_id: 'rider-ana',
+    owner_username: 'ana',
+    location: CITIES.portland,
+  });
 
   beforeEach(() => {
     useSpotsStore.setState({ spots: [mine, anas], filters: { ...DEFAULT_FILTERS }, searchQuery: '', viewMode: 'list' });
@@ -208,6 +213,8 @@ describe("Spots tab: others' spots (S8, D47)", () => {
     fireEvent.press(screen.getByRole('tab', { name: 'Crew' }));
     expect(screen.getByText('My rail')).toBeTruthy();
     expect(screen.getByText("Ana's ledge")).toBeTruthy();
+    // her row carries the owner badge, mine none
+    expect(screen.getAllByText('@ana')).toHaveLength(1);
   });
 });
 

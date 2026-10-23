@@ -5,6 +5,11 @@ import type { ReactTestInstance, ReactTestRendererJSON } from 'react-test-render
 
 import { PhotoGrid } from '@/src/components';
 import { createTestMedia } from './factories';
+import { createFakeSupabase, fakeSession, type FakeSupabase } from './helpers/fake-supabase';
+import { fakeFs } from './helpers/fake-fs';
+
+let mockFake: FakeSupabase | null = null;
+jest.mock('@/src/sync/client', () => ({ getSupabase: () => mockFake }));
 
 const photos = Array.from({ length: 7 }, (_, i) =>
   createTestMedia({ spot_id: 's1', file_path: `photos/s1/m${i}.jpg` }),
@@ -114,5 +119,35 @@ describe('PhotoGrid', () => {
       .map((c) => StyleSheet.flatten(c.props.style).width);
     expect(widths).toEqual([expected, expected, expected]);
     expect(3 * expected + 8).toBeLessThanOrEqual(361);
+  });
+});
+
+describe("PhotoGrid: another rider's photos (S8, D91)", () => {
+  const theirs = [
+    createTestMedia({ id: 'a1', spot_id: 'sa', owner_id: 'u-ana', file_path: 'cache/photos/sa/a1.jpg' }),
+    createTestMedia({ id: 'a2', spot_id: 'sa', owner_id: 'u-ana', file_path: 'cache/photos/sa/a2.jpg' }),
+  ];
+
+  beforeEach(() => {
+    fakeFs.__resetFs();
+    mockFake = createFakeSupabase({ session: fakeSession({ userId: 'u-me' }) });
+    mockFake.objects.set('photos/u-ana/sa/a1.jpg', new Uint8Array([1]));
+  });
+  afterEach(() => {
+    mockFake = null;
+  });
+
+  it('downloads into the cache and shows it; a refused download (403/404) shows the placeholder tile instead', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    render(<PhotoGrid photos={theirs} />);
+
+    expect(await within(screen.getByTestId('photo-tile-1')).findByTestId('photo-placeholder')).toBeTruthy();
+    const images = screen.UNSAFE_queryAllByType(Image);
+    expect(images.map((i) => (i.props.source as { uri: string }).uri)).toEqual([
+      'file:///data/Caches/photos/sa/a1.jpg',
+    ]);
+    expect(within(screen.getByTestId('photo-tile-0')).queryByTestId('photo-placeholder')).toBeNull();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('a2'), 'Object not found');
+    warn.mockRestore();
   });
 });

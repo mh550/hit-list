@@ -136,6 +136,17 @@ describe('SpotListItem', () => {
     expect(screen.queryByTestId('spot-check-s1')).toBeNull();
   });
 
+  it("shows another rider's spot with a small owner badge '@ana', read in its label (S8)", () => {
+    render(<SpotListItem {...base} ownerLabel="@ana" />);
+    expect(screen.getByText('@ana')).toBeTruthy();
+    expect(screen.getByLabelText('Pier rail, @ana')).toBeTruthy();
+  });
+
+  it('has no owner badge for the rider\'s own spot', () => {
+    render(<SpotListItem {...base} />);
+    expect(screen.queryByText(/^@/)).toBeNull();
+  });
+
   it('is an unchecked checkbox when selectable and not selected', () => {
     render(<SpotListItem {...base} selectable selected={false} />);
     const row = screen.getByLabelText('Pier rail');

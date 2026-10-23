@@ -3,7 +3,7 @@ import { Directory, File, Paths } from 'expo-file-system';
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { ImageManipulator, SaveFormat, type ImageRef } from 'expo-image-manipulator';
 import type { Media } from '@/src/types';
-import { resolvePhotoUri } from '@/src/utils/photo-storage';
+import { photoFolder, resolvePhotoUri } from '@/src/utils/photo-storage';
 import { errorMessage } from './errors';
 
 /** Uploads are re-encoded (D46): the long edge at most this many px, JPEG at this quality. */
@@ -19,7 +19,7 @@ export interface PhotoIO {
   exists(filePath: string): boolean;
   /** The upload copy (see preparePhoto); `cleanup` deletes it. */
   prepare(filePath: string): Promise<{ uri: string; bytes: Uint8Array; cleanup(): void }>;
-  /** Writes a downloaded photo to a relative `photos/<spot>/<media>.jpg` path, making its folder. */
+  /** Writes a downloaded photo to a relative `photos/…` (or a cached `cache/photos/…`) path, making its folder. */
   write(filePath: string, bytes: Uint8Array): void;
   /** Deletes a file `write` made (a save that didn't go through, S7); one that isn't there is fine. */
   remove(filePath: string): void;
@@ -106,10 +106,7 @@ export const defaultPhotoIO: PhotoIO = {
     };
   },
   write(filePath, bytes) {
-    new Directory(Paths.document, filePath.slice(0, filePath.lastIndexOf('/'))).create({
-      intermediates: true,
-      idempotent: true,
-    });
+    photoFolder(filePath).create({ intermediates: true, idempotent: true });
     new File(resolvePhotoUri(filePath)).write(bytes);
   },
   remove(filePath) {
@@ -142,6 +139,36 @@ export function blobBytes(blob: Blob): Promise<Uint8Array> {
     reader.onerror = () => reject(reader.error ?? new Error('could not read the download'));
     reader.readAsArrayBuffer(blob);
   });
+}
+
+/** Downloads under way per media id: two tiles showing one photo share one download. */
+const cacheDownloads = new Map<string, Promise<string>>();
+
+/**
+ * The uri to show a photo from (S8, D91). The rider's own (`photos/…`, or an absolute uri) resolves at once; another
+ * rider's (`cache/photos/<spot>/<media>.jpg`, written by pull) is served from the cache, downloaded from
+ * `<owner>/<spot>/<media>.jpg` first when the file isn't there (iOS may have cleared it). A refused or failed
+ * download (403/404/offline) rejects and writes nothing; the next call tries again.
+ */
+export function cachedPhotoUri(
+  client: SupabaseClient | null,
+  media: Pick<Media, 'id' | 'spot_id' | 'file_path' | 'owner_id'>,
+  io: PhotoIO = defaultPhotoIO,
+): Promise<string> {
+  const uri = resolvePhotoUri(media.file_path);
+  if (!media.file_path.startsWith('cache/') || io.exists(media.file_path)) return Promise.resolve(uri);
+  const running = cacheDownloads.get(media.id);
+  if (running) return running;
+  const download = (async () => {
+    if (!client) throw new Error('accounts are not set up in this build');
+    if (!media.owner_id) throw new Error(`photo ${media.id} has no owner`);
+    const { data, error } = await client.storage.from(PHOTOS_BUCKET).download(storagePath(media.owner_id, media));
+    if (error) throw new Error(error.message);
+    io.write(media.file_path, await blobBytes(data));
+    return uri;
+  })().finally(() => cacheDownloads.delete(media.id));
+  cacheDownloads.set(media.id, download);
+  return download;
 }
 
 /**

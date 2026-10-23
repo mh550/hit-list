@@ -29,6 +29,7 @@ const MAPPING = {
   'list.bullet': 'format-list-bulleted',
   'checkmark': 'check',
   'tray.fill': 'inbox',
+  'photo': 'image',
 } as IconMapping;
 
 /**

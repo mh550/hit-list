@@ -3,7 +3,7 @@ import { SaveFormat } from 'expo-image-manipulator';
 import { fakeFs } from './helpers/fake-fs';
 import { createFakeSupabase, fakeSession } from './helpers/fake-supabase';
 import { createTestMedia } from './factories';
-import { defaultPhotoIO, preparePhoto, uploadPhoto } from '@/src/sync/photos';
+import { cachedPhotoUri, defaultPhotoIO, preparePhoto, uploadPhoto } from '@/src/sync/photos';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 // A stand-in for expo-image-manipulator 57. Member names and signatures from
@@ -184,5 +184,63 @@ describe('uploadPhoto', () => {
     await expect(
       uploadPhoto(asClient(fake), 'rider-me', createTestMedia({ id: 'm1', spot_id: 's1' }), new Uint8Array([1])),
     ).rejects.toThrow('new row violates row-level security policy');
+  });
+});
+
+describe("cachedPhotoUri: another rider's photo, downloaded into the cache on first use (S8, D91)", () => {
+  const asClient = (fake: ReturnType<typeof createFakeSupabase>) => fake as unknown as SupabaseClient;
+  const BYTES = new Uint8Array([9, 8, 7]);
+  const CACHED = 'file:///data/Caches/photos/s9/m9.jpg';
+  const theirs = createTestMedia({ id: 'm9', spot_id: 's9', owner_id: 'u-ana', file_path: 'cache/photos/s9/m9.jpg' });
+  let fake: ReturnType<typeof createFakeSupabase>;
+  /** Every storage download path asked for since `fake` was made (storage.from makes a new bucket object per call). */
+  const downloads = () =>
+    (fake.storage.from as jest.Mock).mock.results.flatMap(
+      (r) => (r.value as { download: jest.Mock }).download.mock.calls.map((c: unknown[]) => c[0]),
+    );
+
+  beforeEach(() => {
+    fake = createFakeSupabase({ session: fakeSession({ userId: 'u-me' }) });
+    fake.objects.set('photos/u-ana/s9/m9.jpg', BYTES);
+  });
+
+  it('downloads <owner>/<spot>/<media>.jpg from photos, writes Paths.cache/photos/<spot>/<media>.jpg, resolves its uri', async () => {
+    await expect(cachedPhotoUri(asClient(fake), theirs)).resolves.toBe(CACHED);
+    expect(downloads()).toEqual(['u-ana/s9/m9.jpg']);
+    expect((fake.storage.from as jest.Mock).mock.calls.map((c: unknown[]) => c[0])).toEqual(['photos']);
+    expect(fakeFs.__fileBytes(CACHED)).toEqual(BYTES);
+    expect(fakeFs.__writes().some((uri: string) => uri.startsWith('file:///data/Documents/'))).toBe(false);
+  });
+
+  it('a second call serves the cached file without a download', async () => {
+    await cachedPhotoUri(asClient(fake), theirs);
+    await expect(cachedPhotoUri(asClient(fake), theirs)).resolves.toBe(CACHED);
+    expect(downloads()).toHaveLength(1);
+  });
+
+  it('two calls at once share one download', async () => {
+    const [a, b] = await Promise.all([cachedPhotoUri(asClient(fake), theirs), cachedPhotoUri(asClient(fake), theirs)]);
+    expect([a, b]).toEqual([CACHED, CACHED]);
+    expect(downloads()).toHaveLength(1);
+  });
+
+  it('a refused download (403) rejects and writes nothing; the next call tries again', async () => {
+    fake.failNext('download', { message: 'new row violates row-level security policy', status: 403 });
+    await expect(cachedPhotoUri(asClient(fake), theirs)).rejects.toThrow('row-level security');
+    expect(fakeFs.__fileExists(CACHED)).toBe(false);
+    await expect(cachedPhotoUri(asClient(fake), theirs)).resolves.toBe(CACHED);
+  });
+
+  it("a missing object (404) rejects; the rider's own photo resolves at once with no download", async () => {
+    fake.objects.clear();
+    await expect(cachedPhotoUri(asClient(fake), theirs)).rejects.toThrow('Object not found');
+    const own = createTestMedia({ id: 'm1', spot_id: 's1', owner_id: 'u-me', file_path: 'photos/s1/m1.jpg' });
+    await expect(cachedPhotoUri(asClient(fake), own)).resolves.toBe(ORIGINAL);
+    expect(downloads()).toHaveLength(1);
+  });
+
+  it('defaultPhotoIO.write makes a cache/… folder under Paths.cache', () => {
+    defaultPhotoIO.write('cache/photos/s7/m7.jpg', BYTES);
+    expect(fakeFs.__fileBytes('file:///data/Caches/photos/s7/m7.jpg')).toEqual(BYTES);
   });
 });

@@ -1,6 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { createMigratedTestDb } from './helpers/node-sqlite-db';
 import { insertSpot, getSpot, getSpots, getSpotLegacy, updateSpot, softDeleteSpot } from '@/src/db';
+import { upsertProfiles } from '@/src/db/profiles';
 import { FeatureType } from '@/src/types';
 import { createTestSpot } from './factories';
 import { ME, adoptPhoneFor, outboxOps } from './helpers/outbox';
@@ -160,6 +161,20 @@ describe('spots against real SQLite', () => {
     const read = await getSpot(db, s.id);
     expect(read?.name ?? null).toBeNull();
     expect(read).toMatchObject(rest);
+  });
+
+  it("reads another rider's spot with its owner's @username from the profiles mirror (S8), never storing it", async () => {
+    await upsertProfiles(db, [{ id: 'u-ana', username: 'ana', display_name: null }]);
+    await insertSpot(db, createTestSpot({ id: 'anas', owner_id: 'u-ana' }));
+    await insertSpot(db, createTestSpot({ id: 'bens', owner_id: 'u-ben' }));
+    await insertSpot(db, createTestSpot({ id: 'phone' }));
+
+    expect((await getSpot(db, 'anas'))?.owner_username).toBe('ana');
+    const byId = Object.fromEntries((await getSpots(db)).map((s) => [s.id, s]));
+    expect(byId.anas.owner_username).toBe('ana');
+    expect(byId.bens.owner_username).toBeUndefined();
+    expect(byId.phone.owner_username).toBeUndefined();
+    expect('owner_username' in byId.phone).toBe(false);
   });
 
   describe('getSpotLegacy', () => {

@@ -5,12 +5,14 @@ import { Marker } from 'react-native-maps';
 import type NativeMapView from 'react-native-maps';
 
 import { ClusteredMapView } from '@/src/components/ClusteredMapView';
+import { useAuthStore } from '@/src/stores/auth-store';
 import { colors, palette } from '@/src/constants/theme';
 import type { GeoPoint, Spot } from '@/src/types';
 import { clusterPressTarget } from '@/src/utils/cluster-press';
 import type { ClusterLeaf } from '@/src/utils/cluster-press';
 import { isKnownLocation } from '@/src/utils/geo';
 import { initialRegion } from '@/src/utils/map-region';
+import { ownerLabel } from '@/src/utils/ownership';
 import { featureTypesList, getSpotDisplayName } from '@/src/utils/spot-name';
 
 export const SPOT_PIN = colors.light.primary;
@@ -35,6 +37,7 @@ export function SpotMap({ spots, currentLocation, onOpenSpot }: Props) {
   const [region] = useState(() => initialRegion(spots, currentLocation));
   // Only track the user while this tab is on screen; a mounted-but-hidden map would keep GPS on.
   const focused = useIsFocused();
+  const uid = useAuthStore((s) => s.userId);
   // preserveClusterPressBehavior stops the library zooming on cluster tap, so SpotMap zooms with its own ref.
   const mapRef = useRef<NativeMapView | null>(null);
   const setMap = useCallback((map: NativeMapView | null) => {
@@ -71,12 +74,12 @@ export function SpotMap({ spots, currentLocation, onOpenSpot }: Props) {
           testID={`spot-marker-${spot.id}`}
           coordinate={spot.location}
           title={getSpotDisplayName(spot)}
-          description={featureTypesList(spot)}
+          description={calloutDescription(spot, uid)}
           pinColor={SPOT_PIN}
           onCalloutPress={() => onOpenSpot(spot.id)}
         />
       )),
-    [spots, onOpenSpot],
+    [spots, onOpenSpot, uid],
   );
 
   return (
@@ -96,4 +99,10 @@ export function SpotMap({ spots, currentLocation, onOpenSpot }: Props) {
       {markers}
     </ClusteredMapView>
   );
+}
+
+/** The callout's second line: the feature types, then another rider's '@ana' (S8); undefined when both are empty. */
+function calloutDescription(spot: Spot, uid: string | null): string | undefined {
+  const parts = [featureTypesList(spot), ownerLabel(spot, uid)].filter((p) => p);
+  return parts.length > 0 ? parts.join(' · ') : undefined;
 }

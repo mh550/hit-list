@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type ReactElement, type ReactNode } from 'react';
+import { useCallback, useMemo, useState, type ComponentProps, type ReactElement, type ReactNode } from 'react';
 import { Stack, useRouter } from 'expo-router';
 import { Keyboard, StyleSheet, View, TextInput, type RefreshControlProps } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
@@ -11,6 +11,7 @@ import {
   selectEffectiveSort,
   selectActiveFilterCount,
 } from '@/src/stores';
+import { useAuthStore } from '@/src/stores/auth-store';
 import { useLocationStore } from '@/src/stores/location-store';
 import { useSettingsStore } from '@/src/stores/settings-store';
 import { SpotListItem } from '@/src/components/SpotListItem';
@@ -21,12 +22,13 @@ import { SegmentedControl } from '@/src/components/SegmentedControl';
 import { SpotMap } from '@/src/components/SpotMap';
 import { SortChips } from '@/src/components/SortChips';
 import { useCurrentLocation } from '@/src/hooks/use-current-location';
+import { usePhotoUri } from '@/src/hooks/use-photo-uri';
+import { ownerLabel } from '@/src/utils/ownership';
 import { featureTypesLabel, getSpotDisplayName } from '@/src/utils/spot-name';
-import { resolvePhotoUri } from '@/src/utils/photo-storage';
 import { primaryPhoto } from '@/src/utils/spot-photos';
 import { haversineDistance, formatDistance, isKnownLocation } from '@/src/utils/geo';
 import { SortField, UnitSystem } from '@/src/types';
-import type { Spot } from '@/src/types';
+import type { Media, Spot } from '@/src/types';
 import type { ViewMode } from '@/src/stores/spots-store';
 import { palette, radius, spacing } from '@/src/constants/theme';
 
@@ -104,6 +106,7 @@ export function SpotsBrowser({
   const currentLocation = useLocationStore((s) => s.currentLocation);
   const units = useSettingsStore((s) => s.units);
   const mediaBySpot = useMediaStore((s) => s.mediaBySpot);
+  const uid = useAuthStore((s) => s.userId);
 
   const [filterVisible, setFilterVisible] = useState(false);
   const activeFilterCount = selectActiveFilterCount(filters);
@@ -145,12 +148,12 @@ export function SpotsBrowser({
 
   const renderItem = useCallback(
     ({ item }: { item: Spot }) => {
-      const thumbnail = primaryPhoto(item, mediaBySpot[item.id]);
       return (
-        <SpotListItem
+        <SpotRow
           id={item.id}
           displayName={getSpotDisplayName(item)}
-          thumbnailUri={thumbnail ? resolvePhotoUri(thumbnail.file_path) : undefined}
+          thumbnail={primaryPhoto(item, mediaBySpot[item.id])}
+          ownerLabel={ownerLabel(item, uid)}
           featureType={featureTypesLabel(item)}
           stopped={item.stopped}
           naturalSpeed={item.natural_speed}
@@ -162,7 +165,7 @@ export function SpotsBrowser({
         />
       );
     },
-    [handleRowPress, onSpotLongPress, selectedIds, getDistance, mediaBySpot],
+    [handleRowPress, onSpotLongPress, selectedIds, getDistance, mediaBySpot, uid],
   );
 
   const keyExtractor = useCallback((item: Spot) => item.id, []);
@@ -268,6 +271,12 @@ const VIEW_MODES: { label: string; value: ViewMode }[] = [
   { label: 'List', value: 'list' },
   { label: 'Map', value: 'map' },
 ];
+
+/** A list row whose thumbnail may be another rider's photo, downloaded into the cache on first show (S8). */
+function SpotRow({ thumbnail, ...props }: Omit<ComponentProps<typeof SpotListItem>, 'thumbnailUri'> & { thumbnail?: Media }) {
+  const { uri } = usePhotoUri(thumbnail);
+  return <SpotListItem {...props} thumbnailUri={uri} />;
+}
 
 const styles = StyleSheet.create({
   modeBar: {

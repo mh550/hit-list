@@ -16,6 +16,8 @@ interface SpotListItemProps {
   stopped: boolean;
   naturalSpeed?: NaturalSpeed;
   distance?: string;
+  /** Another rider's spot (S8): '@ana', shown small and grey under the name. */
+  ownerLabel?: string;
   onPress: (id: string) => void;
   onLongPress?: (id: string) => void;
   /** Select mode: the row is a checkbox (a check circle left of the thumbnail) and a tap toggles it. */
@@ -31,6 +33,7 @@ export const SpotListItem = memo(function SpotListItem({
   stopped,
   naturalSpeed,
   distance,
+  ownerLabel,
   onPress,
   onLongPress,
   selectable = false,
@@ -39,6 +42,7 @@ export const SpotListItem = memo(function SpotListItem({
   // VoiceOver reads only the row's label, not the badges inside it, so the label says what they show.
   const label = [
     displayName,
+    ownerLabel,
     featureType,
     stopped ? 'Skate stopped' : undefined,
     naturalSpeed === undefined ? undefined : `Natural speed: ${SPEED_LABELS[naturalSpeed].label}`,
@@ -79,6 +83,7 @@ export const SpotListItem = memo(function SpotListItem({
         <Text style={styles.name} numberOfLines={2}>
           {displayName}
         </Text>
+        {ownerLabel ? <Text style={styles.owner}>{ownerLabel}</Text> : null}
 
         <View style={styles.badgeRow}>
           {featureType ? <Tag label={featureType} size="small" /> : null}
@@ -145,6 +150,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
     color: palette.gray[900],
+  },
+  owner: {
+    fontSize: 13,
+    color: palette.gray[500],
   },
   // Wraps rather than squeezing; the distance sits on its own line below, so a second badge line never hides it.
   badgeRow: {

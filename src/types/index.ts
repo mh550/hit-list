@@ -53,12 +53,20 @@ export interface Spot {
   owner_id?: string; // the account it belongs to (S5); undefined = phone-only, not adopted
   copied_from_send?: string; // S7: the send this spot was saved from; set once on insert
   from_username?: string; // S7: the sender's @username as frozen in that send ('From @ana'); set once on insert
+  owner_username?: string; // S8: another rider's @username from the profiles mirror, read by getSpots; never written
 }
 
 /** A patch for a spot (never its owner: adoption sets that, S5-06; never its send fields, S7); `null` for `name`, `notes`, `natural_speed` or `primary_photo_id` clears the stored value (undefined keeps it). */
 export type SpotUpdate = Omit<
   Partial<Spot>,
-  'name' | 'notes' | 'natural_speed' | 'primary_photo_id' | 'owner_id' | 'copied_from_send' | 'from_username'
+  | 'name'
+  | 'notes'
+  | 'natural_speed'
+  | 'primary_photo_id'
+  | 'owner_id'
+  | 'copied_from_send'
+  | 'from_username'
+  | 'owner_username'
 > & {
   name?: string | null;
   notes?: string | null;

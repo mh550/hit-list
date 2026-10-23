@@ -50,3 +50,8 @@ it.each(['file:///c/a.jpg', 'https://x.test/a.jpg', 'ph://ABC-123', '/abs/a.jpg'
     expect(resolvePhotoUri(uri)).toBe(uri);
   },
 );
+
+it("resolves another rider's cached photo (cache/…) against the cache directory, never Documents (S8, §3.4)", () => {
+  expect(resolvePhotoUri('cache/photos/s1/m1.jpg')).toBe('file:///data/Caches/photos/s1/m1.jpg');
+  expect(resolvePhotoUri('photos/s1/m1.jpg')).toBe('file:///data/Documents/photos/s1/m1.jpg');
+});

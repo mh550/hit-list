@@ -411,7 +411,7 @@ describe('Inbox tab: spots sent to you (S7-05)', () => {
     expect(screen.getByRole('header', { name: 'Spots sent to you' })).toBeOnTheScreen();
     expect(screen.getByText('@ana sent you 3 spots')).toBeOnTheScreen();
     expect(screen.getByText('Pier 57 · Capitol Hill')).toBeOnTheScreen();
-    expect(mockFake!.storage.from('photos').createSignedUrl).toHaveBeenCalledWith(PAYLOAD.spots[0].photos[0].path, 600);
+    // the fake's signed URL names the path and the lifetime it was asked for
     expect(screen.getByTestId('send-thumbnail').props.source).toEqual({
       uri: `https://storage.test/photos/${PAYLOAD.spots[0].photos[0].path}?expires=600`,
     });
@@ -427,7 +427,7 @@ describe('Inbox tab: spots sent to you (S7-05)', () => {
     expect(screen.getByText('@ana sent you a spot')).toBeOnTheScreen();
     expect(screen.getByText('Untitled · Fremont')).toBeOnTheScreen();
     expect(screen.queryByTestId('send-thumbnail')).toBeNull();
-    expect(mockFake!.storage.from('photos').createSignedUrl).not.toHaveBeenCalled();
+    expect(mockFake!.storage.from).not.toHaveBeenCalled();
   });
 
   it("Save all calls saveSend with the item; the item leaves and 'Saved 3 spots' shows", async () => {
@@ -444,6 +444,22 @@ describe('Inbox tab: spots sent to you (S7-05)', () => {
     expect(saveSend).toHaveBeenCalledWith(db, mockFake, ME, SEND, {});
     expect(screen.queryByText('@ana sent you 3 spots')).toBeNull();
     expect(screen.getByText('Saved 3 spots')).toBeOnTheScreen();
+  });
+
+  it('the saved line is gone once the tab loses focus', async () => {
+    signIn([SEND]);
+    const view = await renderTab();
+    await press('Save all');
+    expect(screen.getByText('Saved 3 spots')).toBeOnTheScreen();
+
+    jest.mocked(useIsFocused).mockReturnValue(false);
+    view.rerender(<InboxTab />);
+    await act(async () => {});
+    jest.mocked(useIsFocused).mockReturnValue(true);
+    view.rerender(<InboxTab />);
+    await act(async () => {});
+
+    expect(screen.queryByText('Saved 3 spots')).toBeNull();
   });
 
   it("a result with failedPhotos reads 'Saved 3 spots · 1 photo couldn't be downloaded'", async () => {

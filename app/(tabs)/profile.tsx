@@ -90,16 +90,15 @@ function BackupStatus({ userId }: { userId: string | null }) {
   );
 }
 
-/** Profile → Friends (S6-03): 'Friends · 2', or 'Friends' before any friends load. */
-function FriendsRow({ count, onPress }: { count: number; onPress: () => void }) {
-  const label = count > 0 ? `Friends · ${count}` : 'Friends';
+/** A row that opens a screen: Friends (S6-03), Sent (S7-05). */
+function LinkRow({ label, onPress }: { label: string; onPress: () => void }) {
   return (
     <Pressable
-      style={({ pressed }) => [styles.friendsRow, pressed && styles.friendsRowPressed]}
+      style={({ pressed }) => [styles.linkRow, pressed && styles.linkRowPressed]}
       onPress={onPress}
       accessibilityRole="button"
       accessibilityLabel={label}>
-      <Text style={styles.friendsRowText}>{label}</Text>
+      <Text style={styles.linkRowText}>{label}</Text>
       <IconSymbol name="chevron.right" size={18} color={palette.gray[400]} />
     </Pressable>
   );
@@ -244,7 +243,11 @@ function AccountSection() {
       {displayName ? <Text style={styles.accountBody}>{displayName}</Text> : null}
       {email ? <Text style={styles.fieldHint}>{email}</Text> : null}
       <BackupStatus userId={userId} />
-      <FriendsRow count={friendCount} onPress={() => router.push('/friends')} />
+      <View style={styles.links}>
+        {/* 'Friends · 2', or 'Friends' before any friends load */}
+        <LinkRow label={friendCount > 0 ? `Friends · ${friendCount}` : 'Friends'} onPress={() => router.push('/friends')} />
+        <LinkRow label="Sent" onPress={() => router.push('/sent')} />
+      </View>
       <AuthError message={error} />
       <Button
         title={busy === 'signing_out' ? 'Signing out…' : 'Sign out'}
@@ -382,20 +385,23 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     color: palette.red[700],
   },
-  friendsRow: {
+  links: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderColor: palette.gray[200],
+  },
+  linkRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     minHeight: 44,
     paddingVertical: spacing.sm,
-    borderTopWidth: StyleSheet.hairlineWidth,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderColor: palette.gray[200],
   },
-  friendsRowPressed: {
+  linkRowPressed: {
     backgroundColor: palette.gray[100],
   },
-  friendsRowText: {
+  linkRowText: {
     fontSize: 17,
     color: palette.gray[900],
   },

@@ -66,6 +66,7 @@ export default function RootLayout() {
                   options={{ presentation: 'fullScreenModal', title: 'Pick an area' }}
                 />
                 <Stack.Screen name="friends/index" options={{ title: 'Friends' }} />
+                <Stack.Screen name="sent/index" options={{ title: 'Sent' }} />
                 <Stack.Screen name="auth/sign-in" options={{ presentation: 'modal', title: 'Sign in' }} />
                 <Stack.Screen name="auth/code" options={{ title: 'Enter code' }} />
                 <Stack.Screen

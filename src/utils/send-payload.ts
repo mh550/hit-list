@@ -55,6 +55,9 @@ const FEATURE_TYPES = new Set<string>(Object.values(FeatureType));
 
 export const sendPhotoPath = (sendId: string, mediaId: string) => `sends/${sendId}/${mediaId}.jpg`;
 
+/** A frozen spot's name, or 'Untitled' (the Inbox row and Pick spots; the town shows beside it). */
+export const frozenSpotTitle = (spot: Pick<FrozenSpot, 'name'>) => spot.name || 'Untitled';
+
 /** 'YYYY-MM-DD' from an ISO or EXIF-local time, or null. */
 const captureDay = (value: unknown): string | null =>
   typeof value === 'string' && DAY.test(value) ? value.slice(0, 10) : null;

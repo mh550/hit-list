@@ -50,6 +50,27 @@ async function insertOldSpot(db: SQLiteDatabase, spot: Spot, old: OldColumns = {
   );
 }
 
+/** Inserts `spot` with the columns of versions 3 and 4; insertSpot writes version 5's owner_id too. */
+async function insertV3Spot(db: SQLiteDatabase, spot: Spot): Promise<void> {
+  await db.runAsync(
+    `INSERT INTO spots (id, name, generated_name, latitude, longitude, created_at, updated_at, deleted_at, feature_types_json, stopped, natural_speed, notes, primary_photo_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    spot.id,
+    spot.name ?? null,
+    spot.generated_name ?? null,
+    spot.location.latitude,
+    spot.location.longitude,
+    spot.created_at,
+    spot.updated_at,
+    spot.deleted_at ?? null,
+    JSON.stringify(spot.feature_types),
+    spot.stopped ? 1 : 0,
+    spot.natural_speed ?? null,
+    spot.notes ?? null,
+    spot.primary_photo_id ?? null,
+  );
+}
+
 const tables = async (db: SQLiteDatabase) =>
   (
     await db.getAllAsync<{ name: string }>(
@@ -473,7 +494,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
     it('drops the old columns and idx_spots_status, keeps idx_spots_deleted_at', async () => {
       const db = await v2Db();
 
-      await migrateDb(db);
+      await migrateDb(db, MIGRATIONS.slice(0, 3));
 
       const columns = (await db.getAllAsync<{ name: string }>('PRAGMA table_info(spots)')).map((c) => c.name);
       expect(columns).toEqual([
@@ -523,11 +544,11 @@ describe('migrateDb (PRAGMA user_version)', () => {
     it('a v3 DB gains hit_lists and hit_list_spots with exactly these columns, and keeps its spots', async () => {
       const db = await v3Db();
       const spot = createTestSpot({ name: 'kept' });
-      await insertSpot(db, spot);
+      await insertV3Spot(db, spot);
 
-      await migrateDb(db);
+      await migrateDb(db, MIGRATIONS.slice(0, 4));
 
-      expect(await getSchemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
+      expect(await getSchemaVersion(db)).toBe(4);
       expect(await columnNames(db, 'hit_lists')).toEqual([
         'id',
         'owner_id',
@@ -544,6 +565,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
         'deleted_at',
       ]);
       expect(await columnNames(db, 'hit_list_spots')).toEqual(['list_id', 'spot_id', 'added_by', 'added_at']);
+      await migrateDb(db); // getSpots reads version 5's columns
       expect(await getSpots(db)).toEqual([spot]);
     });
 
@@ -617,7 +639,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
     it('migrating a v4 DB again changes nothing', async () => {
       const db = await v3Db();
       const spot = createTestSpot();
-      await insertSpot(db, spot);
+      await insertV3Spot(db, spot);
       await migrateDb(db);
       await db.runAsync(
         `INSERT INTO hit_lists (id, name, created_at, updated_at) VALUES ('L', 'Downtown', 'x', 'x')`,
@@ -738,7 +760,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
     it('existing rows get no owner, no rev and no outbox row; media updated_at is backfilled from created_at', async () => {
       const db = await v4Db();
       const spot = createTestSpot({ name: 'kept' });
-      await insertSpot(db, spot);
+      await insertV3Spot(db, spot);
       await db.runAsync(
         `INSERT INTO media (id, spot_id, file_path, created_at) VALUES ('m1', ?, 'photos/a/m1.jpg', '2026-10-13T11:00:00.000Z')`,
         spot.id,
@@ -824,7 +846,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
       const db = await v4Db();
       await migrateDb(db);
       const spot = createTestSpot();
-      await insertSpot(db, spot);
+      await insertV3Spot(db, spot);
       const before = await db.getAllAsync('SELECT * FROM spots');
 
       await migrateDb(db);

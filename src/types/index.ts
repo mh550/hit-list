@@ -50,6 +50,7 @@ export interface Spot {
   natural_speed?: NaturalSpeed;
   notes?: string;
   primary_photo_id?: string;
+  owner_id?: string; // the account it belongs to (S5); undefined = phone-only, not adopted
 }
 
 /** A patch for a spot; `null` for `name`, `notes`, `natural_speed` or `primary_photo_id` clears the stored value (undefined keeps it). */
@@ -68,6 +69,7 @@ export interface Media {
   location?: GeoPoint;
   created_at: string; // ISO 8601
   uploaded_by?: string; // the account that added it; unset until accounts exist (spec: User, [FUTURE])
+  owner_id?: string; // always its spot's owner (S5); undefined = phone-only
 }
 
 export type HitListKind = 'manual' | 'area';
@@ -77,7 +79,7 @@ export interface HitList {
   id: string;
   name: string;
   kind: HitListKind; // 'manual' in S1; 'area' from S2
-  owner_id?: string; // undefined until accounts (S5)
+  owner_id?: string; // the account it belongs to (S5); undefined = phone-only, not adopted
   shared: boolean; // false in S1; S8
   member_count?: number; // computed in S8, never stored
   area_center?: GeoPoint; // S2; both lat and lng NULL → undefined
@@ -115,16 +117,6 @@ export type NewHitList =
 export interface UserSettings {
   units: UnitSystem;
   batch_import_radius: number; // meters
-}
-
-export interface SyncQueueItem {
-  id: string;
-  action: 'create' | 'update' | 'delete';
-  entity_type: 'spot' | 'media';
-  entity_id: string;
-  payload: string; // JSON
-  created_at: string; // ISO 8601
-  retry_count: number;
 }
 
 // ── Filter Types ───────────────────────────────────────

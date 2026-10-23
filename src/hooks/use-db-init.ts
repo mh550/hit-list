@@ -25,7 +25,7 @@ export function useDbInit(): { isReady: boolean; upgradeFailed: boolean } {
     (async () => {
       // A failed upgrade leaves the DB at its last good version, where this build's writes fail, so DBInitializer
       // blocks the app (D28); nothing on disk is lost and the next launch retries. The load still goes ahead, each
-      // part on its own: below version 3 getSpots throws, but media and the user's settings still load.
+      // part on its own: below version 5 getSpots and getAllMedia throw, but the user's settings still load.
       try {
         await migrateDb(db);
       } catch (err) {

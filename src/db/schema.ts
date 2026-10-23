@@ -315,8 +315,102 @@ async function migration4(db: SQLiteDatabase): Promise<void> {
   `);
 }
 
+/**
+ * The outbox rule as SQL (migration 5): a row is queued when it belongs to the phone's account (`sync_state.user_id`)
+ * and the write kept its `rev`. Only a pull writes `rev` (always the server's, always newer), so pulled rows never
+ * echo back; NULL-owned (phone-only) rows and other riders' rows (S8) never queue. Literal on purpose, like
+ * KEPT_FEATURE_TYPES.
+ */
+const ME = `(SELECT value FROM sync_state WHERE key = 'user_id')`;
+const NOW_ISO = `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`;
+const OUTBOX_OP = `CASE WHEN OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL THEN 'delete' ELSE 'upsert' END`;
+
+/** The insert and update triggers of a table whose rows carry owner_id, deleted_at and rev. */
+const ownedTableTriggers = (table: string, entity: string) => `
+  CREATE TRIGGER ${table}_outbox_ins AFTER INSERT ON ${table}
+    WHEN NEW.owner_id = ${ME} AND NEW.rev IS NULL
+    BEGIN
+      INSERT INTO sync_outbox (entity, entity_id, op, created_at) VALUES ('${entity}', NEW.id, 'upsert', ${NOW_ISO});
+    END;
+  CREATE TRIGGER ${table}_outbox_upd AFTER UPDATE ON ${table}
+    WHEN NEW.owner_id = ${ME} AND NEW.rev IS OLD.rev
+    BEGIN
+      INSERT INTO sync_outbox (entity, entity_id, op, created_at) VALUES ('${entity}', NEW.id, ${OUTBOX_OP}, ${NOW_ISO});
+    END;
+`;
+
+/** A membership is the account's when its list and its spot both are (a NULL-owned spot is queued by adoption). */
+const membershipIsMine = (row: 'NEW' | 'OLD') =>
+  `(SELECT owner_id FROM hit_lists WHERE id = ${row}.list_id) = ${ME} AND (SELECT owner_id FROM spots WHERE id = ${row}.spot_id) = ${ME}`;
+
+/**
+ * Version 5: sync (S5, docs/plans/2026-10-22-s5-sync.md). `owner_id` on spots and media (hit_lists has it since 4;
+ * NULL = phone-only, not adopted), the server `rev` last pulled on all four tables, media `updated_at`/`deleted_at`
+ * (removing a photo becomes a soft delete), the outbox and sync state, and the triggers that append an outbox row
+ * inside the writing statement, so a write and its outbox row commit or fail together without a BEGIN on the shared
+ * connection. sync_queue never had a reader and is dropped (D65). created_at values SQLite stamped as
+ * `YYYY-MM-DD HH:MM:SS` become ISO, as migration 2 did for updated_at.
+ */
+async function migration5(db: SQLiteDatabase): Promise<void> {
+  await db.execAsync(`
+    ALTER TABLE spots ADD COLUMN owner_id TEXT;
+    ALTER TABLE spots ADD COLUMN rev INTEGER;
+    ALTER TABLE media ADD COLUMN owner_id TEXT;
+    ALTER TABLE media ADD COLUMN rev INTEGER;
+    ALTER TABLE media ADD COLUMN updated_at TEXT;
+    ALTER TABLE media ADD COLUMN deleted_at TEXT;
+    ALTER TABLE hit_lists ADD COLUMN rev INTEGER;
+    ALTER TABLE hit_list_spots ADD COLUMN rev INTEGER;
+
+    UPDATE spots SET created_at = strftime('%Y-%m-%dT%H:%M:%fZ', created_at)
+      WHERE created_at NOT LIKE '%T%' AND strftime('%Y-%m-%dT%H:%M:%fZ', created_at) IS NOT NULL;
+    UPDATE media SET created_at = strftime('%Y-%m-%dT%H:%M:%fZ', created_at)
+      WHERE created_at NOT LIKE '%T%' AND strftime('%Y-%m-%dT%H:%M:%fZ', created_at) IS NOT NULL;
+    UPDATE media SET updated_at = created_at;
+
+    CREATE TABLE sync_outbox (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      entity TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      op TEXT NOT NULL CHECK (op IN ('upsert', 'delete')),
+      created_at TEXT NOT NULL,
+      attempts INTEGER NOT NULL DEFAULT 0,
+      last_error TEXT,
+      parked INTEGER NOT NULL DEFAULT 0
+    );
+    CREATE TABLE sync_state (
+      key TEXT PRIMARY KEY NOT NULL,
+      value TEXT
+    );
+
+    DROP INDEX IF EXISTS idx_sync_queue_created_at;
+    DROP TABLE IF EXISTS sync_queue;
+
+    CREATE INDEX idx_spots_owner_id ON spots(owner_id);
+    CREATE INDEX idx_media_owner_id ON media(owner_id);
+
+    ${ownedTableTriggers('spots', 'spot')}
+    ${ownedTableTriggers('media', 'media')}
+    ${ownedTableTriggers('hit_lists', 'hit_list')}
+
+    CREATE TRIGGER hit_list_spots_outbox_ins AFTER INSERT ON hit_list_spots
+      WHEN NEW.rev IS NULL AND ${membershipIsMine('NEW')}
+      BEGIN
+        INSERT INTO sync_outbox (entity, entity_id, op, created_at)
+          VALUES ('hit_list_spot', NEW.list_id || '/' || NEW.spot_id, 'upsert', ${NOW_ISO});
+      END;
+    -- A delete that is not the rider's (pull reconciliation, Remove, an account switch) marks the rows rev = -1 first.
+    CREATE TRIGGER hit_list_spots_outbox_del AFTER DELETE ON hit_list_spots
+      WHEN OLD.rev IS NOT -1 AND ${membershipIsMine('OLD')}
+      BEGIN
+        INSERT INTO sync_outbox (entity, entity_id, op, created_at)
+          VALUES ('hit_list_spot', OLD.list_id || '/' || OLD.spot_id, 'delete', ${NOW_ISO});
+      END;
+  `);
+}
+
 /** MIGRATIONS[i] takes the DB from version i to i + 1. */
-export const MIGRATIONS: readonly Migration[] = [migration1, migration2, migration3, migration4];
+export const MIGRATIONS: readonly Migration[] = [migration1, migration2, migration3, migration4, migration5];
 export const LATEST_SCHEMA_VERSION = MIGRATIONS.length;
 
 export async function getSchemaVersion(db: SQLiteDatabase): Promise<number> {

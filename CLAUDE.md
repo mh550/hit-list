@@ -77,7 +77,15 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   **append a migration, never edit a shipped one**; per-connection pragmas (e.g. `foreign_keys`) go
   next to the WAL line in `migrateDb`, not in a migration. Foreign keys are OFF while migrations run and ON for the app
   afterwards, so a table rebuild is safe; only the `SQLiteProvider` connection has them on (a second connection, e.g.
-  `withExclusiveTransactionAsync`, would start with them off).
+  `withExclusiveTransactionAsync`, would start with them off). A table rebuild must also drop and recreate the
+  migration 5 triggers that name the table (`hit_list_spots_outbox_*` read `spots` and `hit_lists`), or the RENAME fails.
+  Migration 5 (S5 sync, plan `docs/plans/2026-10-22-s5-sync.md`): `owner_id` (NULL = phone-only, not adopted) and `rev`
+  (the server rev last pulled; only a pull writes it), media `updated_at`/`deleted_at` (`deleteMedia` is a soft delete;
+  readers skip deleted rows), `sync_outbox`, `sync_state`; **triggers append the outbox row inside the writing
+  statement** when the row's owner is `sync_state.user_id` and `rev` is unchanged (memberships: list and spot both
+  owned; a non-rider delete sets `rev = -1` first). `sync.ts`: `enqueue`, `peekOutbox`, `markDone`/`markFailed`/`parkRow`,
+  `countPending`/`countFailed`, `resetFailed`, `clearOutbox`, `adoptableMemberships`/`enqueueMemberships`, cursors and
+  `getSyncState`/`setSyncState`. `insertMedia` takes its spot's owner.
   `hit-lists.ts` (migration 4): `insertHitList`, `getHitLists` (live only), `updateHitList`, `softDeleteHitList`,
   `addSpotsToList` (one `INSERT OR IGNORE … FROM json_each(?)`, idempotent; no `withTransactionAsync` for app writes: it is a
   plain BEGIN/COMMIT on the shared connection, so two writes at once collide), `removeSpotFromList`, `getListMemberships` (`{ spotId: listId[] }`, live lists).

@@ -53,7 +53,11 @@ describe('foreign keys', () => {
   describe('table-rebuild migrations (foreign keys must be off while schema changes run)', () => {
     // SQLite's documented rebuild: create X_new, copy, DROP X, rename. Same DDL as the tables at the latest version.
     const rebuildSpots: Migration = async (d) => {
+      // Triggers on other tables that name spots must go first (and be recreated by a real rebuild), or the RENAME
+      // fails: SQLite re-checks every trigger against the schema while spots does not exist.
       await d.execAsync(`
+        DROP TRIGGER hit_list_spots_outbox_ins;
+        DROP TRIGGER hit_list_spots_outbox_del;
         CREATE TABLE spots_new (
           id TEXT PRIMARY KEY NOT NULL,
           name TEXT,
@@ -68,7 +72,9 @@ describe('foreign keys', () => {
           natural_speed INTEGER,
           notes TEXT,
           legacy_json TEXT,
-          primary_photo_id TEXT
+          primary_photo_id TEXT,
+          owner_id TEXT,
+          rev INTEGER
         );
         INSERT INTO spots_new SELECT * FROM spots;
         DROP TABLE spots;
@@ -86,6 +92,10 @@ describe('foreign keys', () => {
           longitude REAL,
           created_at TEXT NOT NULL DEFAULT (datetime('now')),
           uploaded_by TEXT,
+          owner_id TEXT,
+          rev INTEGER,
+          updated_at TEXT,
+          deleted_at TEXT,
           FOREIGN KEY (spot_id) REFERENCES spots(id) ON DELETE CASCADE
         );
         INSERT INTO media_new SELECT * FROM media;

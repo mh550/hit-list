@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { fireEvent, render, screen, within } from '@testing-library/react-native';
 import { ScrollView } from 'react-native';
 import { useHitListsStore } from '@/src/stores';
 import { createTestHitList } from './factories';
@@ -91,5 +91,26 @@ describe('ListPickerChips', () => {
     const { toJSON } = render(<ListPickerChips />);
 
     expect(toJSON()).toBeNull();
+  });
+  it('a shared list\'s chip carries the two-people icon and its member count (D84); a private one has neither', () => {
+    const shared = createTestHitList({
+      id: 'L-shared',
+      name: 'Waterfront',
+      owner_id: 'u-ana',
+      shared: true,
+      members: [
+        { user_id: 'u-me', role: 'add', status: 'member' },
+        { user_id: 'u-ben', role: 'view', status: 'member' },
+        { user_id: 'u-cal', role: 'add', status: 'invited' },
+      ],
+    });
+    useHitListsStore.setState({ lists: [downtown, shared] });
+    render(<ListPickerChips />);
+
+    const chip = screen.getByRole('tab', { name: 'Waterfront, Shared with 3' });
+    expect(within(chip).getByTestId('icon-person.2.fill')).toBeTruthy();
+    expect(within(chip).getByText('3')).toBeTruthy();
+    expect(within(screen.getByRole('tab', { name: 'Downtown' })).queryByTestId('icon-person.2.fill')).toBeNull();
+    expect(screen.getAllByTestId('icon-person.2.fill')).toHaveLength(1);
   });
 });

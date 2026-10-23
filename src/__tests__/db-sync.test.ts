@@ -7,7 +7,9 @@ import {
   countFailed,
   countPending,
   enqueue,
+  confirmedListKey,
   enqueueMemberships,
+  forgetAccount,
   getCursor,
   getSyncState,
   lastOutboxId,
@@ -258,6 +260,29 @@ describe('src/db/sync.ts: the outbox and sync state (real SQLite)', () => {
       expect(await getCursor(db, 'spots')).toBe(0);
       expect(await getCursor(db, 'hit_list_spots')).toBe(0);
       expect(await getSyncState(db, 'user_id')).toBe('u1');
+    });
+
+    it("forgetAccount clears every 'confirmed_list:<id>' (D90: another account asks again) and the account's keys", async () => {
+      expect(confirmedListKey('L1')).toBe('confirmed_list:L1');
+      await setSyncState(db, 'user_id', 'u1');
+      await setSyncState(db, confirmedListKey('L1'), '1');
+      await setSyncState(db, confirmedListKey('L2'), '1');
+      await setSyncState(db, 'cursor:spots', '7');
+
+      await forgetAccount(db, 'u1');
+
+      expect(await getSyncState(db, 'user_id')).toBeUndefined();
+      expect(await getSyncState(db, confirmedListKey('L1'))).toBeUndefined();
+      expect(await getSyncState(db, confirmedListKey('L2'))).toBeUndefined();
+      expect(await getSyncState(db, 'cursor:spots')).toBe('7');
+    });
+
+    it("forgetAccount with no account still clears 'confirmed_list:%'", async () => {
+      await setSyncState(db, confirmedListKey('L1'), '1');
+
+      await forgetAccount(db, undefined);
+
+      expect(await getSyncState(db, confirmedListKey('L1'))).toBeUndefined();
     });
 
     it("getSyncState/setSyncState round-trip 'user_id'; null deletes the key", async () => {

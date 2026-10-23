@@ -175,6 +175,21 @@ describe('area lists (computed from the circle and its filters, never stored)', 
     expect(selectListSpots(area, pool, {}).map((s) => s.id)).toEqual(['anas', 'mine', 'phone']);
   });
 
+  it("selectListSpots (S8-05): ana's shared area list on a member's phone holds only ana's pulled spots inside the circle", () => {
+    const anasList = { ...area, owner_id: 'u-ana', shared: true, members: [{ user_id: 'u-me', role: 'view' as const, status: 'member' as const }] };
+    const anasIn = { ...rail, id: 'anas-in', owner_id: 'u-ana' };
+    const anasLedge = { ...ledge, id: 'anas-ledge', owner_id: 'u-ana' };
+    const anasOut = { ...far, id: 'anas-out', owner_id: 'u-ana' };
+    const mineIn = { ...rail, id: 'mine-in', owner_id: 'u-me' };
+    const bensIn = { ...ledge, id: 'bens-in', owner_id: 'u-ben' };
+    const pool = [mineIn, anasIn, bensIn, anasOut, anasLedge];
+    expect(selectListSpots(anasList, pool, {}).map((s) => s.id)).toEqual(['anas-in', 'anas-ledge']);
+    // her filters still apply
+    expect(selectListSpots({ ...anasList, area_filters: { types: [FeatureType.Rail] } }, pool, {}).map((s) => s.id)).toEqual([
+      'anas-in',
+    ]);
+  });
+
   it('selectListSpots: an area list missing its centre or radius holds nothing', () => {
     expect(selectListSpots({ ...area, area_center: undefined }, spots, {})).toEqual([]);
     expect(selectListSpots({ ...area, area_radius_m: undefined }, spots, {})).toEqual([]);

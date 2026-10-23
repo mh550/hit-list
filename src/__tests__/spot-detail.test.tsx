@@ -1,5 +1,5 @@
 import type { ReactElement } from 'react';
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
 import { Alert, Image, StyleSheet } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
@@ -413,6 +413,24 @@ describe("Spot detail: 'In lists' row", () => {
 
     expect(screen.queryByText('Downtown')).toBeNull();
     expect(screen.getByRole('button', { name: 'Bridges' })).toBeOnTheScreen();
+  });
+
+  it("a shared list's chip carries the two-people icon and its member count; a private one has neither (S8-05)", async () => {
+    useHitListsStore.setState({
+      lists: [
+        { ...downtown, shared: true, members: [{ user_id: 'u-ana', role: 'add', status: 'member' }] },
+        bridges,
+      ],
+      membershipBySpot: { 'spot-1': [downtown.id, bridges.id] },
+    });
+    await renderDetail({ id: 'spot-1', name: 'Pier 57' });
+
+    const chip = screen.getByRole('button', { name: 'Downtown, Shared with 2' });
+    expect(within(chip).getByTestId('icon-person.2.fill')).toBeOnTheScreen();
+    expect(within(chip).getByText('2')).toBeOnTheScreen();
+    expect(within(screen.getByRole('button', { name: 'Bridges' })).queryByTestId('icon-person.2.fill')).toBeNull();
+    fireEvent.press(chip);
+    expect(push).toHaveBeenCalledWith(`/list/${downtown.id}`);
   });
 
   it('opens the list when its chip is pressed', async () => {

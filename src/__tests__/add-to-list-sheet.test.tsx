@@ -1,4 +1,9 @@
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
+import type { SQLiteDatabase } from 'expo-sqlite';
+import { getSyncState } from '@/src/db/sync';
+import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
+import type { AlertButton } from 'react-native';
+import { createMigratedTestDb } from './helpers/node-sqlite-db';
 import { Alert } from 'react-native';
 import { useHitListsStore, useSpotsStore } from '@/src/stores';
 import { CITIES, createTestHitList, createTestSpot } from './factories';
@@ -6,6 +11,11 @@ import { CITIES, createTestHitList, createTestSpot } from './factories';
 const mockCreateList = jest.fn();
 const mockAddSpotsToList = jest.fn();
 const mockRemoveSpotFromList = jest.fn();
+let mockDb: SQLiteDatabase;
+jest.mock('expo-sqlite', () => ({
+  ...jest.requireActual('expo-sqlite'),
+  useSQLiteContext: () => mockDb,
+}));
 jest.mock('@/src/hooks/use-hit-list-actions', () => ({
   useHitListActions: () => ({
     createList: mockCreateList,
@@ -248,6 +258,194 @@ describe('AddToListSheet', () => {
 
       expect(mockAddSpotsToList).not.toHaveBeenCalled();
       expect(mockRemoveSpotFromList).not.toHaveBeenCalled();
+    });
+  });
+  describe('shared lists (S8-05)', () => {
+    const ME = 'u-me';
+    const joined = (user_id: string, role: 'add' | 'view' = 'add') => ({ user_id, role, status: 'member' }) as const;
+    // Mine, shared: ana, ben and cal joined, dan invited (not counted, D84) → 'Downtown (4)'.
+    const mineShared = createTestHitList({
+      id: 'L-mine',
+      name: 'Downtown',
+      owner_id: ME,
+      shared: true,
+      members: [joined('u-ana'), joined('u-ben'), joined('u-cal'), { user_id: 'u-dan', role: 'add', status: 'invited' }],
+    });
+    const minePrivate = createTestHitList({ id: 'L-private', name: 'Bridges', owner_id: ME });
+    const anasAdd = createTestHitList({
+      id: 'L-anas-add',
+      name: 'Waterfront',
+      owner_id: 'u-ana',
+      shared: true,
+      members: [joined(ME, 'add')],
+    });
+    const anasView = createTestHitList({
+      id: 'L-anas-view',
+      name: 'Rooftops',
+      owner_id: 'u-ana',
+      shared: true,
+      members: [joined(ME, 'view'), joined('u-ben')],
+    });
+    const anasArea = createTestHitList({
+      id: 'L-anas-area',
+      name: 'Weekend',
+      kind: 'area',
+      area_center: CITIES.seattle,
+      area_radius_m: 1609,
+      owner_id: 'u-ana',
+      shared: true,
+      members: [joined(ME, 'add')],
+    });
+    const AREA_HINT = 'Area list: spots inside its circle are in it automatically';
+
+    let alert: jest.SpyInstance;
+    const alertButtons = () => (alert.mock.lastCall?.[2] ?? []) as AlertButton[];
+    const press = (text: string) => alertButtons().find((b) => b.text === text)?.onPress?.();
+
+    beforeEach(async () => {
+      mockDb = await createMigratedTestDb();
+      alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      useAuthStore.setState({ status: 'signed_in', userId: ME, username: 'me' });
+      useSpotsStore.setState({
+        spots: ['a', 'b', 'c'].map((id) => createTestSpot({ id, owner_id: ME, location: CITIES.portland })),
+      });
+      useHitListsStore.setState({
+        lists: [mineShared, minePrivate, anasAdd, anasView, anasArea],
+        membershipBySpot: {},
+      });
+    });
+    afterEach(() => act(() => useAuthStore.setState(SIGNED_OUT)));
+
+    it('a shared row carries the two-people icon and the member count; a private one has neither', () => {
+      render(<AddToListSheet visible spotIds={['a']} onClose={jest.fn()} />);
+
+      const shared = row('Downtown, Shared with 4');
+      expect(within(shared).getByTestId('icon-person.2.fill')).toBeTruthy();
+      expect(within(shared).getByText('4')).toBeTruthy();
+      expect(within(row('Bridges')).queryByTestId('icon-person.2.fill')).toBeNull();
+    });
+
+    it("enables a shared list I own and one where my role is 'add'", () => {
+      render(<AddToListSheet visible spotIds={['a']} onClose={jest.fn()} />);
+
+      expect(row('Downtown, Shared with 4').props.accessibilityState).toEqual({ checked: false });
+      expect(row('Waterfront, Shared with 2').props.accessibilityState).toEqual({ checked: false });
+    });
+
+    it("disables a shared list where my role is 'view', with the hint 'View only', and never writes to it", () => {
+      render(<AddToListSheet visible spotIds={['a']} onClose={jest.fn()} />);
+
+      const viewOnly = row('Rooftops, Shared with 3');
+      expect(viewOnly.props.accessibilityState).toEqual({ disabled: true, checked: false });
+      expect(viewOnly.props.accessibilityHint).toBe('View only');
+      expect(within(viewOnly).getByText('View only')).toBeTruthy();
+      fireEvent.press(viewOnly);
+      expect(alert).not.toHaveBeenCalled();
+      expect(mockAddSpotsToList).not.toHaveBeenCalled();
+    });
+
+    it("disables a shared area list with the area hint (members can't add, D41)", () => {
+      render(<AddToListSheet visible spotIds={['a']} onClose={jest.fn()} />);
+
+      const area = row('Weekend, Shared with 2');
+      expect(area.props.accessibilityState).toEqual({ disabled: true, checked: false });
+      expect(within(area).getByText(AREA_HINT)).toBeTruthy();
+      expect(within(area).getByTestId('icon-person.2.fill')).toBeTruthy();
+    });
+
+    it("the first add to a shared list asks 'Everyone in Downtown (4) will see this spot.' with Cancel / Add", async () => {
+      render(<AddToListSheet visible spotIds={['a']} onClose={jest.fn()} />);
+
+      fireEvent.press(row('Downtown, Shared with 4'));
+
+      await waitFor(() => expect(alert).toHaveBeenCalledTimes(1));
+      expect(alert.mock.lastCall?.[0]).toBe('Everyone in Downtown (4) will see this spot.');
+      expect(alert.mock.lastCall?.[1]).toBeUndefined();
+      expect(alertButtons().map((b) => [b.text, b.style])).toEqual([
+        ['Cancel', 'cancel'],
+        ['Add', undefined],
+      ]);
+      expect(mockAddSpotsToList).not.toHaveBeenCalled();
+    });
+
+    it("says 'these 3 spots' for three", async () => {
+      render(<AddToListSheet visible spotIds={['a', 'b', 'c']} onClose={jest.fn()} />);
+
+      fireEvent.press(row('Downtown, Shared with 4'));
+
+      await waitFor(() => expect(alert).toHaveBeenCalledTimes(1));
+      expect(alert.mock.lastCall?.[0]).toBe('Everyone in Downtown (4) will see these 3 spots.');
+    });
+
+    it('Cancel adds nothing and remembers nothing', async () => {
+      render(<AddToListSheet visible spotIds={['a']} onClose={jest.fn()} />);
+      fireEvent.press(row('Downtown, Shared with 4'));
+      await waitFor(() => expect(alert).toHaveBeenCalledTimes(1));
+
+      await act(async () => press('Cancel'));
+
+      expect(mockAddSpotsToList).not.toHaveBeenCalled();
+      expect(await getSyncState(mockDb, 'confirmed_list:L-mine')).toBeUndefined();
+    });
+
+    it("Add adds the spots and sets 'confirmed_list:<id>'; the next add to that list asks nothing", async () => {
+      render(<AddToListSheet visible spotIds={['a']} onClose={jest.fn()} />);
+      fireEvent.press(row('Downtown, Shared with 4'));
+      await waitFor(() => expect(alert).toHaveBeenCalledTimes(1));
+
+      await act(async () => press('Add'));
+
+      expect(mockAddSpotsToList).toHaveBeenCalledWith('L-mine', ['a']);
+      expect(await getSyncState(mockDb, 'confirmed_list:L-mine')).toBe('1');
+
+      // The mock leaves the row unchecked, so the next press is another add.
+      fireEvent.press(row('Downtown, Shared with 4'));
+      await waitFor(() => expect(mockAddSpotsToList).toHaveBeenCalledTimes(2));
+      expect(alert).toHaveBeenCalledTimes(1);
+    });
+
+    it('adding to a different shared list asks again (D90: once per list)', async () => {
+      render(<AddToListSheet visible spotIds={['a']} onClose={jest.fn()} />);
+      fireEvent.press(row('Downtown, Shared with 4'));
+      await waitFor(() => expect(alert).toHaveBeenCalledTimes(1));
+      await act(async () => press('Add'));
+
+      fireEvent.press(row('Waterfront, Shared with 2'));
+
+      await waitFor(() => expect(alert).toHaveBeenCalledTimes(2));
+      expect(alert.mock.lastCall?.[0]).toBe('Everyone in Waterfront (2) will see this spot.');
+      expect(mockAddSpotsToList).toHaveBeenCalledTimes(1);
+    });
+
+    it('a failed add leaves the list unconfirmed and says so', async () => {
+      mockAddSpotsToList.mockRejectedValueOnce(new Error('disk full'));
+      render(<AddToListSheet visible spotIds={['a']} onClose={jest.fn()} />);
+      fireEvent.press(row('Downtown, Shared with 4'));
+      await waitFor(() => expect(alert).toHaveBeenCalledTimes(1));
+
+      await act(async () => press('Add'));
+
+      expect(alert.mock.lastCall?.[0]).toBe("Couldn't update the list");
+      expect(await getSyncState(mockDb, 'confirmed_list:L-mine')).toBeUndefined();
+    });
+
+    it('removing a spot from a shared list asks nothing', () => {
+      useHitListsStore.setState({ membershipBySpot: { a: ['L-mine'] } });
+      render(<AddToListSheet visible spotIds={['a']} onClose={jest.fn()} />);
+
+      fireEvent.press(row('Downtown, Shared with 4'));
+
+      expect(mockRemoveSpotFromList).toHaveBeenCalledWith('L-mine', 'a');
+      expect(alert).not.toHaveBeenCalled();
+    });
+
+    it('a private list adds at once, without asking', () => {
+      render(<AddToListSheet visible spotIds={['a']} onClose={jest.fn()} />);
+
+      fireEvent.press(row('Bridges'));
+
+      expect(mockAddSpotsToList).toHaveBeenCalledWith('L-private', ['a']);
+      expect(alert).not.toHaveBeenCalled();
     });
   });
 });

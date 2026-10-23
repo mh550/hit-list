@@ -706,6 +706,29 @@ describe("List screen: 'Share list' and the member strip (S8-04)", () => {
       renderList();
       expect(screen.queryByRole('button', { name: 'Edit area' })).toBeNull();
     });
+
+    it("a shared area list of ana shows 'Area · 2 mi of Capitol Hill' and only her spots inside it (S8-05)", () => {
+      const area = {
+        ...anas,
+        kind: 'area' as const,
+        area_center: CITIES.seattle,
+        area_radius_m: 3219,
+        area_place: 'Capitol Hill',
+        area_filters: { types: [] },
+      };
+      setList(area, [
+        { ...mineIn, location: CITIES.seattle },
+        { ...hers, location: CITIES.seattle },
+        createTestSpot({ id: 'hers-far', name: 'Her far rail', owner_id: 'u-ana', location: CITIES.portland }),
+      ]);
+      renderList();
+      expect(screen.getByText('Her ledge')).toBeTruthy();
+      expect(screen.queryByText('My rail')).toBeNull();
+      expect(screen.queryByText('Her far rail')).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Edit area' })).toBeNull();
+      render((headerOptions().headerTitle as () => ReactElement)());
+      expect(screen.getByRole('header', { name: 'Downtown, Area · 2 mi of Capitol Hill' })).toBeTruthy();
+    });
   });
 
   it("deleting a shared list adds 'Members lose access to all 12 spots now.'", () => {

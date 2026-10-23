@@ -1,8 +1,9 @@
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useHitListsStore, useSpotsStore } from '@/src/stores';
 import { useSettingsStore } from '@/src/stores/settings-store';
+import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
 import { UnitSystem, type GeoPoint, type HitList } from '@/src/types';
 import { CITIES, createTestHitList, createTestSpot } from './factories';
 
@@ -115,11 +116,93 @@ describe('Lists tab', () => {
     expect(screen.getByText('1 spot')).toBeTruthy();
   });
 
-  it("has no 'Shared with me' section yet", () => {
+  it("has no 'Shared with me' section without others' lists", () => {
     seedTwoLists();
     render(<ListsScreen />);
 
     expect(screen.queryByText('Shared with me')).toBeNull();
+  });
+
+  describe('shared lists (S8-05)', () => {
+    const ME = 'u-me';
+    const joined = (user_id: string, username: string, role: 'add' | 'view' = 'add') =>
+      ({ user_id, username, role, status: 'member' }) as const;
+    // Mine, shared with ana and ben (joined) and cal (invited, not counted, D84).
+    const mineShared = createTestHitList({
+      id: 'L-mine',
+      name: 'Downtown',
+      owner_id: ME,
+      shared: true,
+      members: [joined('u-ana', 'ana'), joined('u-ben', 'ben'), { user_id: 'u-cal', username: 'cal', role: 'add', status: 'invited' }],
+    });
+    const minePrivate = createTestHitList({ id: 'L-private', name: 'Bridges', owner_id: ME });
+    // Ana's, which I joined: four with ana.
+    const anas = createTestHitList({
+      id: 'L-anas',
+      name: 'Waterfront',
+      owner_id: 'u-ana',
+      owner_username: 'ana',
+      shared: true,
+      members: [joined(ME, 'me', 'view'), joined('u-ben', 'ben'), joined('u-dan', 'dan')],
+    });
+    const hers = [1, 2].map((i) => createTestSpot({ id: `h${i}`, name: `Hers ${i}`, owner_id: 'u-ana' }));
+
+    beforeEach(() => {
+      useAuthStore.setState({ status: 'signed_in', userId: ME, username: 'me' });
+      useSpotsStore.setState({ spots: hers });
+      useHitListsStore.setState({
+        lists: [mineShared, minePrivate, anas],
+        membershipBySpot: { h1: [anas.id], h2: [anas.id] },
+      });
+    });
+    afterEach(() => act(() => useAuthStore.setState(SIGNED_OUT)));
+
+    it("a shared list of mine carries the two-people icon and the member count; a private one doesn't", () => {
+      render(<ListsScreen />);
+
+      const shared = screen.getByLabelText('Downtown, 0 spots, Shared with 3');
+      expect(within(shared).getByTestId('icon-person.2.fill')).toBeTruthy();
+      expect(within(shared).getByText('3')).toBeTruthy();
+      const priv = screen.getByLabelText('Bridges, 0 spots');
+      expect(within(priv).queryByTestId('icon-person.2.fill')).toBeNull();
+    });
+
+    it("lists others' lists under 'Shared with me' with '@ana · 2 spots', the icon and the count, not under mine", () => {
+      render(<ListsScreen />);
+
+      const headers = screen.getAllByRole('header').map((h) => h.props.children);
+      expect(headers).toEqual(['My hit lists', 'Shared with me']);
+      const row = screen.getByLabelText('Waterfront, @ana · 2 spots, Shared with 4');
+      expect(within(row).getByText('@ana · 2 spots')).toBeTruthy();
+      expect(within(row).getByTestId('icon-person.2.fill')).toBeTruthy();
+      expect(within(row).getByText('4')).toBeTruthy();
+      // Mine first, then theirs: Waterfront isn't in 'My hit lists'.
+      const names = screen.getAllByText(/^(Bridges|Downtown|Waterfront)$/).map((n) => n.props.children);
+      expect(names).toEqual(['Bridges', 'Downtown', 'Waterfront']);
+    });
+
+    it("a shared list's row opens it", () => {
+      render(<ListsScreen />);
+
+      fireEvent.press(screen.getByLabelText('Waterfront, @ana · 2 spots, Shared with 4'));
+      expect(mockPush).toHaveBeenCalledWith('/list/L-anas');
+    });
+
+    it("an owner whose name isn't mirrored yet reads 'A friend'", () => {
+      useHitListsStore.setState({ lists: [{ ...anas, owner_username: undefined }] });
+      render(<ListsScreen />);
+
+      expect(screen.getByText('A friend · 2 spots')).toBeTruthy();
+    });
+
+    it("an invitation isn't a joined list: no 'Shared with me' row until Join", () => {
+      const invited = { ...anas, members: [{ user_id: ME, role: 'add' as const, status: 'invited' as const }] };
+      useHitListsStore.setState({ lists: [minePrivate, invited] });
+      render(<ListsScreen />);
+
+      expect(screen.queryByText('Shared with me')).toBeNull();
+      expect(screen.queryByText('Waterfront')).toBeNull();
+    });
   });
 
   it('opens the list screen when a row is pressed', () => {

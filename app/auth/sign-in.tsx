@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { StyleSheet, Text } from 'react-native';
 import { useRouter } from 'expo-router';
 
@@ -15,6 +15,14 @@ export default function SignInScreen() {
   const [error, setError] = useState<string | null>(null);
   // A second tap can land before the disabled state renders.
   const inFlight = useRef(false);
+  // The rider can close the sheet while the code is sending: then nothing opens.
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   const client = getSupabase();
   if (!client) return <AccountsNotSetUp />;
@@ -27,6 +35,7 @@ export default function SignInScreen() {
     setError(null);
     const email = text.trim().toLowerCase();
     const message = await sendSignInCode(client, email);
+    if (!mounted.current) return;
     inFlight.current = false;
     setSending(false);
     if (message) setError(message);

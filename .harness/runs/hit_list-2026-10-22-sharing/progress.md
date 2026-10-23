@@ -20,6 +20,14 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 01:40 · S4-03 · passes
+
+- New: `app/auth/sign-in.tsx` (email → `signInWithOtp` trimmed + lowercased, `Sending…`, `error.message` in place) and `app/auth/code.tsx` (digits only, six auto-verify once via an in-flight ref, `Checking…`, resend → `Sent` 3 s, `needs_username` → `replace('/auth/username')`, else `dismissAll()`); `sendSignInCode`/`verifySignInCode` in `src/sync/auth.ts`; `src/components/AuthScreen.tsx` (`AuthScreen`, `AccountsNotSetUp`, `AuthError`); root Stack registers `auth/sign-in` (modal) + `auth/code`. Tests 964 → 990.
+- RED e6b9b44 (3 suites fail), GREEN aa4cc4d; review-fix RED 53f9af4 (5 fail) then GREEN. check.sh green, full `npx jest --ci` 0 console.error; `npx expo export --platform ios` exit 0, 4.8 MB hbc. Mutation checks: dropping either in-flight ref or the mounted ref fails a test.
+- Opus review: 1 Important fixed (closing sign-in mid-send still pushed the code screen); Minors fixed: offline send shows fixed copy, errors announced to VoiceOver, code field stays editable after a wrong code, no `email` param → `Back to Sign in`, two tests that didn't exercise their guards.
+- Next session (S4-04) must know: `/auth/username` doesn't exist yet, so a new account hits Unmatched Route until S4-04 registers it (add its Stack.Screen to `app/_layout.tsx` + root-layout test). `expo-router`'s jest mock has no `Redirect`; add it for the tabs redirect. On iOS `auth/code` shows as a second sheet over sign-in (live checklist item added); S6 should consider `dismissTo` instead of `dismissAll`.
+- No new questions for Michael.
+
 ### 2026-10-23 00:45 · S4-02 · passes
 
 - New: `src/sync/client.ts` (`getSupabase`/`isConfigured`, one client, AppState start/stopAutoRefresh), `src/sync/session-storage.ts` (D61 LargeSecureStore on expo-crypto AES-GCM, per-key op queue, read errors never wipe or throw), `src/sync/auth.ts` (`resolveAuthState`), `src/stores/auth-store.ts`, `src/hooks/use-auth-init.ts`, `<AuthInit />` in `app/_layout.tsx` inside DBInitializer; fake `src/__tests__/helpers/fake-supabase.ts` for S4-03..05; jest.setup mocks SecureStore (real key check), AsyncStorage (package mock), expo-crypto AES (Node aes-256-gcm). Tests 924 → 964.

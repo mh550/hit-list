@@ -24,7 +24,8 @@ export default function CodeScreen() {
   const [resending, setResending] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Verifying spends the code: a second submit (a re-typed or re-rendered six) would fail after a success.
+  // Verifying spends the code: a second submit (a re-typed or re-rendered six) would fail after a success. The field
+  // stays editable while checking, so the keyboard is still up for the next try after a wrong code.
   const verifying = useRef(false);
 
   useEffect(() => {
@@ -35,6 +36,15 @@ export default function CodeScreen() {
 
   const client = getSupabase();
   if (!client) return <AccountsNotSetUp />;
+  // Opened without an email (a stray link): there is no code to check.
+  if (!email) {
+    return (
+      <AuthScreen>
+        <Text style={styles.body}>Start from Sign in to get a code.</Text>
+        <Button title="Back to Sign in" size="lg" onPress={() => router.replace('/auth/sign-in')} />
+      </AuthScreen>
+    );
+  }
 
   const verify = async (token: string) => {
     if (verifying.current) return;
@@ -84,7 +94,6 @@ export default function CodeScreen() {
         textContentType="oneTimeCode"
         autoComplete="one-time-code"
         autoFocus
-        editable={!checking}
         style={styles.code}
       />
       {checking ? <Text style={styles.status}>Checking…</Text> : null}

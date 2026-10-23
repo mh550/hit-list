@@ -1,5 +1,5 @@
-import React from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect } from 'react';
+import { AccessibilityInfo, ScrollView, StyleSheet, Text, View } from 'react-native';
 
 import { palette, spacing, typography } from '@/src/constants/theme';
 
@@ -25,8 +25,12 @@ export function AccountsNotSetUp() {
   );
 }
 
-/** An error shown in place under a form; `message` is a string, never an error object. */
+/** An error shown in place under a form and announced; `message` is a string, never an error object. */
 export function AuthError({ message }: { message: string | null }) {
+  // VoiceOver reads neither the 'alert' role on a Text nor a live region (Android only): say it.
+  useEffect(() => {
+    if (message) AccessibilityInfo.announceForAccessibility(message);
+  }, [message]);
   if (!message) return null;
   return (
     <Text style={styles.error} accessibilityRole="alert" accessibilityLiveRegion="polite">

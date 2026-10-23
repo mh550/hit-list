@@ -63,6 +63,11 @@ Works from S4-05 on (sign-in, username, Profile). Nothing here touches a cloud p
       `http://100.88.90.97:54324` (any address works locally; nothing is really emailed). Type it; pick an @username.
       Check: Profile shows `@you`, your display name and email. If Mailpit's email has only a link and no code, the
       local magic-link template needs `{{ .Token }}`: note it in INBOX.md for the run.
+      Screens (S4-03): Sign in opens as a sheet; Enter code is pushed after it, and iOS shows a screen pushed after a
+      sheet as another sheet on top. Check: the code field gets the code from the keyboard's suggestion bar (one-time
+      code autofill), six digits verify on their own, and a rider who already has a username lands back on the tab
+      that opened Sign in with both sheets gone. If the stacked sheets look wrong, note it in INBOX.md (the fix is an
+      `app/auth/_layout.tsx` Stack presented as one sheet).
 - [ ] **Stay signed in:** close Expo Go fully and reopen. Check: still signed in on Profile.
 - [ ] **Sign out / back in:** Sign out (spots stay on the phone, D62), sign in again with the same email. Check: same
       @username, not asked again.

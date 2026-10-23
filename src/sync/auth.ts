@@ -1,4 +1,4 @@
-import type { Session, SupabaseClient } from '@supabase/supabase-js';
+import { isAuthRetryableFetchError, type Session, type SupabaseClient } from '@supabase/supabase-js';
 
 import { SIGNED_OUT, type AuthSnapshot } from '@/src/stores/auth-store';
 
@@ -33,16 +33,20 @@ export async function resolveAuthState(client: SupabaseClient, session: Session 
   }
 }
 
+const SEND_FAILED = "Couldn't send the code. Check your connection and try again.";
+
 /**
  * Emails a 6-digit sign-in code (a new address gets an account). Resolves the message to show, or null when sent:
- * the error's `message` only, never the object.
+ * the error's `message` (fixed copy when offline), never the object.
  */
 export async function sendSignInCode(client: SupabaseClient, email: string): Promise<string | null> {
   try {
     const { error } = await client.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
-    return error ? error.message : null;
+    if (!error) return null;
+    // Offline, auth-js's message is the fetch's ('Network request failed').
+    return isAuthRetryableFetchError(error) ? SEND_FAILED : error.message;
   } catch {
-    return "Couldn't send the code. Try again.";
+    return SEND_FAILED;
   }
 }
 

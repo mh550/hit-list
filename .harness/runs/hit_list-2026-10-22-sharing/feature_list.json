@@ -423,7 +423,7 @@
         "Both screens render nothing but a 'Accounts aren't set up in this build' line when the client is unconfigured (test).",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S4-04",

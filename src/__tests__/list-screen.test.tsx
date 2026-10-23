@@ -1,5 +1,5 @@
 import { Children, isValidElement, type ReactElement, type ReactNode } from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import { Alert, type AlertButton } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
@@ -40,6 +40,15 @@ const mockSendSheet = jest.fn();
 jest.mock('@/src/components/SendSheet', () => ({
   SendSheet: (props: unknown) => {
     mockSendSheet(props);
+    return null;
+  },
+}));
+
+// The sheet is share-list-sheet.test.tsx's; here only that the row and the strip open it.
+const mockShareSheet = jest.fn();
+jest.mock('@/src/components/ShareListSheet', () => ({
+  ShareListSheet: (props: unknown) => {
+    mockShareSheet(props);
     return null;
   },
 }));
@@ -512,5 +521,197 @@ describe("List screen: 'Send these spots' (S7-04)", () => {
     expect(screen.getByText('one-time copy of 1 spot')).toBeTruthy();
     fireEvent.press(screen.getByRole('button', { name: 'Send these spots, one-time copy of 1 spot' }));
     expect((mockSendSheet.mock.lastCall?.[0] as SheetProps).spotIds).toEqual(['in']);
+  });
+});
+
+describe("List screen: 'Share list' and the member strip (S8-04)", () => {
+  type ShareProps = { listId: string; mode: 'share' | 'invite'; onClose: () => void };
+  const ME = 'u-me';
+  const spots12 = Array.from({ length: 12 }, (_, i) => createTestSpot({ id: `s${i}`, name: `Spot ${i}`, owner_id: ME }));
+  const member = (user_id: string, username: string, status: 'member' | 'invited' = 'member', role: 'add' | 'view' = 'add') => ({
+    user_id,
+    username,
+    role,
+    status,
+  });
+
+  function setList(list: ReturnType<typeof createTestHitList>, spots = spots12) {
+    useSpotsStore.setState({ spots });
+    useHitListsStore.setState({
+      lists: [list],
+      membershipBySpot: Object.fromEntries(spots.map((s) => [s.id, [list.id]])),
+    });
+  }
+
+  /** The header's buttons, by accessibility label. */
+  function headerLabels(): string[] {
+    const right = headerOptions().headerRight;
+    if (!right) return [];
+    const bar = right() as ReactElement<{ children: ReactNode }>;
+    return Children.toArray(bar.props.children)
+      .filter((el) => isValidElement<{ accessibilityLabel?: string }>(el))
+      .map((el) => (el as ReactElement<{ accessibilityLabel?: string }>).props.accessibilityLabel ?? '');
+  }
+
+  beforeEach(() => {
+    mockShareSheet.mockClear();
+    mockSendSheet.mockClear();
+    useAuthStore.setState({ status: 'signed_in', userId: ME, username: 'me' });
+  });
+  afterEach(() => act(() => useAuthStore.setState(SIGNED_OUT)));
+
+  it("a private list shows 'Share list · live: they'll see new spots too' next to 'Send these spots · one-time copy of 12 spots'", () => {
+    setList(createTestHitList({ id: downtown.id, name: 'Downtown', owner_id: ME }));
+    renderList();
+
+    expect(screen.getByText('Send these spots')).toBeTruthy();
+    expect(screen.getByText('one-time copy of 12 spots')).toBeTruthy();
+    expect(screen.getByText('Share list')).toBeTruthy();
+    expect(screen.getByText("live: they'll see new spots too")).toBeTruthy();
+    expect(screen.getByTestId('icon-person.2.fill')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /members/i })).toBeNull();
+
+    fireEvent.press(screen.getByRole('button', { name: "Share list, live: they'll see new spots too" }));
+    expect(mockShareSheet.mock.lastCall?.[0]).toMatchObject({ listId: downtown.id, mode: 'share' });
+    mockShareSheet.mockClear();
+    act(() => (mockShareSheet.mock.lastCall?.[0] as ShareProps | undefined)?.onClose());
+  });
+
+  it('Share list closes when the sheet asks', () => {
+    setList(createTestHitList({ id: downtown.id, name: 'Downtown', owner_id: ME }));
+    renderList();
+    fireEvent.press(screen.getByRole('button', { name: "Share list, live: they'll see new spots too" }));
+    const props = mockShareSheet.mock.lastCall?.[0] as ShareProps;
+    mockShareSheet.mockClear();
+    act(() => props.onClose());
+    expect(mockShareSheet).not.toHaveBeenCalled();
+  });
+
+  it("an owner whose list holds only others' spots still has Share list (no Send row)", () => {
+    setList(
+      createTestHitList({ id: downtown.id, name: 'Downtown', owner_id: ME, shared: true, members: [member('u-ana', 'ana')] }),
+      [createTestSpot({ id: 'x', owner_id: 'u-ana' })],
+    );
+    renderList();
+    expect(screen.queryByText('Send these spots')).toBeNull();
+    expect(screen.getByRole('button', { name: "Invite, live: they'll see new spots too" })).toBeTruthy();
+  });
+
+  it("a shared list of mine: the row reads 'Invite' (invite mode) and the strip shows initials, the count (D84) and '+ Invite'", () => {
+    setList(
+      createTestHitList({
+        id: downtown.id,
+        name: 'Downtown',
+        owner_id: ME,
+        shared: true,
+        members: [member('u-ana', 'ana'), member('u-ben', 'ben'), member('u-dee', 'dee', 'member', 'view'), member('u-cal', 'cal', 'invited')],
+      }),
+    );
+    renderList();
+
+    expect(screen.queryByText('Share list')).toBeNull();
+    fireEvent.press(screen.getByRole('button', { name: "Invite, live: they'll see new spots too" }));
+    expect(mockShareSheet.mock.lastCall?.[0]).toMatchObject({ listId: downtown.id, mode: 'invite' });
+
+    const strip = screen.getByRole('button', { name: '4 in this list. Show members' });
+    expect(within(strip).getByText('M')).toBeTruthy();
+    expect(within(strip).getByText('A')).toBeTruthy();
+    expect(within(strip).getByText('B')).toBeTruthy();
+    expect(within(strip).getByText('D')).toBeTruthy();
+    expect(within(strip).queryByText('C')).toBeNull();
+    expect(within(strip).getByText('4')).toBeTruthy();
+
+    mockShareSheet.mockClear();
+    fireEvent.press(screen.getByRole('button', { name: '+ Invite' }));
+    expect(mockShareSheet.mock.lastCall?.[0]).toMatchObject({ listId: downtown.id, mode: 'invite' });
+
+    fireEvent.press(strip);
+    expect(mockPush).toHaveBeenCalledWith(`/list/${downtown.id}/members`);
+  });
+
+  it("the strip shows at most five circles and '+2' for the rest", () => {
+    const names = ['ana', 'ben', 'cal', 'dee', 'eve', 'fay'];
+    setList(
+      createTestHitList({
+        id: downtown.id,
+        owner_id: ME,
+        shared: true,
+        members: names.map((n) => member(`u-${n}`, n)),
+      }),
+    );
+    renderList();
+    const strip = screen.getByRole('button', { name: '7 in this list. Show members' });
+    expect(within(strip).getByText('+2')).toBeTruthy();
+    expect(within(strip).queryByText('E')).toBeNull();
+    expect(within(strip).getByText('7')).toBeTruthy();
+  });
+
+  it('a private list has no member strip', () => {
+    setList(createTestHitList({ id: downtown.id, owner_id: ME }));
+    renderList();
+    expect(screen.queryByRole('button', { name: /Show members/ })).toBeNull();
+  });
+
+  describe("as a member of ana's list", () => {
+    const anas = createTestHitList({
+      id: downtown.id,
+      name: 'Downtown',
+      owner_id: 'u-ana',
+      owner_username: 'ana',
+      shared: true,
+      members: [member(ME, 'me'), member('u-ben', 'ben')],
+    });
+    const mineIn = createTestSpot({ id: 'mine', name: 'My rail', owner_id: ME });
+    const hers = createTestSpot({ id: 'hers', name: 'Her ledge', owner_id: 'u-ana' });
+
+    it("shows the strip without '+ Invite', and no Share, Rename or Delete list", () => {
+      setList(anas, [mineIn, hers]);
+      renderList();
+
+      const strip = screen.getByRole('button', { name: '3 in this list. Show members' });
+      expect(within(strip).getByText('A')).toBeTruthy();
+      expect(screen.queryByRole('button', { name: '+ Invite' })).toBeNull();
+      expect(screen.queryByText('Share list')).toBeNull();
+      expect(screen.queryByText('Invite')).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Delete list' })).toBeNull();
+      expect(headerLabels()).not.toContain('Rename list');
+      // Send takes only my own spot (D87)
+      expect(screen.getByText('one-time copy of 1 spot')).toBeTruthy();
+    });
+
+    it("long press offers 'Remove from list' on my own spot only", () => {
+      const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      setList(anas, [mineIn, hers]);
+      renderList();
+
+      fireEvent(screen.getByRole('button', { name: /^Her ledge/ }), 'longPress');
+      expect(alert).not.toHaveBeenCalled();
+      fireEvent(screen.getByRole('button', { name: /^My rail/ }), 'longPress');
+      expect(lastAlertButtons(alert).map((b) => b.text)).toEqual(['Remove from list', 'Cancel']);
+    });
+
+    it('a view-only member never gets Remove from list', () => {
+      const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      setList({ ...anas, members: [member(ME, 'me', 'member', 'view')] }, [mineIn, hers]);
+      renderList();
+      fireEvent(screen.getByRole('button', { name: /^My rail/ }), 'longPress');
+      expect(alert).not.toHaveBeenCalled();
+    });
+
+    it('a shared area list of ana shows no Edit area for a member', () => {
+      const area = { ...anas, kind: 'area' as const, area_center: CITIES.seattle, area_radius_m: 3219, area_filters: { types: [] } };
+      setList(area, [hers]);
+      renderList();
+      expect(screen.queryByRole('button', { name: 'Edit area' })).toBeNull();
+    });
+  });
+
+  it("deleting a shared list adds 'Members lose access to all 12 spots now.'", () => {
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    setList(createTestHitList({ id: downtown.id, name: 'Downtown', owner_id: ME, shared: true, members: [member('u-ana', 'ana')] }));
+    renderList();
+    fireEvent.press(screen.getByRole('button', { name: 'Delete list' }));
+    expect(alert.mock.lastCall?.[0]).toBe('Delete Downtown?');
+    expect(alert.mock.lastCall?.[1]).toBe('Spots stay in your library. Members lose access to all 12 spots now.');
   });
 });

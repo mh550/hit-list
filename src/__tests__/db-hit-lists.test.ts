@@ -533,3 +533,20 @@ describe('the members mirror (migration 8, src/db/hit-lists.ts)', () => {
     expect(lists.find((l) => l.id === 'list-9')).not.toHaveProperty('members');
   });
 });
+
+describe("a list's owner name (S8-04)", () => {
+  it("getHitLists reads the owner's @username from the profiles mirror (never stored); none without a profile", async () => {
+    const db = await createMigratedTestDb();
+    await insertHitList(db, createTestHitList({ id: 'list-ana', owner_id: 'rider-ana', shared: true }));
+    await insertHitList(db, createTestHitList({ id: 'list-ben', owner_id: 'rider-ben' }));
+    await insertHitList(db, createTestHitList({ id: 'list-phone' }));
+    await upsertProfiles(db, [{ id: 'rider-ana', username: 'ana', display_name: null }]);
+
+    const lists = await getHitLists(db);
+
+    expect(lists.find((l) => l.id === 'list-ana')?.owner_username).toBe('ana');
+    expect(lists.find((l) => l.id === 'list-ben')).not.toHaveProperty('owner_username');
+    expect(lists.find((l) => l.id === 'list-phone')).not.toHaveProperty('owner_username');
+    expect(await db.getAllAsync('SELECT name FROM pragma_table_info(\'hit_lists\') WHERE name = \'owner_username\'')).toEqual([]);
+  });
+});

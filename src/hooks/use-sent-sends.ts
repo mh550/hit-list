@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSQLiteContext, type SQLiteDatabase } from 'expo-sqlite';
 
 import { useAuthStore } from '@/src/stores/auth-store';
@@ -49,24 +49,29 @@ export function useSentSends(): {
   const userId = useAuthStore((s) => (s.status === 'signed_in' ? s.userId : null));
   const [loaded, setLoaded] = useState<Loaded>({ uid: null, sends: null, error: false });
   const [refreshing, setRefreshing] = useState(false);
+  // only the newest read lands: an older one (a refresh before a Withdraw, another rider's) that ends later is dropped
+  const newestRead = useRef(0);
 
   useEffect(() => {
     if (!userId) return;
-    let live = true;
-    void readSent(db, userId).then((read) => {
-      if (live) setLoaded((prev) => apply(prev, read));
+    newestRead.current += 1;
+    const read = newestRead.current;
+    void readSent(db, userId).then((result) => {
+      if (read === newestRead.current) setLoaded((prev) => apply(prev, result));
     });
     return () => {
-      live = false;
+      newestRead.current += 1;
     };
   }, [db, userId]);
 
   const refresh = useCallback(async () => {
     if (!userId) return;
+    newestRead.current += 1;
+    const read = newestRead.current;
     setRefreshing(true);
     try {
-      const read = await readSent(db, userId);
-      setLoaded((prev) => apply(prev, read));
+      const result = await readSent(db, userId);
+      if (read === newestRead.current) setLoaded((prev) => apply(prev, result));
     } finally {
       setRefreshing(false);
     }

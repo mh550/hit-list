@@ -4,7 +4,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { addSpotsToList, getMediaForSpot, getSpot, insertHitList, insertMedia, insertSpot } from '@/src/db';
 import { getProfiles } from '@/src/db/profiles';
 import { useInboxStore, type SendItem } from '@/src/stores/inbox-store';
-import type { FriendProfile, Spot } from '@/src/types';
+import type { FriendProfile, Media, Spot } from '@/src/types';
 import { newId } from '@/src/utils/id';
 import {
   freezeSend,
@@ -12,6 +12,7 @@ import {
   parseSendPayload,
   sendPhotoPath,
   thawSend,
+  type SendDownload,
   type SendSender,
 } from '@/src/utils/send-payload';
 import { maySync, signedInAs } from './account';
@@ -129,6 +130,7 @@ export async function createSend(
     const sendId = newId();
     const payload = freezeSend({ sendId, sender, spots, mediaBySpot });
     const copied: string[] = [];
+    let failure: string | null = null;
     try {
       for (const spot of payload.spots) {
         for (const photo of spot.photos) {
@@ -137,16 +139,33 @@ export async function createSend(
           copied.push(photo.path);
         }
       }
-      const { error } = await client.rpc('create_send', { p_id: sendId, p_recipient: to.id, p_payload: payload });
-      if (error) throw serverError(error);
     } catch (err) {
-      console.warn('[sends] sending failed:', errorMessage(err));
+      failure = errorMessage(err);
       await removeObjects(client, copied);
-      return { ...result, failed: { to, message: errorMessage(err) } };
+    }
+    if (failure === null) {
+      const { error } = await client.rpc('create_send', { p_id: sendId, p_recipient: to.id, p_payload: payload });
+      // a lost answer after the send went in: it is sent, and its photos must stay
+      const exists = error ? await sendExists(client, sendId) : true;
+      if (!exists) {
+        failure = error!.message;
+        // unknown: leave the copies (account-delete sweeps staged ones) rather than empty a send that may exist
+        if (exists === false) await removeObjects(client, copied);
+      }
+    }
+    if (failure !== null) {
+      console.warn('[sends] sending failed:', failure);
+      return { ...result, failed: { to, message: failure } };
     }
     result.sentTo.push(to);
   }
   return result;
+}
+
+/** Whether the sender's own send `id` is on the server; null when that can't be read. */
+async function sendExists(client: SupabaseClient, id: string): Promise<boolean | null> {
+  const { data, error } = await client.from('sends').select('id').eq('id', id).maybeSingle();
+  return error ? null : data !== null;
 }
 
 /** Every row of the sends the rider may read that `filter` keeps, in pages by id. */
@@ -242,6 +261,30 @@ export type SaveResult =
 /** One save per send at a time: a second tap shares the first. */
 const saving = new Map<string, Promise<SaveResult | null>>();
 
+type SaveOptions = { spotIds?: readonly string[]; newList?: boolean };
+
+/**
+ * A save the server may already have marked (its answer was lost, or the inserts failed after it), kept in memory by
+ * `<uid>:<sendId>` so the next tap retries it as it was: the same save token (mark_send_saved accepts it again), the
+ * same new ids and the files already downloaded, inserting only what isn't on the phone yet. An app restart forgets
+ * it; the send then reads as saved with no copies (the accepted crash case).
+ */
+interface PendingSave {
+  token: string;
+  now: string;
+  listId: string | null;
+  spots: Spot[];
+  media: Media[];
+  downloads: SendDownload[];
+  /** relative paths written so far */
+  written: string[];
+  /** media ids whose photo couldn't be downloaded */
+  failed: Set<string>;
+  downloaded: boolean;
+  mayBeMarked: boolean;
+}
+const pendingSaves = new Map<string, PendingSave>();
+
 /**
  * Saves a received send as the rider's own spots (all of them, or `spotIds`; picking finishes the send, D81), with
  * `newList` also into a new hit list 'From @ana'. Order: download every photo into photos/<newSpot>/<newMedia>.jpg (a
@@ -254,7 +297,7 @@ export function saveSend(
   client: SupabaseClient,
   uid: string,
   item: SendItem,
-  opts: { spotIds?: readonly string[]; newList?: boolean } = {},
+  opts: SaveOptions = {},
   io: PhotoIO = defaultPhotoIO,
 ): Promise<SaveResult | null> {
   const running = saving.get(item.sendId);
@@ -264,42 +307,89 @@ export function saveSend(
   return save;
 }
 
+function startSave(uid: string, item: SendItem, opts: SaveOptions): PendingSave {
+  const now = new Date().toISOString();
+  const thawed = thawSend(item.payload, { sendId: item.sendId, uid, now, newId, spotIds: opts.spotIds });
+  if (thawed.spots.length === 0) throw new Error('pick at least one spot to save');
+  return {
+    token: newId(),
+    now,
+    listId: opts.newList ? newId() : null,
+    ...thawed,
+    written: [],
+    failed: new Set(),
+    downloaded: false,
+    mayBeMarked: false,
+  };
+}
+
+async function downloadPhotos(client: SupabaseClient, save: PendingSave, io: PhotoIO): Promise<void> {
+  for (const download of save.downloads) {
+    try {
+      const { data, error } = await client.storage.from(PHOTOS_BUCKET).download(download.path);
+      if (error) throw serverError(error);
+      io.write(download.localRelativePath, await blobBytes(data));
+      save.written.push(download.localRelativePath);
+    } catch (err) {
+      save.failed.add(download.mediaId);
+      console.warn(`[sends] could not download photo ${download.path}:`, errorMessage(err));
+    }
+  }
+  save.downloaded = true;
+}
+
+const isOnPhone = async (db: SQLiteDatabase, table: 'spots' | 'media' | 'hit_lists', id: string) =>
+  (await db.getFirstAsync(`SELECT 1 AS here FROM ${table} WHERE id = ?`, id)) !== null;
+
+/** The copies through src/db; a row a failed earlier try already wrote is skipped, so a retry writes each once. */
+async function insertCopies(db: SQLiteDatabase, uid: string, item: SendItem, save: PendingSave): Promise<void> {
+  const arrived = save.media.filter((m) => !save.failed.has(m.id));
+  for (const spot of save.spots) {
+    if (await isOnPhone(db, 'spots', spot.id)) continue;
+    const primary = arrived.find((m) => m.spot_id === spot.id);
+    await insertSpot(db, { ...spot, primary_photo_id: primary?.id });
+  }
+  for (const m of arrived) if (!(await isOnPhone(db, 'media', m.id))) await insertMedia(db, m);
+  if (!save.listId) return;
+  if (!(await isOnPhone(db, 'hit_lists', save.listId))) {
+    await insertHitList(db, {
+      id: save.listId,
+      name: `From @${item.from.username}`,
+      kind: 'manual',
+      shared: false,
+      created_at: save.now,
+      updated_at: save.now,
+      owner_id: uid,
+    });
+  }
+  await addSpotsToList(
+    db,
+    save.listId,
+    save.spots.map((s) => s.id),
+  );
+}
+
 async function saveOnce(
   db: SQLiteDatabase,
   client: SupabaseClient,
   uid: string,
   item: SendItem,
-  opts: { spotIds?: readonly string[]; newList?: boolean },
+  opts: SaveOptions,
   io: PhotoIO,
 ): Promise<SaveResult | null> {
   // a sends load already running would put this item back after it leaves
   takeTicket(uid);
   if (!(await signedInAs(client, uid))) return null;
-  const now = new Date().toISOString();
-  const { spots, media, downloads } = thawSend(item.payload, {
-    sendId: item.sendId,
-    uid,
-    now,
-    newId,
-    spotIds: opts.spotIds,
-  });
-  if (spots.length === 0) throw new Error('pick at least one spot to save');
+  const key = `${uid}:${item.sendId}`;
+  const save = pendingSaves.get(key) ?? startSave(uid, item, opts);
+  pendingSaves.set(key, save);
+  if (!save.downloaded) await downloadPhotos(client, save, io);
 
-  const written: string[] = [];
-  const failed = new Set<string>();
-  for (const download of downloads) {
-    try {
-      const { data, error } = await client.storage.from(PHOTOS_BUCKET).download(download.path);
-      if (error) throw serverError(error);
-      io.write(download.localRelativePath, await blobBytes(data));
-      written.push(download.localRelativePath);
-    } catch (err) {
-      failed.add(download.mediaId);
-      console.warn(`[sends] could not download photo ${download.path}:`, errorMessage(err));
-    }
-  }
-  const deleteDownloads = () => {
-    for (const path of written) {
+  /** Drops the save; its downloads go too unless they are the copies' files now. */
+  const forget = (deleteFiles: boolean) => {
+    pendingSaves.delete(key);
+    if (!deleteFiles) return;
+    for (const path of save.written) {
       try {
         io.remove(path);
       } catch (err) {
@@ -309,39 +399,26 @@ async function saveOnce(
   };
 
   const result = await runExclusive(async (): Promise<SaveResult> => {
-    if (!(await maySync(db, client, uid))) {
-      deleteDownloads();
-      return { status: 'failed' };
-    }
-    const marked = await markSaved(client, uid, item.sendId);
-    if (marked !== 'saved') {
-      deleteDownloads();
+    const marked = (await maySync(db, client, uid)) ? await markSaved(client, uid, item.sendId, save.token) : 'no_session';
+    if (marked === 'already_saved' || marked === 'taken_back') {
+      forget(true);
       return { status: marked };
     }
-    const arrived = media.filter((m) => !failed.has(m.id));
-    for (const spot of spots) {
-      const primary = arrived.find((m) => m.spot_id === spot.id);
-      await insertSpot(db, { ...spot, primary_photo_id: primary?.id });
+    if (marked === 'no_session') {
+      if (!save.mayBeMarked) forget(true);
+      return { status: 'failed' };
     }
-    for (const m of arrived) await insertMedia(db, m);
-    const saved: SaveResult = { status: 'saved', saved: spots.length, failedPhotos: failed.size };
-    if (!opts.newList) return saved;
-    const listId = newId();
-    await insertHitList(db, {
-      id: listId,
-      name: `From @${item.from.username}`,
-      kind: 'manual',
-      shared: false,
-      created_at: now,
-      updated_at: now,
-      owner_id: uid,
-    });
-    await addSpotsToList(
-      db,
-      listId,
-      spots.map((s) => s.id),
-    );
-    return { ...saved, listId };
+    save.mayBeMarked = true;
+    if (marked === 'unknown') return { status: 'failed' };
+    try {
+      await insertCopies(db, uid, item, save);
+    } catch (err) {
+      console.warn('[sends] saving the copies on the phone failed:', errorMessage(err));
+      return { status: 'failed' };
+    }
+    forget(false);
+    const saved: SaveResult = { status: 'saved', saved: save.spots.length, failedPhotos: save.failed.size };
+    return save.listId ? { ...saved, listId: save.listId } : saved;
   });
 
   if (result.status === 'saved') await reloadStoresQuietly(db);
@@ -349,27 +426,30 @@ async function saveOnce(
   return result;
 }
 
-/** mark_send_saved, and what an error means (a lost answer after the server saved it still counts as saved). */
+/**
+ * mark_send_saved with this save's token. 42501 is also "not signed in", so the session decides first; any other
+ * error may be a lost answer after the server saved it ('unknown': the retry sends the same token).
+ */
 async function markSaved(
   client: SupabaseClient,
   uid: string,
   sendId: string,
-): Promise<'saved' | 'already_saved' | 'taken_back' | 'failed'> {
-  const { error } = await client.rpc('mark_send_saved', { p_id: sendId });
+  token: string,
+): Promise<'saved' | 'already_saved' | 'taken_back' | 'no_session' | 'unknown'> {
+  const { error } = await client.rpc('mark_send_saved', { p_id: sendId, p_token: token });
   if (!error) return 'saved';
   console.warn('[sends] saving a send failed:', error.message);
-  // 42501 is also "not signed in"
-  if (!(await signedInAs(client, uid))) return 'failed';
+  if (!(await signedInAs(client, uid))) return 'no_session';
   if (error.code === '55000') return 'already_saved';
-  const row = await client.from('sends').select('saved_at').eq('id', sendId).maybeSingle<{ saved_at: string | null }>();
-  if (row.error) return 'failed';
-  if (!row.data) return 'taken_back';
-  return row.data.saved_at ? 'saved' : 'failed';
+  if (error.code === '42501') return 'taken_back';
+  return 'unknown';
 }
 
 /** Dismiss a send (the sender isn't told); one already gone (withdrawn, blocked) leaves the Inbox too. */
 export async function dismissSend(client: SupabaseClient, uid: string, sendId: string): Promise<void> {
   if (!(await signedInAs(client, uid))) return;
+  // a sends load already running would put this item back after it leaves
+  takeTicket(uid);
   const { error } = await client.rpc('dismiss_send', { p_id: sendId });
   if (error && !(error.code === '42501' && (await signedInAs(client, uid)))) throw serverError(error);
   useInboxStore.getState().removeItem(uid, 'send', sendId);

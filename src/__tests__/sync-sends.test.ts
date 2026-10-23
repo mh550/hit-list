@@ -9,7 +9,6 @@ import { fakeFs } from './helpers/fake-fs';
 import { ME, adoptPhoneFor, outboxOps } from './helpers/outbox';
 import { createTestMedia, createTestSpot } from './factories';
 
-import * as dbModule from '@/src/db';
 import { getAllMedia, getHitLists, getListMemberships, getSpots, insertMedia, insertSpot } from '@/src/db';
 import { upsertProfiles } from '@/src/db/profiles';
 import { clearOutbox, enqueue } from '@/src/db/sync';
@@ -589,11 +588,15 @@ describe('saveSend', () => {
 
   it('an insert failing after the send was marked saved keeps the save: the retry inserts each copy once', async () => {
     serverMark();
-    const insertMediaSpy = jest.spyOn(dbModule, 'insertMedia').mockRejectedValueOnce(new Error('database is locked'));
+    // the photos' inserts fail after the spots went in
+    await db.execAsync(
+      "CREATE TEMP TRIGGER fail_media BEFORE INSERT ON media BEGIN SELECT RAISE(ABORT, 'database is locked'); END",
+    );
 
     await expect(saveSend(db, client(), ME, itemFor(SEND_1))).resolves.toEqual({ status: 'failed' });
+    expect(await countRows('spots')).toBe(2);
     expect(useInboxStore.getState().items.map((i) => i.id)).toEqual([SEND_1]);
-    insertMediaSpy.mockRestore();
+    await db.execAsync('DROP TRIGGER fail_media');
 
     const retry = await saveSend(db, client(), ME, itemFor(SEND_1));
     expect(retry).toEqual({ status: 'saved', saved: 2, failedPhotos: 0 });

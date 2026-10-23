@@ -13,3 +13,4 @@ export { ZoomablePhoto } from './ZoomablePhoto';
 export { SpotsBrowser } from './SpotsBrowser';
 export { NameListSheet } from './NameListSheet';
 export { AddToListSheet } from './AddToListSheet';
+export { ListPickerChips } from './ListPickerChips';

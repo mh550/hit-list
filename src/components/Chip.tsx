@@ -8,8 +8,11 @@ interface ChipProps {
   label: string;
   selected?: boolean;
   onPress?: () => void;
-  /** 'checkbox' (default) for toggles in a set; 'button' for one-of choices such as the sort chips. */
-  role?: 'checkbox' | 'button';
+  /**
+   * 'checkbox' (default) for toggles in a set; 'button' for one-of choices such as the sort chips; 'tab' for a row
+   * that switches what the screen shows (the list picker). 'button' and 'tab' report `selected`, 'checkbox' `checked`.
+   */
+  role?: 'checkbox' | 'button' | 'tab';
   disabled?: boolean;
   accessibilityLabel?: string;
   accessibilityHint?: string;
@@ -32,7 +35,7 @@ export function Chip({
       accessibilityRole={role}
       accessibilityLabel={accessibilityLabel}
       accessibilityHint={accessibilityHint}
-      accessibilityState={role === 'button' ? { selected, disabled } : { checked: selected, disabled }}>
+      accessibilityState={role === 'checkbox' ? { checked: selected, disabled } : { selected, disabled }}>
       <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
         {label}
       </Text>

@@ -273,4 +273,47 @@ describe('Spots tab multi-select', () => {
 
     expect(headerAction('Select spots')).toBeUndefined();
   });
+
+  it('switching the list picker keeps only the selected spots in that list', () => {
+    useHitListsStore.setState({ membershipBySpot: { b: [downtown.id] } });
+    render(<SpotsScreen />);
+    fireEvent(row(/Alley rail/), 'longPress');
+    fireEvent.press(row(/Bank to wall/));
+    expect(headerOptions().headerTitle).toBe('2 selected');
+
+    fireEvent.press(screen.getByRole('tab', { name: 'Downtown' }));
+
+    expect(screen.queryByLabelText(/Alley rail/)).toBeNull();
+    expect(row(/Bank to wall/).props.accessibilityState).toEqual({ checked: true });
+    expect(headerOptions().headerTitle).toBe('1 selected');
+    fireEvent.press(screen.getByLabelText('Add to list (1)'));
+    expect(screen.UNSAFE_getByType(AddToListSheet).props).toMatchObject({ visible: true, spotIds: ['b'] });
+  });
+
+  it('a spot dropped by a picker switch stays unchecked after switching back', () => {
+    useHitListsStore.setState({ membershipBySpot: { b: [downtown.id] } });
+    render(<SpotsScreen />);
+    fireEvent(row(/Alley rail/), 'longPress');
+    fireEvent.press(row(/Bank to wall/));
+
+    fireEvent.press(screen.getByRole('tab', { name: 'Downtown' }));
+    fireEvent.press(screen.getByRole('tab', { name: 'My spots' }));
+
+    expect(row(/Alley rail/).props.accessibilityState).toEqual({ checked: false });
+    expect(row(/Bank to wall/).props.accessibilityState).toEqual({ checked: true });
+    expect(headerOptions().headerTitle).toBe('1 selected');
+  });
+
+  it('switching to an empty list ends select mode', () => {
+    const bridges = createTestHitList({ id: 'L-bridges', name: 'Bridges' });
+    useHitListsStore.setState({ lists: [downtown, bridges] });
+    render(<SpotsScreen />);
+    fireEvent(row(/Alley rail/), 'longPress');
+
+    fireEvent.press(screen.getByRole('tab', { name: 'Bridges' }));
+
+    expect(screen.queryByTestId('select-bar')).toBeNull();
+    expect(headerOptions().headerTitle).toBeUndefined();
+    expect(screen.getByText('No spots in this list yet')).toBeTruthy();
+  });
 });

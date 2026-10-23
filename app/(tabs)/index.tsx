@@ -4,9 +4,10 @@ import { StyleSheet, View, Pressable, Text } from 'react-native';
 
 import { IconSymbol } from '@/components/ui/icon-symbol';
 
-import { useSpotsStore } from '@/src/stores';
+import { selectListSpots, useHitListsStore, useSpotsStore } from '@/src/stores';
 import { SpotsBrowser } from '@/src/components/SpotsBrowser';
 import { AddToListSheet } from '@/src/components/AddToListSheet';
+import { ListPickerChips } from '@/src/components/ListPickerChips';
 import { palette, radius, spacing } from '@/src/constants/theme';
 
 // Floating action column (bottom-right): shared by its style and the list's bottom padding so the two
@@ -20,23 +21,31 @@ const LIST_BOTTOM_PADDING = FAB_BOTTOM + FAB_SIZE + FAB_GAP + FAB_SECONDARY_SIZE
 
 export default function SpotsScreen() {
   const router = useRouter();
-  const spots = useSpotsStore((s) => s.spots);
+  const allSpots = useSpotsStore((s) => s.spots);
   const viewMode = useSpotsStore((s) => s.viewMode);
+  const lists = useHitListsStore((s) => s.lists);
+  const membershipBySpot = useHitListsStore((s) => s.membershipBySpot);
+  const activeListId = useHitListsStore((s) => s.activeListId);
+  // The picker's scope: a live list's spots, or every spot ('My spots', or an id no longer among the lists).
+  const activeList = lists.find((l) => l.id === activeListId && l.deleted_at === undefined);
+  const spots = useMemo(
+    () => (activeList ? selectListSpots(activeList, allSpots, membershipBySpot) : allSpots),
+    [activeList, allSpots, membershipBySpot],
+  );
 
   // Select mode: null = off; otherwise the chosen ids in tap order (the sheet files them in that order).
   const [selected, setSelected] = useState<string[] | null>(null);
   const [sheetVisible, setSheetVisible] = useState(false);
-  // Selecting is a List view thing: switching to Map, or the last spot going, ends it (adjusting state while
-  // rendering, not in an effect).
+  // Selecting is a List view thing: switching to Map, or the last spot in scope going, ends it (adjusting state
+  // while rendering, not in an effect).
   if (selected !== null && (viewMode !== 'list' || spots.length === 0)) setSelected(null);
+  // Only live spots in scope stay selected: one deleted elsewhere (the tab stays mounted) or outside the list the
+  // picker switched to is dropped for good, so switching back doesn't bring it back checked.
+  const inScope = useMemo(() => new Set(spots.map((s) => s.id)), [spots]);
+  if (selected?.some((id) => !inScope.has(id))) setSelected(selected.filter((id) => inScope.has(id)));
   const selecting = selected !== null;
-  // Only live spots count and get filed: one deleted elsewhere (the tab stays mounted) drops out.
-  const chosen = useMemo(() => {
-    if (!selected) return [];
-    const live = new Set(spots.map((s) => s.id));
-    return selected.filter((id) => live.has(id));
-  }, [selected, spots]);
-  const selectedIds = useMemo(() => (selected ? new Set(chosen) : undefined), [selected, chosen]);
+  const chosen = useMemo(() => selected ?? [], [selected]);
+  const selectedIds = useMemo(() => (selected ? new Set(selected) : undefined), [selected]);
 
   const toggle = (id: string) =>
     setSelected((prev) => (prev?.includes(id) ? prev.filter((x) => x !== id) : [...(prev ?? []), id]));
@@ -72,10 +81,18 @@ export default function SpotsScreen() {
     <View style={styles.container}>
       <SpotsBrowser
         spots={spots}
-        emptyTitle="No Spots Yet"
-        emptyMessage="Tap the + button to add your first spot, or import from your photos"
-        emptyActionLabel="Add Spot"
-        onEmptyAction={() => router.push('/add/camera')}
+        {...(activeList
+          ? {
+              emptyTitle: 'No spots in this list yet',
+              emptyMessage: "Add from a spot's page or select spots on the Spots tab",
+            }
+          : {
+              emptyTitle: 'No Spots Yet',
+              emptyMessage: 'Tap the + button to add your first spot, or import from your photos',
+              emptyActionLabel: 'Add Spot',
+              onEmptyAction: () => router.push('/add/camera'),
+            })}
+        aboveList={<ListPickerChips />}
         contentBottomInset={selecting ? spacing.md : LIST_BOTTOM_PADDING}
         // Left, so the header's right side stays the Filter button alone.
         headerLeft={selectAction}

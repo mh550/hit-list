@@ -130,7 +130,7 @@
         "Deleting the active list (store removes it) resets activeListId to null (hit-lists-store test).",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S1-10",

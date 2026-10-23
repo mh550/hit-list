@@ -1,7 +1,7 @@
-import { render, screen, fireEvent } from '@testing-library/react-native';
-import { useMediaStore, useSpotsStore } from '@/src/stores';
+import { act, render, screen, fireEvent } from '@testing-library/react-native';
+import { useHitListsStore, useMediaStore, useSpotsStore } from '@/src/stores';
 import { DEFAULT_FILTERS } from '@/src/types';
-import { CITIES, createTestSpot } from './factories';
+import { CITIES, createTestHitList, createTestSpot } from './factories';
 
 import SpotsScreen from '@/app/(tabs)/index';
 
@@ -67,5 +67,93 @@ describe('Spots tab Map | List toggle', () => {
     expect(screen.getByTestId('map-view')).toBeTruthy();
     expect(screen.getByLabelText('Add new spot')).toBeTruthy();
     expect(screen.queryByText('No Spots Yet')).toBeNull();
+  });
+});
+
+describe('Spots tab list picker', () => {
+  const downtown = createTestHitList({ id: 'L-downtown', name: 'Downtown' });
+  const bridges = createTestHitList({ id: 'L-bridges', name: 'Bridges' });
+  const [pier, library, bank] = spots;
+
+  beforeEach(() => {
+    useSpotsStore.setState({ spots, filters: { ...DEFAULT_FILTERS }, searchQuery: '', viewMode: 'list' });
+    useMediaStore.setState({ mediaBySpot: {} });
+    useHitListsStore.setState({
+      lists: [downtown, bridges],
+      membershipBySpot: { [pier.id]: [downtown.id], [bank.id]: [downtown.id] },
+      activeListId: null,
+    });
+  });
+
+  afterAll(() => useHitListsStore.setState({ lists: [], membershipBySpot: {}, activeListId: null }));
+
+  it("shows the picker above the views with 'My spots' selected and every spot", () => {
+    render(<SpotsScreen />);
+
+    expect(screen.getByRole('tab', { name: 'My spots' }).props.accessibilityState).toMatchObject({ selected: true });
+    expect(screen.getByRole('tab', { name: 'Downtown' })).toBeTruthy();
+    expect(screen.getByText('Library ledge')).toBeTruthy();
+  });
+
+  it('with a list active, the List shows only its two spots', () => {
+    useHitListsStore.setState({ activeListId: downtown.id });
+    render(<SpotsScreen />);
+
+    expect(screen.getByText('Pier 57 rail')).toBeTruthy();
+    expect(screen.getByText('Bank to wall')).toBeTruthy();
+    expect(screen.queryByText('Library ledge')).toBeNull();
+  });
+
+  it('with a list active, the Map gets only its two spots', () => {
+    useHitListsStore.setState({ activeListId: downtown.id });
+    useSpotsStore.setState({ viewMode: 'map' });
+    render(<SpotsScreen />);
+
+    expect(screen.getAllByTestId(/^spot-marker-/).map((m) => m.props.testID).sort()).toEqual(
+      [`spot-marker-${pier.id}`, `spot-marker-${bank.id}`].sort(),
+    );
+  });
+
+  it('pressing a list chip scopes the list, and My spots brings every spot back', () => {
+    render(<SpotsScreen />);
+
+    fireEvent.press(screen.getByRole('tab', { name: 'Downtown' }));
+    expect(screen.queryByText('Library ledge')).toBeNull();
+    expect(screen.getByText('Pier 57 rail')).toBeTruthy();
+
+    fireEvent.press(screen.getByRole('tab', { name: 'My spots' }));
+    expect(screen.getByText('Library ledge')).toBeTruthy();
+  });
+
+  it("an empty active list reads 'No spots in this list yet' with no action", () => {
+    useHitListsStore.setState({ activeListId: bridges.id });
+    render(<SpotsScreen />);
+
+    expect(screen.getByText('No spots in this list yet')).toBeTruthy();
+    expect(screen.getByText("Add from a spot's page or select spots on the Spots tab")).toBeTruthy();
+    expect(screen.queryByText('No Spots Yet')).toBeNull();
+    expect(screen.queryByText('Add Spot')).toBeNull();
+  });
+
+  it('a deleted spot in the active list does not show', () => {
+    useSpotsStore.setState({ spots: [pier, { ...bank, deleted_at: '2026-10-02T12:00:00.000Z' }, library] });
+    useHitListsStore.setState({ activeListId: downtown.id });
+    render(<SpotsScreen />);
+
+    expect(screen.getByText('Pier 57 rail')).toBeTruthy();
+    expect(screen.queryByText('Bank to wall')).toBeNull();
+  });
+
+  it('deleting the active list goes back to every spot', () => {
+    useHitListsStore.setState({ activeListId: downtown.id });
+    render(<SpotsScreen />);
+    expect(screen.queryByText('Library ledge')).toBeNull();
+
+    act(() => useHitListsStore.getState().removeList(downtown.id));
+
+    expect(useHitListsStore.getState().activeListId).toBeNull();
+    expect(screen.getByRole('tab', { name: 'My spots' }).props.accessibilityState).toMatchObject({ selected: true });
+    expect(screen.getByText('Library ledge')).toBeTruthy();
+    expect(screen.queryByRole('tab', { name: 'Downtown' })).toBeNull();
   });
 });

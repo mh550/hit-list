@@ -68,7 +68,7 @@ describe('CodeScreen', () => {
     let finish!: () => void;
     mockFake!.auth.verifyOtp.mockImplementationOnce(
       () => new Promise((resolve) => {
-        finish = () => resolve({ data: { user: null, session: null }, error: null });
+        finish = () => resolve({ data: { user: null, session: null }, error: { message: 'Token has expired or is invalid' } });
       }),
     );
     const { rerender } = render(<CodeScreen />);
@@ -78,6 +78,18 @@ describe('CodeScreen', () => {
     await typeCode('123456');
     expect(mockFake!.auth.verifyOtp).toHaveBeenCalledTimes(1);
     await act(async () => finish());
+  });
+
+  it('verifies once when a second six lands before the field is disabled', async () => {
+    mockFake!.profiles.set('user-ana', { username: 'ana', display_name: null });
+    render(<CodeScreen />);
+    const { onChangeText } = codeField().props;
+    await act(async () => {
+      onChangeText('123456');
+      onChangeText('123456');
+    });
+    expect(mockFake!.auth.verifyOtp).toHaveBeenCalledTimes(1);
+    expect(router.dismissAll).toHaveBeenCalledTimes(1);
   });
 
   it("shows 'That code didn't work. Try again or resend.' on an error and clears the field", async () => {

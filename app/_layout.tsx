@@ -59,6 +59,8 @@ export default function RootLayout() {
                   name="area/index"
                   options={{ presentation: 'fullScreenModal', title: 'Pick an area' }}
                 />
+                <Stack.Screen name="auth/sign-in" options={{ presentation: 'modal', title: 'Sign in' }} />
+                <Stack.Screen name="auth/code" options={{ title: 'Enter code' }} />
               </Stack>
             </DBInitializer>
           </SQLiteProvider>

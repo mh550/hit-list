@@ -32,3 +32,34 @@ export async function resolveAuthState(client: SupabaseClient, session: Session 
     return signedIn;
   }
 }
+
+/**
+ * Emails a 6-digit sign-in code (a new address gets an account). Resolves the message to show, or null when sent:
+ * the error's `message` only, never the object.
+ */
+export async function sendSignInCode(client: SupabaseClient, email: string): Promise<string | null> {
+  try {
+    const { error } = await client.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
+    return error ? error.message : null;
+  } catch {
+    return "Couldn't send the code. Try again.";
+  }
+}
+
+/**
+ * Checks an emailed code. Resolves the signed-in account (its profile read as resolveAuthState does), or null when
+ * the code didn't work (wrong, expired, offline).
+ */
+export async function verifySignInCode(
+  client: SupabaseClient,
+  email: string,
+  token: string,
+): Promise<AuthSnapshot | null> {
+  try {
+    const { data, error } = await client.auth.verifyOtp({ email, token, type: 'email' });
+    if (error || !data.session) return null;
+    return await resolveAuthState(client, data.session);
+  } catch {
+    return null;
+  }
+}

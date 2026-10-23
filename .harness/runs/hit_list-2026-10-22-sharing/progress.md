@@ -20,6 +20,13 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 01:05 · S1-10 · passes
+
+- New `docs/plans/2026-10-22-s1-what-michael-will-see.md`: the Lists tab (two lists), the list screen (two spots), the spot detail 'In lists' row (one chip), the Spots tab in select mode (two selected) and the picker row, each with every visible text, role, label, hint and state in rendered order, plus 'What to tap', 'Known limits' and the commands run. Renders came from a temporary `walkthrough-s1.test.tsx`, deleted; `git status` shows no `src/__tests__/walkthrough*`.
+- Verified: `npx jest --silent` 64 suites / 807 tests (unchanged), 0 `console.error` under `--ci`; `npx expo export --platform ios` exit 0, 4.3 MB hbc (4,328,700 bytes); `check.sh` green.
+- Seen while rendering: the Spots tab keeps the picker row visible in select mode, so a picker tap there prunes the selection (as S1-09 built it). The list screen's empty hint says "select spots on the Spots tab", already noted for S1-11.
+- Questions for Michael: none. Proposed changes: none.
+
 ### 2026-10-23 00:30 · S1-09 · passes
 
 - New `src/components/ListPickerChips.tsx` (exported). It is connected to the store and takes no props. A horizontal `ScrollView` (`accessibilityRole 'tablist'`) shows 'My spots' then every live list by name (`selectListsByName`). Each chip is a `Chip role="tab"` with `accessibilityState { selected }`. `Chip`'s role union gains `'tab'`, and 'button' and 'tab' report `selected` while 'checkbox' keeps `checked`. With no live lists it renders `null`. The Spots tab (`app/(tabs)/index.tsx`) passes it as `aboveList` and scopes `spots` with `selectListSpots` when `activeListId` names a live list (an unknown id falls back to all spots). Both List and Map are scoped. An empty active list shows 'No spots in this list yet' / "Add from a spot's page or select spots on the Spots tab" with no action. Step 3 (deleting the active list resets `activeListId`) was already covered by `hit-lists-store.test` ('removeList of the active list…').

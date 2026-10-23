@@ -114,6 +114,11 @@ it can **Save a copy** (it becomes their own private spot, with "From @name" on 
 | D62 | **Sign out in S4 is plain; the Keep / Remove prompt (D38) arrives with S5** *default* | S4 signs out (falling back to a local sign-out when offline) and leaves every spot on the phone. S5, which backs spots up first, adds "Keep spots on this phone?". | S4 plan: before S5 nothing is on the server, so "Remove from this phone" would lose data (§9 Q23) |
 | D63 | **A display name is optional** *default* | Onboarding asks for an @username (required) and a display name (optional, ≤ 50, D58); without one, Profile and friends see only @username. | S4 plan: one fewer step to get in (§9 Q24) |
 | D64 | **The username screen has a Sign out** *default* | Onboarding can't be dismissed and the tabs send a rider without an @username back to it, so a ghost `Sign out` under Done signs out (spots stay) and returns to Profile. | S4-08 review (Important): without it a rider who won't pick a name, or whose save keeps failing, can only delete the app (§9 Q25) |
+| D65 | **The unused `sync_queue` table is dropped** *default* | Local migration 5 drops `sync_queue` and its index (nothing ever wrote or read it) and adds `sync_outbox` + `sync_state` (§3.4) in its place. | S5 plan (`docs/plans/2026-10-22-s5-sync.md`): one outbox, not two half-used ones (§9 Q26) |
+| D66 | **A different account signing in removes the previous account's local rows after its data was pushed** *default* | The rows of the last account (and their photo files) leave the phone when another account signs in; that data is in its own account. If that account still has changes on the phone that never reached the server, the app asks first ("Changes not backed up" · Cancel / Remove and continue). | S5 plan: never mix accounts (D38) and never drop an unsynced change silently (§9 Q27) |
+| D67 | **Keep after Delete account makes the spots phone-only again** *default* | Choosing Keep after deleting the account clears the deleted account from those spots, photos and lists; they are local spots again, and a later sign-in adopts them like any other. | S5 plan: otherwise the next sign-in would treat them as another account's and remove them (§9 Q28) |
+| D68 | **"Older details" stay on the phone** *default* | The archived pre-v3 fields (`legacy_json`) are not uploaded; a second phone shows the spot without the Older details disclosure. The server schema stays as S3 shipped it. | S5 plan: read-only leftovers, simplest; a later migration can add them (§9 Q29) |
+| D69 | **Sign out backs up first; Remove only when nothing is waiting** *default* | Sign out tries one sync, then counts every change still waiting (not only those that failed 10 times). Anything waiting → "3 changes aren't backed up yet" · Cancel / Sign out anyway, with no Remove option; nothing waiting → Keep / Remove from this phone (D38). | S5 plan: an offline edit is not yet "failed" but would still be lost by Remove (§9 Q30) |
 
 ---
 
@@ -380,6 +385,16 @@ it stops at a milestone boundary; S9 (links) is last among the features because 
 24. **Display name (D63).** Default: optional; friends see @username when you leave it empty. Should it be required?
 25. **A way out of picking a username (D64).** Default: the username screen has a small 'Sign out' under Done that
     signs out and goes back to Profile. Or should picking a username be the only way on?
+26. **The old sync table (D65).** Default: the never-used `sync_queue` table is dropped when the outbox arrives. OK?
+27. **Another account on the same phone (D66).** Default: when someone else signs in, the last account's spots leave
+    the phone (they're in that account); if some of its changes never got backed up, the app asks before removing
+    them. Or should the phone refuse a second account until the first one's changes are backed up?
+28. **Keep after deleting your account (D67).** Default: Keep turns them back into phone-only spots that a future
+    sign-in adopts. OK?
+29. **Older details (D68).** Default: the archived pre-simplification details stay on the phone that had them and
+    aren't backed up. Want them in the account too (one more server column)?
+30. **Signing out with changes waiting (D69).** Default: Sign out tries a backup first; if anything is still waiting
+    it offers only Cancel / Sign out anyway (no Remove). OK?
 
 ---
 

@@ -18,6 +18,7 @@ export { ShareListSheet } from './ShareListSheet';
 export { PickSpotsSheet } from './PickSpotsSheet';
 export { ToastHost } from './ToastHost';
 export { ListPickerChips } from './ListPickerChips';
+export { SharedBadge, sharedLabel } from './SharedBadge';
 export { HeaderTextButton } from './HeaderTextButton';
 export { FilterHeaderButton } from './FilterHeaderButton';
 export { ACCOUNTS_NOT_SET_UP, AuthScreen, AccountsNotSetUp, AuthError } from './AuthScreen';

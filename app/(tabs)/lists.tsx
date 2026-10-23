@@ -3,13 +3,22 @@ import { Alert, Pressable, SectionList, StyleSheet, Text, View } from 'react-nat
 import { useRouter } from 'expo-router';
 
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { EmptyState, NameListSheet } from '@/src/components';
+import { EmptyState, NameListSheet, SharedBadge, sharedLabel } from '@/src/components';
 import { palette, spacing } from '@/src/constants/theme';
 import { useHitListActions } from '@/src/hooks/use-hit-list-actions';
-import { selectListCounts, selectListsByName, useHitListsStore, useSpotsStore } from '@/src/stores';
+import { useRiderId } from '@/src/hooks/use-rider-id';
+import {
+  selectListCounts,
+  selectListsByName,
+  selectSharedWithMe,
+  useHitListsStore,
+  useSpotsStore,
+} from '@/src/stores';
 import { useSettingsStore } from '@/src/stores/settings-store';
 import type { HitList } from '@/src/types';
 import { areaLabel, isAreaList } from '@/src/utils/area';
+import { handleOf } from '@/src/utils/members';
+import { isForeign } from '@/src/utils/ownership';
 import { spotCountLabel } from '@/src/utils/spot-name';
 
 export default function ListsScreen() {
@@ -18,15 +27,21 @@ export default function ListsScreen() {
   const membershipBySpot = useHitListsStore((s) => s.membershipBySpot);
   const spots = useSpotsStore((s) => s.spots);
   const units = useSettingsStore((s) => s.units);
+  const uid = useRiderId();
   const { createList } = useHitListActions();
   const [naming, setNaming] = useState(false);
 
   const counts = useMemo(() => selectListCounts(lists, spots, membershipBySpot), [lists, spots, membershipBySpot]);
-  // S8 adds 'Shared with me'; a section only shows when it has rows.
+  // Mine (owned or phone-only), then others' lists the rider joined (S8); a section only shows when it has rows.
   const sections = useMemo(() => {
-    const mine = selectListsByName(lists.filter((l) => l.deleted_at === undefined));
-    return mine.length > 0 ? [{ title: 'My hit lists', data: mine }] : [];
-  }, [lists]);
+    const live = lists.filter((l) => l.deleted_at === undefined);
+    const mine = selectListsByName(live.filter((l) => !isForeign(l, uid)));
+    const theirs = uid ? selectSharedWithMe(live, uid) : [];
+    return [
+      { title: 'My hit lists', data: mine },
+      { title: 'Shared with me', data: theirs },
+    ].filter((section) => section.data.length > 0);
+  }, [lists, uid]);
 
   const handleCreate = async (name: string) => {
     try {
@@ -41,7 +56,9 @@ export default function ListsScreen() {
   };
 
   const renderItem = ({ item }: { item: HitList }) => {
-    const count = spotCountLabel(counts[item.id] ?? 0);
+    const spotCount = spotCountLabel(counts[item.id] ?? 0);
+    // Another rider's list names its owner: '@ana · 12 spots'.
+    const count = isForeign(item, uid) ? `${handleOf(item.owner_username, 'A friend')} · ${spotCount}` : spotCount;
     // No place on the row: rows are tight (the list's own header has it).
     const area = isAreaList(item) ? areaLabel(item.area_radius_m, units) : null;
     return (
@@ -49,7 +66,7 @@ export default function ListsScreen() {
         style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
         onPress={() => router.push(`/list/${item.id}`)}
         accessibilityRole="button"
-        accessibilityLabel={[item.name, area, count].filter(Boolean).join(', ')}>
+        accessibilityLabel={[item.name, area, count, sharedLabel(item)].filter(Boolean).join(', ')}>
         <View style={styles.rowText}>
           <Text style={styles.rowName} numberOfLines={1}>
             {item.name}
@@ -57,6 +74,7 @@ export default function ListsScreen() {
           {area ? <Text style={styles.rowCount}>{area}</Text> : null}
           <Text style={styles.rowCount}>{count}</Text>
         </View>
+        <SharedBadge list={item} />
         <IconSymbol name="chevron.right" size={18} color={palette.gray[400]} />
       </Pressable>
     );

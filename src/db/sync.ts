@@ -188,10 +188,16 @@ export async function setSyncState(db: SQLiteDatabase, key: string, value: strin
 /** Per-account keys: when that account last backed up ('Backed up'), and its Inbox seen mark. */
 export const lastSyncKey = (uid: string) => `last_sync_at:${uid}`;
 export const inboxSeenKey = (uid: string) => `inbox_seen_at:${uid}`;
+/** Set once the rider said Add to the first-add question of this shared list (S8, D90: once per list per phone). */
+export const confirmedListKey = (listId: string) => `confirmed_list:${listId}`;
 
-/** No account on this phone any more (`user_id`), and `uid`'s own keys gone. Run inside the caller's transaction. */
+/**
+ * No account on this phone any more (`user_id`), and `uid`'s own keys gone; the first-add answers too, so the next
+ * account is asked again (D90). Run inside the caller's transaction.
+ */
 export async function forgetAccount(db: SQLiteDatabase, uid: string | undefined): Promise<void> {
   await setSyncState(db, 'user_id', null);
+  await db.runAsync("DELETE FROM sync_state WHERE key LIKE 'confirmed\\_list:%' ESCAPE '\\'");
   if (uid === undefined) return;
   await setSyncState(db, lastSyncKey(uid), null);
   await setSyncState(db, inboxSeenKey(uid), null);

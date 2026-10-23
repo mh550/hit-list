@@ -17,6 +17,8 @@ interface ChipProps {
   disabled?: boolean;
   accessibilityLabel?: string;
   accessibilityHint?: string;
+  /** Drawn after the label, e.g. a shared list's SharedBadge; say it in `accessibilityLabel` too. */
+  accessory?: React.ReactNode;
 }
 
 export function Chip({
@@ -27,12 +29,18 @@ export function Chip({
   disabled = false,
   accessibilityLabel,
   accessibilityHint,
+  accessory,
 }: ChipProps) {
   return (
     <Pressable
       onPress={onPress}
       disabled={disabled}
-      style={[styles.chip, selected && styles.chipSelected, disabled && styles.chipDisabled]}
+      style={[
+        styles.chip,
+        accessory != null && styles.chipRow,
+        selected && styles.chipSelected,
+        disabled && styles.chipDisabled,
+      ]}
       accessibilityRole={role}
       accessibilityLabel={accessibilityLabel}
       accessibilityHint={accessibilityHint}
@@ -42,6 +50,7 @@ export function Chip({
       <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
         {label}
       </Text>
+      {accessory}
     </Pressable>
   );
 }
@@ -88,6 +97,11 @@ const styles = StyleSheet.create({
     backgroundColor: palette.gray[100],
     borderWidth: 1,
     borderColor: palette.gray[200],
+  },
+  chipRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
   },
   chipSelected: {
     backgroundColor: palette.blue[500],

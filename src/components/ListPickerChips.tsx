@@ -2,12 +2,13 @@ import { useMemo } from 'react';
 import { ScrollView, StyleSheet } from 'react-native';
 
 import { Chip } from '@/src/components/Chip';
-import { spacing } from '@/src/constants/theme';
+import { SharedBadge, sharedLabel } from '@/src/components/SharedBadge';
+import { palette, spacing } from '@/src/constants/theme';
 import { selectListsByName, useHitListsStore } from '@/src/stores';
 
 /**
- * The Spots tab's scope row: 'My spots' (every spot) then each live hit list by name. Reads and writes the store's
- * activeListId; with no lists there is nothing to pick, so it renders nothing.
+ * The Spots tab's scope row: 'My spots' (every spot) then each live hit list by name, a shared one with its badge.
+ * Reads and writes the store's activeListId; with no lists there is nothing to pick, so it renders nothing.
  */
 export function ListPickerChips() {
   const lists = useHitListsStore((s) => s.lists);
@@ -31,15 +32,23 @@ export function ListPickerChips() {
         selected={activeListId === null}
         onPress={() => setActiveListId(null)}
       />
-      {live.map((list) => (
-        <Chip
-          key={list.id}
-          role="tab"
-          label={list.name}
-          selected={list.id === activeListId}
-          onPress={() => setActiveListId(list.id)}
-        />
-      ))}
+      {live.map((list) => {
+        const selected = list.id === activeListId;
+        const shared = sharedLabel(list);
+        return (
+          <Chip
+            key={list.id}
+            role="tab"
+            label={list.name}
+            selected={selected}
+            onPress={() => setActiveListId(list.id)}
+            accessibilityLabel={shared ? `${list.name}, ${shared}` : undefined}
+            accessory={
+              shared ? <SharedBadge list={list} color={selected ? palette.white : palette.gray[500]} /> : undefined
+            }
+          />
+        );
+      })}
     </ScrollView>
   );
 }

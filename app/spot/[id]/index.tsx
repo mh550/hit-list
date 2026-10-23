@@ -14,8 +14,10 @@ import {
   ChipGroup,
   PhotoGrid,
   SendSheet,
+  SharedBadge,
   SpeedScale,
   Tag,
+  sharedLabel,
 } from '@/src/components';
 import { useAuthStore } from '@/src/stores/auth-store';
 import { useRiderId } from '@/src/hooks/use-rider-id';
@@ -106,14 +108,19 @@ function InLists({ spot, readOnly }: { spot: Spot; readOnly: boolean }) {
     <View style={styles.inLists}>
       <Text style={styles.inListsLabel}>In lists</Text>
       <ChipGroup>
-        {inLists.map((list) => (
-          <Chip
-            key={list.id}
-            label={list.name}
-            role="button"
-            onPress={() => router.push(`/list/${list.id}` as `/list/${string}`)}
-          />
-        ))}
+        {inLists.map((list) => {
+          const shared = sharedLabel(list);
+          return (
+            <Chip
+              key={list.id}
+              label={list.name}
+              role="button"
+              accessibilityLabel={shared ? `${list.name}, ${shared}` : undefined}
+              accessory={shared ? <SharedBadge list={list} /> : undefined}
+              onPress={() => router.push(`/list/${list.id}` as `/list/${string}`)}
+            />
+          );
+        })}
         <Chip label="+ Add to hit list" role="button" accessibilityLabel="Add to hit list" onPress={() => setAdding(true)} />
       </ChipGroup>
       <AddToListSheet visible={adding} spotIds={spotIds} onClose={() => setAdding(false)} />

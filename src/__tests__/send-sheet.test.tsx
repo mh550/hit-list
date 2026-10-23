@@ -462,7 +462,9 @@ describe('SendSheet review fixes (S7-08)', () => {
   });
 
   it('VoiceOver hears the failure, D78 and partial lines (a live region is Android only)', async () => {
+    // the calls of earlier tests (the sheet's toasts) stay on the spy
     const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    announce.mockClear();
     signIn();
     jest.mocked(createSend).mockRejectedValueOnce(new Error('offline'));
     await renderSheet();

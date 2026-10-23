@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { AccessibilityInfo, ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
@@ -13,6 +13,7 @@ import { useFriendsStore } from '@/src/stores/friends-store';
 import { showToast } from '@/src/stores/toast-store';
 import { getSupabase } from '@/src/sync/client';
 import { syncNow } from '@/src/sync/engine';
+import { refreshProfile } from '@/src/sync/auth';
 import { errorMessage } from '@/src/sync/errors';
 import { refreshFriends, type FriendProfile } from '@/src/sync/friends';
 import { createSend, NotBackedUpError } from '@/src/sync/sends';
@@ -31,6 +32,7 @@ import { Button } from './Button';
 
 const NOT_BACKED_UP = "Some of these spots aren't backed up yet. Try again when you're online.";
 const FAILED = "Couldn't send. Try again.";
+const PROFILE_FAILED = "Couldn't load your profile. Try again.";
 const LOAD_FAILED = "Couldn't load your friends.";
 const THUMBNAILS = 3;
 
@@ -61,10 +63,15 @@ export function SendSheet({ spotIds, onClose }: Props) {
   const status = useAuthStore((s) => s.status);
   const userId = useAuthStore((s) => s.userId);
   const client = getSupabase();
-  // Lifted from the body: while a send runs the sheet can't be closed, so its finish never closes what opened next.
-  const [sending, setSending] = useState(false);
+  // Lifted from the body. The backup before a send may take minutes (a big import): Cancel works then and the send
+  // doesn't go. Once the send itself runs the sheet can't be closed, so its finish never closes what opened next.
+  const [phase, setPhase] = useState<SendPhase>(null);
+  const cancelledRef = useRef(false);
+  const sending = phase === 'sending';
   const close = () => {
-    if (!sending) onClose();
+    if (sending) return;
+    if (phase === 'backing_up') cancelledRef.current = true;
+    onClose();
   };
   const title = spotIds.length === 1 ? 'Send this spot' : `Send ${spotIds.length} spots`;
 
@@ -93,8 +100,9 @@ export function SendSheet({ spotIds, onClose }: Props) {
         uid={userId}
         spotIds={spotIds}
         onClose={onClose}
-        sending={sending}
-        setSending={setSending}
+        phase={phase}
+        setPhase={setPhase}
+        cancelledRef={cancelledRef}
       />
     );
   }
@@ -122,14 +130,23 @@ export function SendSheet({ spotIds, onClose }: Props) {
   );
 }
 
+type SendPhase = null | 'backing_up' | 'sending';
+
 function SendBody({
   client,
   uid,
   spotIds,
   onClose,
-  sending,
-  setSending,
-}: Props & { client: SupabaseClient; uid: string; sending: boolean; setSending: (sending: boolean) => void }) {
+  phase,
+  setPhase,
+  cancelledRef,
+}: Props & {
+  client: SupabaseClient;
+  uid: string;
+  phase: SendPhase;
+  setPhase: (phase: SendPhase) => void;
+  cancelledRef: { current: boolean };
+}) {
   const db = useSQLiteContext();
   const router = useRouter();
   const username = useAuthStore((s) => s.username);
@@ -140,7 +157,12 @@ function SendBody({
   const spots = useSpotsStore((s) => s.spots);
   const mediaBySpot = useMediaStore((s) => s.mediaBySpot);
   const [checked, setChecked] = useState<string[]>([]);
-  const [line, setLine] = useState<string | null>(null);
+  const [line, setShownLine] = useState<string | null>(null);
+  // A live region is Android only: VoiceOver hears a line when it is set.
+  const setLine = (text: string | null) => {
+    setShownLine(text);
+    if (text) AccessibilityInfo.announceForAccessibility(text);
+  };
   // Checked synchronously: a second tap before the re-render must not send twice.
   const busy = useRef(false);
 
@@ -169,13 +191,22 @@ function SendBody({
     setChecked((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
   const send = async () => {
-    if (busy.current || recipientIds.length === 0 || !username) return;
+    if (busy.current || recipientIds.length === 0) return;
+    if (!username) {
+      // The profile didn't load (an offline launch): say so and read it again; the next tap sends.
+      setLine(PROFILE_FAILED);
+      await refreshProfile(client, uid);
+      return;
+    }
     busy.current = true;
-    setSending(true);
+    cancelledRef.current = false;
+    setPhase('backing_up');
     setLine(null);
     try {
       // Back up first, so a spot saved a moment ago can go (D78).
       await syncNow(db);
+      if (cancelledRef.current) return;
+      setPhase('sending');
       const result = await createSend(db, client, uid, {
         spotIds,
         recipientIds,
@@ -203,7 +234,7 @@ function SendBody({
       }
     } finally {
       busy.current = false;
-      setSending(false);
+      setPhase(null);
     }
   };
 
@@ -272,7 +303,7 @@ function SendBody({
     });
   }
 
-  const canSend = recipientIds.length > 0 && !sending;
+  const canSend = recipientIds.length > 0 && phase === null;
   return (
     <ScrollView contentContainerStyle={styles.content}>
       <View style={styles.spots}>
@@ -298,9 +329,9 @@ function SendBody({
           style={({ pressed }) => [styles.send, !canSend && styles.sendDisabled, pressed && styles.sendPressed]}
           accessibilityRole="button"
           accessibilityLabel="Send"
-          accessibilityState={{ disabled: !canSend, busy: sending }}>
+          accessibilityState={{ disabled: !canSend, busy: phase !== null }}>
           <IconSymbol name="paperplane.fill" size={18} color={palette.white} />
-          <Text style={styles.sendText}>{sending ? 'Sending…' : 'Send'}</Text>
+          <Text style={styles.sendText}>{phase !== null ? 'Sending…' : 'Send'}</Text>
         </Pressable>
       ) : null}
     </ScrollView>

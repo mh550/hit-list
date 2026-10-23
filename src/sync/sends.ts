@@ -111,8 +111,12 @@ export async function createSend(
   db: SQLiteDatabase,
   client: SupabaseClient,
   uid: string,
-  { spotIds, recipientIds, sender }: { spotIds: string[]; recipientIds: string[]; sender: SendSender },
+  send: { spotIds: string[]; recipientIds: string[]; sender: SendSender },
 ): Promise<SendResult | null> {
+  // a spot or friend given twice goes once (a second copy of a photo would collide in Storage)
+  const spotIds = [...new Set(send.spotIds)];
+  const recipientIds = [...new Set(send.recipientIds)];
+  const { sender } = send;
   if (spotIds.length === 0) throw new Error('a send needs at least one spot');
   if (spotIds.length > MAX_SEND_SPOTS) throw new Error(`a send has at most ${MAX_SEND_SPOTS} spots`);
   if (recipientIds.length === 0) throw new Error('a send needs at least one friend');
@@ -243,7 +247,16 @@ export async function loadAndApplySends(
   try {
     const items = await loadSends(client, uid);
     if (!items || newestTicket.get(uid) !== ticket || !(await maySync(db, client, uid))) return;
-    useInboxStore.getState().setItems(uid, 'send', items);
+    // a save the server may have marked lists it saved, but its copies wait for Try again: keep its item
+    const inbox = useInboxStore.getState();
+    const waiting =
+      inbox.userId === uid
+        ? inbox.items.filter(
+            (i): i is SendItem =>
+              i.kind === 'send' && hasPendingSave(uid, i.sendId) && !items.some((n) => n.id === i.id),
+          )
+        : [];
+    inbox.setItems(uid, 'send', [...items, ...waiting].sort(newestFirst));
   } catch (err) {
     console.warn('[sends] loading sends failed:', errorMessage(err));
   }
@@ -294,7 +307,7 @@ export const hasPendingSave = (uid: string, sendId: string) => pendingSaves.has(
 /**
  * Saves a received send as the rider's own spots (all of them, or `spotIds`; picking finishes the send, D81), with
  * `newList` also into a new hit list 'From @ana'. Order: download every photo into photos/<newSpot>/<newMedia>.jpg (a
- * failed one is left out and counted), then, on the sync queue, mark_send_saved and the inserts through src/db (owned
+ * failed one is left out and counted; none at all saves nothing, and a retry downloads the failed ones again), then, on the sync queue, mark_send_saved and the inserts through src/db (owned
  * by `uid`, so they queue for backup), so a withdrawal racing the save never leaves copies of a withdrawn send. Then
  * the stores reload and the item leaves the Inbox. Single-flight per send; null without a session for `uid`.
  */
@@ -329,13 +342,16 @@ function startSave(uid: string, item: SendItem, opts: SaveOptions): PendingSave 
   };
 }
 
+/** The first time every photo, after that only the ones that failed (a retry once the phone is back online). */
 async function downloadPhotos(client: SupabaseClient, save: PendingSave, io: PhotoIO): Promise<void> {
-  for (const download of save.downloads) {
+  const todo = save.downloaded ? save.downloads.filter((d) => save.failed.has(d.mediaId)) : save.downloads;
+  for (const download of todo) {
     try {
       const { data, error } = await client.storage.from(PHOTOS_BUCKET).download(download.path);
       if (error) throw serverError(error);
       io.write(download.localRelativePath, await blobBytes(data));
       save.written.push(download.localRelativePath);
+      save.failed.delete(download.mediaId);
     } catch (err) {
       save.failed.add(download.mediaId);
       console.warn(`[sends] could not download photo ${download.path}:`, errorMessage(err));
@@ -389,7 +405,7 @@ async function saveOnce(
   const key = `${uid}:${item.sendId}`;
   const save = pendingSaves.get(key) ?? startSave(uid, item, opts);
   pendingSaves.set(key, save);
-  if (!save.downloaded) await downloadPhotos(client, save, io);
+  await downloadPhotos(client, save, io);
 
   /** Drops the save; its downloads go too unless they are the copies' files now. */
   const forget = (deleteFiles: boolean) => {
@@ -403,6 +419,12 @@ async function saveOnce(
       }
     }
   };
+
+  // Offline, every download fails: saving now would use up the send on copies with no photos.
+  if (save.downloads.length > 0 && save.failed.size === save.downloads.length) {
+    if (!save.mayBeMarked) forget(true);
+    return { status: 'failed' };
+  }
 
   const result = await runExclusive(async (): Promise<SaveResult> => {
     const marked = (await maySync(db, client, uid)) ? await markSaved(client, uid, item.sendId, save.token) : 'no_session';

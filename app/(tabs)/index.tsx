@@ -117,11 +117,11 @@ export default function SpotsScreen() {
       {selecting ? (
         <View testID="select-bar" style={styles.selectBar}>
           {[
-            { label: sendLabel, onPress: () => setSendIds(chosen) },
-            { label: addLabel, onPress: () => setSheetIds(chosen) },
-          ].map(({ label, onPress }) => (
+            { key: 'send', label: sendLabel, onPress: () => setSendIds(chosen) },
+            { key: 'add', label: addLabel, onPress: () => setSheetIds(chosen) },
+          ].map(({ key, label, onPress }) => (
             <Pressable
-              key={label}
+              key={key}
               onPress={onPress}
               disabled={count === 0}
               style={({ pressed }) => [

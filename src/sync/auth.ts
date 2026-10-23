@@ -1,6 +1,7 @@
 import { isAuthRetryableFetchError, type Session, type SupabaseClient } from '@supabase/supabase-js';
 
-import { SIGNED_OUT, type AuthSnapshot } from '@/src/stores/auth-store';
+import { SIGNED_OUT, useAuthStore, type AuthSnapshot } from '@/src/stores/auth-store';
+import { errorMessage } from '@/src/sync/errors';
 import { SESSION_STORAGE_KEY, sessionStorage } from '@/src/sync/session-storage';
 
 // The auth store's view of a session. A profile that cannot be read (offline launch, no row yet) is
@@ -31,6 +32,22 @@ export async function resolveAuthState(client: SupabaseClient, session: Session 
     };
   } catch {
     return signedIn;
+  }
+}
+
+/**
+ * Reads the profile of `uid` again (one that failed to load, e.g. an offline launch) and shows it while `uid` is still
+ * the rider shown without a username. Never rejects.
+ */
+export async function refreshProfile(client: SupabaseClient, uid: string): Promise<void> {
+  try {
+    const { data } = await client.auth.getSession();
+    if (data.session?.user.id !== uid) return;
+    const snapshot = await resolveAuthState(client, data.session);
+    const shown = useAuthStore.getState();
+    if (snapshot.username && shown.userId === uid && !shown.username) shown.setAuth(snapshot);
+  } catch (err) {
+    console.warn('[auth] reading the profile again failed:', errorMessage(err));
   }
 }
 

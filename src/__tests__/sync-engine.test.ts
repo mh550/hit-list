@@ -28,6 +28,7 @@ import { INITIAL_SYNC, useSyncStore } from '@/src/stores/sync-store';
 import { useHitListsStore, useMediaStore, useSpotsStore } from '@/src/stores';
 import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
 import { useFriendsStore } from '@/src/stores/friends-store';
+import { useInboxStore } from '@/src/stores/inbox-store';
 
 const mockPush = jest.mocked(push);
 const mockPull = jest.mocked(pull);
@@ -48,6 +49,7 @@ beforeEach(async () => {
   useHitListsStore.setState({ lists: [], membershipBySpot: {} });
   useAuthStore.setState({ ...SIGNED_OUT });
   useFriendsStore.getState().clearFriends();
+  useInboxStore.getState().clearInbox();
 });
 
 describe('syncNow', () => {
@@ -154,6 +156,42 @@ describe('syncNow', () => {
     await syncNow(db);
 
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('[friends]'), 'offline');
+    expect(useSyncStore.getState().lastError).toBeNull();
+    expect(useSyncStore.getState().lastSyncAt).not.toBeNull();
+    warn.mockRestore();
+  });
+
+  it('loads the sends to the rider after the friends and puts them in the Inbox (S7)', async () => {
+    useAuthStore.setState({ ...SIGNED_OUT, status: 'signed_in', userId: ME });
+    const sendId = '00000000-0000-4000-8000-000000000501';
+    mockFake!.tables.sends = [
+      {
+        id: sendId,
+        sender: 'rider-ana',
+        recipient: ME,
+        payload: { v: 1, sender: { username: 'ana', display_name: null }, spots: [{ id: 's1', name: 'Rail' }] },
+        created_at: '2026-10-22 10:00:00+00',
+        saved_at: null,
+        dismissed_at: null,
+        withdrawn_at: null,
+      },
+    ];
+
+    await syncNow(db);
+
+    const tablesInOrder = mockFake!.selects.map((s) => s.table).filter((t) => t === 'friendships' || t === 'sends');
+    expect(tablesInOrder).toEqual(['friendships', 'sends']);
+    expect(useInboxStore.getState().items).toEqual([expect.objectContaining({ kind: 'send', id: sendId })]);
+  });
+
+  it('a sends load that fails warns and still counts as backed up', async () => {
+    useAuthStore.setState({ ...SIGNED_OUT, status: 'signed_in', userId: ME });
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockFake!.failSelect((s) => s.table === 'sends', { message: 'offline' });
+
+    await syncNow(db);
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('[sends]'), 'offline');
     expect(useSyncStore.getState().lastError).toBeNull();
     expect(useSyncStore.getState().lastSyncAt).not.toBeNull();
     warn.mockRestore();

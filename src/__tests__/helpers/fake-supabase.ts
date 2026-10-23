@@ -10,7 +10,9 @@
 //     from(t).select(cols).gt(c, v).in(c, values).order(c).limit(n))
 //   node_modules/@supabase/storage-js/dist/index.d.mts (storage.from(bucket).upload(path, fileBody, fileOptions?) →
 //     { data: { id, path, fullPath }, error: null } | { data: null, error: StorageError };
-//     storage.from(bucket).download(path) → { data: Blob, error: null } | { data: null, error: StorageError })
+//     storage.from(bucket).download(path) → { data: Blob, error: null } | { data: null, error: StorageError };
+//     copy(fromPath, toPath) → { data: { path } }; remove(paths) → { data: FileObject[] } (only the objects it
+//     found: 0 rows is not an error); createSignedUrl(path, expiresIn) → { data: { signedUrl } })
 //   node_modules/@supabase/functions-js/dist/module/FunctionsClient.d.ts (functions.invoke(name, options?))
 //   node_modules/@supabase/supabase-js/dist/index.d.mts (rpc(fn, args?) → a thenable { data, error }; a set-returning
 //     function such as find_profile answers an array)
@@ -18,8 +20,8 @@
 //   jest.mock('@/src/sync/client', () => ({ getSupabase: () => mockFake, isConfigured: () => true }))
 // The fake keeps one session and a `profiles` table; `failNext(method, error, table?)` makes the next call of
 // that method (on that table, or rpc function) answer { data: null, error }; `queryDelayMs` slows every query down.
-// Every upsert, delete and upload is logged in `calls`, in the order the app awaited them (the push tests read the
-// order there). Selects answer from `tables`, `profiles` from the `profiles` map (filters, order and limit applied;
+// Every upsert, delete, upload, copy, remove and rpc is logged in `calls`, in the order the app awaited them (the push
+// and send tests read the order there). Selects answer from `tables`, `profiles` from the `profiles` map (filters, order and limit applied;
 // each select logged in `selects`); `readableProfiles` (a set of ids, null = all) mimics the profiles RLS. rpc calls
 // are logged in `rpcs` and answered by `rpcHandlers[fn]` (no handler: { data: null, error: null }); storage downloads
 // answer from `objects`.
@@ -39,15 +41,21 @@ type FailMethod =
   | 'upload'
   | 'download'
   | 'invoke'
-  | 'rpc';
+  | 'rpc'
+  | 'copy'
+  | 'remove'
+  | 'createSignedUrl';
 export type FakeCall =
   | { kind: 'upsert'; table: string; values: Record<string, unknown>; options?: UpsertOptions }
   | { kind: 'delete'; table: string; filters: [string, unknown][] }
-  | { kind: 'upload'; bucket: string; path: string; body: unknown; options?: UploadOptions };
+  | { kind: 'upload'; bucket: string; path: string; body: unknown; options?: UploadOptions }
+  | { kind: 'copy'; bucket: string; from: string; to: string }
+  | { kind: 'remove'; bucket: string; paths: string[] }
+  | { kind: 'rpc'; fn: string; args: Record<string, unknown> | undefined };
 type UpsertOptions = { onConflict?: string; ignoreDuplicates?: boolean };
 type UploadOptions = { contentType?: string; upsert?: boolean };
 type Row = Record<string, unknown>;
-type Filter = ['eq' | 'gt', string, unknown] | ['in', string, unknown[]];
+type Filter = ['eq' | 'gt' | 'is', string, unknown] | ['in', string, unknown[]];
 /** One awaited select: what the app asked the server. */
 export interface FakeSelect {
   table: string;
@@ -125,6 +133,7 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
     eq: jest.Mock<FakeQuery, [column: string, value: unknown]>;
     gt: jest.Mock<FakeQuery, [column: string, value: unknown]>;
     in: jest.Mock<FakeQuery, [column: string, values: readonly unknown[]]>;
+    is: jest.Mock<FakeQuery, [column: string, value: null | boolean]>;
     order: jest.Mock<FakeQuery, [column: string, options?: { ascending?: boolean }]>;
     limit: jest.Mock<FakeQuery, [count: number]>;
     maybeSingle: jest.Mock<FakeQuery, []>;
@@ -145,6 +154,7 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
         if (op === 'eq') return row[column] === value;
         // SQL: NULL > x is not true
         if (op === 'gt') return row[column] != null && compare(row[column], value) > 0;
+        if (op === 'is') return (row[column] ?? null) === value;
         return (value as unknown[]).includes(row[column]);
       }),
     );
@@ -234,6 +244,10 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
         selectFilters.push(['in', column, [...values]]);
         return builder;
       }),
+      is: jest.fn((column: string, value: null | boolean) => {
+        selectFilters.push(['is', column, value]);
+        return builder;
+      }),
       order: jest.fn((column: string, _options?: { ascending?: boolean }) => {
         order.push(column);
         return builder;
@@ -294,6 +308,7 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
         return wait
           .then((): RpcResult => {
             rpcs.push({ fn, args });
+            calls.push({ kind: 'rpc', fn, args });
             const error = takeFailure('rpc', fn);
             if (error) return { data: null, error };
             return rpcHandlers[fn]?.(args) ?? { data: null, error: null };
@@ -316,6 +331,27 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
           const bytes = objects.get(`${bucket}/${path}`);
           if (!bytes) return { data: null, error: { message: 'Object not found', statusCode: '404' } };
           return { data: new Blob([bytes as BlobPart], { type: 'image/jpeg' }), error: null };
+        }),
+        copy: jest.fn(async (from: string, to: string) => {
+          calls.push({ kind: 'copy', bucket, from, to });
+          const error = takeFailure('copy');
+          if (error) return { data: null, error };
+          const bytes = objects.get(`${bucket}/${from}`);
+          if (!bytes) return { data: null, error: { message: 'Object not found', statusCode: '404' } };
+          objects.set(`${bucket}/${to}`, bytes);
+          return { data: { path: to }, error: null };
+        }),
+        remove: jest.fn(async (paths: string[]) => {
+          calls.push({ kind: 'remove', bucket, paths: [...paths] });
+          const error = takeFailure('remove');
+          if (error) return { data: null, error };
+          const found = paths.filter((path) => objects.delete(`${bucket}/${path}`));
+          return { data: found.map((name) => ({ name, bucket_id: bucket })), error: null };
+        }),
+        createSignedUrl: jest.fn(async (path: string, expiresIn: number) => {
+          const error = takeFailure('createSignedUrl');
+          if (error) return { data: null, error };
+          return { data: { signedUrl: `https://storage.test/${bucket}/${path}?expires=${expiresIn}` }, error: null };
         }),
       })),
     },

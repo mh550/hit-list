@@ -144,6 +144,35 @@ describe('pull: bring the server rows down (real SQLite, fake client)', () => {
       ]);
     });
 
+    it('brings a saved send’s copy down with its send and its sender’s name (S7); a server without the column leaves them', async () => {
+      serve({
+        spots: [
+          serverSpot({ id: 'copy', copied_from_send: 'send-1', from_username: 'Ana_B', primary_photo_id: null }),
+          serverSpot({ id: 'old-server', rev: 2, primary_photo_id: null }),
+        ],
+      });
+      await insertSpot(
+        db,
+        createTestSpot({
+          id: 'old-server',
+          owner_id: ME,
+          copied_from_send: 'send-2',
+          from_username: 'ben',
+          updated_at: '2026-10-20T10:00:00.000Z',
+        }),
+      );
+      await clearOutbox(db);
+      delete fake.tables.spots[1].from_username;
+
+      await pull(db, asClient(fake), ME);
+
+      const spots = await getSpots(db);
+      expect(spots.find((s) => s.id === 'copy')).toMatchObject({ copied_from_send: 'send-1', from_username: 'Ana_B' });
+      // copied_from_send is null on that server row: only from_username is missing, so it stays as it was
+      expect(spots.find((s) => s.id === 'old-server')).toMatchObject({ from_username: 'ben' });
+      expect(spots.find((s) => s.id === 'old-server')?.copied_from_send).toBeUndefined();
+    });
+
     it('inserts every pulled row locally with its owner, mapped to the local columns', async () => {
       serve({
         spots: [serverSpot()],

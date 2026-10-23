@@ -216,7 +216,7 @@ describe('push: drain the outbox into Supabase (real SQLite, fake client)', () =
     await push(db, asClient(fake), ME, io);
 
     expect(await outboxOps(db)).toEqual([]);
-    expect(fake.calls.map((c) => (c.kind === 'upload' ? 'upload' : `${c.kind} ${c.table}`))).toEqual([
+    expect(fake.calls.map((c) => ('table' in c ? `${c.kind} ${c.table}` : c.kind))).toEqual([
       'upsert spots',
       'upsert spots',
       'upload',
@@ -224,6 +224,24 @@ describe('push: drain the outbox into Supabase (real SQLite, fake client)', () =
       'upsert hit_lists',
       'upsert hit_list_spots',
       'upsert spots',
+    ]);
+  });
+
+  it('pushes a saved send’s copy with its send and its sender’s name (S7), and null for an ordinary spot', async () => {
+    await insertSpot(
+      db,
+      createTestSpot({ id: 'copy', owner_id: ME, copied_from_send: 'send-1', from_username: 'Ana_B' }),
+    );
+    await insertSpot(db, createTestSpot({ id: 'own', owner_id: ME }));
+
+    await push(db, asClient(fake), ME, memoryIO({}).io);
+
+    const sent = fake.calls.map((c) =>
+      c.kind === 'upsert' ? [c.values.id, c.values.copied_from_send, c.values.from_username] : null,
+    );
+    expect(sent).toEqual([
+      ['copy', 'send-1', 'Ana_B'],
+      ['own', null, null],
     ]);
   });
 
@@ -264,7 +282,7 @@ describe('push: drain the outbox into Supabase (real SQLite, fake client)', () =
 
     expect(second).toEqual({ pushed: 3, failed: 0 });
     expect(await outboxRows(db)).toEqual([]);
-    const tables = fake.calls.map((c) => (c.kind === 'upload' ? 'upload' : c.table));
+    const tables = fake.calls.map((c) => ('table' in c ? c.table : c.kind));
     expect(tables).toEqual(['spots', 'spots', 'upload', 'media', 'hit_lists']);
   });
 
@@ -310,7 +328,7 @@ describe('push: drain the outbox into Supabase (real SQLite, fake client)', () =
     const result = await push(db, asClient(fake), ME, io);
 
     expect(result).toEqual({ pushed: 1, failed: 1 });
-    expect(fake.calls.map((c) => (c.kind === 'upload' ? 'upload' : c.table))).toEqual(['hit_lists']);
+    expect(fake.calls.map((c) => ('table' in c ? c.table : c.kind))).toEqual(['hit_lists']);
     expect(await outboxRows(db)).toEqual([
       { entity: 'media', entity_id: 'media-1', op: 'upsert', attempts: 0, last_error: 'photo missing', parked: 1 },
     ]);
@@ -486,7 +504,7 @@ describe('push: drain the outbox into Supabase (real SQLite, fake client)', () =
     await push(db, asClient(fake), ME, io);
 
     expect(await outboxRows(db)).toEqual([]);
-    expect(fake.calls.slice(2).map((c) => (c.kind === 'upload' ? 'upload' : c.table))).toEqual([
+    expect(fake.calls.slice(2).map((c) => ('table' in c ? c.table : c.kind))).toEqual([
       'spots',
       'upload',
       'media',

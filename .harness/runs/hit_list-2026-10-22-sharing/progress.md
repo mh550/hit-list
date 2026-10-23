@@ -20,6 +20,23 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 14:30 · S5-09 · passes
+
+- **What changed:** two Opus reviewers covered the S5 diff (`reviews/s5.diff`, 8135 lines). Three Important findings and two Minor ones were fixed RED → GREEN (`74add1c`/`0a768bd` → `fbf3810`/`6b2e622`):
+  - Delete account now runs on the sync queue (`deleteAccountAndRelease`). Before, a sync running at the same time could pull the empty account and wipe the rider's list memberships.
+  - Push marks a row done only while the session lasts. Before, a membership delete answered 204 after a sign-out was lost.
+  - Media `addMany` skips ids it already has. Before, a sync reload in the middle of saving photos duplicated one.
+  - Minor: an `updated_at` tie keeps a waiting local change (the town after a push).
+  - Minor: the pull-to-refresh spinner shows only for a pull.
+- **Refactor and docs:** `refactor:` `265d76f` (`errorMessage`, `reloadStoresQuietly`). Updated CLAUDE.md (src/sync layout, Sync/owner_id conventions), README "Backup and sync (S5)", the live checklist (S5 Studio checks), and the plan's "Review (S5-09)" (8 findings with file:line and commits, ten written answers with proving tests). Tests 1324 → 1332.
+- **Verified:**
+  - check.sh green, 1332 tests, `npx jest --ci` prints 0 `console.error`.
+  - `expo export` exit 0, 5.1 MB.
+  - Local stack: `test:db` Files=9 Tests=569 PASS, `test:integration` 29/29, then `db:stop`. `docker ps` matches the list from before the run (7 dj-*/n8n-*), no supabase_*.
+- **Left (Minor, in the plan):** parked rows don't count as pending, so Remove deletes them. A release failure after Delete account still signs out.
+- **Next:** S5 is complete; the milestone PR is the harness's. S6-01 is next.
+- **Questions for Michael:** none. **Proposed changes:** none.
+
 ### 2026-10-23 13:10 · S5-08 · passes
 
 - **What changed:** new `docs/plans/2026-10-22-s5-what-michael-will-see.md` (Profile states, four alerts with every text, phone walkthrough + undo, recorded checks). No code changed.

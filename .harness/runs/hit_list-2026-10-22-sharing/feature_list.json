@@ -639,7 +639,7 @@
         "CLAUDE.md Layout gains src/sync/ (outbox, push, pull, photos, adopt, engine) and src/db/sync.ts; Conventions gains 'Sync: every owned write goes through the db functions so the outbox row is in the same transaction; never write spots/media/hit_lists rows from a screen directly' and the owner_id rule (NULL = not adopted); README Status gains 'Backup and sync (S5)'; docs/plans/2026-10-22-live-checklist.md gains what to check in Studio after the first phone sync.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S6-01",

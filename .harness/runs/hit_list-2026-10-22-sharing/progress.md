@@ -20,6 +20,16 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 · S9-07 · passes
+
+- S9 review (two Opus reviewers, `reviews/s9.diff` 5143 lines): no Critical; **2 Important fixed** (A1: `redeem_invite`'s single use under concurrency had no committed proof → a 10× race in `links-function.test.ts` + a pgTAP lock guard, both shown failing on a lock-less mutation; B1: the Inbox list swallowed the first tap on Open while the keyboard was up). 10 Minor fixed (incl. the deferred clipboard and `?t=` items), 1 left (CSP width). Table + seven written answers under "Review (S9-07)" in the S9 plan. RED `df86277` → GREEN `d457eb6`, `refactor:` `ecfe9bf`.
+- **D96 *default***: `share-preview` takes the token as a text/plain POST body; `GET ?t=` answers 405 (request logs kept working links). Page, `previewLink`, README, checklist curls follow.
+- Docs: CLAUDE.md (links.ts, link-token.ts, share-preview, web/share/, the fragment-token rule), README 'Links (S9)', live checklist hosting step with staged `wrangler` commands. `chore:` `ec1f4f1` declares jsdom 20.0.3 + @types/jsdom 20.0.1 (devDependencies).
+- Mistake caught and fixed: my first checklist edit (466eb4b) cut everything between §10's and S9's host bullets; restored in `7471fcc` (the diff against before is only the hosting block and the curls).
+- Verified: jest 2065 → 2080, `check.sh` green, `npx jest --ci` 0 `console.error`; stack `test:db` 640 (639 → 640), `test:integration` 7 suites 79 (77 → 79), `db:stop`, only dj-*/n8n-* left.
+- Next: S10-01. The edge runtime needs `docker restart supabase_edge_runtime_hit-list` after `db:start` if the function changed.
+- Question for Michael (§9 Q57): POST body for link previews (D96), or keep `GET ?t=`? Proposed change: S9-02 step 1 / S9-04 step 1 said `GET ?t=`; since D96 it is POST.
+
 ### 2026-10-23 · S9-06 · passes
 
 - New `docs/plans/2026-10-22-s9-what-michael-will-see.md`: from-scratch renders of the Send sheet link mode (chips, D44 line, failure), Sent `Links` rows (Active/Active until/Expired/Revoked + Revoke alert), members invite-link rows + role alert, Inbox `Paste a link` (closed/open/joined/gone/not a link/error), and the web page's send/invite/gone/error states (jsdom text). Plus "What to tap" (copy, Safari over Tailscale, revoke, invite link, paste as the other rider) and where to host.

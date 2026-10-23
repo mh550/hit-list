@@ -1099,7 +1099,7 @@
         "CLAUDE.md Layout gains src/sync/links.ts, src/utils/link-token.ts, supabase/functions/share-preview, web/share/ and the 'fragment token' rule; README Status gains 'Links (S9)'; the live checklist's hosting and deploy steps are complete with the exact commands.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S10-01",

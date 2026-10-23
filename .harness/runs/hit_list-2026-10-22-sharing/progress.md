@@ -20,6 +20,18 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 14:10 · S8-04 · passes
+
+- Built the Share screens:
+  - `src/components/ShareListSheet.tsx`: friends, a role control (`ROLE_LABELS`), the D34 sentence, the count and area lines, the D85/42501 lines, and an invite mode.
+  - List screen: 'Share list' / 'Invite' (owner only) beside 'Send these spots'. The member strip shows initials, the D84 count and '+ Invite', and opens `/list/<id>/members`. A member gets no Rename, Delete, Edit area or Share, and can remove only their own spots (role 'add'). Deleting a shared list states the consequence.
+  - New `app/list/[id]/members.tsx`: role menu, Remove confirm, Withdraw invitation, Invite, Stop sharing, Leave (`dismissAll` → Lists tab).
+  - Also new: `getHitLists` `owner_username` and `src/utils/members.ts`.
+- Tests 1808 → 1862, RED first. `check.sh` green, `npx jest --ci` shows 0 console.error, and `grep -n 'Send'` on the sheet and members.tsx prints nothing.
+- Opus review: 2 Important, 3 Minor. Fixed with RED tests: #1, the rider's own row read 'A rider' (the profiles mirror never holds the rider), and #3/#4. Left: #2, 'Add friend' on a member row (plan §3.5), for S8-09; #5, `needs_username` sees the sign-in line, as SendSheet does. Table in the plan, 'S8-04 review'.
+- Next session (S8-05): use `memberCount` / `joinedMembers` from `src/utils/members.ts` for the markers. The `person.2.fill` icon is in the MAPPING (testID `icon-person.2.fill`), and a list carries `owner_username` for 'Shared with me'.
+- Proposed changes: the step's `shareList(listId, [ana], 'add')` is `shareList(db, client, uid, listId, [ana], 'add')`. Leave also navigates to the Lists tab after `router.dismissAll()`. No new D, no questions.
+
 ### 2026-10-23 12:40 · S8-03 · passes
 
 - Others' spots are now read-only on this phone. New: `selectMySpots` (the 'My spots' chip), the area-list owner rule, and `isForeign`/`ownerLabel` (`src/utils/ownership.ts`). New: `riderId()`/`useRiderId` = the signed-in rider, else the phone's account (sync store `phoneUserId`). `assertOwn` guards in the spot, media and hit-list action hooks. Other changes:

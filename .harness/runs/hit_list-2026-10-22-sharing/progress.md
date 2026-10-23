@@ -20,6 +20,12 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 06:40 · S4-07 · passes
+
+- New: `docs/plans/2026-10-22-s4-what-michael-will-see.md` (docs only): Profile unconfigured / signed out / signed in (with and without display name), sign-in, code, username (empty, `ab`, `Ana Rider!`, `ana_rides`) from a temporary from-scratch render test (deleted, not committed), every text/label/role/placeholder; "What to tap" (.env.local, Mailpit 54324, Delete account); verification record.
+- Verified: `npx jest --silent` 75 suites, 1062 passed; `npm run test:integration` 17 passed (db:start, db:reset, db:stop; no supabase_* container left); `npx expo export --platform ios` exit 0, 5,021,702-byte hbc; check.sh green.
+- Nothing for Michael; no proposed changes. S4 is complete: the milestone PR is the harness's.
+
 ### 2026-10-23 05:40 · S4-06 · passes
 
 - New: `scripts/supabase-env.mjs` (status JSON → `SUPABASE_URL`/`_ANON_KEY`/`_SERVICE_ROLE_KEY` for the command only; exit 2 `Start the stack first: npm run db:start` when status fails, times out at 60 s, isn't JSON or lacks a key), `jest.integration.config.js`, `npm run test:integration`, default Jest ignores `/src/__integration__/`; `src/__integration__/helpers.ts` (`createRider` = admin `createUser` + `generateLink` `email_otp` + `verifyOtp` + username, cleans up a half-made rider) and `accounts.test.ts` (17 cases); `src/__tests__/supabase-env.test.ts` (9, fake `npx` on PATH, no Docker). Jest 1053 → 1062.

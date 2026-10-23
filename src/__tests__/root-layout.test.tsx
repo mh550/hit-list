@@ -22,9 +22,16 @@ jest.mock('expo-router', () => {
 jest.mock('expo-sqlite', () => ({
   SQLiteProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
+// DBInitializer renders its children only once the DB is ready; mockDbReady stands in for that.
+let mockDbReady = true;
 jest.mock('@/src/components/DBInitializer', () => ({
-  DBInitializer: ({ children }: { children: React.ReactNode }) => children,
+  DBInitializer: ({ children }: { children: React.ReactNode }) => (mockDbReady ? children : null),
 }));
+// Accounts are off in this build: no Supabase client.
+jest.mock('@/src/sync/client', () => ({ getSupabase: () => null, isConfigured: () => false }));
+jest.mock('@/src/hooks/use-auth-init', () => ({ useAuthInit: jest.fn() }));
+
+import { useAuthInit } from '@/src/hooks/use-auth-init';
 
 import RootLayout from '@/app/_layout';
 
@@ -86,5 +93,26 @@ describe('RootLayout: hit list screen', () => {
 
     const list = screen.UNSAFE_getAllByProps({ name: 'list/[id]/index' })[0];
     expect(list.props.options).toEqual({ title: 'Hit list' });
+  });
+});
+
+describe('RootLayout: auth', () => {
+  beforeEach(() => {
+    jest.mocked(useAuthInit).mockClear();
+    mockDbReady = true;
+  });
+
+  it('mounts useAuthInit once the DB is ready', () => {
+    render(<RootLayout />);
+
+    expect(useAuthInit).toHaveBeenCalled();
+  });
+
+  it('does not start auth before DBInitializer lets its children render', () => {
+    mockDbReady = false;
+
+    render(<RootLayout />);
+
+    expect(useAuthInit).not.toHaveBeenCalled();
   });
 });

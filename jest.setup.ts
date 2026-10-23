@@ -110,5 +110,87 @@ jest.mock('expo-crypto', () => {
     randomUUID: jest.fn(() => nodeCrypto.randomUUID()),
     getRandomValues: jest.fn((array: Uint8Array<ArrayBuffer>) => nodeCrypto.getRandomValues(array)),
     getRandomBytes: jest.fn((byteCount: number) => new Uint8Array(nodeCrypto.randomBytes(byteCount))),
+    // AES-GCM (expo-crypto/build/aes/index.d.ts, ExpoCryptoAES.d.ts): a string input is base64;
+    // combined = iv (12) ‖ ciphertext ‖ tag (16), the native default.
+    ...mockAes(nodeCrypto),
   };
 });
+
+type MockBinary = string | Uint8Array | ArrayBuffer;
+function mockAes(nodeCrypto: typeof import('node:crypto')) {
+  const toBytes = (input: MockBinary): Buffer =>
+    typeof input === 'string' ? Buffer.from(input, 'base64') : Buffer.from(input as Uint8Array);
+  const encode = (bytes: Buffer, encoding: 'hex' | 'base64') => bytes.toString(encoding);
+  class AESEncryptionKey {
+    constructor(private readonly key: Buffer) {}
+    get size() {
+      return this.key.length * 8;
+    }
+    static async generate(size = 256) {
+      return new AESEncryptionKey(nodeCrypto.randomBytes(size / 8));
+    }
+    static async import(input: MockBinary, encoding?: 'hex' | 'base64') {
+      return new AESEncryptionKey(typeof input === 'string' ? Buffer.from(input, encoding ?? 'hex') : toBytes(input));
+    }
+    async bytes() {
+      return new Uint8Array(this.key);
+    }
+    async encoded(encoding: 'hex' | 'base64') {
+      return encode(this.key, encoding);
+    }
+    raw() {
+      return this.key;
+    }
+  }
+  class AESSealedData {
+    constructor(private readonly all: Buffer) {}
+    static fromCombined(combined: MockBinary) {
+      return new AESSealedData(toBytes(combined));
+    }
+    async combined(encoding?: 'bytes' | 'base64') {
+      return encoding === 'base64' ? encode(this.all, 'base64') : new Uint8Array(this.all);
+    }
+    raw() {
+      return this.all;
+    }
+  }
+  return {
+    AESEncryptionKey,
+    AESSealedData,
+    aesEncryptAsync: async (plaintext: MockBinary, key: AESEncryptionKey) => {
+      const iv = nodeCrypto.randomBytes(12);
+      const cipher = nodeCrypto.createCipheriv('aes-256-gcm', key.raw(), iv);
+      const body = Buffer.concat([cipher.update(toBytes(plaintext)), cipher.final()]);
+      return new AESSealedData(Buffer.concat([iv, body, cipher.getAuthTag()]));
+    },
+    aesDecryptAsync: async (sealed: AESSealedData, key: AESEncryptionKey, options?: { output?: 'bytes' | 'base64' }) => {
+      const all = sealed.raw();
+      const decipher = nodeCrypto.createDecipheriv('aes-256-gcm', key.raw(), all.subarray(0, 12));
+      decipher.setAuthTag(all.subarray(all.length - 16));
+      const plain = Buffer.concat([decipher.update(all.subarray(12, all.length - 16)), decipher.final()]);
+      return options?.output === 'base64' ? encode(plain, 'base64') : new Uint8Array(plain);
+    },
+  };
+}
+
+// expo-secure-store is the iOS keychain: an in-memory Map with the members of
+// node_modules/expo-secure-store/build/SecureStore.d.ts (getItemAsync, setItemAsync, deleteItemAsync l.99-123).
+jest.mock('expo-secure-store', () => {
+  const store = new Map<string, string>();
+  return {
+    AFTER_FIRST_UNLOCK: 0,
+    getItemAsync: jest.fn(async (key: string) => store.get(key) ?? null),
+    setItemAsync: jest.fn(async (key: string, value: string) => {
+      store.set(key, value);
+    }),
+    deleteItemAsync: jest.fn(async (key: string) => {
+      store.delete(key);
+    }),
+    __store: store,
+  };
+});
+
+// AsyncStorage: the package's own in-memory mock.
+jest.mock('@react-native-async-storage/async-storage', () =>
+  jest.requireActual('@react-native-async-storage/async-storage/jest/async-storage-mock'),
+);

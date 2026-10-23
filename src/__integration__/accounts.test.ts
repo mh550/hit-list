@@ -135,6 +135,8 @@ describe('account-delete', () => {
       body: '{}',
     });
     expect(response.status).toBe(401);
+    // The function's own answer: the local gateway lets a request with no Authorization header through.
+    expect(await response.json()).toEqual({ error: 'unauthorized' });
   });
 
   it('refuses a request whose bearer is the anon key, not a rider (401)', async () => {
@@ -151,6 +153,11 @@ describe('account-delete', () => {
     const mediaId = randomUUID();
     const photoPath = () => `${two.userId}/${spotId}/${mediaId}.jpg`;
     let result: { data: unknown; error: unknown };
+
+    // A failed delete would leave the photo behind; deleting the user (the outer afterAll) never removes files.
+    afterAll(async () => {
+      await adminClient().storage.from('photos').remove([photoPath()]);
+    });
 
     beforeAll(async () => {
       const { error: spotError } = await two.client.from('spots').insert({
@@ -177,8 +184,9 @@ describe('account-delete', () => {
     });
 
     it('deletes rider two', async () => {
-      const { data } = await adminClient().auth.admin.getUserById(two.userId);
+      const { data, error } = await adminClient().auth.admin.getUserById(two.userId);
       expect(data.user).toBeNull();
+      expect(error?.status).toBe(404);
     });
 
     it("cascades away rider two's profile and spot", async () => {

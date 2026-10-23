@@ -20,6 +20,15 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 05:40 · S4-06 · passes
+
+- New: `scripts/supabase-env.mjs` (status JSON → `SUPABASE_URL`/`_ANON_KEY`/`_SERVICE_ROLE_KEY` for the command only; exit 2 `Start the stack first: npm run db:start` when status fails, times out at 60 s, isn't JSON or lacks a key), `jest.integration.config.js`, `npm run test:integration`, default Jest ignores `/src/__integration__/`; `src/__integration__/helpers.ts` (`createRider` = admin `createUser` + `generateLink` `email_otp` + `verifyOtp` + username, cleans up a half-made rider) and `accounts.test.ts` (17 cases); `src/__tests__/supabase-env.test.ts` (9, fake `npx` on PATH, no Docker). Jest 1053 → 1062.
+- RED 2da7ea4 (9 fail), then GREEN. Stack: `db:start` → `db:reset` → `test:db` `Files=9, Tests=569, PASS` → `test:integration` `17 passed` → `db:stop`; `test:integration` with the stack down exits 2 with the message; `docker ps` = the same 7 dj-*/n8n-* containers, no supabase_* left, no other container touched. check.sh green (1062), full `npx jest --ci` 0 console.error.
+- **The local edge runtime doesn't reload an edited function** (a 418 mutant still answered `{ ok: true }`) until `docker restart supabase_edge_runtime_hit-list`; in `supabase/README.md`, the plan and the live checklist. With restarts, mutants of the function (skip `remove`, trust `body.user_id`, skip `deleteUser`, 200 without a JWT) each fail a case. The runtime does inject the three env values. The local gateway lets a request with no `Authorization` reach the function, which answers its own 401.
+- Opus review: 0 Critical/Important; 5 Minor fixed (half-made rider cleanup, 404 asserted after delete, the no-JWT body checked, the test photo removed on failure, status timeout).
+- One full-suite run (the first check.sh) had 2 failing tests in one suite; its output was overwritten by the next run, and 7 later full runs passed. Treat it as an existing flake; S4-08 should watch for it.
+- Not covered yet: `sends/<id>/` files in account-delete (no send flow until S7; S7's integration test should add one). No new questions for Michael.
+
 ### 2026-10-23 03:40 · S4-05 · passes
 
 - New: Profile `Account` section (`app/(tabs)/profile.tsx` `AccountSection`, keyed on `userId`): unconfigured line, signed-out copy + `Sign in` → `/auth/sign-in`, signed in `@username` / display name / email + `Sign out` / `Delete account` (alert copy per the feature, `Deleting…`, error in place); `signOutOfAccount` + `deleteAccount` in `src/sync/auth.ts`; `supabase/functions/account-delete/index.ts` (uid only from `auth.getUser(jwt)`, storage under `<uid>/` and `sends/<id>/` of sends from **or to** the rider, then `admin.deleteUser`; 200/401/405/500 JSON) + `_shared/cors.ts`; tsconfig `exclude` and eslint `ignores` `supabase/functions`. Tests 1034 → 1053.

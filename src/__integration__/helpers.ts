@@ -68,15 +68,24 @@ export async function signInAgain(email: string): Promise<SupabaseClient> {
  */
 export async function createRider(username: string): Promise<Rider> {
   const email = `${username}-${randomUUID().slice(0, 8)}@example.test`;
-  const { error: createError } = await adminClient().auth.admin.createUser({ email, email_confirm: true });
+  const { data: created, error: createError } = await adminClient().auth.admin.createUser({
+    email,
+    email_confirm: true,
+  });
   if (createError) throw createError;
 
-  const client = anonClient();
-  const userId = await verifyWithCode(client, email);
-  const { data, error } = await client.from('profiles').update({ username }).eq('id', userId).select('id');
-  if (error) throw error;
-  if (data.length !== 1) throw new Error(`no profile row was updated for ${email}`);
-  return { client, userId, username, email };
+  // A rider half made (no session, no username) is deleted here: the caller never gets an id to clean up with.
+  try {
+    const client = anonClient();
+    const userId = await verifyWithCode(client, email);
+    const { data, error } = await client.from('profiles').update({ username }).eq('id', userId).select('id');
+    if (error) throw error;
+    if (data.length !== 1) throw new Error(`no profile row was updated for ${email}`);
+    return { client, userId, username, email };
+  } catch (error) {
+    await deleteRider(created.user.id);
+    throw error;
+  }
 }
 
 /** Deletes a rider left by a test; a rider already gone is fine. */

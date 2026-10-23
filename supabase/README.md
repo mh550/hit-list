@@ -19,8 +19,16 @@ The CLI is the pinned `supabase` devDependency (use `npx supabase …`, never a 
 npm run db:start    # supabase start (needs Docker)
 npm run db:reset    # supabase db reset: migrations + seed.sql on a fresh database
 npm run test:db     # supabase test db: every supabase/tests/*.test.sql (pgTAP)
+npm run test:integration   # src/__integration__ (Jest, Node) against the running stack: auth, account-delete
 npm run db:stop     # supabase stop
 ```
+
+`test:integration` reads the URL and keys from `npx supabase status -o json` at run time (`scripts/supabase-env.mjs`)
+and exits 2 with `Start the stack first: npm run db:start` when the stack is down; no key is written to a file.
+
+`functions/` (Deno Edge Functions, served at `http://127.0.0.1:54321/functions/v1/<name>`): under `supabase start`
+the edge runtime does **not** reload a changed function. After editing one, restart its container
+(`docker restart supabase_edge_runtime_hit-list`) or `npm run db:stop && npm run db:start` before testing it.
 
 Stop the stack when you are done with it. None of this runs in CI (CI has no Docker stack).
 

@@ -53,6 +53,9 @@ Works from S4-05 on (sign-in, username, Profile). Nothing here touches a cloud p
 - [ ] **Start the stack** on the box: `npm run db:start`, then `npm run db:reset` for a clean database. Check:
       `curl -s http://100.88.90.97:54321/auth/v1/health` from the box (or the phone's browser) answers with JSON. If
       it doesn't, the ports are bound to 127.0.0.1 only: tell the run, don't change Docker by hand.
+- [ ] **Check the server side first** (S4-06): `npm run test:integration`. Check: `Tests: 17 passed` (two riders sign
+      up, usernames, sign out and back in, account-delete). If a function was edited since `db:start`, run
+      `docker restart supabase_edge_runtime_hit-list` first (the local runtime doesn't reload functions).
 - [ ] **Point the app at it:** `cp .env.example .env.local`, then set `EXPO_PUBLIC_SUPABASE_URL=http://100.88.90.97:54321`
       and `EXPO_PUBLIC_SUPABASE_ANON_KEY=` the `ANON_KEY` from `npx supabase status` (a local demo key; `.env.local` is
       git-ignored, never commit it). Check: `git status` doesn't list `.env.local`.

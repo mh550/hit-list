@@ -124,9 +124,11 @@ describe('Friends screen signed out / unconfigured', () => {
     expect(refreshFriends).not.toHaveBeenCalled();
   });
 
-  it("an unconfigured build says accounts aren't set up and nothing else", async () => {
-    mockFake = null;
-    useAuthStore.setState({ ...SIGNED_OUT, status: 'unconfigured' });
+  it.each([
+    ['no client', () => (mockFake = null)],
+    ["status 'unconfigured'", () => useAuthStore.setState({ ...SIGNED_OUT, status: 'unconfigured' })],
+  ])("an unconfigured build (%s) says accounts aren't set up and nothing else", async (_name, setUp) => {
+    setUp();
     await renderScreen();
     expect(screen.getByText(ACCOUNTS_NOT_SET_UP)).toBeOnTheScreen();
     expect(screen.queryByRole('button')).toBeNull();
@@ -283,6 +285,86 @@ describe('Friends screen signed in', () => {
     expect(warn).toHaveBeenCalled();
   });
 
+  it("VoiceOver reaches Remove and Block through the row's actions, not only a long press", async () => {
+    await renderScreen();
+    const row = screen.getByRole('button', { name: '@ana · Ana B' });
+    expect(row.props.accessibilityActions).toEqual([
+      { name: 'remove', label: 'Remove friend' },
+      { name: 'block', label: 'Block @ana' },
+    ]);
+    await act(async () => {
+      fireEvent(row, 'accessibilityAction', { nativeEvent: { actionName: 'remove' } });
+    });
+    expect(removeFriend).toHaveBeenCalledWith(mockFake, 'user-me', 'f-ana');
+    fireEvent(row, 'accessibilityAction', { nativeEvent: { actionName: 'block' } });
+    expect(lastAlert().title).toBe('Block @ana?');
+  });
+
+  it('a sent row is not one grouped element, so VoiceOver can reach its Cancel', async () => {
+    await renderScreen();
+    const cancel = screen.getByRole('button', { name: 'Cancel request to @cal' });
+    let node = cancel.parent;
+    while (node) {
+      expect(node.props.accessible).not.toBe(true);
+      expect(node.props.onLongPress).toBeUndefined();
+      node = node.parent;
+    }
+  });
+
+  it('Remove then Block on the same row while the first runs sends only the first', async () => {
+    let finish: () => void = () => {};
+    jest.mocked(removeFriend).mockReturnValue(new Promise<void>((resolve) => (finish = resolve)));
+    await renderScreen();
+    fireEvent(screen.getByText('@ana · Ana B'), 'longPress');
+    const menu = lastAlert();
+    await act(async () => {
+      menu.buttons.find((b) => b.text === 'Remove friend')?.onPress?.();
+    });
+    menu.buttons.find((b) => b.text === 'Block @ana')?.onPress?.();
+    await pressAlertButton('Block');
+    await act(async () => finish());
+    expect(removeFriend).toHaveBeenCalledTimes(1);
+    expect(block).not.toHaveBeenCalled();
+  });
+
+  it('the row is free again once the action is done, without waiting for the friends load', async () => {
+    jest.mocked(refreshFriends).mockReturnValue(new Promise<void>(() => {}));
+    await renderScreen();
+    await act(async () => {
+      fireEvent.press(screen.getByRole('button', { name: 'Cancel request to @cal' }));
+    });
+    expect(removeFriend).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: 'Cancel request to @cal' })).toBeOnTheScreen();
+    jest.mocked(addFriend).mockResolvedValue({ found: false, status: 'not_found' });
+    await add('dee');
+    expect(screen.getByRole('button', { name: 'Add' })).toBeEnabled();
+  });
+
+  it.each([
+    ['Block', async () => {
+      fireEvent(screen.getByText('@ana · Ana B'), 'longPress');
+      await pressAlertButton('Block @ana');
+      await pressAlertButton('Block');
+    }],
+    ['a failed Remove', async () => {
+      jest.mocked(removeFriend).mockRejectedValue(new Error('offline'));
+      fireEvent(screen.getByText('@ana · Ana B'), 'longPress');
+      await pressAlertButton('Remove friend');
+    }],
+  ])('%s ends with a friends load', async (_name, run) => {
+    await renderScreen();
+    jest.mocked(refreshFriends).mockClear();
+    await run();
+    expect(refreshFriends).toHaveBeenCalledWith(db, mockFake, 'user-me');
+  });
+
+  it('Add with the session gone says the network line instead of nothing', async () => {
+    jest.mocked(addFriend).mockResolvedValue(null);
+    await renderScreen();
+    await add('dee');
+    expect(screen.getByText(NETWORK)).toBeOnTheScreen();
+  });
+
   it("a 'Blocked' section lists @dee with Unblock (D74)", async () => {
     signIn({ ...DATA, blocked: [profile('id-dee', 'dee')] });
     await renderScreen();
@@ -292,6 +374,7 @@ describe('Friends screen signed in', () => {
       fireEvent.press(screen.getByRole('button', { name: 'Unblock @dee' }));
     });
     expect(unblock).toHaveBeenCalledWith(mockFake, 'user-me', 'id-dee');
+    expect(refreshFriends).toHaveBeenLastCalledWith(db, mockFake, 'user-me');
   });
 
   it("points at the Inbox when requests are waiting there", async () => {

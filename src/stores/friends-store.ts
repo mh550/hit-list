@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-import type { FriendsData } from '@/src/sync/friends';
+import type { FriendProfile, FriendsData } from '@/src/sync/friends';
 import { useAuthStore } from './auth-store';
 
 // The signed-in rider's friends, requests and blocks as the last friends load left them (src/sync/friends.ts
@@ -15,6 +15,13 @@ export interface FriendsState extends FriendsData {
   /** Sets `uid`'s rows, unless `uid` is not the rider signed in now (a load that outlived a sign-out or switch). */
   applyFriends: (uid: string, data: FriendsData) => void;
   setLoadError: (uid: string, message: string) => void;
+  // After an action went through, so the row leaves at once: the load that confirms it waits its turn on the sync
+  // queue, maybe behind a backup. Each ignores a rider who is not the one shown.
+  /** A friendship removed, a sent request cancelled. */
+  dropFriendship: (uid: string, friendshipId: string) => void;
+  /** `profile` blocked: every row with them leaves (the server ends the friendship) and they are listed as blocked. */
+  noteBlocked: (uid: string, profile: FriendProfile) => void;
+  noteUnblocked: (uid: string, userId: string) => void;
   clearFriends: () => void;
 }
 
@@ -34,6 +41,10 @@ const CLEARED = {
 
 const isShown = (uid: string) => useAuthStore.getState().userId === uid;
 
+/** By username, riders whose name is unknown last (by id, so the order is stable). */
+export const byName = (a: FriendProfile, b: FriendProfile) =>
+  (a.username ?? '\uffff').localeCompare(b.username ?? '\uffff') || a.id.localeCompare(b.id);
+
 export const useFriendsStore = create<FriendsState>((set) => ({
   ...CLEARED,
 
@@ -49,6 +60,27 @@ export const useFriendsStore = create<FriendsState>((set) => ({
 
   setLoadError: (uid, message) => {
     if (isShown(uid)) set({ loadError: message });
+  },
+
+  dropFriendship: (uid, friendshipId) => {
+    if (!isShown(uid)) return;
+    const keep = (rows: FriendsData['friends']) => rows.filter((f) => f.friendshipId !== friendshipId);
+    set((s) => ({ friends: keep(s.friends), incoming: keep(s.incoming), outgoing: keep(s.outgoing) }));
+  },
+
+  noteBlocked: (uid, profile) => {
+    if (!isShown(uid)) return;
+    const keep = (rows: FriendsData['friends']) => rows.filter((f) => f.profile.id !== profile.id);
+    set((s) => ({
+      friends: keep(s.friends),
+      incoming: keep(s.incoming),
+      outgoing: keep(s.outgoing),
+      blocked: s.blocked.some((p) => p.id === profile.id) ? s.blocked : [...s.blocked, profile].sort(byName),
+    }));
+  },
+
+  noteUnblocked: (uid, userId) => {
+    if (isShown(uid)) set((s) => ({ blocked: s.blocked.filter((p) => p.id !== userId) }));
   },
 
   clearFriends: () => set(CLEARED),

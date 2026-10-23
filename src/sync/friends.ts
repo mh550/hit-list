@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { getProfiles, upsertProfiles } from '@/src/db/profiles';
-import { useFriendsStore } from '@/src/stores/friends-store';
+import { byName, useFriendsStore } from '@/src/stores/friends-store';
 import { useInboxStore, type FriendRequestItem } from '@/src/stores/inbox-store';
 import type { FriendProfile } from '@/src/types';
 import { maySync, signedInAs } from './account';
@@ -114,9 +114,6 @@ async function readProfiles(client: SupabaseClient, ids: string[]): Promise<Frie
 
 const placeholder = (id: string): FriendProfile => ({ id, username: null, display_name: null });
 const newestFirst = (a: FriendRow, b: FriendRow) => b.created_at.localeCompare(a.created_at);
-/** By username, riders whose name is unknown last (by id, so the order is stable). */
-const byName = (a: FriendProfile, b: FriendProfile) =>
-  (a.username ?? '\uffff').localeCompare(b.username ?? '\uffff') || a.id.localeCompare(b.id);
 const byUsername = (a: FriendRow, b: FriendRow) => byName(a.profile, b.profile);
 
 /** loadFriends plus the profiles the server actually returned (the only ones the mirror takes). */

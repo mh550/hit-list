@@ -137,13 +137,15 @@ function FriendsBody({ client, uid }: { client: SupabaseClient; uid: string }) {
     return all.filter((s) => s.data.length > 0);
   }, [friends, outgoing, blocked]);
 
-  const runAction = async (key: string, action: () => Promise<void>) => {
+  /** Runs `action` once per row at a time; once it went through, `done` takes the row off the screen at once. */
+  const runAction = async (key: string, action: () => Promise<void>, done: () => void) => {
     if (busyKeys.current.has(key)) return;
     busyKeys.current.add(key);
     setBusy(new Set(busyKeys.current));
     setLine(null);
     try {
       await action();
+      done();
     } catch (err) {
       console.warn('[Friends] the action failed:', errorMessage(err));
       setLine({ text: NETWORK, tone: 'error' });
@@ -192,14 +194,24 @@ function FriendsBody({ client, uid }: { client: SupabaseClient; uid: string }) {
       {
         text: 'Block',
         style: 'destructive',
-        onPress: () => void runAction(row.key, () => block(client, uid, row.profile.id)),
+        onPress: () =>
+          void runAction(
+            row.key,
+            () => block(client, uid, row.profile.id),
+            () => useFriendsStore.getState().noteBlocked(uid, row.profile),
+          ),
       },
     ]);
   };
 
   const remove = (row: Row) => {
     const friendshipId = row.friendshipId;
-    if (friendshipId) void runAction(row.key, () => removeFriend(client, uid, friendshipId));
+    if (!friendshipId) return;
+    void runAction(
+      row.key,
+      () => removeFriend(client, uid, friendshipId),
+      () => useFriendsStore.getState().dropFriendship(uid, friendshipId),
+    );
   };
 
   const friendMenu = (row: Row) => {
@@ -228,7 +240,13 @@ function FriendsBody({ client, uid }: { client: SupabaseClient; uid: string }) {
           variant="secondary"
           size="sm"
           accessibilityLabel={`Unblock ${handleOf(item.profile, 'a rider you blocked')}`}
-          onPress={() => void runAction(item.key, () => unblock(client, uid, item.profile.id))}
+          onPress={() =>
+            void runAction(
+              item.key,
+              () => unblock(client, uid, item.profile.id),
+              () => useFriendsStore.getState().noteUnblocked(uid, item.profile.id),
+            )
+          }
         />
       ) : null;
     const label = (

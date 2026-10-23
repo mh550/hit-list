@@ -9,8 +9,8 @@ import { adopt } from '@/src/sync/adopt';
 import { signOutOfAccount } from '@/src/sync/auth';
 import { getSupabase } from '@/src/sync/client';
 import { syncNow } from '@/src/sync/engine';
+import { errorMessage } from '@/src/sync/errors';
 
-const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 function notBackedUp(pending: number | null): string {
   const what =
@@ -60,7 +60,7 @@ export function useAdoption(): void {
       try {
         result = confirmSwitch ? await adopt(db, userId, { confirmSwitch }) : await adopt(db, userId);
       } catch (err) {
-        console.warn('[sync] adoption failed:', message(err));
+        console.warn('[sync] adoption failed:', errorMessage(err));
         failed = true;
         return;
       }

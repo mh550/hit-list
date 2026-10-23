@@ -4,6 +4,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { ImageManipulator, SaveFormat, type ImageRef } from 'expo-image-manipulator';
 import type { Media } from '@/src/types';
 import { resolvePhotoUri } from '@/src/utils/photo-storage';
+import { errorMessage } from './errors';
 
 /** Uploads are re-encoded (D46): the long edge at most this many px, JPEG at this quality. */
 export const UPLOAD_MAX_EDGE = 2048;
@@ -138,7 +139,7 @@ export async function downloadMissingPhotos(
       io.write(media.file_path, await blobBytes(data));
       written += 1;
     } catch (err) {
-      console.warn(`[sync] could not download photo ${media.id}:`, err instanceof Error ? err.message : err);
+      console.warn(`[sync] could not download photo ${media.id}:`, errorMessage(err));
     }
   }
   return written;

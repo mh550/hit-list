@@ -11,7 +11,8 @@ import {
 } from '@/src/db/sync';
 import { useSyncStore } from '@/src/stores/sync-store';
 import { deleteSpotPhotos } from '@/src/utils/photo-storage';
-import { reloadStores, runExclusive } from './engine';
+import { reloadStoresQuietly, runExclusive } from './engine';
+import { errorMessage } from './errors';
 import { defaultPhotoIO, type PhotoIO } from './photos';
 
 /*
@@ -35,15 +36,6 @@ const ADOPTABLE_SPOTS = 'owner_id IS NULL AND deleted_at IS NULL';
 const ADOPTABLE_MEDIA =
   'owner_id IS NULL AND deleted_at IS NULL AND spot_id IN (SELECT id FROM spots WHERE deleted_at IS NULL)';
 const ADOPTABLE_LISTS = 'owner_id IS NULL AND deleted_at IS NULL';
-
-/** The commit already happened: a reload that fails only warns (the next pull that changes rows reloads again). */
-async function reloadAfterCommit(db: SQLiteDatabase): Promise<void> {
-  try {
-    await reloadStores(db);
-  } catch (err) {
-    console.warn('[sync] reloading the stores failed:', err instanceof Error ? err.message : err);
-  }
-}
 
 /**
  * Deletes every row that came with an account (owner_id set) except `keep`'s, memberships first, and returns the
@@ -116,7 +108,7 @@ export function adopt(
       await enqueueMemberships(db, memberships);
     });
     deleteSpotPhotos(removed);
-    await reloadAfterCommit(db);
+    await reloadStoresQuietly(db);
     return 'done';
   });
 }
@@ -144,7 +136,7 @@ export function removeLocalAccountData(
       await resetCursors(db);
     });
     deleteSpotPhotos(removed);
-    await reloadAfterCommit(db);
+    await reloadStoresQuietly(db);
     return true;
   });
 }
@@ -183,7 +175,7 @@ export function deleteAccountAndRelease(
     try {
       return { deleted: true, released: await release(db, uid, io) };
     } catch (err) {
-      console.warn('[sync] keeping the spots after Delete account failed:', err instanceof Error ? err.message : err);
+      console.warn('[sync] keeping the spots after Delete account failed:', errorMessage(err));
       return { deleted: true, released: null };
     }
   });
@@ -221,7 +213,7 @@ async function release(db: SQLiteDatabase, uid: string, io: Pick<PhotoIO, 'exist
     await resetCursors(db);
   });
   deleteSpotPhotos(removed);
-  await reloadAfterCommit(db);
+  await reloadStoresQuietly(db);
   return released;
 }
 
@@ -249,6 +241,6 @@ export function removeReleasedRows(db: SQLiteDatabase, released: ReleasedRows): 
       await db.runAsync(`DELETE FROM hit_lists WHERE ${phoneOnlyIn}`, lists);
     });
     deleteSpotPhotos(removed);
-    await reloadAfterCommit(db);
+    await reloadStoresQuietly(db);
   });
 }

@@ -203,7 +203,9 @@ describe('adopt: the first sign-in', () => {
 
   it('a store reload that fails after the commit still resolves done (the phone is adopted)', async () => {
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    const reload = jest.spyOn(engine, 'reloadStores').mockRejectedValueOnce(new Error('locked'));
+    const reload = jest.spyOn(useSpotsStore.getState(), 'setSpots').mockImplementationOnce(() => {
+      throw new Error('locked');
+    });
     await seedPhoneOnly();
 
     await expect(adopt(db, A)).resolves.toBe('done');

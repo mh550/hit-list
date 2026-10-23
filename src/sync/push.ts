@@ -10,6 +10,7 @@ import {
   type OutboxRow,
 } from '@/src/db/sync';
 import { maySync, signedInAs } from './account';
+import { errorMessage } from './errors';
 import { defaultPhotoIO, storagePath, uploadPhoto, type PhotoIO } from './photos';
 import { toIso } from './time';
 
@@ -132,7 +133,7 @@ async function pushRow(
   try {
     sent = await send(db, client, uid, io, row);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorMessage(err);
     if (err instanceof ServerError && err.code && PERMANENT_CODES.has(err.code)) {
       if (!(await signedInAs(client, uid))) return 'stop';
       sent = { park: message };

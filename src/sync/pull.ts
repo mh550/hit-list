@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { SQLiteBindValue, SQLiteDatabase } from 'expo-sqlite';
 import { getCursor, setCursor, type SyncTable } from '@/src/db/sync';
 import { maySync, signedInAs } from './account';
+import { errorMessage } from './errors';
 import { toIso } from './time';
 
 /**
@@ -51,7 +52,6 @@ export async function pull(db: SQLiteDatabase, client: SupabaseClient, uid: stri
   return failed ? { changed, failed } : { changed };
 }
 
-const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 
 /**
  * Pages `rev > cursor - REV_OVERLAP` in rev order. The table stops at the first row that can't be written (a photo
@@ -79,7 +79,7 @@ async function pullTable(
       try {
         if (await applyRow(db, table, row)) changed = true;
       } catch (err) {
-        console.warn(`[sync] pull ${table}: a row at rev ${String(row.rev)} waits for the next sync:`, message(err));
+        console.warn(`[sync] pull ${table}: a row at rev ${String(row.rev)} waits for the next sync:`, errorMessage(err));
         break pages;
       }
       highest = Math.max(highest, Number(row.rev));

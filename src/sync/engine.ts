@@ -5,6 +5,7 @@ import { countFailed, countPending, getSyncState, lastOutboxId, setSyncState } f
 import { useHitListsStore, useMediaStore, useSpotsStore } from '@/src/stores';
 import { useSyncStore } from '@/src/stores/sync-store';
 import { getSupabase } from './client';
+import { errorMessage } from './errors';
 import { downloadMissingPhotos } from './photos';
 import { pull } from './pull';
 import { push } from './push';
@@ -60,7 +61,6 @@ export function syncNow(db: SQLiteDatabase): Promise<void> {
   return entry.promise;
 }
 
-const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
 const lastSyncKey = (uid: string) => `last_sync_at:${uid}`;
 
 async function sessionRider(db: SQLiteDatabase): Promise<string | null> {
@@ -77,7 +77,7 @@ async function syncOnce(db: SQLiteDatabase): Promise<void> {
   try {
     uid = await sessionRider(db);
   } catch (err) {
-    console.warn('[sync] could not read the session:', message(err));
+    console.warn('[sync] could not read the session:', errorMessage(err));
     return;
   }
   if (!client || !uid) return;
@@ -94,8 +94,8 @@ async function syncOnce(db: SQLiteDatabase): Promise<void> {
 
   let error: string | null = null;
   const fail = (what: string, err: unknown) => {
-    console.warn(`[sync] ${what} failed:`, message(err));
-    error ??= message(err);
+    console.warn(`[sync] ${what} failed:`, errorMessage(err));
+    error ??= errorMessage(err);
   };
   try {
     useSyncStore.setState({ lastSyncAt: (await getSyncState(db, lastSyncKey(uid))) ?? null });
@@ -120,15 +120,9 @@ async function syncOnce(db: SQLiteDatabase): Promise<void> {
       await downloadMissingPhotos(db, client, uid);
     } catch (err) {
       // the photos are already backed up; their files come next sync
-      console.warn('[sync] photo download failed:', message(err));
+      console.warn('[sync] photo download failed:', errorMessage(err));
     }
-    if (changed) {
-      try {
-        await reloadStores(db);
-      } catch (err) {
-        console.warn('[sync] reloading the stores failed:', message(err));
-      }
-    }
+    if (changed) await reloadStoresQuietly(db);
 
     const failedCount = await countFailed(db);
     const waiting = await countPending(db, queuedBefore);
@@ -146,6 +140,15 @@ async function syncOnce(db: SQLiteDatabase): Promise<void> {
     useSyncStore.setState({ lastError: error });
   } finally {
     useSyncStore.setState({ syncing: false });
+  }
+}
+
+/** reloadStores after a commit: a failure only warns (the next pull that changes rows reloads again). */
+export async function reloadStoresQuietly(db: SQLiteDatabase): Promise<void> {
+  try {
+    await reloadStores(db);
+  } catch (err) {
+    console.warn('[sync] reloading the stores failed:', errorMessage(err));
   }
 }
 

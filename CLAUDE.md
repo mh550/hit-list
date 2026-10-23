@@ -62,7 +62,7 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   trailing '+' tile (`AddPhotosTile`, shared by detail and edit), taps by index), `SpotTagFields` (controlled What's here chips + 'Skate stopped' switch + SpeedScale).
   Hit lists (S1): `SpotsBrowser` (the List | Map body with search, sort, filter, FAB; takes the `spots` to show plus
   `aboveList`, `headerActions`, `headerTitle`/`headerLeft`, `onSpotPress`/`onSpotLongPress`, `selectedIds`),
-  `NameListSheet` (create/rename a list), `AddToListSheet` (a checkbox per manual list, checked when every given spot
+  `NameListSheet` (create/rename a list), `HeaderTextButton` (the blue header text button: Filter, Select, Rename), `AddToListSheet` (a checkbox per manual list, checked when every given spot
   is in it, '+ New hit list'), `ListPickerChips` (store-connected, `null` with no lists).
 - `src/db/` SQLite access. `schema.ts` holds `MIGRATIONS` (versioned by `PRAGMA user_version`):
   **append a migration, never edit a shipped one**; per-connection pragmas (e.g. `foreign_keys`) go
@@ -70,7 +70,8 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   afterwards, so a table rebuild is safe; only the `SQLiteProvider` connection has them on (a second connection, e.g.
   `withExclusiveTransactionAsync`, would start with them off).
   `hit-lists.ts` (migration 4): `insertHitList`, `getHitLists` (live only), `updateHitList`, `softDeleteHitList`,
-  `addSpotsToList` (`INSERT OR IGNORE`, idempotent), `removeSpotFromList`, `getListMemberships` (`{ spotId: listId[] }`, live lists).
+  `addSpotsToList` (one `INSERT OR IGNORE … FROM json_each(?)`, idempotent; no `withTransactionAsync` for app writes: it is a
+  plain BEGIN/COMMIT on the shared connection, so two writes at once collide), `removeSpotFromList`, `getListMemberships` (`{ spotId: listId[] }`, live lists).
   `spots.ts`: `getSpots`/`getSpot` select the explicit `SPOT_COLUMNS` (never `legacy_json`); `getSpotLegacy(db, id)` is
   the only reader of the archive (rejects on unreadable JSON, `null` for JSON that is not an object); detail's `OlderDetails` calls it once on mount (effect
   keyed on `[db, spotId]`, not on store updates), `.catch` → `console.warn`, and hides the disclosure when it has no rows.

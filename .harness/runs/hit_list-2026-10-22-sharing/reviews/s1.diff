@@ -1,0 +1,4851 @@
+diff --git a/app/(tabs)/_layout.tsx b/app/(tabs)/_layout.tsx
+index 51cf2f8..24a92d1 100644
+--- a/app/(tabs)/_layout.tsx
++++ b/app/(tabs)/_layout.tsx
+@@ -22,6 +22,14 @@ export default function TabLayout() {
+           ),
+         }}
+       />
++      <Tabs.Screen
++        name="lists"
++        options={{
++          title: 'Lists',
++          headerTitle: 'Hit lists',
++          tabBarIcon: ({ color }) => <IconSymbol size={28} name="list.bullet" color={color} />,
++        }}
++      />
+       <Tabs.Screen
+         name="profile"
+         options={{
+diff --git a/app/(tabs)/index.tsx b/app/(tabs)/index.tsx
+index e1b015b..313ee0f 100644
+--- a/app/(tabs)/index.tsx
++++ b/app/(tabs)/index.tsx
+@@ -1,34 +1,13 @@
+-import { useCallback, useMemo, useState } from 'react';
+-import { Stack, useRouter } from 'expo-router';
+-import { Keyboard, StyleSheet, View, Pressable, Text, TextInput } from 'react-native';
+-import { FlashList } from '@shopify/flash-list';
++import { useMemo, useState } from 'react';
++import { useRouter } from 'expo-router';
++import { StyleSheet, View, Pressable, Text } from 'react-native';
+ 
+ import { IconSymbol } from '@/components/ui/icon-symbol';
+ 
+-import {
+-  useSpotsStore,
+-  useMediaStore,
+-  selectFilteredSpots,
+-  selectSortedSpots,
+-  selectEffectiveSort,
+-  selectActiveFilterCount,
+-} from '@/src/stores';
+-import { useLocationStore } from '@/src/stores/location-store';
+-import { useSettingsStore } from '@/src/stores/settings-store';
+-import { SpotListItem } from '@/src/components/SpotListItem';
+-import { EmptyState } from '@/src/components/EmptyState';
+-import { FilterSheet } from '@/src/components/FilterSheet';
+-import { SegmentedControl } from '@/src/components/SegmentedControl';
+-import { SpotMap } from '@/src/components/SpotMap';
+-import { SortChips } from '@/src/components/SortChips';
+-import { useCurrentLocation } from '@/src/hooks/use-current-location';
+-import { featureTypesLabel, getSpotDisplayName } from '@/src/utils/spot-name';
+-import { resolvePhotoUri } from '@/src/utils/photo-storage';
+-import { primaryPhoto } from '@/src/utils/spot-photos';
+-import { haversineDistance, formatDistance, isKnownLocation } from '@/src/utils/geo';
+-import { SortField, UnitSystem } from '@/src/types';
+-import type { Spot } from '@/src/types';
+-import type { ViewMode } from '@/src/stores/spots-store';
++import { selectListSpots, useHitListsStore, useSpotsStore } from '@/src/stores';
++import { SpotsBrowser } from '@/src/components/SpotsBrowser';
++import { AddToListSheet } from '@/src/components/AddToListSheet';
++import { ListPickerChips } from '@/src/components/ListPickerChips';
+ import { palette, radius, spacing } from '@/src/constants/theme';
+ 
+ // Floating action column (bottom-right): shared by its style and the list's bottom padding so the two
+@@ -42,222 +21,164 @@ const LIST_BOTTOM_PADDING = FAB_BOTTOM + FAB_SIZE + FAB_GAP + FAB_SECONDARY_SIZE
+ 
+ export default function SpotsScreen() {
+   const router = useRouter();
+-  useCurrentLocation(); // distances in the list and the map's own position (bug 5)
+-  const spots = useSpotsStore((s) => s.spots);
+-  const filters = useSpotsStore((s) => s.filters);
+-  const searchQuery = useSpotsStore((s) => s.searchQuery);
+-  const storedSortField = useSpotsStore((s) => s.sortField);
+-  const storedSortDirection = useSpotsStore((s) => s.sortDirection);
+-  const sortChosen = useSpotsStore((s) => s.sortChosen);
++  const allSpots = useSpotsStore((s) => s.spots);
+   const viewMode = useSpotsStore((s) => s.viewMode);
+-  const setViewMode = useSpotsStore((s) => s.setViewMode);
+-  const resetFilters = useSpotsStore((s) => s.resetFilters);
+-  const setSearchQuery = useSpotsStore((s) => s.setSearchQuery);
+-  const setSort = useSpotsStore((s) => s.setSort);
+-  const currentLocation = useLocationStore((s) => s.currentLocation);
+-  const units = useSettingsStore((s) => s.units);
+-  const mediaBySpot = useMediaStore((s) => s.mediaBySpot);
+-
+-  const [filterVisible, setFilterVisible] = useState(false);
+-  const activeFilterCount = selectActiveFilterCount(filters);
+-  // Distance, nearest first, once the position is known and until the user taps a chip (D14).
+-  const { sortField, sortDirection } = selectEffectiveSort(
+-    { sortField: storedSortField, sortDirection: storedSortDirection, sortChosen },
+-    currentLocation != null,
+-  );
+-
+-  // The map takes the filtered spots: order doesn't matter to it, and a new array would re-cluster its markers.
+-  const filtered = useMemo(
+-    () => selectFilteredSpots(spots, filters, searchQuery),
+-    [spots, filters, searchQuery],
+-  );
+-  // Location only matters to the Distance sort; other sorts ignore location updates.
+-  const sortLocation = sortField === SortField.Distance ? currentLocation : null;
+-  const sorted = useMemo(
+-    () => selectSortedSpots(filtered, sortField, sortDirection, sortLocation ?? undefined),
+-    [filtered, sortField, sortDirection, sortLocation],
++  const lists = useHitListsStore((s) => s.lists);
++  const membershipBySpot = useHitListsStore((s) => s.membershipBySpot);
++  const activeListId = useHitListsStore((s) => s.activeListId);
++  // The picker's scope: a live list's spots, or every spot ('My spots', or an id no longer among the lists).
++  const activeList = lists.find((l) => l.id === activeListId && l.deleted_at === undefined);
++  const spots = useMemo(
++    () => (activeList ? selectListSpots(activeList, allSpots, membershipBySpot) : allSpots),
++    [activeList, allSpots, membershipBySpot],
+   );
+ 
+-  const handleSpotPress = useCallback(
+-    (id: string) => {
+-      Keyboard.dismiss(); // a raised keyboard would cover the spot screen while it animates in
+-      router.push(`/spot/${id}` as `/spot/${string}`);
+-    },
+-    [router],
+-  );
++  // Select mode: null = off; otherwise the chosen ids in tap order (the sheet files them in that order).
++  const [selected, setSelected] = useState<string[] | null>(null);
++  const [sheetVisible, setSheetVisible] = useState(false);
++  // Selecting is a List view thing: switching to Map, or the last spot in scope going, ends it (adjusting state
++  // while rendering, not in an effect).
++  if (selected !== null && (viewMode !== 'list' || spots.length === 0)) setSelected(null);
++  // Only live spots in scope stay selected: one deleted elsewhere (the tab stays mounted) or outside the list the
++  // picker switched to is dropped for good, so switching back doesn't bring it back checked.
++  const inScope = useMemo(() => new Set(spots.map((s) => s.id)), [spots]);
++  if (selected?.some((id) => !inScope.has(id))) setSelected(selected.filter((id) => inScope.has(id)));
++  const selecting = selected !== null;
++  const chosen = useMemo(() => selected ?? [], [selected]);
++  const selectedIds = useMemo(() => (selected ? new Set(selected) : undefined), [selected]);
+ 
+-  const getDistance = useCallback(
+-    (spot: Spot): string | undefined => {
+-      if (!currentLocation || !isKnownLocation(spot.location)) return undefined;
+-      const km = haversineDistance(currentLocation, spot.location);
+-      return formatDistance(km, units === UnitSystem.Imperial);
+-    },
+-    [currentLocation, units],
+-  );
++  const toggle = (id: string) =>
++    setSelected((prev) => (prev?.includes(id) ? prev.filter((x) => x !== id) : [...(prev ?? []), id]));
++  const endSelecting = () => {
++    setSheetVisible(false);
++    setSelected(null);
++  };
+ 
+-  const renderItem = useCallback(
+-    ({ item }: { item: Spot }) => {
+-      const thumbnail = primaryPhoto(item, mediaBySpot[item.id]);
+-      return (
+-        <SpotListItem
+-          id={item.id}
+-          displayName={getSpotDisplayName(item)}
+-          thumbnailUri={thumbnail ? resolvePhotoUri(thumbnail.file_path) : undefined}
+-          featureType={featureTypesLabel(item)}
+-          stopped={item.stopped}
+-          naturalSpeed={item.natural_speed}
+-          distance={getDistance(item)}
+-          onPress={handleSpotPress}
+-        />
+-      );
+-    },
+-    [handleSpotPress, getDistance, mediaBySpot],
+-  );
+-
+-  const keyExtractor = useCallback((item: Spot) => item.id, []);
+-
+-  // "No matching spots" offers the way out: clear the search if there is one (whitespace is not a search;
+-  // selectFilteredSpots trims the same way), otherwise reset the filters.
+-  const noMatchAction = searchQuery.trim() !== ''
+-    ? { label: 'Clear search', run: () => setSearchQuery('') }
+-    : activeFilterCount > 0
+-      ? { label: 'Reset filters', run: resetFilters }
+-      : undefined;
+-
+-  const filterButton = (
++  const selectAction = selecting ? (
+     <Pressable
+-      onPress={() => setFilterVisible(true)}
++      onPress={endSelecting}
+       hitSlop={8}
+-      accessibilityLabel={`Filter spots${activeFilterCount > 0 ? `, ${activeFilterCount} active` : ''}`}
++      accessibilityLabel="Cancel selection"
+       accessibilityRole="button"
+-      style={styles.filterButton}>
+-      <Text style={[styles.filterText, activeFilterCount > 0 && styles.filterTextActive]}>
+-        Filter{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
+-      </Text>
++      style={styles.headerAction}>
++      <Text style={styles.headerActionText}>Cancel</Text>
+     </Pressable>
+-  );
++  ) : viewMode === 'list' && spots.length > 0 ? (
++    <Pressable
++      onPress={() => setSelected([])}
++      hitSlop={8}
++      accessibilityLabel="Select spots"
++      accessibilityRole="button"
++      style={styles.headerAction}>
++      <Text style={styles.headerActionText}>Select</Text>
++    </Pressable>
++  ) : null;
++
++  const count = chosen.length;
++  const addLabel = `Add to list (${count})`;
+ 
+   return (
+     <View style={styles.container}>
+-      <Stack.Screen options={{ headerRight: () => filterButton }} />
+-      <View style={styles.modeBar}>
+-        <SegmentedControl
+-          segments={VIEW_MODES}
+-          selectedValue={viewMode}
+-          onValueChange={setViewMode}
+-        />
+-        {/* Search filters both views (it writes the store's searchQuery), so it sits above them. */}
+-        <TextInput
+-          style={styles.search}
+-          value={searchQuery}
+-          onChangeText={setSearchQuery}
+-          placeholder="Search spots"
+-          placeholderTextColor={palette.gray[500]}
+-          accessibilityLabel="Search spots"
+-          accessibilityRole="search"
+-          clearButtonMode="while-editing"
+-          autoCorrect={false}
+-          autoCapitalize="none"
+-          returnKeyType="search"
+-        />
+-      </View>
+-      {viewMode === 'list' ? (
+-        <SortChips
+-          sortField={sortField}
+-          sortDirection={sortDirection}
+-          hasLocation={currentLocation != null}
+-          onSort={setSort}
+-        />
++      <SpotsBrowser
++        spots={spots}
++        {...(activeList
++          ? {
++              emptyTitle: 'No spots in this list yet',
++              emptyMessage: "Add from a spot's page or select spots on the Spots tab",
++            }
++          : {
++              emptyTitle: 'No Spots Yet',
++              emptyMessage: 'Tap the + button to add your first spot, or import from your photos',
++              emptyActionLabel: 'Add Spot',
++              onEmptyAction: () => router.push('/add/camera'),
++            })}
++        aboveList={<ListPickerChips />}
++        contentBottomInset={selecting ? spacing.md : LIST_BOTTOM_PADDING}
++        // Left, so the header's right side stays the Filter button alone.
++        headerLeft={selectAction}
++        // headerTitle, not title: a tab's title is also its tab bar label.
++        headerTitle={selecting ? `${count} selected` : undefined}
++        selectedIds={selectedIds}
++        onSpotPress={selecting ? toggle : undefined}
++        onSpotLongPress={(id) => (selecting ? toggle(id) : setSelected([id]))}
++      />
++      {selecting ? (
++        <View testID="select-bar" style={styles.selectBar}>
++          <Pressable
++            onPress={() => setSheetVisible(true)}
++            disabled={count === 0}
++            style={({ pressed }) => [
++              styles.selectButton,
++              count === 0 && styles.selectButtonDisabled,
++              pressed && styles.selectButtonPressed,
++            ]}
++            accessibilityRole="button"
++            accessibilityLabel={addLabel}
++            accessibilityState={{ disabled: count === 0 }}>
++            <Text style={styles.selectButtonText}>{addLabel}</Text>
++          </Pressable>
++        </View>
+       ) : null}
+-      <View style={styles.body}>
+-        {viewMode === 'map' ? (
+-          <SpotMap spots={filtered} currentLocation={currentLocation} onOpenSpot={handleSpotPress} />
+-        ) : null}
+-        {viewMode === 'list' && spots.length === 0 ? (
+-          <EmptyState
+-            title="No Spots Yet"
+-            message="Tap the + button to add your first spot, or import from your photos"
+-            actionLabel="Add Spot"
+-            onAction={() => router.push('/add/camera')}
+-          />
+-        ) : null}
+-        {viewMode === 'list' && spots.length > 0 && sorted.length === 0 ? (
+-          <EmptyState
+-            icon="magnifyingglass"
+-            title="No matching spots"
+-            message="Try a different search or clear the filters"
+-            actionLabel={noMatchAction?.label}
+-            onAction={noMatchAction?.run}
+-          />
+-        ) : null}
+-        {viewMode === 'list' && sorted.length > 0 ? (
+-          <FlashList
+-            data={sorted}
+-            renderItem={renderItem}
+-            keyExtractor={keyExtractor}
+-            contentContainerStyle={styles.listContent}
+-            keyboardDismissMode="on-drag"
+-            keyboardShouldPersistTaps="handled"
+-          />
+-        ) : null}
+-      </View>
+-      <View style={styles.fabColumn}>
+-        <Pressable
+-          style={[styles.fabShadow, styles.fabSecondary]}
+-          onPress={() => router.push('/import')}
+-          accessibilityLabel="Import photos"
+-          accessibilityRole="button">
+-          <IconSymbol name="photo.on.rectangle" size={22} color={palette.blue[500]} />
+-        </Pressable>
+-        <Pressable
+-          style={[styles.fabShadow, styles.fab]}
+-          onPress={() => router.push('/add/camera')}
+-          accessibilityLabel="Add new spot"
+-          accessibilityRole="button">
+-          <Text style={styles.fabText}>+</Text>
+-        </Pressable>
+-      </View>
+-      <FilterSheet visible={filterVisible} onClose={() => setFilterVisible(false)} />
++      <AddToListSheet visible={sheetVisible} spotIds={chosen} onClose={endSelecting} />
++      {/* The floating actions would cover the select bar; nothing to add while choosing spots. */}
++      {selecting ? null : (
++        <View style={styles.fabColumn}>
++          <Pressable
++            style={[styles.fabShadow, styles.fabSecondary]}
++            onPress={() => router.push('/import')}
++            accessibilityLabel="Import photos"
++            accessibilityRole="button">
++            <IconSymbol name="photo.on.rectangle" size={22} color={palette.blue[500]} />
++          </Pressable>
++          <Pressable
++            style={[styles.fabShadow, styles.fab]}
++            onPress={() => router.push('/add/camera')}
++            accessibilityLabel="Add new spot"
++            accessibilityRole="button">
++            <Text style={styles.fabText}>+</Text>
++          </Pressable>
++        </View>
++      )}
+     </View>
+   );
+ }
+ 
+-const VIEW_MODES: { label: string; value: ViewMode }[] = [
+-  { label: 'List', value: 'list' },
+-  { label: 'Map', value: 'map' },
+-];
+-
+ const styles = StyleSheet.create({
+-  modeBar: {
+-    paddingHorizontal: spacing.md,
+-    paddingVertical: spacing.sm,
+-    gap: spacing.sm,
+-  },
+-  search: {
+-    backgroundColor: palette.gray[100],
+-    borderRadius: radius.md,
+-    borderCurve: 'continuous',
+-    paddingHorizontal: spacing.md,
+-    paddingVertical: spacing.sm,
+-    fontSize: 16,
+-    color: palette.gray[900],
+-  },
+-  body: {
+-    flex: 1,
+-  },
+   container: {
+     flex: 1,
+   },
+-  filterButton: {
++  headerAction: {
+     paddingHorizontal: spacing.sm,
+   },
+-  filterText: {
++  headerActionText: {
+     fontSize: 16,
+     color: palette.blue[500],
+     fontWeight: '500',
+   },
+-  filterTextActive: {
+-    fontWeight: '700',
++  selectBar: {
++    paddingHorizontal: spacing.md,
++    paddingVertical: spacing.sm,
++    borderTopWidth: StyleSheet.hairlineWidth,
++    borderTopColor: palette.gray[200],
++    backgroundColor: palette.white,
++  },
++  selectButton: {
++    alignItems: 'center',
++    paddingVertical: spacing.md,
++    borderRadius: radius.md,
++    borderCurve: 'continuous',
++    backgroundColor: palette.blue[500],
++  },
++  selectButtonDisabled: {
++    backgroundColor: palette.gray[300],
++  },
++  selectButtonPressed: {
++    opacity: 0.8,
++  },
++  selectButtonText: {
++    fontSize: 16,
++    fontWeight: '600',
++    color: palette.white,
+   },
+   // Floating actions: the secondary "Import photos" button stacked above the "+" FAB (D12).
+   fabColumn: {
+@@ -267,9 +188,6 @@ const styles = StyleSheet.create({
+     alignItems: 'center',
+     gap: FAB_GAP,
+   },
+-  listContent: {
+-    paddingBottom: LIST_BOTTOM_PADDING,
+-  },
+   fabShadow: {
+     alignItems: 'center',
+     justifyContent: 'center',
+diff --git a/app/(tabs)/lists.tsx b/app/(tabs)/lists.tsx
+new file mode 100644
+index 0000000..3b87340
+--- /dev/null
++++ b/app/(tabs)/lists.tsx
+@@ -0,0 +1,166 @@
++import { useMemo, useState } from 'react';
++import { Alert, Pressable, SectionList, StyleSheet, Text, View } from 'react-native';
++import { useRouter } from 'expo-router';
++
++import { IconSymbol } from '@/components/ui/icon-symbol';
++import { EmptyState, NameListSheet } from '@/src/components';
++import { palette, spacing } from '@/src/constants/theme';
++import { useHitListActions } from '@/src/hooks/use-hit-list-actions';
++import { selectListCounts, selectListsByName, useHitListsStore, useSpotsStore } from '@/src/stores';
++import type { HitList } from '@/src/types';
++
++const spotCountLabel = (n: number) => (n === 1 ? '1 spot' : `${n} spots`);
++
++export default function ListsScreen() {
++  const router = useRouter();
++  const lists = useHitListsStore((s) => s.lists);
++  const membershipBySpot = useHitListsStore((s) => s.membershipBySpot);
++  const spots = useSpotsStore((s) => s.spots);
++  const { createList } = useHitListActions();
++  const [naming, setNaming] = useState(false);
++
++  const counts = useMemo(() => selectListCounts(lists, spots, membershipBySpot), [lists, spots, membershipBySpot]);
++  // S8 adds 'Shared with me'; a section only shows when it has rows.
++  const sections = useMemo(() => {
++    const mine = selectListsByName(lists.filter((l) => l.deleted_at === undefined));
++    return mine.length > 0 ? [{ title: 'My hit lists', data: mine }] : [];
++  }, [lists]);
++
++  const handleCreate = async (name: string) => {
++    try {
++      const list = await createList(name);
++      setNaming(false);
++      router.push(`/list/${list.id}`);
++    } catch (err) {
++      // useHitListActions has logged it and taken the list back out of the store.
++      Alert.alert("Couldn't create the list", 'Please try again.');
++      throw err;
++    }
++  };
++
++  const renderItem = ({ item }: { item: HitList }) => {
++    const count = spotCountLabel(counts[item.id] ?? 0);
++    return (
++      <Pressable
++        style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
++        onPress={() => router.push(`/list/${item.id}`)}
++        accessibilityRole="button"
++        accessibilityLabel={`${item.name}, ${count}`}>
++        <View style={styles.rowText}>
++          <Text style={styles.rowName} numberOfLines={1}>
++            {item.name}
++          </Text>
++          <Text style={styles.rowCount}>{count}</Text>
++        </View>
++        <IconSymbol name="chevron.right" size={18} color={palette.gray[400]} />
++      </Pressable>
++    );
++  };
++
++  return (
++    <View style={styles.container}>
++      <Pressable
++        style={({ pressed }) => [styles.newButton, pressed && styles.rowPressed]}
++        onPress={() => setNaming(true)}
++        accessibilityRole="button"
++        accessibilityLabel="New hit list">
++        <IconSymbol name="plus" size={20} color={palette.blue[500]} />
++        <Text style={styles.newText}>New hit list</Text>
++      </Pressable>
++
++      {sections.length === 0 ? (
++        // No action button: the one above is the action, and two 'New hit list' labels would collide.
++        <EmptyState
++          icon="list.bullet"
++          title="No hit lists yet"
++          message="Group spots you mean to hit: by hand, or by area"
++        />
++      ) : (
++        <SectionList
++          sections={sections}
++          keyExtractor={(l) => l.id}
++          renderItem={renderItem}
++          renderSectionHeader={({ section }) => (
++            <Text style={styles.sectionHeader} accessibilityRole="header">
++              {section.title}
++            </Text>
++          )}
++          ItemSeparatorComponent={Separator}
++          stickySectionHeadersEnabled={false}
++          contentContainerStyle={styles.listContent}
++        />
++      )}
++
++      <NameListSheet
++        visible={naming}
++        title="New hit list"
++        confirmLabel="Create"
++        onCancel={() => setNaming(false)}
++        onSubmit={handleCreate}
++      />
++    </View>
++  );
++}
++
++function Separator() {
++  return <View style={styles.separator} />;
++}
++
++const styles = StyleSheet.create({
++  container: {
++    flex: 1,
++  },
++  newButton: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    gap: spacing.sm,
++    paddingHorizontal: spacing.lg,
++    paddingVertical: spacing.md,
++    borderBottomWidth: StyleSheet.hairlineWidth,
++    borderBottomColor: palette.gray[200],
++  },
++  newText: {
++    fontSize: 17,
++    fontWeight: '600',
++    color: palette.blue[500],
++  },
++  listContent: {
++    paddingBottom: spacing['3xl'],
++  },
++  sectionHeader: {
++    fontSize: 18,
++    fontWeight: '700',
++    color: palette.gray[900],
++    paddingHorizontal: spacing.lg,
++    paddingTop: spacing.lg,
++    paddingBottom: spacing.sm,
++  },
++  row: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    gap: spacing.md,
++    paddingHorizontal: spacing.lg,
++    paddingVertical: spacing.md,
++  },
++  rowPressed: {
++    backgroundColor: palette.gray[100],
++  },
++  rowText: {
++    flex: 1,
++    gap: 2,
++  },
++  rowName: {
++    fontSize: 17,
++    fontWeight: '600',
++    color: palette.gray[900],
++  },
++  rowCount: {
++    fontSize: 14,
++    color: palette.gray[500],
++  },
++  separator: {
++    height: StyleSheet.hairlineWidth,
++    backgroundColor: palette.gray[200],
++    marginLeft: spacing.lg,
++  },
++});
+diff --git a/app/_layout.tsx b/app/_layout.tsx
+index 9696674..b8f3558 100644
+--- a/app/_layout.tsx
++++ b/app/_layout.tsx
+@@ -46,6 +46,7 @@ export default function RootLayout() {
+                 <Stack.Screen name="add/review" options={{ title: 'Review Spot' }} />
+                 <Stack.Screen name="import/index" options={{ title: 'Import Photos' }} />
+                 <Stack.Screen name="import/review" options={{ title: 'Review Import' }} />
++                <Stack.Screen name="list/[id]/index" options={{ title: 'Hit list' }} />
+               </Stack>
+             </DBInitializer>
+           </SQLiteProvider>
+diff --git a/app/list/[id]/index.tsx b/app/list/[id]/index.tsx
+new file mode 100644
+index 0000000..d927eed
+--- /dev/null
++++ b/app/list/[id]/index.tsx
+@@ -0,0 +1,149 @@
++import { useMemo, useState } from 'react';
++import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
++import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
++import { useSafeAreaInsets } from 'react-native-safe-area-context';
++
++import { Button, EmptyState, NameListSheet, SpotsBrowser } from '@/src/components';
++import { palette, spacing } from '@/src/constants/theme';
++import { useHitListActions } from '@/src/hooks/use-hit-list-actions';
++import { selectListSpots, useHitListsStore, useSpotsStore } from '@/src/stores';
++import { getSpotDisplayName } from '@/src/utils/spot-name';
++
++/** One hit list: the Spots tab's List | Map body scoped to the list's spots, plus Rename and Delete list. */
++export default function ListScreen() {
++  const { id } = useLocalSearchParams<{ id: string }>();
++  const router = useRouter();
++  const insets = useSafeAreaInsets();
++  const list = useHitListsStore((s) => s.lists.find((l) => l.id === id && l.deleted_at === undefined));
++  const membershipBySpot = useHitListsStore((s) => s.membershipBySpot);
++  const spots = useSpotsStore((s) => s.spots);
++  const { renameList, deleteList, removeSpotFromList } = useHitListActions();
++  const [renaming, setRenaming] = useState(false);
++  // Set once Delete is confirmed: the store drops the list before router.back() runs, so 'gone' would flash.
++  const [deleting, setDeleting] = useState(false);
++
++  const listSpots = useMemo(
++    () => (list ? selectListSpots(list, spots, membershipBySpot) : []),
++    [list, spots, membershipBySpot],
++  );
++
++  if (!list) {
++    // expo-router's Stack.Screen only sets options, so clear the list's title and Rename/Filter buttons here.
++    return (
++      <View style={styles.container}>
++        <Stack.Screen options={{ title: 'Hit list', headerRight: () => null }} />
++        {deleting ? null : (
++          <EmptyState icon="list.bullet" title="This list is gone" message="It may have been deleted." />
++        )}
++      </View>
++    );
++  }
++
++  const handleRename = async (name: string) => {
++    try {
++      await renameList(list.id, name);
++      setRenaming(false);
++    } catch (err) {
++      // useHitListActions has logged it and put the old name back; the sheet stays open to retry.
++      Alert.alert("Couldn't rename the list", 'Please try again.');
++      throw err;
++    }
++  };
++
++  const handleSpotLongPress = (spotId: string) => {
++    const spot = listSpots.find((s) => s.id === spotId);
++    if (!spot) return;
++    Alert.alert(getSpotDisplayName(spot), undefined, [
++      {
++        text: 'Remove from list',
++        style: 'destructive',
++        onPress: async () => {
++          try {
++            await removeSpotFromList(list.id, spotId);
++          } catch {
++            Alert.alert("Couldn't remove the spot", 'Please try again.');
++          }
++        },
++      },
++      { text: 'Cancel', style: 'cancel' },
++    ]);
++  };
++
++  const confirmDelete = () => {
++    Alert.alert(`Delete ${list.name}?`, 'Spots stay in your library.', [
++      { text: 'Cancel', style: 'cancel' },
++      {
++        text: 'Delete',
++        style: 'destructive',
++        onPress: async () => {
++          setDeleting(true);
++          try {
++            await deleteList(list.id);
++          } catch {
++            setDeleting(false);
++            Alert.alert("Couldn't delete the list", 'Please try again.');
++            return;
++          }
++          // Opened from a link with nothing under it: go to the Lists tab instead.
++          if (router.canGoBack()) router.back();
++          else router.replace('/(tabs)/lists');
++        },
++      },
++    ]);
++  };
++
++  const renameButton = (
++    <Pressable
++      onPress={() => setRenaming(true)}
++      hitSlop={8}
++      accessibilityLabel="Rename list"
++      accessibilityRole="button"
++      style={styles.headerButton}>
++      <Text style={styles.headerButtonText}>Rename</Text>
++    </Pressable>
++  );
++
++  return (
++    <View style={styles.container}>
++      <Stack.Screen options={{ title: list.name }} />
++      <SpotsBrowser
++        spots={listSpots}
++        emptyTitle="No spots in this list yet"
++        emptyMessage="Add from a spot's page or select spots on the Spots tab"
++        headerActions={renameButton}
++        onSpotLongPress={handleSpotLongPress}
++      />
++      <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
++        <Button title="Delete list" variant="destructive" onPress={confirmDelete} accessibilityLabel="Delete list" />
++      </View>
++      <NameListSheet
++        visible={renaming}
++        title="Rename list"
++        initialName={list.name}
++        confirmLabel="Save"
++        onCancel={() => setRenaming(false)}
++        onSubmit={handleRename}
++      />
++    </View>
++  );
++}
++
++const styles = StyleSheet.create({
++  container: {
++    flex: 1,
++  },
++  headerButton: {
++    paddingHorizontal: spacing.sm,
++  },
++  headerButtonText: {
++    fontSize: 16,
++    color: palette.blue[500],
++    fontWeight: '500',
++  },
++  bottomBar: {
++    paddingHorizontal: spacing.md,
++    paddingTop: spacing.md,
++    borderTopWidth: StyleSheet.hairlineWidth,
++    borderTopColor: palette.gray[200],
++  },
++});
+diff --git a/app/spot/[id]/index.tsx b/app/spot/[id]/index.tsx
+index 86469ea..0710079 100644
+--- a/app/spot/[id]/index.tsx
++++ b/app/spot/[id]/index.tsx
+@@ -1,11 +1,11 @@
+-import { useCallback, useEffect, useState } from 'react';
++import { useCallback, useEffect, useMemo, useState } from 'react';
+ import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
+ import { useSQLiteContext } from 'expo-sqlite';
+ import { StyleSheet, ScrollView, View, Text, Pressable } from 'react-native';
+ 
+ import { getSpotLegacy, type SpotLegacy } from '@/src/db';
+-import { useSpotsStore, useMediaStore, useSettingsStore } from '@/src/stores';
+-import { AddPhotosTile, PhotoGrid, SpeedScale, Tag, ChipGroup } from '@/src/components';
++import { useSpotsStore, useMediaStore, useSettingsStore, useHitListsStore, selectSpotLists } from '@/src/stores';
++import { AddPhotosTile, AddToListSheet, Chip, ChipGroup, PhotoGrid, SpeedScale, Tag } from '@/src/components';
+ import { IconSymbol } from '@/components/ui/icon-symbol';
+ import { FEATURE_TYPE_LABELS } from '@/src/constants/labels';
+ import { getSpotDisplayName } from '@/src/utils/spot-name';
+@@ -63,6 +63,34 @@ function OlderDetails({ spotId }: { spotId: string }) {
+   );
+ }
+ 
++/** 'In lists': a chip per list the spot is in (opens it), then '+ Add to hit list', which files it from here. */
++function InLists({ spotId }: { spotId: string }) {
++  const router = useRouter();
++  const lists = useHitListsStore((s) => s.lists);
++  const membershipBySpot = useHitListsStore((s) => s.membershipBySpot);
++  const inLists = useMemo(() => selectSpotLists(spotId, lists, membershipBySpot), [spotId, lists, membershipBySpot]);
++  const spotIds = useMemo(() => [spotId], [spotId]);
++  const [adding, setAdding] = useState(false);
++
++  return (
++    <View style={styles.inLists}>
++      <Text style={styles.inListsLabel}>In lists</Text>
++      <ChipGroup>
++        {inLists.map((list) => (
++          <Chip
++            key={list.id}
++            label={list.name}
++            role="button"
++            onPress={() => router.push(`/list/${list.id}` as `/list/${string}`)}
++          />
++        ))}
++        <Chip label="+ Add to hit list" role="button" accessibilityLabel="Add to hit list" onPress={() => setAdding(true)} />
++      </ChipGroup>
++      <AddToListSheet visible={adding} spotIds={spotIds} onClose={() => setAdding(false)} />
++    </View>
++  );
++}
++
+ export default function SpotDetailScreen() {
+   const { id } = useLocalSearchParams<{ id: string }>();
+   const router = useRouter();
+@@ -123,6 +151,8 @@ export default function SpotDetailScreen() {
+           </ChipGroup>
+         ) : null}
+ 
++        <InLists spotId={spot.id} />
++
+         <SpeedScale readonly value={spot.natural_speed} />
+ 
+         {spot.notes ? (
+@@ -169,6 +199,13 @@ const styles = StyleSheet.create({
+   notes: {
+     gap: spacing.xs,
+   },
++  inLists: {
++    gap: spacing.sm,
++  },
++  inListsLabel: {
++    fontSize: 15,
++    color: palette.gray[500],
++  },
+   notesLabel: {
+     fontSize: 15,
+     color: palette.gray[500],
+diff --git a/src/__tests__/add-to-list-sheet.test.tsx b/src/__tests__/add-to-list-sheet.test.tsx
+new file mode 100644
+index 0000000..c863205
+--- /dev/null
++++ b/src/__tests__/add-to-list-sheet.test.tsx
+@@ -0,0 +1,197 @@
++import { act, fireEvent, render, screen } from '@testing-library/react-native';
++import { Alert } from 'react-native';
++import { useHitListsStore } from '@/src/stores';
++import { createTestHitList } from './factories';
++
++const mockCreateList = jest.fn();
++const mockAddSpotsToList = jest.fn();
++const mockRemoveSpotFromList = jest.fn();
++jest.mock('@/src/hooks/use-hit-list-actions', () => ({
++  useHitListActions: () => ({
++    createList: mockCreateList,
++    renameList: jest.fn(),
++    deleteList: jest.fn(),
++    addSpotsToList: mockAddSpotsToList,
++    removeSpotFromList: mockRemoveSpotFromList,
++  }),
++}));
++
++import { AddToListSheet } from '@/src/components/AddToListSheet';
++
++const downtown = createTestHitList({ id: 'L-downtown', name: 'Downtown' });
++const bridges = createTestHitList({ id: 'L-bridges', name: 'Bridges' });
++
++afterEach(() => jest.restoreAllMocks());
++
++beforeEach(() => {
++  mockCreateList.mockReset();
++  mockAddSpotsToList.mockReset().mockResolvedValue(undefined);
++  mockRemoveSpotFromList.mockReset().mockResolvedValue(undefined);
++  useHitListsStore.setState({
++    lists: [downtown, bridges],
++    membershipBySpot: { a: [downtown.id] },
++    activeListId: null,
++  });
++});
++
++const row = (name: string) => screen.getByRole('checkbox', { name });
++
++describe('AddToListSheet', () => {
++  it('renders nothing while hidden', () => {
++    render(<AddToListSheet visible={false} spotIds={['a']} onClose={jest.fn()} />);
++
++    expect(screen.queryByText('Add to hit list')).toBeNull();
++  });
++
++  it('shows every live manual list by name, checked when the spot is in it', () => {
++    const area = createTestHitList({ id: 'L-area', name: 'Area', kind: 'area' });
++    const gone = createTestHitList({ id: 'L-gone', name: 'Gone', deleted_at: '2026-10-02T12:00:00.000Z' });
++    useHitListsStore.setState({ lists: [downtown, bridges, area, gone] });
++    render(<AddToListSheet visible spotIds={['a']} onClose={jest.fn()} />);
++
++    expect(screen.getByText('Add to hit list')).toBeOnTheScreen();
++    expect(screen.getAllByRole('checkbox').map((r) => r.props.accessibilityLabel)).toEqual(['Bridges', 'Downtown']);
++    expect(row('Downtown').props.accessibilityState).toEqual({ checked: true });
++    expect(row('Bridges').props.accessibilityState).toEqual({ checked: false });
++  });
++
++  it('adds the spot when an unchecked list is toggled', () => {
++    render(<AddToListSheet visible spotIds={['a']} onClose={jest.fn()} />);
++
++    fireEvent.press(row('Bridges'));
++
++    expect(mockAddSpotsToList).toHaveBeenCalledWith(bridges.id, ['a']);
++    expect(mockRemoveSpotFromList).not.toHaveBeenCalled();
++  });
++
++  it('removes the spot when a checked list is toggled', () => {
++    render(<AddToListSheet visible spotIds={['a']} onClose={jest.fn()} />);
++
++    fireEvent.press(row('Downtown'));
++
++    expect(mockRemoveSpotFromList).toHaveBeenCalledWith(downtown.id, 'a');
++    expect(mockAddSpotsToList).not.toHaveBeenCalled();
++  });
++
++  it('shows a list as unchecked unless every given spot is in it, and toggling adds them all', () => {
++    render(<AddToListSheet visible spotIds={['a', 'b']} onClose={jest.fn()} />);
++
++    expect(row('Downtown').props.accessibilityState).toEqual({ checked: false });
++    fireEvent.press(row('Downtown'));
++
++    expect(mockAddSpotsToList).toHaveBeenCalledWith(downtown.id, ['a', 'b']);
++  });
++
++  it('removes every given spot when a list holding all of them is toggled', () => {
++    useHitListsStore.setState({ membershipBySpot: { a: [downtown.id], b: [downtown.id] } });
++    render(<AddToListSheet visible spotIds={['a', 'b']} onClose={jest.fn()} />);
++
++    fireEvent.press(row('Downtown'));
++
++    expect(mockRemoveSpotFromList.mock.calls).toEqual([
++      [downtown.id, 'a'],
++      [downtown.id, 'b'],
++    ]);
++  });
++
++  it('follows the store, so a toggle shows at once', () => {
++    render(<AddToListSheet visible spotIds={['a']} onClose={jest.fn()} />);
++
++    act(() => useHitListsStore.getState().addMemberships(bridges.id, ['a']));
++
++    expect(row('Bridges').props.accessibilityState).toEqual({ checked: true });
++  });
++
++  it('shows no list as checked when given no spots', () => {
++    render(<AddToListSheet visible spotIds={[]} onClose={jest.fn()} />);
++
++    expect(row('Downtown').props.accessibilityState).toEqual({ checked: false });
++    expect(row('Bridges').props.accessibilityState).toEqual({ checked: false });
++  });
++
++  it('alerts when an add fails', async () => {
++    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
++    mockAddSpotsToList.mockRejectedValue(new Error('disk full'));
++    render(<AddToListSheet visible spotIds={['a']} onClose={jest.fn()} />);
++
++    await act(async () => fireEvent.press(row('Bridges')));
++
++    expect(alert).toHaveBeenCalledWith("Couldn't update the list", 'Please try again.');
++  });
++
++  it('alerts once when a toggle fails', async () => {
++    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
++    useHitListsStore.setState({ membershipBySpot: { a: [downtown.id], b: [downtown.id] } });
++    mockRemoveSpotFromList.mockRejectedValue(new Error('disk full'));
++    render(<AddToListSheet visible spotIds={['a', 'b']} onClose={jest.fn()} />);
++
++    await act(async () => fireEvent.press(row('Downtown')));
++
++    expect(alert).toHaveBeenCalledTimes(1);
++    expect(alert).toHaveBeenCalledWith("Couldn't update the list", 'Please try again.');
++  });
++
++  it("'+ New hit list' names a list, creates it and adds the spots to it", async () => {
++    const made = createTestHitList({ id: 'L-new', name: 'Night mission' });
++    mockCreateList.mockResolvedValue(made);
++    render(<AddToListSheet visible spotIds={['a', 'b']} onClose={jest.fn()} />);
++
++    fireEvent.press(screen.getByRole('button', { name: 'New hit list' }));
++    expect(screen.getByRole('header', { name: 'New hit list' })).toBeOnTheScreen();
++    fireEvent.changeText(screen.getByLabelText('List name'), '  Night mission ');
++    await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Create' })));
++
++    expect(mockCreateList).toHaveBeenCalledWith('Night mission');
++    expect(mockAddSpotsToList).toHaveBeenCalledWith(made.id, ['a', 'b']);
++    expect(screen.queryByLabelText('List name')).toBeNull();
++  });
++
++  it('keeps the name sheet open and alerts when the create fails', async () => {
++    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
++    mockCreateList.mockRejectedValue(new Error('disk full'));
++    render(<AddToListSheet visible spotIds={['a']} onClose={jest.fn()} />);
++
++    fireEvent.press(screen.getByRole('button', { name: 'New hit list' }));
++    fireEvent.changeText(screen.getByLabelText('List name'), 'Night mission');
++    await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Create' })));
++
++    expect(alert).toHaveBeenCalledWith("Couldn't create the list", 'Please try again.');
++    expect(mockAddSpotsToList).not.toHaveBeenCalled();
++    expect(screen.getByLabelText('List name')).toBeOnTheScreen();
++  });
++
++  it('closes the name sheet and alerts when the list is made but the add fails', async () => {
++    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
++    mockCreateList.mockResolvedValue(createTestHitList({ id: 'L-new', name: 'Night mission' }));
++    mockAddSpotsToList.mockRejectedValue(new Error('disk full'));
++    render(<AddToListSheet visible spotIds={['a']} onClose={jest.fn()} />);
++
++    fireEvent.press(screen.getByRole('button', { name: 'New hit list' }));
++    fireEvent.changeText(screen.getByLabelText('List name'), 'Night mission');
++    await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Create' })));
++
++    expect(alert).toHaveBeenCalledTimes(1);
++    expect(alert).toHaveBeenCalledWith("Couldn't update the list", 'Please try again.');
++    expect(screen.queryByLabelText('List name')).toBeNull();
++  });
++
++  it('Cancel on the name sheet goes back to the lists', () => {
++    render(<AddToListSheet visible spotIds={['a']} onClose={jest.fn()} />);
++
++    fireEvent.press(screen.getByRole('button', { name: 'New hit list' }));
++    fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
++
++    expect(screen.queryByLabelText('List name')).toBeNull();
++    expect(mockCreateList).not.toHaveBeenCalled();
++    expect(row('Downtown')).toBeOnTheScreen();
++  });
++
++  it('Done closes the sheet', () => {
++    const onClose = jest.fn();
++    render(<AddToListSheet visible spotIds={['a']} onClose={onClose} />);
++
++    fireEvent.press(screen.getByRole('button', { name: 'Done' }));
++
++    expect(onClose).toHaveBeenCalledTimes(1);
++  });
++});
+diff --git a/src/__tests__/components.test.tsx b/src/__tests__/components.test.tsx
+index 7f95b0f..e65928e 100644
+--- a/src/__tests__/components.test.tsx
++++ b/src/__tests__/components.test.tsx
+@@ -8,6 +8,7 @@ import { Chip } from '@/src/components/Chip';
+ import { EmptyState } from '@/src/components/EmptyState';
+ import { Card, CardContent, CardTitle } from '@/src/components/Card';
+ import { FormInput } from '@/src/components/FormField';
++import { SpotListItem } from '@/src/components/SpotListItem';
+ 
+ describe('Button', () => {
+   it('renders title', () => {
+@@ -122,3 +123,33 @@ describe('FormInput', () => {
+     expect(screen.getByText('Required')).toBeTruthy();
+   });
+ });
++
++describe('SpotListItem', () => {
++  const base = { id: 's1', displayName: 'Pier rail', stopped: false, onPress: () => {} };
++
++  it('is a plain button with no checkbox outside select mode', () => {
++    render(<SpotListItem {...base} />);
++    const row = screen.getByLabelText('Pier rail');
++    expect(row.props.accessibilityRole).toBe('button');
++    expect(row.props.accessibilityState?.checked).toBeUndefined();
++    expect(screen.queryByTestId('spot-check-s1')).toBeNull();
++  });
++
++  it('is an unchecked checkbox when selectable and not selected', () => {
++    render(<SpotListItem {...base} selectable selected={false} />);
++    const row = screen.getByLabelText('Pier rail');
++    expect(row.props.accessibilityRole).toBe('checkbox');
++    expect(row.props.accessibilityState).toEqual({ checked: false });
++    expect(screen.getByTestId('spot-check-s1')).toBeTruthy();
++  });
++
++  it('is a checked checkbox when selectable and selected, and a tap still reports the id', () => {
++    const onPress = jest.fn();
++    render(<SpotListItem {...base} onPress={onPress} selectable selected />);
++    const row = screen.getByLabelText('Pier rail');
++    expect(row.props.accessibilityRole).toBe('checkbox');
++    expect(row.props.accessibilityState).toEqual({ checked: true });
++    fireEvent.press(row);
++    expect(onPress).toHaveBeenCalledWith('s1');
++  });
++});
+diff --git a/src/__tests__/db-hit-lists.test.ts b/src/__tests__/db-hit-lists.test.ts
+new file mode 100644
+index 0000000..538108b
+--- /dev/null
++++ b/src/__tests__/db-hit-lists.test.ts
+@@ -0,0 +1,200 @@
++import type { SQLiteDatabase } from 'expo-sqlite';
++import { createMigratedTestDb } from './helpers/node-sqlite-db';
++import {
++  insertSpot,
++  getSpots,
++  softDeleteSpot,
++  insertHitList,
++  getHitLists,
++  updateHitList,
++  softDeleteHitList,
++  addSpotsToList,
++  removeSpotFromList,
++  getListMemberships,
++} from '@/src/db';
++import { FeatureType, type HitList, type Spot } from '@/src/types';
++import { CITIES, createTestHitList, createTestSpot } from './factories';
++
++const memberRows = (db: SQLiteDatabase) =>
++  db.getAllAsync<{ list_id: string; spot_id: string; added_at: string }>(
++    'SELECT list_id, spot_id, added_at FROM hit_list_spots ORDER BY spot_id',
++  );
++
++describe('hit lists in SQLite (src/db/hit-lists.ts)', () => {
++  let db: SQLiteDatabase;
++  let a: Spot;
++  let b: Spot;
++  let list: HitList;
++
++  beforeEach(async () => {
++    db = await createMigratedTestDb();
++    a = createTestSpot({ name: 'a', created_at: '2026-10-01T00:00:00.000Z' });
++    b = createTestSpot({ name: 'b', created_at: '2026-10-02T00:00:00.000Z' });
++    await insertSpot(db, a);
++    await insertSpot(db, b);
++    list = createTestHitList();
++    await insertHitList(db, list);
++  });
++
++  it('insertHitList then getHitLists round-trips a manual list with no owner and no area', async () => {
++    const lists = await getHitLists(db);
++
++    expect(lists).toEqual([list]);
++    expect(lists[0]).toMatchObject({ name: 'Downtown', kind: 'manual', shared: false });
++    expect(lists[0].owner_id).toBeUndefined();
++    expect(lists[0].area_center).toBeUndefined();
++    expect(lists[0].area_radius_m).toBeUndefined();
++    expect(lists[0].area_filters).toBeUndefined();
++    expect(lists[0].area_place).toBeUndefined();
++    expect(lists[0].deleted_at).toBeUndefined();
++  });
++
++  it('round-trips the reserved area columns and an owner', async () => {
++    const area = createTestHitList({
++      name: 'Capitol Hill',
++      kind: 'area',
++      owner_id: 'user-1',
++      shared: true,
++      area_center: CITIES.seattle,
++      area_radius_m: 800,
++      area_filters: { types: [FeatureType.Rail], stopped: false, natural_speed_min: 0 },
++      area_place: 'Capitol Hill',
++      created_at: '2026-10-03T00:00:00.000Z',
++    });
++    await insertHitList(db, area);
++
++    expect((await getHitLists(db)).find((l) => l.id === area.id)).toEqual(area);
++  });
++
++  it('lists come back oldest first', async () => {
++    const older = createTestHitList({ name: 'Older', created_at: '2026-01-01T00:00:00.000Z' });
++    await insertHitList(db, older);
++
++    expect((await getHitLists(db)).map((l) => l.name)).toEqual(['Older', 'Downtown']);
++  });
++
++  it('an unreadable area_filters_json reads as undefined with a warning, and the list still loads', async () => {
++    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
++    await db.runAsync('UPDATE hit_lists SET area_filters_json = ? WHERE id = ?', 'not json', list.id);
++
++    const [read] = await getHitLists(db);
++
++    expect(read.name).toBe('Downtown');
++    expect(read.area_filters).toBeUndefined();
++    expect(warn).toHaveBeenCalledWith(expect.stringContaining(list.id));
++    warn.mockRestore();
++  });
++
++  it('an area center with only one coordinate set reads as no center', async () => {
++    await db.runAsync('UPDATE hit_lists SET area_center_lat = 47.6 WHERE id = ?', list.id);
++
++    expect((await getHitLists(db))[0].area_center).toBeUndefined();
++  });
++
++  it('addSpotsToList twice is idempotent and keeps the first added_at', async () => {
++    await addSpotsToList(db, list.id, [a.id, b.id], '2026-10-05T00:00:00.000Z');
++    await addSpotsToList(db, list.id, [a.id, b.id], '2026-10-06T00:00:00.000Z');
++
++    expect(await getListMemberships(db)).toEqual({ [a.id]: [list.id], [b.id]: [list.id] });
++    const rows = await memberRows(db);
++    expect(rows).toHaveLength(2);
++    expect(rows.every((r) => r.added_at === '2026-10-05T00:00:00.000Z')).toBe(true);
++  });
++
++  it('addSpotsToList with no ids writes nothing', async () => {
++    await addSpotsToList(db, list.id, []);
++
++    expect(await memberRows(db)).toEqual([]);
++  });
++
++  it('a spot in two lists maps to both ids', async () => {
++    const bridges = createTestHitList({ name: 'Bridges', created_at: '2026-10-04T00:00:00.000Z' });
++    await insertHitList(db, bridges);
++
++    await addSpotsToList(db, list.id, [a.id], '2026-10-05T00:00:00.000Z');
++    await addSpotsToList(db, bridges.id, [a.id], '2026-10-06T00:00:00.000Z');
++
++    expect(await getListMemberships(db)).toEqual({ [a.id]: [list.id, bridges.id] });
++  });
++
++  it('removeSpotFromList removes only that row', async () => {
++    await addSpotsToList(db, list.id, [a.id, b.id]);
++
++    await removeSpotFromList(db, list.id, a.id);
++
++    expect(await getListMemberships(db)).toEqual({ [b.id]: [list.id] });
++  });
++
++  it('softDeleteHitList hides the list and its memberships but never deletes spots', async () => {
++    await addSpotsToList(db, list.id, [a.id, b.id]);
++
++    await softDeleteHitList(db, list.id, '2026-10-07T00:00:00.000Z');
++
++    expect(await getHitLists(db)).toEqual([]);
++    expect(await getListMemberships(db)).toEqual({});
++    expect((await getSpots(db)).map((s) => s.id).sort()).toEqual([a.id, b.id].sort());
++    expect(
++      await db.getFirstAsync('SELECT deleted_at, updated_at FROM hit_lists WHERE id = ?', list.id),
++    ).toEqual({ deleted_at: '2026-10-07T00:00:00.000Z', updated_at: '2026-10-07T00:00:00.000Z' });
++  });
++
++  it('a hard DELETE FROM spots cascades its hit_list_spots rows (foreign keys on)', async () => {
++    await addSpotsToList(db, list.id, [a.id, b.id]);
++
++    await db.runAsync('DELETE FROM spots WHERE id = ?', a.id);
++
++    expect(await getListMemberships(db)).toEqual({ [b.id]: [list.id] });
++  });
++
++  it('a hard DELETE FROM hit_lists cascades its hit_list_spots rows and leaves the spots', async () => {
++    await addSpotsToList(db, list.id, [a.id]);
++
++    await db.runAsync('DELETE FROM hit_lists WHERE id = ?', list.id);
++
++    expect(await memberRows(db)).toEqual([]);
++    expect(await getSpots(db)).toHaveLength(2);
++  });
++
++  it('a membership for a spot that does not exist is rejected', async () => {
++    await expect(addSpotsToList(db, list.id, ['no-such-spot'])).rejects.toThrow(/FOREIGN KEY/);
++
++    expect(await memberRows(db)).toEqual([]);
++  });
++
++  it('updateHitList renames and bumps updated_at', async () => {
++    await updateHitList(db, list.id, { name: 'Night mission' });
++
++    const [read] = await getHitLists(db);
++    expect(read.name).toBe('Night mission');
++    expect(read.updated_at > list.updated_at).toBe(true);
++    expect(read.created_at).toBe(list.created_at);
++  });
++
++  it("updateHitList uses the caller's updated_at so the store and DB agree, and leaves unset keys alone", async () => {
++    await updateHitList(db, list.id, { shared: true, updated_at: '2026-10-08T00:00:00.000Z' });
++
++    expect((await getHitLists(db))[0]).toEqual({
++      ...list,
++      shared: true,
++      updated_at: '2026-10-08T00:00:00.000Z',
++    });
++  });
++
++  it('updateHitList leaves a deleted list alone', async () => {
++    await softDeleteHitList(db, list.id, '2026-10-07T00:00:00.000Z');
++
++    await updateHitList(db, list.id, { name: 'Back from the dead' });
++
++    expect(await db.getFirstAsync('SELECT name FROM hit_lists WHERE id = ?', list.id)).toEqual({
++      name: 'Downtown',
++    });
++  });
++
++  it('a soft-deleted spot keeps its membership row (the store selectors hide it)', async () => {
++    await addSpotsToList(db, list.id, [a.id, b.id]);
++
++    await softDeleteSpot(db, a.id);
++
++    expect(await getListMemberships(db)).toEqual({ [a.id]: [list.id], [b.id]: [list.id] });
++  });
++});
+diff --git a/src/__tests__/db-init.test.ts b/src/__tests__/db-init.test.ts
+index 7e23798..f1f8a83 100644
+--- a/src/__tests__/db-init.test.ts
++++ b/src/__tests__/db-init.test.ts
+@@ -4,8 +4,9 @@ import { useDbInit } from '@/src/hooks/use-db-init';
+ import { useSpotsStore } from '@/src/stores';
+ import { useSettingsStore } from '@/src/stores/settings-store';
+ import { useMediaStore } from '@/src/stores/media-store';
++import { useHitListsStore } from '@/src/stores/hit-lists-store';
+ import { UnitSystem } from '@/src/types';
+-import { createTestMedia, createTestSpot } from './factories';
++import { createTestHitList, createTestMedia, createTestSpot } from './factories';
+ 
+ const mockDb = {
+   execAsync: jest.fn().mockResolvedValue(undefined),
+@@ -23,12 +24,16 @@ const mockGetSpots = jest.fn();
+ const mockGetUserSettings = jest.fn();
+ const mockGetAllMedia = jest.fn();
+ const mockMigrateDb = jest.fn().mockResolvedValue(undefined);
++const mockGetHitLists = jest.fn();
++const mockGetListMemberships = jest.fn();
+ 
+ jest.mock('@/src/db', () => ({
+   migrateDb: (...args: any[]) => mockMigrateDb(...args),
+   getSpots: (...args: any[]) => mockGetSpots(...args),
+   getUserSettings: (...args: any[]) => mockGetUserSettings(...args),
+   getAllMedia: (...args: any[]) => mockGetAllMedia(...args),
++  getHitLists: (...args: any[]) => mockGetHitLists(...args),
++  getListMemberships: (...args: any[]) => mockGetListMemberships(...args),
+   insertSpot: jest.fn().mockResolvedValue(undefined),
+   updateSpot: jest.fn().mockResolvedValue(undefined),
+   softDeleteSpot: jest.fn().mockResolvedValue(undefined),
+@@ -45,6 +50,9 @@ describe('useDbInit', () => {
+     useSpotsStore.setState({ spots: [] });
+     useMediaStore.setState({ mediaBySpot: {} });
+     mockGetAllMedia.mockResolvedValue([]);
++    mockGetHitLists.mockResolvedValue([]);
++    mockGetListMemberships.mockResolvedValue({});
++    useHitListsStore.setState({ lists: [], membershipBySpot: {} });
+     useSettingsStore.setState({
+       units: UnitSystem.Imperial,
+       batch_import_radius: 50,
+@@ -199,4 +207,62 @@ describe('useDbInit', () => {
+     expect(failed.result.current).toEqual({ isReady: true, upgradeFailed: true });
+     consoleSpy.mockRestore();
+   });
++
++  it('loads hit lists and memberships into the hit-lists store', async () => {
++    mockGetSpots.mockResolvedValue([]);
++    mockGetUserSettings.mockResolvedValue(null);
++    const list = createTestHitList({ id: 'L1' });
++    mockGetHitLists.mockResolvedValue([list]);
++    mockGetListMemberships.mockResolvedValue({ s1: ['L1'] });
++
++    renderHook(() => useDbInit());
++    await flushInit();
++
++    expect(mockGetHitLists).toHaveBeenCalledWith(mockDb);
++    expect(useHitListsStore.getState().lists).toEqual([list]);
++    expect(useHitListsStore.getState().membershipBySpot).toEqual({ s1: ['L1'] });
++  });
++
++  it('still becomes ready, with memberships and settings loaded, when getHitLists throws', async () => {
++    const spot = createTestSpot();
++    mockGetSpots.mockResolvedValue([spot]);
++    mockGetUserSettings.mockResolvedValue({ units: UnitSystem.Metric, batch_import_radius: 80 });
++    mockGetHitLists.mockRejectedValueOnce(new Error('no such table: hit_lists'));
++    mockGetListMemberships.mockResolvedValue({ [spot.id]: ['L1'] });
++    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
++
++    const { result } = renderHook(() => useDbInit());
++    await flushInit();
++
++    expect(result.current.isReady).toBe(true);
++    expect(useSpotsStore.getState().spots.map((s) => s.id)).toEqual([spot.id]);
++    expect(useHitListsStore.getState().lists).toEqual([]);
++    expect(useHitListsStore.getState().membershipBySpot).toEqual({ [spot.id]: ['L1'] });
++    expect(useSettingsStore.getState().batch_import_radius).toBe(80);
++    expect(consoleSpy).toHaveBeenCalledWith(
++      '[useDbInit] Failed to initialize database (hit lists):',
++      expect.any(Error),
++    );
++    consoleSpy.mockRestore();
++  });
++
++  it('still becomes ready when getListMemberships throws', async () => {
++    mockGetSpots.mockResolvedValue([]);
++    mockGetUserSettings.mockResolvedValue(null);
++    const list = createTestHitList();
++    mockGetHitLists.mockResolvedValue([list]);
++    mockGetListMemberships.mockRejectedValueOnce(new Error('disk I/O error'));
++    const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
++
++    const { result } = renderHook(() => useDbInit());
++    await flushInit();
++
++    expect(result.current.isReady).toBe(true);
++    expect(useHitListsStore.getState().lists).toEqual([list]);
++    expect(consoleSpy).toHaveBeenCalledWith(
++      '[useDbInit] Failed to initialize database (memberships):',
++      expect.any(Error),
++    );
++    consoleSpy.mockRestore();
++  });
+ });
+diff --git a/src/__tests__/db-migrate.test.ts b/src/__tests__/db-migrate.test.ts
+index f60b918..2deb334 100644
+--- a/src/__tests__/db-migrate.test.ts
++++ b/src/__tests__/db-migrate.test.ts
+@@ -64,7 +64,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
+     await migrateDb(db);
+ 
+     expect(await getSchemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
+-    expect(await tables(db)).toEqual(['media', 'spots', 'sync_queue', 'user_settings']);
++    expect(await tables(db)).toEqual(['hit_list_spots', 'hit_lists', 'media', 'spots', 'sync_queue', 'user_settings']);
+     // A fresh install has nothing to migrate: an empty v3 spots table.
+     expect(await getSpots(db)).toEqual([]);
+     const columns = (await db.getAllAsync<{ name: string }>('PRAGMA table_info(spots)')).map((c) => c.name);
+@@ -242,7 +242,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
+ 
+       await migrateDb(db);
+ 
+-      expect(await getSchemaVersion(db)).toBe(3);
++      expect(await getSchemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
+       const row = await v3Row(db, full.id);
+       expect(row).toMatchObject({ feature_types_json: '[]', stopped: 1, natural_speed: 3, notes: 'hello' });
+       expect(JSON.parse(row?.legacy_json ?? 'null')).toEqual(FULL_LEGACY);
+@@ -314,7 +314,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
+ 
+       await migrateDb(db);
+ 
+-      expect(await getSchemaVersion(db)).toBe(3);
++      expect(await getSchemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
+       const row = await v3Row(db, odd.id);
+       expect(row).toMatchObject({ feature_types_json: '[]', stopped: 0, natural_speed: 4, notes: 'still here' });
+       expect(JSON.parse(row?.legacy_json ?? 'null')).toEqual({ raw_feature: 'not json' });
+@@ -365,7 +365,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
+ 
+       await migrateDb(db);
+ 
+-      expect(await getSchemaVersion(db)).toBe(3);
++      expect(await getSchemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
+       const columns = (await db.getAllAsync<{ name: string }>('PRAGMA table_info(media)')).map((c) => c.name);
+       expect(columns).toContain('uploaded_by'); // migration 2 ran
+       expect(await getSpot(db, spot.id)).toMatchObject({
+@@ -388,7 +388,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
+ 
+       await migrateDb(db);
+ 
+-      expect(await getSchemaVersion(db)).toBe(3);
++      expect(await getSchemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
+       expect(await db.getAllAsync('SELECT * FROM spots ORDER BY id')).toEqual(before);
+     });
+ 
+@@ -491,6 +491,161 @@ describe('migrateDb (PRAGMA user_version)', () => {
+     });
+   });
+ 
++  describe('migration 4 (hit_lists, hit_list_spots)', () => {
++    /** A DB as the builds before hit lists left it: at version 3. */
++    const v3Db = async () => {
++      const db = createTestDb();
++      await migrateDb(db, MIGRATIONS.slice(0, 3));
++      expect(await getSchemaVersion(db)).toBe(3);
++      return db;
++    };
++    const columnNames = async (db: SQLiteDatabase, table: string) =>
++      (await db.getAllAsync<{ name: string }>(`PRAGMA table_info(${table})`)).map((c) => c.name);
++    const counts = async (db: SQLiteDatabase) =>
++      Object.fromEntries(
++        await Promise.all(
++          ['spots', 'media', 'hit_lists', 'hit_list_spots'].map(async (t) => [
++            t,
++            (await db.getFirstAsync<{ n: number }>(`SELECT COUNT(*) AS n FROM ${t}`))?.n,
++          ]),
++        ),
++      );
++
++    it('is the last migration', () => {
++      expect(MIGRATIONS).toHaveLength(4);
++      expect(LATEST_SCHEMA_VERSION).toBe(4);
++    });
++
++    it('a v3 DB gains hit_lists and hit_list_spots with exactly these columns, and keeps its spots', async () => {
++      const db = await v3Db();
++      const spot = createTestSpot({ name: 'kept' });
++      await insertSpot(db, spot);
++
++      await migrateDb(db);
++
++      expect(await getSchemaVersion(db)).toBe(4);
++      expect(await columnNames(db, 'hit_lists')).toEqual([
++        'id',
++        'owner_id',
++        'name',
++        'kind',
++        'area_center_lat',
++        'area_center_lng',
++        'area_radius_m',
++        'area_filters_json',
++        'area_place',
++        'shared',
++        'created_at',
++        'updated_at',
++        'deleted_at',
++      ]);
++      expect(await columnNames(db, 'hit_list_spots')).toEqual(['list_id', 'spot_id', 'added_by', 'added_at']);
++      expect(await getSpots(db)).toEqual([spot]);
++    });
++
++    it('creates the deleted_at and spot_id indexes', async () => {
++      const db = await v3Db();
++
++      await migrateDb(db);
++
++      const indexes = (
++        await db.getAllAsync<{ name: string }>(
++          `SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name IN ('hit_lists', 'hit_list_spots')`,
++        )
++      ).map((r) => r.name);
++      expect(indexes).toEqual(expect.arrayContaining(['idx_hit_lists_deleted_at', 'idx_hit_list_spots_spot_id']));
++    });
++
++    it('defaults kind to manual and shared to 0, and both foreign keys cascade', async () => {
++      const db = await v3Db();
++      await migrateDb(db);
++
++      await db.runAsync(
++        `INSERT INTO hit_lists (id, name, created_at, updated_at) VALUES ('L', 'Downtown', 'x', 'x')`,
++      );
++      expect(await db.getFirstAsync('SELECT kind, shared, owner_id FROM hit_lists')).toEqual({
++        kind: 'manual',
++        shared: 0,
++        owner_id: null,
++      });
++      const fks = await db.getAllAsync<{ table: string; on_delete: string }>(
++        'PRAGMA foreign_key_list(hit_list_spots)',
++      );
++      expect(fks.map((f) => [f.table, f.on_delete]).sort()).toEqual([
++        ['hit_lists', 'CASCADE'],
++        ['spots', 'CASCADE'],
++      ]);
++    });
++
++    it('the v2 fixture rows migrate 2 → 3 → 4 with their spots and media intact', async () => {
++      const db = createTestDb();
++      await migrateDb(db, MIGRATIONS.slice(0, 2));
++      const asColumns = (old: { status: string; feature: object; inRun: object; landing: object; metadata: object }): OldColumns => ({
++        status: old.status,
++        feature: JSON.stringify(old.feature),
++        inRun: JSON.stringify(old.inRun),
++        landing: JSON.stringify(old.landing),
++        metadata: JSON.stringify(old.metadata),
++      });
++      const full = createTestSpot({ name: 'full' });
++      const empty = createTestSpot({ name: 'empty' });
++      await insertOldSpot(db, full, asColumns(V2_SPOTS.full));
++      await insertOldSpot(db, empty, asColumns(V2_SPOTS.empty));
++      const photo = createTestMedia({ spot_id: full.id });
++      await db.runAsync(
++        'INSERT INTO media (id, spot_id, file_path, created_at) VALUES (?, ?, ?, ?)',
++        photo.id,
++        photo.spot_id,
++        photo.file_path,
++        photo.created_at,
++      );
++
++      await migrateDb(db);
++
++      expect(await getSchemaVersion(db)).toBe(4);
++      expect((await getSpots(db)).map((s) => s.name).sort()).toEqual(['empty', 'full']);
++      expect(await getSpot(db, full.id)).toMatchObject({ stopped: true, natural_speed: 3, notes: 'hello' });
++      expect(await getSpotLegacy(db, full.id)).toEqual(V2_SPOTS.fullLegacy);
++      expect(await getMediaForSpot(db, full.id)).toEqual([photo]);
++      expect(await db.getAllAsync('PRAGMA foreign_key_check')).toEqual([]);
++    });
++
++    it('migrating a v4 DB again changes nothing', async () => {
++      const db = await v3Db();
++      const spot = createTestSpot();
++      await insertSpot(db, spot);
++      await migrateDb(db);
++      await db.runAsync(
++        `INSERT INTO hit_lists (id, name, created_at, updated_at) VALUES ('L', 'Downtown', 'x', 'x')`,
++      );
++      await db.runAsync(`INSERT INTO hit_list_spots (list_id, spot_id, added_at) VALUES ('L', ?, 'x')`, spot.id);
++      const before = {
++        lists: await db.getAllAsync('SELECT * FROM hit_lists'),
++        members: await db.getAllAsync('SELECT * FROM hit_list_spots'),
++        counts: await counts(db),
++      };
++
++      await migrateDb(db);
++
++      expect(await getSchemaVersion(db)).toBe(4);
++      expect({
++        lists: await db.getAllAsync('SELECT * FROM hit_lists'),
++        members: await db.getAllAsync('SELECT * FROM hit_list_spots'),
++        counts: await counts(db),
++      }).toEqual(before);
++    });
++
++    it('a v3 DB that already holds an empty hit_lists table (IF NOT EXISTS) still upgrades', async () => {
++      // A crashed or downgraded build may have left the table behind; the upgrade must not wedge on it.
++      const db = await v3Db();
++      await MIGRATIONS[3](db);
++
++      await expect(migrateDb(db)).resolves.toBeUndefined();
++
++      expect(await getSchemaVersion(db)).toBe(4);
++    });
++  });
++
+   it('rolls back a failing migration and stays at the previous version', async () => {
+     const db = createTestDb();
+     const boom: Migration = async (d) => {
+diff --git a/src/__tests__/factories.ts b/src/__tests__/factories.ts
+index 3a21171..b3952c1 100644
+--- a/src/__tests__/factories.ts
++++ b/src/__tests__/factories.ts
+@@ -1,5 +1,5 @@
+ import { newId } from '@/src/utils/id';
+-import type { GeoPoint, Spot, Media } from '@/src/types';
++import type { GeoPoint, HitList, Spot, Media } from '@/src/types';
+ 
+ /** Cities hundreds of km apart: their pins never merge into a map cluster, whatever zoom initialRegion picks. */
+ export const CITIES = {
+@@ -31,3 +31,16 @@ export function createTestMedia(overrides: Partial<Media> = {}): Media {
+     ...overrides,
+   };
+ }
++
++/** A live manual list named 'Downtown' with fixed timestamps (an update made now always sorts after them). */
++export function createTestHitList(overrides: Partial<HitList> = {}): HitList {
++  return {
++    id: newId(),
++    name: 'Downtown',
++    kind: 'manual',
++    shared: false,
++    created_at: '2026-10-01T12:00:00.000Z',
++    updated_at: '2026-10-01T12:00:00.000Z',
++    ...overrides,
++  };
++}
+diff --git a/src/__tests__/hit-lists-store.test.ts b/src/__tests__/hit-lists-store.test.ts
+new file mode 100644
+index 0000000..2944520
+--- /dev/null
++++ b/src/__tests__/hit-lists-store.test.ts
+@@ -0,0 +1,113 @@
++import {
++  useHitListsStore,
++  selectListSpots,
++  selectSpotLists,
++  selectListCounts,
++  selectListsByName,
++} from '@/src/stores';
++import { createTestHitList, createTestSpot } from './factories';
++
++const initial = useHitListsStore.getState();
++
++describe('hit-lists store', () => {
++  beforeEach(() => {
++    useHitListsStore.setState(initial, true);
++  });
++
++  it('starts empty with no active list', () => {
++    const s = useHitListsStore.getState();
++    expect(s.lists).toEqual([]);
++    expect(s.membershipBySpot).toEqual({});
++    expect(s.activeListId).toBeNull();
++  });
++
++  it('setActiveListId sets and clears the active list', () => {
++    useHitListsStore.getState().setActiveListId('L1');
++    expect(useHitListsStore.getState().activeListId).toBe('L1');
++    useHitListsStore.getState().setActiveListId(null);
++    expect(useHitListsStore.getState().activeListId).toBeNull();
++  });
++
++  it('setLists, addList, updateList and removeList', () => {
++    const a = createTestHitList({ id: 'A', name: 'Downtown' });
++    const b = createTestHitList({ id: 'B', name: 'Night' });
++    const { setLists, addList, updateList, removeList } = useHitListsStore.getState();
++    setLists([a]);
++    addList(b);
++    expect(useHitListsStore.getState().lists.map((l) => l.id)).toEqual(['A', 'B']);
++
++    updateList('A', { name: 'Uptown', updated_at: '2026-10-22T00:00:00.000Z' });
++    expect(useHitListsStore.getState().lists[0]).toEqual({
++      ...a,
++      name: 'Uptown',
++      updated_at: '2026-10-22T00:00:00.000Z',
++    });
++    // An undefined key keeps the stored value.
++    updateList('A', { name: undefined });
++    expect(useHitListsStore.getState().lists[0].name).toBe('Uptown');
++
++    removeList('A');
++    expect(useHitListsStore.getState().lists).toEqual([b]);
++  });
++
++  it('removeList of the active list resets activeListId to null; another list leaves it', () => {
++    const a = createTestHitList({ id: 'A' });
++    const b = createTestHitList({ id: 'B' });
++    useHitListsStore.setState({ lists: [a, b], activeListId: 'A' });
++    useHitListsStore.getState().removeList('B');
++    expect(useHitListsStore.getState().activeListId).toBe('A');
++    useHitListsStore.getState().removeList('A');
++    expect(useHitListsStore.getState().activeListId).toBeNull();
++  });
++
++  it('addMemberships dedupes and appends the list to each spot', () => {
++    const { setMemberships, addMemberships } = useHitListsStore.getState();
++    setMemberships({ a: ['L1'] });
++    addMemberships('L2', ['a', 'b', 'b']);
++    addMemberships('L2', ['a']);
++    expect(useHitListsStore.getState().membershipBySpot).toEqual({ a: ['L1', 'L2'], b: ['L2'] });
++  });
++
++  it('removeMemberships drops the list and any key left empty', () => {
++    useHitListsStore.setState({ membershipBySpot: { a: ['L1', 'L2'], b: ['L2'], c: ['L1'] } });
++    useHitListsStore.getState().removeMemberships('L2', ['a', 'b', 'z']);
++    expect(useHitListsStore.getState().membershipBySpot).toEqual({ a: ['L1'], c: ['L1'] });
++  });
++});
++
++describe('hit-lists selectors', () => {
++  const a = createTestSpot({ id: 'a' });
++  const b = createTestSpot({ id: 'b' });
++  const c = createTestSpot({ id: 'c' });
++  const gone = createTestSpot({ id: 'gone', deleted_at: '2026-10-02T00:00:00.000Z' });
++  const spots = [c, a, gone, b];
++  const L1 = createTestHitList({ id: 'L1', name: 'downtown' });
++  const L2 = createTestHitList({ id: 'L2', name: 'Bridges' });
++  const L3 = createTestHitList({ id: 'L3', name: 'Empty' });
++  const membership = { a: ['L1', 'L2'], b: ['L1'], gone: ['L1', 'L2'], c: ['L2', 'DELETED'] };
++
++  it('selectListSpots: live spots mapped to the list, in spots order', () => {
++    expect(selectListSpots(L1, spots, membership).map((s) => s.id)).toEqual(['a', 'b']);
++    expect(selectListSpots(L2, spots, membership).map((s) => s.id)).toEqual(['c', 'a']);
++    expect(selectListSpots(L3, spots, membership)).toEqual([]);
++  });
++
++  it('selectSpotLists: the live lists a spot is in, by name, skipping lists not in the store', () => {
++    const lists = [L1, L2, L3];
++    expect(selectSpotLists('a', lists, membership)).toEqual([L2, L1]);
++    expect(selectSpotLists('c', lists, membership)).toEqual([L2]);
++    expect(selectSpotLists('nowhere', lists, membership)).toEqual([]);
++    const softDeleted = { ...L1, deleted_at: '2026-10-03T00:00:00.000Z' };
++    expect(selectSpotLists('b', [softDeleted, L2], membership)).toEqual([]);
++  });
++
++  it('selectListCounts: live spots per list, 0 for an empty list', () => {
++    expect(selectListCounts([L1, L2, L3], spots, membership)).toEqual({ L1: 2, L2: 2, L3: 0 });
++  });
++
++  it('selectListsByName: case-insensitive name order, without mutating the input', () => {
++    const lists = [L1, L3, L2];
++    expect(selectListsByName(lists).map((l) => l.name)).toEqual(['Bridges', 'downtown', 'Empty']);
++    expect(lists.map((l) => l.id)).toEqual(['L1', 'L3', 'L2']);
++  });
++});
+diff --git a/src/__tests__/list-picker-chips.test.tsx b/src/__tests__/list-picker-chips.test.tsx
+new file mode 100644
+index 0000000..950edc0
+--- /dev/null
++++ b/src/__tests__/list-picker-chips.test.tsx
+@@ -0,0 +1,95 @@
++import { fireEvent, render, screen } from '@testing-library/react-native';
++import { ScrollView } from 'react-native';
++import { useHitListsStore } from '@/src/stores';
++import { createTestHitList } from './factories';
++
++import { ListPickerChips } from '@/src/components/ListPickerChips';
++
++const downtown = createTestHitList({ id: 'L-downtown', name: 'Downtown', created_at: '2026-10-01T12:00:00.000Z' });
++const bridges = createTestHitList({ id: 'L-bridges', name: 'bridges', created_at: '2026-10-02T12:00:00.000Z' });
++const deleted = createTestHitList({ id: 'L-gone', name: 'Gone list', deleted_at: '2026-10-03T12:00:00.000Z' });
++
++const tabs = () => screen.getAllByRole('tab');
++// One test swaps the action for a spy; every test starts with the real one.
++const { setActiveListId: realSetActiveListId } = useHitListsStore.getState();
++
++beforeEach(() => {
++  useHitListsStore.setState({
++    lists: [downtown, bridges],
++    membershipBySpot: {},
++    activeListId: null,
++    setActiveListId: realSetActiveListId,
++  });
++});
++
++describe('ListPickerChips', () => {
++  it("shows 'My spots' then each live list by name, case-insensitive, as tabs", () => {
++    useHitListsStore.setState({ lists: [downtown, deleted, bridges] });
++    render(<ListPickerChips />);
++
++    expect(tabs()).toHaveLength(3);
++    expect(screen.getAllByText(/^(My spots|Downtown|bridges)$/).map((t) => t.props.children)).toEqual([
++      'My spots',
++      'bridges',
++      'Downtown',
++    ]);
++    expect(screen.queryByText('Gone list')).toBeNull();
++  });
++
++  it('groups the chips as a tablist so VoiceOver reads their position', () => {
++    render(<ListPickerChips />);
++
++    // The container isn't itself accessible, so getByRole skips it; read the role off the ScrollView.
++    expect(screen.UNSAFE_getByType(ScrollView).props.accessibilityRole).toBe('tablist');
++  });
++
++  it("selects 'My spots' when no list is active", () => {
++    render(<ListPickerChips />);
++
++    expect(screen.getByRole('tab', { name: 'My spots' }).props.accessibilityState).toMatchObject({ selected: true });
++    expect(screen.getByRole('tab', { name: 'Downtown' }).props.accessibilityState).toMatchObject({ selected: false });
++  });
++
++  it('selects the active list', () => {
++    useHitListsStore.setState({ activeListId: downtown.id });
++    render(<ListPickerChips />);
++
++    expect(screen.getByRole('tab', { name: 'Downtown' }).props.accessibilityState).toMatchObject({ selected: true });
++    expect(screen.getByRole('tab', { name: 'My spots' }).props.accessibilityState).toMatchObject({ selected: false });
++  });
++
++  it("pressing a list sets it active; pressing 'My spots' clears it", () => {
++    const setActiveListId = jest.fn();
++    useHitListsStore.setState({ setActiveListId });
++    render(<ListPickerChips />);
++
++    fireEvent.press(screen.getByRole('tab', { name: 'Downtown' }));
++    expect(setActiveListId).toHaveBeenLastCalledWith(downtown.id);
++
++    fireEvent.press(screen.getByRole('tab', { name: 'My spots' }));
++    expect(setActiveListId).toHaveBeenLastCalledWith(null);
++  });
++
++  it('updates the selection through the real store', () => {
++    render(<ListPickerChips />);
++
++    fireEvent.press(screen.getByRole('tab', { name: 'bridges' }));
++    expect(useHitListsStore.getState().activeListId).toBe(bridges.id);
++    expect(screen.getByRole('tab', { name: 'bridges' }).props.accessibilityState).toMatchObject({ selected: true });
++  });
++
++  it("renders nothing with no lists, not a lone 'My spots' chip", () => {
++    useHitListsStore.setState({ lists: [] });
++    const { toJSON } = render(<ListPickerChips />);
++
++    expect(toJSON()).toBeNull();
++    expect(screen.queryByText('My spots')).toBeNull();
++  });
++
++  it('renders nothing when every list is deleted', () => {
++    useHitListsStore.setState({ lists: [deleted] });
++    const { toJSON } = render(<ListPickerChips />);
++
++    expect(toJSON()).toBeNull();
++  });
++});
+diff --git a/src/__tests__/list-screen.test.tsx b/src/__tests__/list-screen.test.tsx
+new file mode 100644
+index 0000000..032cf9d
+--- /dev/null
++++ b/src/__tests__/list-screen.test.tsx
+@@ -0,0 +1,334 @@
++import { Children, isValidElement, type ReactElement, type ReactNode } from 'react';
++import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
++import { Alert, type AlertButton } from 'react-native';
++import { SafeAreaProvider } from 'react-native-safe-area-context';
++import { useLocalSearchParams, useRouter } from 'expo-router';
++import { useHitListsStore, useMediaStore, useSpotsStore } from '@/src/stores';
++import { useLocationStore } from '@/src/stores/location-store';
++import { DEFAULT_FILTERS, FeatureType, SortDirection, SortField } from '@/src/types';
++import { SpotMap } from '@/src/components/SpotMap';
++import { createTestHitList, createTestSpot } from './factories';
++
++const mockRenameList = jest.fn((id: string, name: string): Promise<void> => {
++  void id;
++  void name;
++  return Promise.resolve();
++});
++const mockDeleteList = jest.fn((id: string): Promise<void> => {
++  void id;
++  return Promise.resolve();
++});
++const mockRemoveSpotFromList = jest.fn((listId: string, spotId: string): Promise<void> => {
++  void listId;
++  void spotId;
++  return Promise.resolve();
++});
++jest.mock('@/src/hooks/use-hit-list-actions', () => ({
++  useHitListActions: () => ({
++    createList: jest.fn(),
++    renameList: mockRenameList,
++    deleteList: mockDeleteList,
++    addSpotsToList: jest.fn(),
++    removeSpotFromList: mockRemoveSpotFromList,
++  }),
++}));
++
++import ListScreen from '@/app/list/[id]/index';
++
++const mockPush = jest.fn();
++const mockBack = jest.fn();
++const mockReplace = jest.fn();
++const mockCanGoBack = jest.fn(() => true);
++
++const downtown = createTestHitList({ id: 'L-downtown', name: 'Downtown' });
++const a = createTestSpot({ id: 'a', name: 'Pier rail', feature_types: [FeatureType.Rail] });
++const b = createTestSpot({ id: 'b', name: 'Library ledge', feature_types: [FeatureType.Ledge] });
++const c = createTestSpot({ id: 'c', name: 'Not in the list' });
++
++const METRICS = {
++  frame: { x: 0, y: 0, width: 390, height: 844 },
++  insets: { top: 47, left: 0, right: 0, bottom: 34 },
++};
++
++function renderList() {
++  return render(
++    <SafeAreaProvider initialMetrics={METRICS}>
++      <ListScreen />
++    </SafeAreaProvider>,
++  );
++}
++
++type ScreenOptions = { title?: string; headerRight?: () => ReactElement };
++/** Every Stack.Screen's options, merged in render order (as the navigator merges them). */
++function headerOptions(): ScreenOptions {
++  const screens = screen.UNSAFE_getAllByType('Stack.Screen' as never);
++  return Object.assign({}, ...screens.map((s) => (s.props as { options?: ScreenOptions }).options));
++}
++
++/**
++ * Presses the header's Rename. It calls the element's onPress rather than rendering the header as a second root:
++ * fireEvent ignores elements outside the latest root, so the screen's own sheet could no longer be pressed.
++ */
++function openRename() {
++  const bar = headerOptions().headerRight!() as ReactElement<{ children: ReactNode }>;
++  const rename = Children.toArray(bar.props.children).find(
++    (el) => isValidElement<{ accessibilityLabel?: string }>(el) && el.props.accessibilityLabel === 'Rename list',
++  ) as ReactElement<{ onPress: () => void }>;
++  act(() => rename.props.onPress());
++}
++
++/** The buttons of the last Alert.alert call. */
++function lastAlertButtons(spy: jest.SpyInstance): AlertButton[] {
++  return spy.mock.calls.at(-1)?.[2] ?? [];
++}
++
++afterEach(() => jest.restoreAllMocks());
++
++beforeEach(() => {
++  mockRenameList.mockClear();
++  mockDeleteList.mockClear();
++  mockRemoveSpotFromList.mockClear();
++  mockPush.mockClear();
++  mockBack.mockClear();
++  mockReplace.mockClear();
++  mockCanGoBack.mockReset().mockReturnValue(true);
++  jest.mocked(useRouter).mockReturnValue({
++    push: mockPush,
++    back: mockBack,
++    replace: mockReplace,
++    canGoBack: mockCanGoBack,
++    dismissAll: jest.fn(),
++  } as never);
++  jest.mocked(useLocalSearchParams).mockReturnValue({ id: downtown.id });
++  useSpotsStore.setState({
++    spots: [a, b, c],
++    filters: { ...DEFAULT_FILTERS },
++    searchQuery: '',
++    sortField: SortField.Name,
++    sortDirection: SortDirection.Asc,
++    sortChosen: true,
++    viewMode: 'list',
++  });
++  useMediaStore.setState({ mediaBySpot: {} });
++  useLocationStore.setState({ currentLocation: null });
++  useHitListsStore.setState({
++    lists: [downtown],
++    membershipBySpot: { a: [downtown.id], b: [downtown.id] },
++    activeListId: null,
++  });
++});
++
++describe('List screen', () => {
++  it("shows the list's spots only, titled with its name", () => {
++    renderList();
++
++    expect(screen.getByText('Pier rail')).toBeTruthy();
++    expect(screen.getByText('Library ledge')).toBeTruthy();
++    expect(screen.queryByText('Not in the list')).toBeNull();
++    expect(headerOptions().title).toBe('Downtown');
++  });
++
++  it('hands the Map only the list spots', () => {
++    renderList();
++
++    fireEvent.press(screen.getByText('Map'));
++
++    expect(screen.UNSAFE_getByType(SpotMap).props.spots).toEqual([a, b]);
++  });
++
++  it("applies the Spots tab's filters, scoped to the list", () => {
++    useSpotsStore.setState({ filters: { ...DEFAULT_FILTERS, types: [FeatureType.Rail] } });
++    renderList();
++
++    expect(screen.getByText('Pier rail')).toBeTruthy();
++    expect(screen.queryByText('Library ledge')).toBeNull();
++    expect(screen.queryByText('Not in the list')).toBeNull();
++  });
++
++  it('shows the empty copy for a list with no spots', () => {
++    useHitListsStore.setState({ membershipBySpot: {} });
++    renderList();
++
++    expect(screen.getByText('No spots in this list yet')).toBeTruthy();
++    expect(screen.getByText("Add from a spot's page or select spots on the Spots tab")).toBeTruthy();
++  });
++
++  it('keeps a soft-deleted spot out of the list', () => {
++    useSpotsStore.setState({ spots: [a, { ...b, deleted_at: '2026-10-02T12:00:00.000Z' }, c] });
++    renderList();
++
++    expect(screen.getByText('Pier rail')).toBeTruthy();
++    expect(screen.queryByText('Library ledge')).toBeNull();
++  });
++
++  it('keeps the Filter button next to Rename in the header', () => {
++    renderList();
++
++    const header = render(headerOptions().headerRight!());
++    expect(header.getByLabelText('Rename list')).toBeTruthy();
++    expect(header.getByLabelText('Filter spots')).toBeTruthy();
++    header.unmount();
++  });
++});
++
++describe('List screen: rename', () => {
++  it('opens the name sheet pre-filled and saves the new name', async () => {
++    const view = renderList();
++    openRename();
++
++    expect(view.getByText('Rename list')).toBeTruthy();
++    const input = view.getByLabelText('List name');
++    expect(input.props.value).toBe('Downtown');
++    fireEvent.changeText(input, '  Night mission ');
++    await act(async () => fireEvent.press(view.getByText('Save')));
++
++    expect(mockRenameList).toHaveBeenCalledWith(downtown.id, 'Night mission');
++    expect(view.queryByLabelText('List name')).toBeNull();
++  });
++
++  it('keeps the sheet open and alerts when the rename fails', async () => {
++    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
++    mockRenameList.mockRejectedValueOnce(new Error('disk full'));
++    const view = renderList();
++    openRename();
++    fireEvent.changeText(view.getByLabelText('List name'), 'Night mission');
++    await act(async () => fireEvent.press(view.getByText('Save')));
++
++    expect(alert).toHaveBeenCalledWith("Couldn't rename the list", 'Please try again.');
++    expect(view.getByLabelText('List name')).toBeTruthy();
++  });
++
++  it('Cancel closes the sheet without renaming', () => {
++    const view = renderList();
++    openRename();
++    fireEvent.press(view.getByText('Cancel'));
++
++    expect(view.queryByLabelText('List name')).toBeNull();
++    expect(mockRenameList).not.toHaveBeenCalled();
++  });
++});
++
++describe('List screen: remove a spot', () => {
++  it("long press alerts with the spot's name and 'Remove from list' removes it", async () => {
++    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
++    renderList();
++
++    fireEvent(screen.getByRole('button', { name: /^Pier rail/ }), 'longPress');
++
++    expect(alert).toHaveBeenCalledTimes(1);
++    expect(alert.mock.calls[0][0]).toBe('Pier rail');
++    const buttons = lastAlertButtons(alert);
++    expect(buttons.map((btn) => btn.text)).toEqual(['Remove from list', 'Cancel']);
++    expect(buttons[0].style).toBe('destructive');
++    await act(async () => buttons[0].onPress?.());
++
++    expect(mockRemoveSpotFromList).toHaveBeenCalledWith(downtown.id, 'a');
++  });
++
++  it('a short tap still opens the spot', () => {
++    renderList();
++
++    fireEvent.press(screen.getByRole('button', { name: /^Pier rail/ }));
++
++    expect(mockPush).toHaveBeenCalledWith('/spot/a');
++  });
++
++  it('alerts when the removal fails', async () => {
++    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
++    mockRemoveSpotFromList.mockRejectedValueOnce(new Error('disk full'));
++    renderList();
++
++    fireEvent(screen.getByRole('button', { name: /^Pier rail/ }), 'longPress');
++    await act(async () => lastAlertButtons(alert)[0].onPress?.());
++
++    expect(alert).toHaveBeenLastCalledWith("Couldn't remove the spot", 'Please try again.');
++  });
++});
++
++describe('List screen: delete', () => {
++  it("'Delete list' confirms, deletes the list and goes back", async () => {
++    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
++    renderList();
++
++    fireEvent.press(screen.getByLabelText('Delete list'));
++
++    expect(alert.mock.calls[0][0]).toBe('Delete Downtown?');
++    expect(alert.mock.calls[0][1]).toBe('Spots stay in your library.');
++    const buttons = lastAlertButtons(alert);
++    expect(buttons.map((btn) => btn.text)).toEqual(['Cancel', 'Delete']);
++    expect(buttons[1].style).toBe('destructive');
++    await act(async () => buttons[1].onPress?.());
++
++    expect(mockDeleteList).toHaveBeenCalledWith(downtown.id);
++    await waitFor(() => expect(mockBack).toHaveBeenCalledTimes(1));
++  });
++
++  it("doesn't flash 'This list is gone' while it goes back", async () => {
++    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
++    // The real hook takes the list out of the store first.
++    mockDeleteList.mockImplementationOnce((id) => {
++      useHitListsStore.getState().removeList(id);
++      return Promise.resolve();
++    });
++    renderList();
++
++    fireEvent.press(screen.getByLabelText('Delete list'));
++    await act(async () => lastAlertButtons(alert)[1].onPress?.());
++
++    expect(mockBack).toHaveBeenCalledTimes(1);
++    expect(screen.queryByText('This list is gone')).toBeNull();
++  });
++
++  it('opens the Lists tab when there is nothing to go back to (a deep link)', async () => {
++    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
++    mockCanGoBack.mockReturnValue(false);
++    renderList();
++
++    fireEvent.press(screen.getByLabelText('Delete list'));
++    await act(async () => lastAlertButtons(alert)[1].onPress?.());
++
++    expect(mockBack).not.toHaveBeenCalled();
++    expect(mockReplace).toHaveBeenCalledWith('/(tabs)/lists');
++  });
++
++  it('stays and alerts when the delete fails', async () => {
++    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
++    mockDeleteList.mockRejectedValueOnce(new Error('disk full'));
++    renderList();
++
++    fireEvent.press(screen.getByLabelText('Delete list'));
++    await act(async () => lastAlertButtons(alert)[1].onPress?.());
++
++    expect(mockBack).not.toHaveBeenCalled();
++    expect(alert).toHaveBeenLastCalledWith("Couldn't delete the list", 'Please try again.');
++  });
++});
++
++describe('List screen: gone', () => {
++  it("shows 'This list is gone' for an unknown id", () => {
++    jest.mocked(useLocalSearchParams).mockReturnValue({ id: 'no-such-list' });
++    renderList();
++
++    expect(screen.getByText('This list is gone')).toBeTruthy();
++    expect(screen.getByText('It may have been deleted.')).toBeTruthy();
++    expect(screen.queryByText('Pier rail')).toBeNull();
++    expect(screen.queryByLabelText('Delete list')).toBeNull();
++  });
++
++  it("drops the list's title and header buttons once it is gone", () => {
++    renderList();
++    act(() => useHitListsStore.getState().removeList(downtown.id));
++
++    const options = headerOptions();
++    expect(options.title).toBe('Hit list');
++    expect(options.headerRight?.()).toBeNull();
++  });
++
++  it("shows 'This list is gone' for a soft-deleted list", () => {
++    useHitListsStore.setState({ lists: [{ ...downtown, deleted_at: '2026-10-03T12:00:00.000Z' }] });
++    renderList();
++
++    expect(screen.getByText('This list is gone')).toBeTruthy();
++    expect(screen.queryByText('Pier rail')).toBeNull();
++  });
++});
+diff --git a/src/__tests__/lists-tab.test.tsx b/src/__tests__/lists-tab.test.tsx
+new file mode 100644
+index 0000000..2e165a6
+--- /dev/null
++++ b/src/__tests__/lists-tab.test.tsx
+@@ -0,0 +1,233 @@
++import { act, fireEvent, render, screen } from '@testing-library/react-native';
++import { Alert } from 'react-native';
++import { useRouter } from 'expo-router';
++import { useHitListsStore, useSpotsStore } from '@/src/stores';
++import type { HitList } from '@/src/types';
++import { createTestHitList, createTestSpot } from './factories';
++
++// createList is held open by a test that double-taps Create; the others resolve at once.
++let finishCreate: (list: HitList) => void = () => {};
++const mockCreateList = jest.fn(
++  (name: string) =>
++    new Promise<HitList>((resolve) => {
++      finishCreate = resolve;
++      void name;
++    }),
++);
++jest.mock('@/src/hooks/use-hit-list-actions', () => ({
++  useHitListActions: () => ({
++    createList: mockCreateList,
++    renameList: jest.fn(),
++    deleteList: jest.fn(),
++    addSpotsToList: jest.fn(),
++    removeSpotFromList: jest.fn(),
++  }),
++}));
++
++import ListsScreen from '@/app/(tabs)/lists';
++
++const mockPush = jest.fn();
++
++const downtown = createTestHitList({ id: 'L-downtown', name: 'Downtown' });
++const bridges = createTestHitList({ id: 'L-bridges', name: 'Bridges' });
++const [a, b, c] = ['a', 'b', 'c'].map((id) => createTestSpot({ id, name: `Spot ${id}` }));
++const gone = createTestSpot({ id: 'gone', name: 'Gone spot', deleted_at: '2026-10-02T12:00:00.000Z' });
++
++afterEach(() => jest.restoreAllMocks());
++
++beforeEach(() => {
++  mockCreateList.mockClear();
++  mockPush.mockClear();
++  jest.mocked(useRouter).mockReturnValue({ push: mockPush, back: jest.fn(), replace: jest.fn(), dismissAll: jest.fn() } as never);
++  useSpotsStore.setState({ spots: [] });
++  useHitListsStore.setState({ lists: [], membershipBySpot: {}, activeListId: null });
++});
++
++function seedTwoLists() {
++  useSpotsStore.setState({ spots: [a, b, c, gone] });
++  useHitListsStore.setState({
++    lists: [downtown, bridges],
++    membershipBySpot: { a: [downtown.id], b: [downtown.id], c: [downtown.id], gone: [downtown.id] },
++  });
++}
++
++describe('Lists tab', () => {
++  it('shows the empty state when there are no lists', () => {
++    render(<ListsScreen />);
++
++    expect(screen.getByText('No hit lists yet')).toBeTruthy();
++    expect(screen.getByText('Group spots you mean to hit: by hand, or by area')).toBeTruthy();
++    expect(screen.queryByText('My hit lists')).toBeNull();
++    // The top button is the only 'New hit list' action.
++    expect(screen.getAllByLabelText('New hit list')).toHaveLength(1);
++  });
++
++  it("lists 'My hit lists' by name with live spot counts", () => {
++    seedTwoLists();
++    render(<ListsScreen />);
++
++    expect(screen.getByText('My hit lists')).toBeTruthy();
++    expect(screen.getByLabelText('Downtown, 3 spots')).toBeTruthy();
++    expect(screen.getByLabelText('Bridges, 0 spots')).toBeTruthy();
++    expect(screen.getByText('3 spots')).toBeTruthy();
++    expect(screen.getByText('0 spots')).toBeTruthy();
++    expect(screen.queryByText('No hit lists yet')).toBeNull();
++    // Name order: Bridges before Downtown.
++    const names = screen.getAllByText(/^(Bridges|Downtown)$/).map((n) => n.props.children);
++    expect(names).toEqual(['Bridges', 'Downtown']);
++  });
++
++  it('orders names case-insensitively', () => {
++    const lower = createTestHitList({ id: 'L-alley', name: 'alley' });
++    useHitListsStore.setState({ lists: [downtown, lower, bridges] });
++    render(<ListsScreen />);
++
++    const names = screen.getAllByText(/^(alley|Bridges|Downtown)$/).map((n) => n.props.children);
++    expect(names).toEqual(['alley', 'Bridges', 'Downtown']);
++  });
++
++  it('updates a count when a spot joins or leaves the list', () => {
++    seedTwoLists();
++    render(<ListsScreen />);
++
++    act(() => useHitListsStore.getState().addMemberships(bridges.id, ['a']));
++    expect(screen.getByLabelText('Bridges, 1 spot')).toBeTruthy();
++
++    act(() => useSpotsStore.setState({ spots: [b, c, gone] }));
++    expect(screen.getByLabelText('Downtown, 2 spots')).toBeTruthy();
++    expect(screen.getByLabelText('Bridges, 0 spots')).toBeTruthy();
++  });
++
++  it('shows the empty state when every list in the store is deleted', () => {
++    useHitListsStore.setState({ lists: [createTestHitList({ deleted_at: '2026-10-02T12:00:00.000Z' })] });
++    render(<ListsScreen />);
++
++    expect(screen.getByText('No hit lists yet')).toBeTruthy();
++    expect(screen.queryByText('My hit lists')).toBeNull();
++  });
++
++  it("says '1 spot' for a list of one", () => {
++    useSpotsStore.setState({ spots: [a] });
++    useHitListsStore.setState({ lists: [downtown], membershipBySpot: { a: [downtown.id] } });
++    render(<ListsScreen />);
++
++    expect(screen.getByText('1 spot')).toBeTruthy();
++  });
++
++  it("has no 'Shared with me' section and no area-list entry yet", () => {
++    seedTwoLists();
++    render(<ListsScreen />);
++
++    expect(screen.queryByText('Shared with me')).toBeNull();
++    expect(screen.queryByLabelText('New area list')).toBeNull();
++  });
++
++  it('opens the list screen when a row is pressed', () => {
++    seedTwoLists();
++    render(<ListsScreen />);
++
++    fireEvent.press(screen.getByLabelText('Downtown, 3 spots'));
++    expect(mockPush).toHaveBeenCalledWith('/list/L-downtown');
++  });
++
++  it('names and creates a list, then opens it', async () => {
++    render(<ListsScreen />);
++
++    fireEvent.press(screen.getByLabelText('New hit list'));
++    expect(screen.getByPlaceholderText('Name')).toBeTruthy();
++    expect(screen.getByLabelText('Create')).toBeDisabled();
++
++    fireEvent.changeText(screen.getByLabelText('List name'), '   ');
++    expect(screen.getByLabelText('Create')).toBeDisabled();
++
++    fireEvent.changeText(screen.getByLabelText('List name'), '  Downtown  ');
++    expect(screen.getByLabelText('Create')).toBeEnabled();
++    fireEvent.press(screen.getByLabelText('Create'));
++    expect(mockCreateList).toHaveBeenCalledWith('Downtown');
++
++    await act(async () => finishCreate(createTestHitList({ id: 'L-new', name: 'Downtown' })));
++    expect(mockPush).toHaveBeenCalledWith('/list/L-new');
++    expect(screen.queryByPlaceholderText('Name')).toBeNull();
++  });
++
++  it('creates one list on a double tap of Create', async () => {
++    render(<ListsScreen />);
++
++    fireEvent.press(screen.getByLabelText('New hit list'));
++    fireEvent.changeText(screen.getByLabelText('List name'), 'Downtown');
++    fireEvent.press(screen.getByLabelText('Create'));
++    fireEvent.press(screen.getByLabelText('Create'));
++    expect(mockCreateList).toHaveBeenCalledTimes(1);
++
++    await act(async () => finishCreate(createTestHitList({ id: 'L-new' })));
++    expect(mockPush).toHaveBeenCalledTimes(1);
++  });
++
++  it('Cancel closes the sheet without creating, and the next open starts empty', () => {
++    render(<ListsScreen />);
++
++    fireEvent.press(screen.getByLabelText('New hit list'));
++    fireEvent.changeText(screen.getByLabelText('List name'), 'Half typed');
++    fireEvent.press(screen.getByText('Cancel'));
++    expect(screen.queryByPlaceholderText('Name')).toBeNull();
++    expect(mockCreateList).not.toHaveBeenCalled();
++
++    fireEvent.press(screen.getByLabelText('New hit list'));
++    expect(screen.getByLabelText('List name').props.value).toBe('');
++  });
++
++  it('keeps the sheet open and says so when the list cannot be created', async () => {
++    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
++    mockCreateList.mockRejectedValueOnce(new Error('disk full'));
++    render(<ListsScreen />);
++
++    fireEvent.press(screen.getByLabelText('New hit list'));
++    fireEvent.changeText(screen.getByLabelText('List name'), 'Downtown');
++    await act(async () => fireEvent.press(screen.getByLabelText('Create')));
++
++    expect(alert).toHaveBeenCalledWith("Couldn't create the list", 'Please try again.');
++    expect(mockPush).not.toHaveBeenCalled();
++    expect(screen.getByLabelText('List name').props.value).toBe('Downtown');
++    expect(screen.getByLabelText('Create')).toBeEnabled();
++  });
++
++  it('creates one list when Return and Create land in the same tick', async () => {
++    render(<ListsScreen />);
++
++    fireEvent.press(screen.getByLabelText('New hit list'));
++    fireEvent.changeText(screen.getByLabelText('List name'), 'Downtown');
++    act(() => {
++      fireEvent(screen.getByLabelText('List name'), 'submitEditing');
++      fireEvent.press(screen.getByLabelText('Create'));
++    });
++    expect(mockCreateList).toHaveBeenCalledTimes(1);
++
++    await act(async () => finishCreate(createTestHitList({ id: 'L-new' })));
++  });
++
++  it('ignores Return while the name is blank', () => {
++    render(<ListsScreen />);
++
++    fireEvent.press(screen.getByLabelText('New hit list'));
++    fireEvent.changeText(screen.getByLabelText('List name'), '  ');
++    fireEvent(screen.getByLabelText('List name'), 'submitEditing');
++    expect(mockCreateList).not.toHaveBeenCalled();
++    expect(screen.getByPlaceholderText('Name')).toBeTruthy();
++  });
++
++  it('cannot be cancelled while Create is running', async () => {
++    render(<ListsScreen />);
++
++    fireEvent.press(screen.getByLabelText('New hit list'));
++    fireEvent.changeText(screen.getByLabelText('List name'), 'Downtown');
++    fireEvent.press(screen.getByLabelText('Create'));
++
++    expect(screen.getByLabelText('Cancel')).toBeDisabled();
++    fireEvent(screen.getByTestId('name-list-sheet-modal'), 'requestClose');
++    expect(screen.getByPlaceholderText('Name')).toBeTruthy();
++
++    await act(async () => finishCreate(createTestHitList({ id: 'L-new' })));
++    expect(mockPush).toHaveBeenCalledWith('/list/L-new');
++    expect(screen.queryByPlaceholderText('Name')).toBeNull();
++  });
++});
+diff --git a/src/__tests__/root-layout.test.tsx b/src/__tests__/root-layout.test.tsx
+index 9c6fdf0..ccbf4e8 100644
+--- a/src/__tests__/root-layout.test.tsx
++++ b/src/__tests__/root-layout.test.tsx
+@@ -70,3 +70,12 @@ describe("gesture-handler's jest setup", () => {
+     expect(onEnd).toHaveBeenCalledTimes(1);
+   });
+ });
++
++describe('RootLayout: hit list screen', () => {
++  it("registers list/[id]/index titled 'Hit list' until the screen names it", () => {
++    render(<RootLayout />);
++
++    const list = screen.UNSAFE_getAllByProps({ name: 'list/[id]/index' })[0];
++    expect(list.props.options).toEqual({ title: 'Hit list' });
++  });
++});
+diff --git a/src/__tests__/spot-detail.test.tsx b/src/__tests__/spot-detail.test.tsx
+index 856c5b8..c67ac94 100644
+--- a/src/__tests__/spot-detail.test.tsx
++++ b/src/__tests__/spot-detail.test.tsx
+@@ -4,11 +4,11 @@ import { Image, StyleSheet } from 'react-native';
+ import { useLocalSearchParams, useRouter } from 'expo-router';
+ import { useSQLiteContext } from 'expo-sqlite';
+ import { getSpotLegacy } from '@/src/db';
+-import { useMediaStore, useSettingsStore, useSpotsStore } from '@/src/stores';
++import { useHitListsStore, useMediaStore, useSettingsStore, useSpotsStore } from '@/src/stores';
+ import { palette } from '@/src/constants/theme';
+ import { resolvePhotoUri } from '@/src/utils/photo-storage';
+ import { FeatureType, UnitSystem, type Media, type Spot } from '@/src/types';
+-import { createTestMedia, createTestSpot } from './factories';
++import { createTestHitList, createTestMedia, createTestSpot } from './factories';
+ 
+ import SpotDetailScreen from '@/app/spot/[id]/index';
+ 
+@@ -23,6 +23,7 @@ beforeEach(() => {
+   push.mockReset();
+   jest.mocked(useRouter).mockReturnValue({ push, back: jest.fn(), replace: jest.fn() } as never);
+   useSettingsStore.getState().setUnits(UnitSystem.Imperial);
++  useHitListsStore.setState({ lists: [], membershipBySpot: {}, activeListId: null });
+ });
+ 
+ /** Renders the detail screen and lets the Older details lookup settle, so no act() warning reaches console.error. */
+@@ -38,6 +39,8 @@ async function renderDetail(overrides: Partial<Spot> = {}, media: Media[] = [])
+ }
+ 
+ const texts = () => screen.getAllByText(/./).map((t) => t.props.children);
++/** The 'In lists' row of a spot in no list (S1-07), under the tag line on every spot. */
++const IN_NO_LISTS = ['In lists', '+ Add to hit list'];
+ 
+ describe('Spot detail: notes', () => {
+   it('shows the notes paragraph when the spot has notes', async () => {
+@@ -57,7 +60,7 @@ describe('Spot detail: notes', () => {
+   it('shows only the title and the notes, no section from the removed model (D17)', async () => {
+     await renderDetail({ name: 'Pier 57', notes: 'under the bridge' });
+ 
+-    expect(texts()).toEqual(['Pier 57', 'Notes', 'under the bridge']);
++    expect(texts()).toEqual(['Pier 57', ...IN_NO_LISTS, 'Notes', 'under the bridge']);
+   });
+ });
+ 
+@@ -85,7 +88,8 @@ describe('Spot detail: tag line and speed', () => {
+     await renderDetail(tagged, [createTestMedia()]);
+ 
+     expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
+-    expect(screen.queryAllByRole('button')).toHaveLength(0);
++    // The only button is the 'In lists' row's add chip.
++    expect(screen.queryAllByRole('button').map((b) => b.props.accessibilityLabel)).toEqual(['Add to hit list']);
+     const stopped = screen.getByTestId('tag-stopped');
+     expect(stopped.props.accessibilityRole).toBeUndefined();
+     expect(stopped.props.accessibilityState).toBeUndefined();
+@@ -103,7 +107,7 @@ describe('Spot detail: tag line and speed', () => {
+   it('shows Skate stopped alone when the spot has no feature types', async () => {
+     await renderDetail({ name: 'Bank', stopped: true });
+ 
+-    expect(texts()).toEqual(['Bank', 'Skate stopped']);
++    expect(texts()).toEqual(['Bank', 'Skate stopped', ...IN_NO_LISTS]);
+   });
+ 
+   it('shows no speed bar when the speed is not rated', async () => {
+@@ -258,7 +262,7 @@ describe('Spot detail: nothing from the old model', () => {
+   it('shows only the title for a spot with a name and one photo', async () => {
+     await renderDetail({ name: 'Pier 57' }, [createTestMedia()]);
+ 
+-    expect(texts()).toEqual(['Pier 57']);
++    expect(texts()).toEqual(['Pier 57', ...IN_NO_LISTS]);
+   });
+ });
+ 
+@@ -276,3 +280,78 @@ describe('Spot detail: header', () => {
+     expect(push).toHaveBeenCalledWith(`/spot/${spot.id}/edit`);
+   });
+ });
++
++describe("Spot detail: 'In lists' row", () => {
++  const downtown = createTestHitList({ id: 'L-downtown', name: 'Downtown' });
++  const bridges = createTestHitList({ id: 'L-bridges', name: 'Bridges' });
++  const other = createTestHitList({ id: 'L-other', name: 'Other' });
++
++  /** The lists the spot is in, by id; the spot's id is fixed so the memberships can name it. */
++  async function renderInLists(listIds: string[]) {
++    useHitListsStore.setState({
++      lists: [downtown, bridges, other],
++      membershipBySpot: { 'spot-1': listIds, 'spot-2': [other.id] },
++    });
++    return renderDetail({ id: 'spot-1', name: 'Pier 57', feature_types: [FeatureType.Rail] });
++  }
++
++  it('shows one chip per list the spot is in, by name, then the add chip, under the tag line', async () => {
++    await renderInLists([downtown.id, bridges.id]);
++
++    const order = texts();
++    expect(order.indexOf('Rail')).toBeLessThan(order.indexOf('In lists'));
++    expect(order.slice(order.indexOf('In lists'))).toEqual(['In lists', 'Bridges', 'Downtown', '+ Add to hit list']);
++    expect(screen.queryByText('Other')).toBeNull();
++    expect(screen.getByRole('button', { name: 'Add to hit list' })).toBeOnTheScreen();
++  });
++
++  it('shows only the add chip when the spot is in no list', async () => {
++    await renderInLists([]);
++
++    expect(screen.getByText('In lists')).toBeOnTheScreen();
++    expect(screen.getByRole('button', { name: 'Add to hit list' })).toBeOnTheScreen();
++    expect(screen.queryByText('Downtown')).toBeNull();
++    expect(screen.queryByText('Bridges')).toBeNull();
++  });
++
++  it('skips a deleted list and keeps the live one', async () => {
++    useHitListsStore.setState({
++      lists: [{ ...downtown, deleted_at: '2026-10-02T12:00:00.000Z' }, bridges],
++      membershipBySpot: { 'spot-1': [downtown.id, bridges.id] },
++    });
++    await renderDetail({ id: 'spot-1', name: 'Pier 57' });
++
++    expect(screen.queryByText('Downtown')).toBeNull();
++    expect(screen.getByRole('button', { name: 'Bridges' })).toBeOnTheScreen();
++  });
++
++  it('opens the list when its chip is pressed', async () => {
++    await renderInLists([downtown.id]);
++
++    fireEvent.press(screen.getByRole('button', { name: 'Downtown' }));
++
++    expect(push).toHaveBeenCalledWith(`/list/${downtown.id}`);
++  });
++
++  it('opens the Add-to-list sheet for this spot from the add chip, and Done closes it', async () => {
++    await renderInLists([downtown.id]);
++    expect(screen.queryByRole('header', { name: 'Add to hit list' })).toBeNull();
++
++    fireEvent.press(screen.getByRole('button', { name: 'Add to hit list' }));
++
++    expect(screen.getByRole('header', { name: 'Add to hit list' })).toBeOnTheScreen();
++    expect(screen.getByRole('checkbox', { name: 'Downtown' }).props.accessibilityState).toEqual({ checked: true });
++    expect(screen.getByRole('checkbox', { name: 'Bridges' }).props.accessibilityState).toEqual({ checked: false });
++
++    fireEvent.press(screen.getByRole('button', { name: 'Done' }));
++    expect(screen.queryByRole('header', { name: 'Add to hit list' })).toBeNull();
++  });
++
++  it('shows a new membership as a chip at once', async () => {
++    await renderInLists([]);
++
++    act(() => useHitListsStore.getState().addMemberships(bridges.id, ['spot-1']));
++
++    expect(screen.getByRole('button', { name: 'Bridges' })).toBeOnTheScreen();
++  });
++});
+diff --git a/src/__tests__/spots-browser.test.tsx b/src/__tests__/spots-browser.test.tsx
+new file mode 100644
+index 0000000..ab68840
+--- /dev/null
++++ b/src/__tests__/spots-browser.test.tsx
+@@ -0,0 +1,118 @@
++import type { ReactElement } from 'react';
++import { act, render, screen, fireEvent } from '@testing-library/react-native';
++import { FlashList } from '@shopify/flash-list';
++import type { StyleProp, ViewStyle } from 'react-native';
++import { StyleSheet, Text } from 'react-native';
++import { useMediaStore, useSpotsStore } from '@/src/stores';
++import { useLocationStore } from '@/src/stores/location-store';
++import { DEFAULT_FILTERS, SortDirection, SortField } from '@/src/types';
++import { CITIES, createTestSpot } from './factories';
++
++import { SpotsBrowser } from '@/src/components';
++import { SpotMap } from '@/src/components/SpotMap';
++
++const pier = createTestSpot({ name: 'Pier 57 rail', location: CITIES.seattle });
++const library = createTestSpot({ name: 'Library ledge', stopped: true, location: CITIES.portland });
++
++const EMPTY = { emptyTitle: 'Nothing here', emptyMessage: 'Add a spot to see it' };
++
++beforeEach(() => {
++  // SpotsBrowser browses its `spots` prop; the store's own spots must not leak in.
++  useSpotsStore.setState({
++    spots: [],
++    filters: { ...DEFAULT_FILTERS },
++    searchQuery: '',
++    sortField: SortField.DateAdded,
++    sortDirection: SortDirection.Desc,
++    sortChosen: false,
++    viewMode: 'list',
++  });
++  useMediaStore.setState({ mediaBySpot: {} });
++  useLocationStore.setState({ currentLocation: null });
++});
++
++describe('SpotsBrowser', () => {
++  it('shows one row per spot it is given', () => {
++    render(<SpotsBrowser spots={[pier, library]} {...EMPTY} />);
++
++    expect(screen.getByText('Pier 57 rail')).toBeTruthy();
++    expect(screen.getByText('Library ledge')).toBeTruthy();
++    expect(screen.queryByText('Nothing here')).toBeNull();
++  });
++
++  it('shows the empty title, message and action when given no spots', () => {
++    const onEmptyAction = jest.fn();
++    render(
++      <SpotsBrowser spots={[]} {...EMPTY} emptyActionLabel="Do it" onEmptyAction={onEmptyAction} />,
++    );
++
++    expect(screen.getByText('Nothing here')).toBeTruthy();
++    expect(screen.getByText('Add a spot to see it')).toBeTruthy();
++    fireEvent.press(screen.getByText('Do it'));
++    expect(onEmptyAction).toHaveBeenCalledTimes(1);
++  });
++
++  it('filters by the store searchQuery, then offers Clear search when nothing matches', () => {
++    useSpotsStore.setState({ searchQuery: 'library' });
++    render(<SpotsBrowser spots={[pier, library]} {...EMPTY} />);
++
++    expect(screen.getByText('Library ledge')).toBeTruthy();
++    expect(screen.queryByText('Pier 57 rail')).toBeNull();
++
++    act(() => useSpotsStore.getState().setSearchQuery('no such spot'));
++
++    expect(screen.getByText('No matching spots')).toBeTruthy();
++    expect(screen.queryByText('Nothing here')).toBeNull();
++    fireEvent.press(screen.getByText('Clear search'));
++    expect(useSpotsStore.getState().searchQuery).toBe('');
++    expect(screen.getByText('Pier 57 rail')).toBeTruthy();
++  });
++
++  it('switches to Map and hands SpotMap the filtered spots', () => {
++    useSpotsStore.setState({ filters: { ...DEFAULT_FILTERS, stopped: true } });
++    render(<SpotsBrowser spots={[pier, library]} {...EMPTY} />);
++
++    fireEvent.press(screen.getByText('Map'));
++
++    expect(useSpotsStore.getState().viewMode).toBe('map');
++    expect(screen.UNSAFE_getByType(SpotMap).props.spots).toEqual([library]);
++    expect(screen.getAllByTestId(/^spot-marker-/)).toHaveLength(1);
++  });
++
++  it('pads the list bottom by contentBottomInset', () => {
++    render(<SpotsBrowser spots={[pier]} {...EMPTY} contentBottomInset={200} />);
++
++    const { contentContainerStyle } = screen.UNSAFE_getByType(FlashList).props as {
++      contentContainerStyle?: StyleProp<ViewStyle>;
++    };
++    expect(StyleSheet.flatten(contentContainerStyle)?.paddingBottom).toBe(200);
++  });
++
++  it('renders aboveList', () => {
++    render(<SpotsBrowser spots={[pier]} {...EMPTY} aboveList={<Text>Picker row</Text>} />);
++
++    expect(screen.getByText('Picker row')).toBeTruthy();
++  });
++
++  it('renders headerActions in the header before Filter', () => {
++    render(<SpotsBrowser spots={[pier]} {...EMPTY} headerActions={<Text>Rename</Text>} />);
++
++    const { options } = screen.UNSAFE_getByType('Stack.Screen' as never).props as {
++      options: { headerRight: () => ReactElement };
++    };
++    const header = render(options.headerRight());
++    const texts = header.UNSAFE_getAllByType(Text).map((t) => t.props.children);
++    expect(texts[0]).toBe('Rename');
++    expect(header.getByLabelText('Filter spots')).toBeTruthy();
++    header.unmount();
++  });
++
++  it('calls onSpotLongPress with the row id', () => {
++    const onSpotLongPress = jest.fn();
++    render(<SpotsBrowser spots={[pier, library]} {...EMPTY} onSpotLongPress={onSpotLongPress} />);
++
++    fireEvent(screen.getByRole('button', { name: /^Library ledge/ }), 'longPress');
++
++    expect(onSpotLongPress).toHaveBeenCalledWith(library.id);
++  });
++});
+diff --git a/src/__tests__/spots-select.test.tsx b/src/__tests__/spots-select.test.tsx
+new file mode 100644
+index 0000000..0922ed6
+--- /dev/null
++++ b/src/__tests__/spots-select.test.tsx
+@@ -0,0 +1,319 @@
++import { Children, isValidElement, type ReactElement, type ReactNode } from 'react';
++import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
++import { Modal } from 'react-native';
++import { useRouter } from 'expo-router';
++import { useHitListsStore, useMediaStore, useSpotsStore } from '@/src/stores';
++import { useLocationStore } from '@/src/stores/location-store';
++import { DEFAULT_FILTERS, SortDirection, SortField } from '@/src/types';
++import { AddToListSheet } from '@/src/components/AddToListSheet';
++import { createTestHitList, createTestSpot } from './factories';
++
++const mockAddSpotsToList = jest.fn((listId: string, spotIds: string[]): Promise<void> => {
++  void listId;
++  void spotIds;
++  return Promise.resolve();
++});
++jest.mock('@/src/hooks/use-hit-list-actions', () => ({
++  useHitListActions: () => ({
++    createList: jest.fn(),
++    renameList: jest.fn(),
++    deleteList: jest.fn(),
++    addSpotsToList: mockAddSpotsToList,
++    removeSpotFromList: jest.fn(),
++  }),
++}));
++
++import SpotsScreen from '@/app/(tabs)/index';
++
++const mockPush = jest.fn();
++
++const a = createTestSpot({ id: 'a', name: 'Alley rail' });
++const b = createTestSpot({ id: 'b', name: 'Bank to wall' });
++const c = createTestSpot({ id: 'c', name: 'Church ledge' });
++const downtown = createTestHitList({ id: 'L-downtown', name: 'Downtown' });
++
++type ScreenOptions = { title?: string; headerTitle?: string; headerLeft?: () => ReactElement | null };
++/** Every Stack.Screen's options, merged in render order (as the navigator merges them). */
++function headerOptions(): ScreenOptions {
++  const screens = screen.UNSAFE_getAllByType('Stack.Screen' as never);
++  return Object.assign({}, ...screens.map((s) => (s.props as { options?: ScreenOptions }).options));
++}
++
++type ActionProps = { accessibilityLabel?: string; onPress: () => void; children?: ReactNode };
++/** The header's left action with this label, read off the headerLeft element (see openRename in list-screen.test). */
++function headerAction(label: string): ReactElement<ActionProps> | undefined {
++  const left = headerOptions().headerLeft?.();
++  const found: ReactElement<ActionProps>[] = [];
++  const walk = (node: ReactNode) =>
++    Children.forEach(node, (el) => {
++      if (!isValidElement<ActionProps>(el)) return;
++      if (el.props.accessibilityLabel === label) found.push(el);
++      walk(el.props.children);
++    });
++  walk(left);
++  return found[0];
++}
++
++/** The visible text inside a header action (its Text child's string). */
++function actionText(el: ReactElement<ActionProps>): string {
++  const texts: string[] = [];
++  const walk = (node: ReactNode) =>
++    Children.forEach(node, (child) => {
++      if (typeof child === 'string') texts.push(child);
++      else if (isValidElement<{ children?: ReactNode }>(child)) walk(child.props.children);
++    });
++  walk(el.props.children);
++  return texts.join('');
++}
++
++function pressHeader(label: string) {
++  const el = headerAction(label);
++  if (!el) throw new Error(`no header action '${label}'`);
++  act(() => el.props.onPress());
++}
++
++const row = (name: RegExp) => screen.getByLabelText(name);
++
++beforeEach(() => {
++  mockPush.mockClear();
++  mockAddSpotsToList.mockClear();
++  jest.mocked(useRouter).mockReturnValue({ push: mockPush, back: jest.fn(), replace: jest.fn() } as never);
++  useSpotsStore.setState({
++    spots: [a, b, c],
++    filters: { ...DEFAULT_FILTERS },
++    searchQuery: '',
++    sortField: SortField.Name,
++    sortDirection: SortDirection.Asc,
++    sortChosen: true,
++    viewMode: 'list',
++  });
++  useMediaStore.setState({ mediaBySpot: {} });
++  useLocationStore.setState({ currentLocation: null });
++  useHitListsStore.setState({ lists: [downtown], membershipBySpot: {}, activeListId: null });
++});
++
++describe('Spots tab multi-select', () => {
++  it('starts outside select mode: plain rows, a Select action, no select bar', () => {
++    render(<SpotsScreen />);
++
++    expect(row(/Alley rail/).props.accessibilityRole).toBe('button');
++    const select = headerAction('Select spots');
++    expect(select && actionText(select)).toBe('Select');
++    expect(headerAction('Cancel selection')).toBeUndefined();
++    expect(headerOptions().headerTitle).toBeUndefined();
++    expect(screen.queryByTestId('select-bar')).toBeNull();
++    expect(screen.getByLabelText('Add new spot')).toBeTruthy();
++  });
++
++  it('a long press enters select mode with that row checked, Cancel in the header and "1 selected"', () => {
++    render(<SpotsScreen />);
++
++    fireEvent(row(/Bank to wall/), 'longPress');
++
++    expect(row(/Bank to wall/).props.accessibilityState).toEqual({ checked: true });
++    expect(row(/Alley rail/).props.accessibilityRole).toBe('checkbox');
++    expect(row(/Alley rail/).props.accessibilityState).toEqual({ checked: false });
++    expect(headerAction('Select spots')).toBeUndefined();
++    const cancel = headerAction('Cancel selection');
++    expect(cancel && actionText(cancel)).toBe('Cancel');
++    expect(headerOptions().headerTitle).toBe('1 selected');
++    expect(mockPush).not.toHaveBeenCalled();
++  });
++
++  it('the Select action enters select mode with nothing checked', () => {
++    render(<SpotsScreen />);
++
++    pressHeader('Select spots');
++
++    expect(row(/Alley rail/).props.accessibilityState).toEqual({ checked: false });
++    expect(headerOptions().headerTitle).toBe('0 selected');
++    expect(screen.getByLabelText('Add to list (0)').props.accessibilityState).toMatchObject({ disabled: true });
++  });
++
++  it('a tap checks a second row, a tap on a checked row unchecks it, and no tap navigates', () => {
++    render(<SpotsScreen />);
++    fireEvent(row(/Alley rail/), 'longPress');
++
++    fireEvent.press(row(/Church ledge/));
++    expect(row(/Church ledge/).props.accessibilityState).toEqual({ checked: true });
++    expect(headerOptions().headerTitle).toBe('2 selected');
++
++    fireEvent.press(row(/Alley rail/));
++    expect(row(/Alley rail/).props.accessibilityState).toEqual({ checked: false });
++    expect(headerOptions().headerTitle).toBe('1 selected');
++
++    expect(mockPush).not.toHaveBeenCalled();
++  });
++
++  it('Cancel leaves select mode with nothing selected', () => {
++    render(<SpotsScreen />);
++    fireEvent(row(/Alley rail/), 'longPress');
++    fireEvent.press(row(/Bank to wall/));
++
++    pressHeader('Cancel selection');
++
++    expect(row(/Alley rail/).props.accessibilityRole).toBe('button');
++    expect(row(/Alley rail/).props.accessibilityState?.checked).toBeUndefined();
++    expect(screen.queryByTestId('select-bar')).toBeNull();
++    expect(headerOptions().headerTitle).toBeUndefined();
++    expect(headerAction('Select spots')).toBeTruthy();
++
++    // Entering again starts from the one long-pressed row, not the old selection.
++    fireEvent(row(/Church ledge/), 'longPress');
++    expect(headerOptions().headerTitle).toBe('1 selected');
++    expect(row(/Alley rail/).props.accessibilityState).toEqual({ checked: false });
++  });
++
++  it('hides the FAB column while selecting and brings it back after', () => {
++    render(<SpotsScreen />);
++    fireEvent(row(/Alley rail/), 'longPress');
++
++    expect(screen.queryByLabelText('Add new spot')).toBeNull();
++    expect(screen.queryByLabelText('Import photos')).toBeNull();
++
++    pressHeader('Cancel selection');
++    expect(screen.getByLabelText('Add new spot')).toBeTruthy();
++  });
++
++  it("the select bar's 'Add to list (2)' opens the sheet with both ids, and closing it ends select mode", () => {
++    render(<SpotsScreen />);
++    fireEvent(row(/Alley rail/), 'longPress');
++    fireEvent.press(row(/Church ledge/));
++
++    const bar = screen.getByTestId('select-bar');
++    expect(within(bar).getByText('Add to list (2)')).toBeTruthy();
++    expect(screen.UNSAFE_getByType(AddToListSheet).props.visible).toBe(false);
++
++    fireEvent.press(within(bar).getByLabelText('Add to list (2)'));
++
++    const sheet = screen.UNSAFE_getByType(AddToListSheet);
++    expect(sheet.props.visible).toBe(true);
++    expect(sheet.props.spotIds).toEqual(['a', 'c']);
++    fireEvent.press(screen.getByLabelText('Downtown'));
++    expect(mockAddSpotsToList).toHaveBeenCalledWith(downtown.id, ['a', 'c']);
++
++    fireEvent.press(screen.getByText('Done'));
++
++    expect(screen.UNSAFE_getByType(AddToListSheet).props.visible).toBe(false);
++    expect(screen.queryByTestId('select-bar')).toBeNull();
++    expect(headerOptions().headerTitle).toBeUndefined();
++    expect(row(/Alley rail/).props.accessibilityRole).toBe('button');
++    expect(screen.getByLabelText('Add new spot')).toBeTruthy();
++  });
++
++  it('outside select mode a tap opens the spot (control for the no-navigation case)', () => {
++    render(<SpotsScreen />);
++
++    fireEvent.press(row(/Alley rail/));
++
++    expect(mockPush).toHaveBeenCalledWith('/spot/a');
++  });
++
++  it('swiping the sheet down (onRequestClose) also ends select mode', () => {
++    render(<SpotsScreen />);
++    fireEvent(row(/Alley rail/), 'longPress');
++    fireEvent.press(screen.getByLabelText('Add to list (1)'));
++
++    act(() => screen.UNSAFE_getByType(Modal).props.onRequestClose());
++
++    expect(screen.queryByTestId('select-bar')).toBeNull();
++    expect(headerOptions().headerTitle).toBeUndefined();
++  });
++
++  it('a selected spot deleted elsewhere drops out of the count and the ids filed', () => {
++    render(<SpotsScreen />);
++    fireEvent(row(/Alley rail/), 'longPress');
++    fireEvent.press(row(/Bank to wall/));
++
++    act(() => useSpotsStore.setState({ spots: [b, c] }));
++
++    expect(headerOptions().headerTitle).toBe('1 selected');
++    fireEvent.press(screen.getByLabelText('Add to list (1)'));
++    expect(screen.UNSAFE_getByType(AddToListSheet).props.spotIds).toEqual(['b']);
++  });
++
++  it('ends select mode when no spots are left', () => {
++    render(<SpotsScreen />);
++    fireEvent(row(/Alley rail/), 'longPress');
++
++    act(() => useSpotsStore.setState({ spots: [] }));
++
++    expect(screen.queryByTestId('select-bar')).toBeNull();
++    expect(headerOptions().headerTitle).toBeUndefined();
++    expect(screen.getByLabelText('Add new spot')).toBeTruthy();
++  });
++
++  it('has no Send action yet (S7 adds it)', () => {
++    render(<SpotsScreen />);
++    fireEvent(row(/Alley rail/), 'longPress');
++
++    expect(screen.queryByText(/Send/)).toBeNull();
++    expect(screen.queryByLabelText(/Send/)).toBeNull();
++  });
++
++  it('switching to Map ends select mode, and Select is offered in List view only', () => {
++    render(<SpotsScreen />);
++    fireEvent(row(/Alley rail/), 'longPress');
++
++    fireEvent.press(screen.getByText('Map'));
++
++    expect(screen.queryByTestId('select-bar')).toBeNull();
++    expect(headerOptions().headerTitle).toBeUndefined();
++    expect(headerAction('Select spots')).toBeUndefined();
++    expect(headerAction('Cancel selection')).toBeUndefined();
++
++    fireEvent.press(screen.getByText('List'));
++    expect(row(/Alley rail/).props.accessibilityRole).toBe('button');
++    expect(headerAction('Select spots')).toBeTruthy();
++  });
++
++  it('offers no Select with zero spots', () => {
++    useSpotsStore.setState({ spots: [] });
++    render(<SpotsScreen />);
++
++    expect(headerAction('Select spots')).toBeUndefined();
++  });
++
++  it('switching the list picker keeps only the selected spots in that list', () => {
++    useHitListsStore.setState({ membershipBySpot: { b: [downtown.id] } });
++    render(<SpotsScreen />);
++    fireEvent(row(/Alley rail/), 'longPress');
++    fireEvent.press(row(/Bank to wall/));
++    expect(headerOptions().headerTitle).toBe('2 selected');
++
++    fireEvent.press(screen.getByRole('tab', { name: 'Downtown' }));
++
++    expect(screen.queryByLabelText(/Alley rail/)).toBeNull();
++    expect(row(/Bank to wall/).props.accessibilityState).toEqual({ checked: true });
++    expect(headerOptions().headerTitle).toBe('1 selected');
++    fireEvent.press(screen.getByLabelText('Add to list (1)'));
++    expect(screen.UNSAFE_getByType(AddToListSheet).props).toMatchObject({ visible: true, spotIds: ['b'] });
++  });
++
++  it('a spot dropped by a picker switch stays unchecked after switching back', () => {
++    useHitListsStore.setState({ membershipBySpot: { b: [downtown.id] } });
++    render(<SpotsScreen />);
++    fireEvent(row(/Alley rail/), 'longPress');
++    fireEvent.press(row(/Bank to wall/));
++
++    fireEvent.press(screen.getByRole('tab', { name: 'Downtown' }));
++    fireEvent.press(screen.getByRole('tab', { name: 'My spots' }));
++
++    expect(row(/Alley rail/).props.accessibilityState).toEqual({ checked: false });
++    expect(row(/Bank to wall/).props.accessibilityState).toEqual({ checked: true });
++    expect(headerOptions().headerTitle).toBe('1 selected');
++  });
++
++  it('switching to an empty list ends select mode', () => {
++    const bridges = createTestHitList({ id: 'L-bridges', name: 'Bridges' });
++    useHitListsStore.setState({ lists: [downtown, bridges] });
++    render(<SpotsScreen />);
++    fireEvent(row(/Alley rail/), 'longPress');
++
++    fireEvent.press(screen.getByRole('tab', { name: 'Bridges' }));
++
++    expect(screen.queryByTestId('select-bar')).toBeNull();
++    expect(headerOptions().headerTitle).toBeUndefined();
++    expect(screen.getByText('No spots in this list yet')).toBeTruthy();
++  });
++});
+diff --git a/src/__tests__/spots-view-mode.test.tsx b/src/__tests__/spots-view-mode.test.tsx
+index 2631efc..e7094ce 100644
+--- a/src/__tests__/spots-view-mode.test.tsx
++++ b/src/__tests__/spots-view-mode.test.tsx
+@@ -1,7 +1,7 @@
+-import { render, screen, fireEvent } from '@testing-library/react-native';
+-import { useMediaStore, useSpotsStore } from '@/src/stores';
++import { act, render, screen, fireEvent } from '@testing-library/react-native';
++import { useHitListsStore, useMediaStore, useSpotsStore } from '@/src/stores';
+ import { DEFAULT_FILTERS } from '@/src/types';
+-import { CITIES, createTestSpot } from './factories';
++import { CITIES, createTestHitList, createTestSpot } from './factories';
+ 
+ import SpotsScreen from '@/app/(tabs)/index';
+ 
+@@ -69,3 +69,91 @@ describe('Spots tab Map | List toggle', () => {
+     expect(screen.queryByText('No Spots Yet')).toBeNull();
+   });
+ });
++
++describe('Spots tab list picker', () => {
++  const downtown = createTestHitList({ id: 'L-downtown', name: 'Downtown' });
++  const bridges = createTestHitList({ id: 'L-bridges', name: 'Bridges' });
++  const [pier, library, bank] = spots;
++
++  beforeEach(() => {
++    useSpotsStore.setState({ spots, filters: { ...DEFAULT_FILTERS }, searchQuery: '', viewMode: 'list' });
++    useMediaStore.setState({ mediaBySpot: {} });
++    useHitListsStore.setState({
++      lists: [downtown, bridges],
++      membershipBySpot: { [pier.id]: [downtown.id], [bank.id]: [downtown.id] },
++      activeListId: null,
++    });
++  });
++
++  afterAll(() => useHitListsStore.setState({ lists: [], membershipBySpot: {}, activeListId: null }));
++
++  it("shows the picker above the views with 'My spots' selected and every spot", () => {
++    render(<SpotsScreen />);
++
++    expect(screen.getByRole('tab', { name: 'My spots' }).props.accessibilityState).toMatchObject({ selected: true });
++    expect(screen.getByRole('tab', { name: 'Downtown' })).toBeTruthy();
++    expect(screen.getByText('Library ledge')).toBeTruthy();
++  });
++
++  it('with a list active, the List shows only its two spots', () => {
++    useHitListsStore.setState({ activeListId: downtown.id });
++    render(<SpotsScreen />);
++
++    expect(screen.getByText('Pier 57 rail')).toBeTruthy();
++    expect(screen.getByText('Bank to wall')).toBeTruthy();
++    expect(screen.queryByText('Library ledge')).toBeNull();
++  });
++
++  it('with a list active, the Map gets only its two spots', () => {
++    useHitListsStore.setState({ activeListId: downtown.id });
++    useSpotsStore.setState({ viewMode: 'map' });
++    render(<SpotsScreen />);
++
++    expect(screen.getAllByTestId(/^spot-marker-/).map((m) => m.props.testID).sort()).toEqual(
++      [`spot-marker-${pier.id}`, `spot-marker-${bank.id}`].sort(),
++    );
++  });
++
++  it('pressing a list chip scopes the list, and My spots brings every spot back', () => {
++    render(<SpotsScreen />);
++
++    fireEvent.press(screen.getByRole('tab', { name: 'Downtown' }));
++    expect(screen.queryByText('Library ledge')).toBeNull();
++    expect(screen.getByText('Pier 57 rail')).toBeTruthy();
++
++    fireEvent.press(screen.getByRole('tab', { name: 'My spots' }));
++    expect(screen.getByText('Library ledge')).toBeTruthy();
++  });
++
++  it("an empty active list reads 'No spots in this list yet' with no action", () => {
++    useHitListsStore.setState({ activeListId: bridges.id });
++    render(<SpotsScreen />);
++
++    expect(screen.getByText('No spots in this list yet')).toBeTruthy();
++    expect(screen.getByText("Add from a spot's page or select spots on the Spots tab")).toBeTruthy();
++    expect(screen.queryByText('No Spots Yet')).toBeNull();
++    expect(screen.queryByText('Add Spot')).toBeNull();
++  });
++
++  it('a deleted spot in the active list does not show', () => {
++    useSpotsStore.setState({ spots: [pier, { ...bank, deleted_at: '2026-10-02T12:00:00.000Z' }, library] });
++    useHitListsStore.setState({ activeListId: downtown.id });
++    render(<SpotsScreen />);
++
++    expect(screen.getByText('Pier 57 rail')).toBeTruthy();
++    expect(screen.queryByText('Bank to wall')).toBeNull();
++  });
++
++  it('deleting the active list goes back to every spot', () => {
++    useHitListsStore.setState({ activeListId: downtown.id });
++    render(<SpotsScreen />);
++    expect(screen.queryByText('Library ledge')).toBeNull();
++
++    act(() => useHitListsStore.getState().removeList(downtown.id));
++
++    expect(useHitListsStore.getState().activeListId).toBeNull();
++    expect(screen.getByRole('tab', { name: 'My spots' }).props.accessibilityState).toMatchObject({ selected: true });
++    expect(screen.getByText('Library ledge')).toBeTruthy();
++    expect(screen.queryByRole('tab', { name: 'Downtown' })).toBeNull();
++  });
++});
+diff --git a/src/__tests__/tabs-layout.test.tsx b/src/__tests__/tabs-layout.test.tsx
+new file mode 100644
+index 0000000..bdbab2d
+--- /dev/null
++++ b/src/__tests__/tabs-layout.test.tsx
+@@ -0,0 +1,38 @@
++import type { ReactElement, ReactNode } from 'react';
++import { render, screen } from '@testing-library/react-native';
++
++// The global router mock's Tabs is not renderable; here Tabs renders its children and each Tabs.Screen stays a host
++// element carrying its props, so the test can read name and options in order.
++jest.mock('expo-router', () => {
++  const Tabs = ({ children }: { children: ReactNode }) => children;
++  Tabs.Screen = 'Tabs.Screen';
++  return { Tabs };
++});
++
++import TabLayout from '@/app/(tabs)/_layout';
++
++type TabOptions = { title?: string; tabBarIcon?: (p: { color: string; focused: boolean; size: number }) => ReactElement<{ name: string }> };
++
++const tabScreens = () =>
++  screen.UNSAFE_root.findAll((n) => (n.type as unknown) === 'Tabs.Screen').map((n) => ({
++    name: n.props.name as string,
++    options: n.props.options as TabOptions,
++  }));
++
++describe('TabLayout', () => {
++  it('declares Spots, Lists, Profile in that order', () => {
++    render(<TabLayout />);
++
++    const tabs = tabScreens();
++    expect(tabs.map((t) => t.name)).toEqual(['index', 'lists', 'profile']);
++    expect(tabs.map((t) => t.options.title)).toEqual(['Spots', 'Lists', 'Profile']);
++  });
++
++  it("gives the Lists tab the 'list.bullet' icon", () => {
++    render(<TabLayout />);
++
++    const lists = tabScreens().find((t) => t.name === 'lists');
++    const icon = lists?.options.tabBarIcon?.({ color: '#000', focused: false, size: 28 });
++    expect(icon?.props.name).toBe('list.bullet');
++  });
++});
+diff --git a/src/__tests__/use-hit-list-actions.test.ts b/src/__tests__/use-hit-list-actions.test.ts
+new file mode 100644
+index 0000000..613cd1b
+--- /dev/null
++++ b/src/__tests__/use-hit-list-actions.test.ts
+@@ -0,0 +1,241 @@
++import { renderHook, act } from '@testing-library/react-native';
++import type { SQLiteDatabase } from 'expo-sqlite';
++
++import { getHitLists, getListMemberships, insertHitList, insertSpot } from '@/src/db';
++import { useHitListActions } from '@/src/hooks/use-hit-list-actions';
++import { useHitListsStore } from '@/src/stores';
++import { createTestHitList, createTestSpot } from './factories';
++import { createMigratedTestDb } from './helpers/node-sqlite-db';
++
++let mockDb: SQLiteDatabase;
++jest.mock('expo-sqlite', () => ({
++  ...jest.requireActual('expo-sqlite'),
++  useSQLiteContext: () => mockDb,
++}));
++
++const initial = useHitListsStore.getState();
++const store = () => useHitListsStore.getState();
++const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
++
++/** A list already saved in both the DB and the store, as useDbInit leaves it. */
++async function seedList(overrides = {}) {
++  const list = createTestHitList(overrides);
++  await insertHitList(mockDb, list);
++  store().addList(list);
++  return list;
++}
++
++function failNextWrite(method: 'runAsync' | 'withTransactionAsync' = 'runAsync') {
++  const err = new Error('disk full');
++  jest.spyOn(mockDb, method).mockRejectedValueOnce(err);
++  const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
++  return { err, consoleSpy };
++}
++
++describe('useHitListActions', () => {
++  beforeEach(async () => {
++    useHitListsStore.setState(initial, true);
++    mockDb = await createMigratedTestDb();
++    await insertSpot(mockDb, createTestSpot({ id: 'a' }));
++    await insertSpot(mockDb, createTestSpot({ id: 'b' }));
++  });
++
++  afterEach(() => {
++    jest.restoreAllMocks();
++  });
++
++  it('createList adds a manual, unshared list to the store and the DB and returns it', async () => {
++    const { result } = renderHook(() => useHitListActions());
++    let created!: Awaited<ReturnType<typeof result.current.createList>>;
++    await act(async () => {
++      created = await result.current.createList('  Downtown ');
++    });
++
++    expect(created).toEqual(
++      expect.objectContaining({ name: 'Downtown', kind: 'manual', shared: false, updated_at: created.created_at }),
++    );
++    expect(created.id).toMatch(UUID);
++    expect(Number.isNaN(Date.parse(created.created_at))).toBe(false);
++    expect(store().lists).toEqual([created]);
++    expect(await getHitLists(mockDb)).toEqual([created]);
++  });
++
++  it('createList puts the list in the store before the DB write resolves', async () => {
++    const { result } = renderHook(() => useHitListActions());
++    let pending!: Promise<unknown>;
++    act(() => {
++      pending = result.current.createList('Night');
++    });
++    expect(store().lists.map((l) => l.name)).toEqual(['Night']);
++    await act(async () => {
++      await pending;
++    });
++  });
++
++  it('createList: a failed insert takes the list back out and rejects', async () => {
++    const { err, consoleSpy } = failNextWrite();
++    const { result } = renderHook(() => useHitListActions());
++    await act(async () => {
++      await expect(result.current.createList('Downtown')).rejects.toBe(err);
++    });
++    expect(store().lists).toEqual([]);
++    expect(await getHitLists(mockDb)).toEqual([]);
++    expect(consoleSpy).toHaveBeenCalledWith('[useHitListActions] createList failed:', err);
++  });
++
++  it('renameList renames in the store first, then the DB, with one updated_at', async () => {
++    const list = await seedList();
++    const { result } = renderHook(() => useHitListActions());
++    let pending!: Promise<void>;
++    act(() => {
++      pending = result.current.renameList(list.id, 'Night mission');
++    });
++    expect(store().lists[0].name).toBe('Night mission');
++    await act(async () => {
++      await pending;
++    });
++
++    const [saved] = await getHitLists(mockDb);
++    expect(saved.name).toBe('Night mission');
++    expect(saved.updated_at > list.updated_at).toBe(true);
++    expect(store().lists[0]).toEqual(saved);
++  });
++
++  it('renameList: a failed write restores the name and updated_at and rejects', async () => {
++    const list = await seedList();
++    const { err, consoleSpy } = failNextWrite();
++    const { result } = renderHook(() => useHitListActions());
++    await act(async () => {
++      await expect(result.current.renameList(list.id, 'Night mission')).rejects.toBe(err);
++    });
++    expect(store().lists).toEqual([list]);
++    expect(consoleSpy).toHaveBeenCalledWith('[useHitListActions] renameList failed:', err);
++  });
++
++  it('deleteList soft-deletes: gone from the store and getHitLists, spots untouched', async () => {
++    const list = await seedList();
++    store().setActiveListId(list.id);
++    const { result } = renderHook(() => useHitListActions());
++    let pending!: Promise<void>;
++    act(() => {
++      pending = result.current.deleteList(list.id);
++    });
++    expect(store().lists).toEqual([]);
++    expect(store().activeListId).toBeNull();
++    await act(async () => {
++      await pending;
++    });
++
++    expect(await getHitLists(mockDb)).toEqual([]);
++    const row = await mockDb.getFirstAsync<{ deleted_at: string | null }>(
++      'SELECT deleted_at FROM hit_lists WHERE id = ?',
++      list.id,
++    );
++    expect(row?.deleted_at).toEqual(expect.any(String));
++    expect(await mockDb.getAllAsync('SELECT id FROM spots')).toHaveLength(2);
++  });
++
++  it('deleteList: a failed write puts the list back, re-selects it, and rejects', async () => {
++    const list = await seedList();
++    store().setActiveListId(list.id);
++    const { err, consoleSpy } = failNextWrite();
++    const { result } = renderHook(() => useHitListActions());
++    await act(async () => {
++      await expect(result.current.deleteList(list.id)).rejects.toBe(err);
++    });
++    expect(store().lists).toEqual([list]);
++    expect(store().activeListId).toBe(list.id);
++    expect(consoleSpy).toHaveBeenCalledWith('[useHitListActions] deleteList failed:', err);
++  });
++
++  it('deleteList: a failed write keeps a list the user picked while it was pending', async () => {
++    const list = await seedList();
++    const other = await seedList({ name: 'Night' });
++    store().setActiveListId(list.id);
++    const { err } = failNextWrite();
++    const { result } = renderHook(() => useHitListActions());
++    let pending!: Promise<void>;
++    act(() => {
++      pending = result.current.deleteList(list.id);
++    });
++    act(() => store().setActiveListId(other.id));
++    await act(async () => {
++      await expect(pending).rejects.toBe(err);
++    });
++    expect(store().lists.map((l) => l.id).sort()).toEqual([list.id, other.id].sort());
++    expect(store().activeListId).toBe(other.id);
++  });
++
++  it('addSpotsToList adds memberships in the store first, then the DB', async () => {
++    const list = await seedList();
++    const { result } = renderHook(() => useHitListActions());
++    let pending!: Promise<void>;
++    act(() => {
++      pending = result.current.addSpotsToList(list.id, ['a', 'b']);
++    });
++    expect(store().membershipBySpot).toEqual({ a: [list.id], b: [list.id] });
++    await act(async () => {
++      await pending;
++    });
++    expect(await getListMemberships(mockDb)).toEqual({ a: [list.id], b: [list.id] });
++  });
++
++  it('addSpotsToList: a failed write removes only the spots that were not already in the list', async () => {
++    const list = await seedList();
++    const { result } = renderHook(() => useHitListActions());
++    await act(async () => {
++      await result.current.addSpotsToList(list.id, ['a']);
++    });
++
++    const { err, consoleSpy } = failNextWrite('withTransactionAsync');
++    await act(async () => {
++      await expect(result.current.addSpotsToList(list.id, ['a', 'b'])).rejects.toBe(err);
++    });
++    expect(store().membershipBySpot).toEqual({ a: [list.id] });
++    expect(await getListMemberships(mockDb)).toEqual({ a: [list.id] });
++    expect(consoleSpy).toHaveBeenCalledWith('[useHitListActions] addSpotsToList failed:', err);
++  });
++
++  it('removeSpotFromList removes the membership in the store first, then the DB', async () => {
++    const list = await seedList();
++    const { result } = renderHook(() => useHitListActions());
++    await act(async () => {
++      await result.current.addSpotsToList(list.id, ['a', 'b']);
++    });
++    let pending!: Promise<void>;
++    act(() => {
++      pending = result.current.removeSpotFromList(list.id, 'a');
++    });
++    expect(store().membershipBySpot).toEqual({ b: [list.id] });
++    await act(async () => {
++      await pending;
++    });
++    expect(await getListMemberships(mockDb)).toEqual({ b: [list.id] });
++  });
++
++  it('removeSpotFromList: a failed write puts the membership back and rejects', async () => {
++    const list = await seedList();
++    const { result } = renderHook(() => useHitListActions());
++    await act(async () => {
++      await result.current.addSpotsToList(list.id, ['a']);
++    });
++    const { err, consoleSpy } = failNextWrite();
++    await act(async () => {
++      await expect(result.current.removeSpotFromList(list.id, 'a')).rejects.toBe(err);
++    });
++    expect(store().membershipBySpot).toEqual({ a: [list.id] });
++    expect(await getListMemberships(mockDb)).toEqual({ a: [list.id] });
++    expect(consoleSpy).toHaveBeenCalledWith('[useHitListActions] removeSpotFromList failed:', err);
++  });
++
++  it('removeSpotFromList: a failed write for a spot that was not in the list adds nothing', async () => {
++    const list = await seedList();
++    const { err, consoleSpy } = failNextWrite();
++    const { result } = renderHook(() => useHitListActions());
++    await act(async () => {
++      await expect(result.current.removeSpotFromList(list.id, 'a')).rejects.toBe(err);
++    });
++    expect(store().membershipBySpot).toEqual({});
++    consoleSpy.mockRestore();
++  });
++});
+diff --git a/src/components/AddToListSheet.tsx b/src/components/AddToListSheet.tsx
+new file mode 100644
+index 0000000..f24d61d
+--- /dev/null
++++ b/src/components/AddToListSheet.tsx
+@@ -0,0 +1,189 @@
++import { useMemo, useState } from 'react';
++import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
++
++import { IconSymbol } from '@/components/ui/icon-symbol';
++import { useHitListActions } from '@/src/hooks/use-hit-list-actions';
++import { selectListsByName, useHitListsStore } from '@/src/stores';
++import { palette, radius, spacing } from '@/src/constants/theme';
++import { NameListSheet } from './NameListSheet';
++
++interface Props {
++  visible: boolean;
++  /** The spots to file: one from a spot's page, the selection from the Spots tab. */
++  spotIds: string[];
++  onClose: () => void;
++}
++
++/**
++ * A set of switches, one per manual list: each toggle writes at once (no staging) and Done only closes. A list is
++ * checked when every given spot is in it, so toggling an unchecked one adds them all.
++ */
++export function AddToListSheet({ visible, ...rest }: Props) {
++  if (!visible) return null;
++  return <AddToListSheetContent {...rest} />;
++}
++
++function AddToListSheetContent({ spotIds, onClose }: Omit<Props, 'visible'>) {
++  const lists = useHitListsStore((s) => s.lists);
++  const membershipBySpot = useHitListsStore((s) => s.membershipBySpot);
++  const { createList, addSpotsToList, removeSpotFromList } = useHitListActions();
++  const [naming, setNaming] = useState(false);
++
++  const rows = useMemo(
++    () => selectListsByName(lists.filter((l) => l.kind === 'manual' && l.deleted_at === undefined)),
++    [lists],
++  );
++  // No spots is in no list (every() over [] would check them all).
++  const holdsAll = (listId: string) =>
++    spotIds.length > 0 && spotIds.every((id) => membershipBySpot[id]?.includes(listId));
++
++  // The hook has already put the store back when a write fails; this only says so, once per toggle.
++  const add = async (listId: string) => {
++    try {
++      await addSpotsToList(listId, spotIds);
++    } catch {
++      Alert.alert("Couldn't update the list", 'Please try again.');
++    }
++  };
++
++  const toggle = async (listId: string) => {
++    if (!holdsAll(listId)) return add(listId);
++    try {
++      await Promise.all(spotIds.map((id) => removeSpotFromList(listId, id)));
++    } catch {
++      Alert.alert("Couldn't update the list", 'Please try again.');
++    }
++  };
++
++  const create = async (name: string) => {
++    let listId: string;
++    try {
++      listId = (await createList(name)).id;
++    } catch (err) {
++      Alert.alert("Couldn't create the list", 'Please try again.');
++      throw err;
++    }
++    setNaming(false);
++    await add(listId);
++  };
++
++  return (
++    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
++      <View style={styles.container}>
++        <View style={styles.header}>
++          <Text style={styles.title} accessibilityRole="header">
++            Add to hit list
++          </Text>
++          <Pressable onPress={onClose} hitSlop={8} accessibilityRole="button">
++            <Text style={styles.done}>Done</Text>
++          </Pressable>
++        </View>
++
++        <ScrollView contentContainerStyle={styles.content}>
++          {rows.map((list) => {
++            const checked = holdsAll(list.id);
++            return (
++              <Pressable
++                key={list.id}
++                onPress={() => toggle(list.id)}
++                style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
++                accessibilityRole="checkbox"
++                accessibilityLabel={list.name}
++                accessibilityState={{ checked }}>
++                <Text style={styles.rowText} numberOfLines={1}>
++                  {list.name}
++                </Text>
++                <View style={[styles.box, checked && styles.boxChecked]}>
++                  {checked ? <IconSymbol name="checkmark" size={16} color={palette.white} /> : null}
++                </View>
++              </Pressable>
++            );
++          })}
++          <Pressable
++            onPress={() => setNaming(true)}
++            style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
++            accessibilityRole="button"
++            accessibilityLabel="New hit list">
++            <Text style={styles.newText}>+ New hit list</Text>
++          </Pressable>
++        </ScrollView>
++
++        {/* Inside this Modal's tree so iOS presents it on top of the sheet. */}
++        <NameListSheet
++          visible={naming}
++          title="New hit list"
++          confirmLabel="Create"
++          onCancel={() => setNaming(false)}
++          onSubmit={create}
++        />
++      </View>
++    </Modal>
++  );
++}
++
++const styles = StyleSheet.create({
++  container: {
++    flex: 1,
++    backgroundColor: palette.white,
++  },
++  header: {
++    flexDirection: 'row',
++    justifyContent: 'space-between',
++    alignItems: 'center',
++    paddingHorizontal: spacing.lg,
++    paddingTop: spacing.xl,
++    paddingBottom: spacing.md,
++    borderBottomWidth: StyleSheet.hairlineWidth,
++    borderBottomColor: palette.gray[200],
++  },
++  title: {
++    fontSize: 20,
++    fontWeight: '700',
++    color: palette.gray[900],
++  },
++  done: {
++    fontSize: 17,
++    color: palette.blue[500],
++    fontWeight: '600',
++  },
++  content: {
++    paddingBottom: spacing['3xl'],
++  },
++  row: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    justifyContent: 'space-between',
++    gap: spacing.md,
++    paddingHorizontal: spacing.lg,
++    paddingVertical: spacing.md,
++    borderBottomWidth: StyleSheet.hairlineWidth,
++    borderBottomColor: palette.gray[200],
++  },
++  rowPressed: {
++    backgroundColor: palette.gray[100],
++  },
++  rowText: {
++    flexShrink: 1,
++    fontSize: 17,
++    color: palette.gray[900],
++  },
++  box: {
++    width: 24,
++    height: 24,
++    borderRadius: radius.sm,
++    borderCurve: 'continuous',
++    borderWidth: 2,
++    borderColor: palette.gray[300],
++    alignItems: 'center',
++    justifyContent: 'center',
++  },
++  boxChecked: {
++    backgroundColor: palette.blue[500],
++    borderColor: palette.blue[500],
++  },
++  newText: {
++    fontSize: 17,
++    color: palette.blue[500],
++    fontWeight: '500',
++  },
++});
+diff --git a/src/components/Chip.tsx b/src/components/Chip.tsx
+index f5d8971..a05acca 100644
+--- a/src/components/Chip.tsx
++++ b/src/components/Chip.tsx
+@@ -8,8 +8,11 @@ interface ChipProps {
+   label: string;
+   selected?: boolean;
+   onPress?: () => void;
+-  /** 'checkbox' (default) for toggles in a set; 'button' for one-of choices such as the sort chips. */
+-  role?: 'checkbox' | 'button';
++  /**
++   * 'checkbox' (default) for toggles in a set; 'button' for one-of choices such as the sort chips; 'tab' for a row
++   * that switches what the screen shows (the list picker). 'button' and 'tab' report `selected`, 'checkbox' `checked`.
++   */
++  role?: 'checkbox' | 'button' | 'tab';
+   disabled?: boolean;
+   accessibilityLabel?: string;
+   accessibilityHint?: string;
+@@ -32,7 +35,7 @@ export function Chip({
+       accessibilityRole={role}
+       accessibilityLabel={accessibilityLabel}
+       accessibilityHint={accessibilityHint}
+-      accessibilityState={role === 'button' ? { selected, disabled } : { checked: selected, disabled }}>
++      accessibilityState={role === 'checkbox' ? { checked: selected, disabled } : { selected, disabled }}>
+       <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+         {label}
+       </Text>
+diff --git a/src/components/ListPickerChips.tsx b/src/components/ListPickerChips.tsx
+new file mode 100644
+index 0000000..e14f5f3
+--- /dev/null
++++ b/src/components/ListPickerChips.tsx
+@@ -0,0 +1,59 @@
++import { useMemo } from 'react';
++import { ScrollView, StyleSheet } from 'react-native';
++
++import { Chip } from '@/src/components/Chip';
++import { spacing } from '@/src/constants/theme';
++import { selectListsByName, useHitListsStore } from '@/src/stores';
++
++/**
++ * The Spots tab's scope row: 'My spots' (every spot) then each live hit list by name. Reads and writes the store's
++ * activeListId; with no lists there is nothing to pick, so it renders nothing.
++ */
++export function ListPickerChips() {
++  const lists = useHitListsStore((s) => s.lists);
++  const activeListId = useHitListsStore((s) => s.activeListId);
++  const setActiveListId = useHitListsStore((s) => s.setActiveListId);
++  const live = useMemo(() => selectListsByName(lists.filter((l) => l.deleted_at === undefined)), [lists]);
++
++  if (live.length === 0) return null;
++
++  return (
++    <ScrollView
++      horizontal
++      accessibilityRole="tablist"
++      showsHorizontalScrollIndicator={false}
++      keyboardShouldPersistTaps="handled"
++      style={styles.scroll}
++      contentContainerStyle={styles.row}>
++      <Chip
++        role="tab"
++        label="My spots"
++        selected={activeListId === null}
++        onPress={() => setActiveListId(null)}
++      />
++      {live.map((list) => (
++        <Chip
++          key={list.id}
++          role="tab"
++          label={list.name}
++          selected={list.id === activeListId}
++          onPress={() => setActiveListId(list.id)}
++        />
++      ))}
++    </ScrollView>
++  );
++}
++
++const styles = StyleSheet.create({
++  // A horizontal ScrollView defaults to flexGrow 1 / flexShrink 1 and would take half the screen's height.
++  scroll: {
++    flexGrow: 0,
++    flexShrink: 0,
++  },
++  row: {
++    alignItems: 'center',
++    gap: spacing.sm,
++    paddingHorizontal: spacing.md,
++    paddingTop: spacing.sm,
++  },
++});
+diff --git a/src/components/NameListSheet.tsx b/src/components/NameListSheet.tsx
+new file mode 100644
+index 0000000..21120ab
+--- /dev/null
++++ b/src/components/NameListSheet.tsx
+@@ -0,0 +1,113 @@
++import React, { useRef, useState } from 'react';
++import { KeyboardAvoidingView, Modal, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
++import { palette, radius, spacing } from '@/src/constants/theme';
++import { Button } from './Button';
++
++interface Props {
++  visible: boolean;
++  /** 'New hit list' or 'Rename list'. */
++  title: string;
++  /** Seeds the field on each open. */
++  initialName?: string;
++  /** 'Create' or 'Save'. */
++  confirmLabel: string;
++  onCancel: () => void;
++  /** Gets the trimmed name. The sheet stays open (and enabled again) if it rejects; the caller closes it. */
++  onSubmit: (name: string) => Promise<void> | void;
++}
++
++/** A small centred card that asks for a list's name. Mounted only while visible, so every open starts fresh. */
++export function NameListSheet({ visible, ...rest }: Props) {
++  if (!visible) return null;
++  return <NameListSheetContent {...rest} />;
++}
++
++function NameListSheetContent({ title, initialName = '', confirmLabel, onCancel, onSubmit }: Omit<Props, 'visible'>) {
++  const [name, setName] = useState(initialName);
++  const [submitting, setSubmitting] = useState(false);
++  // A second tap can land before the disabled state renders; the ref makes it a no-op.
++  const inFlight = useRef(false);
++  const trimmed = name.trim();
++  // Closing mid-submit would let the caller act (navigate, alert) for a sheet the user already dismissed.
++  const cancel = () => {
++    if (!inFlight.current) onCancel();
++  };
++
++  const submit = async () => {
++    if (trimmed === '' || inFlight.current) return;
++    inFlight.current = true;
++    setSubmitting(true);
++    try {
++      await onSubmit(trimmed);
++    } catch {
++      // The caller reports the failure; the sheet just lets the user try again.
++    } finally {
++      inFlight.current = false;
++      setSubmitting(false);
++    }
++  };
++
++  return (
++    <Modal visible transparent animationType="fade" onRequestClose={cancel} testID="name-list-sheet-modal">
++      <KeyboardAvoidingView behavior="padding" style={styles.backdrop}>
++        <Pressable style={StyleSheet.absoluteFill} onPress={cancel} accessible={false} />
++        <View style={styles.card}>
++          <Text style={styles.title} accessibilityRole="header">
++            {title}
++          </Text>
++          <TextInput
++            style={styles.input}
++            value={name}
++            onChangeText={setName}
++            placeholder="Name"
++            placeholderTextColor={palette.gray[400]}
++            accessibilityLabel="List name"
++            autoFocus
++            returnKeyType="done"
++            submitBehavior="submit"
++            onSubmitEditing={submit}
++          />
++          <View style={styles.buttons}>
++            <Button title="Cancel" variant="secondary" onPress={cancel} disabled={submitting} />
++            <Button title={confirmLabel} onPress={submit} disabled={trimmed === '' || submitting} />
++          </View>
++        </View>
++      </KeyboardAvoidingView>
++    </Modal>
++  );
++}
++
++const styles = StyleSheet.create({
++  backdrop: {
++    flex: 1,
++    justifyContent: 'center',
++    padding: spacing.xl,
++    backgroundColor: 'rgba(0, 0, 0, 0.4)',
++  },
++  card: {
++    backgroundColor: palette.white,
++    borderRadius: radius.lg,
++    borderCurve: 'continuous',
++    padding: spacing.lg,
++    gap: spacing.md,
++  },
++  title: {
++    fontSize: 18,
++    fontWeight: '700',
++    color: palette.gray[900],
++  },
++  input: {
++    borderWidth: 1,
++    borderColor: palette.gray[300],
++    borderRadius: radius.md,
++    paddingHorizontal: spacing.md,
++    paddingVertical: spacing.sm,
++    fontSize: 16,
++    color: palette.gray[900],
++  },
++  buttons: {
++    flexDirection: 'row',
++    justifyContent: 'flex-end',
++    gap: spacing.sm,
++  },
++});
+diff --git a/src/components/SpotListItem.tsx b/src/components/SpotListItem.tsx
+index c302c6d..e2c40ef 100644
+--- a/src/components/SpotListItem.tsx
++++ b/src/components/SpotListItem.tsx
+@@ -6,6 +6,7 @@ import type { NaturalSpeed } from '@/src/types';
+ import { SPEED_LABELS } from '@/src/constants/labels';
+ import { Tag } from '@/src/components/Chip';
+ import { SpeedScale } from '@/src/components/SpeedScale';
++import { IconSymbol } from '@/components/ui/icon-symbol';
+ 
+ interface SpotListItemProps {
+   id: string;
+@@ -16,6 +17,10 @@ interface SpotListItemProps {
+   naturalSpeed?: NaturalSpeed;
+   distance?: string;
+   onPress: (id: string) => void;
++  onLongPress?: (id: string) => void;
++  /** Select mode: the row is a checkbox (a check circle left of the thumbnail) and a tap toggles it. */
++  selectable?: boolean;
++  selected?: boolean;
+ }
+ 
+ export const SpotListItem = memo(function SpotListItem({
+@@ -27,6 +32,9 @@ export const SpotListItem = memo(function SpotListItem({
+   naturalSpeed,
+   distance,
+   onPress,
++  onLongPress,
++  selectable = false,
++  selected = false,
+ }: SpotListItemProps) {
+   // VoiceOver reads only the row's label, not the badges inside it, so the label says what they show.
+   const label = [
+@@ -42,9 +50,16 @@ export const SpotListItem = memo(function SpotListItem({
+   return (
+     <Pressable
+       onPress={() => onPress(id)}
++      onLongPress={onLongPress ? () => onLongPress(id) : undefined}
+       style={({ pressed }) => [styles.container, pressed && styles.pressed]}
+-      accessibilityRole="button"
++      accessibilityRole={selectable ? 'checkbox' : 'button'}
++      accessibilityState={selectable ? { checked: selected } : undefined}
+       accessibilityLabel={label}>
++      {selectable ? (
++        <View testID={`spot-check-${id}`} style={[styles.check, selected && styles.checkSelected]}>
++          {selected ? <IconSymbol name="checkmark" size={16} color={palette.white} /> : null}
++        </View>
++      ) : null}
+       <View style={styles.thumbnailContainer}>
+         {thumbnailUri ? (
+           <Image
+@@ -84,6 +99,20 @@ const styles = StyleSheet.create({
+     gap: spacing.md,
+     backgroundColor: palette.white,
+   },
++  check: {
++    alignSelf: 'center',
++    width: 24,
++    height: 24,
++    borderRadius: 12,
++    borderWidth: 2,
++    borderColor: palette.gray[400],
++    alignItems: 'center',
++    justifyContent: 'center',
++  },
++  checkSelected: {
++    borderColor: palette.blue[500],
++    backgroundColor: palette.blue[500],
++  },
+   pressed: {
+     backgroundColor: palette.gray[50],
+   },
+diff --git a/src/components/SpotsBrowser.tsx b/src/components/SpotsBrowser.tsx
+new file mode 100644
+index 0000000..59055f8
+--- /dev/null
++++ b/src/components/SpotsBrowser.tsx
+@@ -0,0 +1,301 @@
++import { useCallback, useMemo, useState, type ReactNode } from 'react';
++import { Stack, useRouter } from 'expo-router';
++import { Keyboard, StyleSheet, View, Pressable, Text, TextInput } from 'react-native';
++import { FlashList } from '@shopify/flash-list';
++
++import {
++  useSpotsStore,
++  useMediaStore,
++  selectFilteredSpots,
++  selectSortedSpots,
++  selectEffectiveSort,
++  selectActiveFilterCount,
++} from '@/src/stores';
++import { useLocationStore } from '@/src/stores/location-store';
++import { useSettingsStore } from '@/src/stores/settings-store';
++import { SpotListItem } from '@/src/components/SpotListItem';
++import { EmptyState } from '@/src/components/EmptyState';
++import { FilterSheet } from '@/src/components/FilterSheet';
++import { SegmentedControl } from '@/src/components/SegmentedControl';
++import { SpotMap } from '@/src/components/SpotMap';
++import { SortChips } from '@/src/components/SortChips';
++import { useCurrentLocation } from '@/src/hooks/use-current-location';
++import { featureTypesLabel, getSpotDisplayName } from '@/src/utils/spot-name';
++import { resolvePhotoUri } from '@/src/utils/photo-storage';
++import { primaryPhoto } from '@/src/utils/spot-photos';
++import { haversineDistance, formatDistance, isKnownLocation } from '@/src/utils/geo';
++import { SortField, UnitSystem } from '@/src/types';
++import type { Spot } from '@/src/types';
++import type { ViewMode } from '@/src/stores/spots-store';
++import { palette, radius, spacing } from '@/src/constants/theme';
++
++interface SpotsBrowserProps {
++  /** The set to browse: all spots, or a hit list's. Filters, search and sort (one set in the store, D52) narrow it. */
++  spots: Spot[];
++  /** Shown in List view when `spots` is empty. */
++  emptyTitle: string;
++  emptyMessage: string;
++  emptyActionLabel?: string;
++  onEmptyAction?: () => void;
++  /** Rendered above the mode bar. */
++  aboveList?: ReactNode;
++  /** The list's bottom padding, so the last rows can scroll clear of anything floating over it. */
++  contentBottomInset?: number;
++  /** Rendered in the header before the Filter button (a screen's own headerRight would replace Filter). */
++  headerActions?: ReactNode;
++  /** Overrides the header's title text ('2 selected'); undefined shows the screen's title. */
++  headerTitle?: string;
++  /** The header's left side (the Spots tab's 'Select' / 'Cancel'); undefined keeps the default (a back button). */
++  headerLeft?: ReactNode;
++  onSpotLongPress?: (id: string) => void;
++  /** Replaces a row tap's default (open the spot). */
++  onSpotPress?: (id: string) => void;
++  /** Defined = select mode: rows render as checkboxes, checked when their id is in the set. */
++  selectedIds?: ReadonlySet<string>;
++}
++
++/**
++ * The List | Map body of the Spots tab, reusable for any set of spots: mode toggle, search, sort chips, the list or
++ * the map, the empty states, and the header Filter button with its sheet. Reads and writes the one spots store.
++ */
++export function SpotsBrowser({
++  spots,
++  emptyTitle,
++  emptyMessage,
++  emptyActionLabel,
++  onEmptyAction,
++  aboveList,
++  contentBottomInset = spacing.md,
++  headerActions,
++  headerTitle,
++  headerLeft,
++  onSpotLongPress,
++  onSpotPress,
++  selectedIds,
++}: SpotsBrowserProps) {
++  const router = useRouter();
++  useCurrentLocation(); // distances in the list and the map's own position (bug 5)
++  const filters = useSpotsStore((s) => s.filters);
++  const searchQuery = useSpotsStore((s) => s.searchQuery);
++  const storedSortField = useSpotsStore((s) => s.sortField);
++  const storedSortDirection = useSpotsStore((s) => s.sortDirection);
++  const sortChosen = useSpotsStore((s) => s.sortChosen);
++  const viewMode = useSpotsStore((s) => s.viewMode);
++  const setViewMode = useSpotsStore((s) => s.setViewMode);
++  const resetFilters = useSpotsStore((s) => s.resetFilters);
++  const setSearchQuery = useSpotsStore((s) => s.setSearchQuery);
++  const setSort = useSpotsStore((s) => s.setSort);
++  const currentLocation = useLocationStore((s) => s.currentLocation);
++  const units = useSettingsStore((s) => s.units);
++  const mediaBySpot = useMediaStore((s) => s.mediaBySpot);
++
++  const [filterVisible, setFilterVisible] = useState(false);
++  const activeFilterCount = selectActiveFilterCount(filters);
++  // Distance, nearest first, once the position is known and until the user taps a chip (D14).
++  const { sortField, sortDirection } = selectEffectiveSort(
++    { sortField: storedSortField, sortDirection: storedSortDirection, sortChosen },
++    currentLocation != null,
++  );
++
++  // The map takes the filtered spots: order doesn't matter to it, and a new array would re-cluster its markers.
++  const filtered = useMemo(
++    () => selectFilteredSpots(spots, filters, searchQuery),
++    [spots, filters, searchQuery],
++  );
++  // Location only matters to the Distance sort; other sorts ignore location updates.
++  const sortLocation = sortField === SortField.Distance ? currentLocation : null;
++  const sorted = useMemo(
++    () => selectSortedSpots(filtered, sortField, sortDirection, sortLocation ?? undefined),
++    [filtered, sortField, sortDirection, sortLocation],
++  );
++
++  const openSpot = useCallback(
++    (id: string) => {
++      Keyboard.dismiss(); // a raised keyboard would cover the spot screen while it animates in
++      router.push(`/spot/${id}` as `/spot/${string}`);
++    },
++    [router],
++  );
++  const handleRowPress = onSpotPress ?? openSpot;
++
++  const getDistance = useCallback(
++    (spot: Spot): string | undefined => {
++      if (!currentLocation || !isKnownLocation(spot.location)) return undefined;
++      const km = haversineDistance(currentLocation, spot.location);
++      return formatDistance(km, units === UnitSystem.Imperial);
++    },
++    [currentLocation, units],
++  );
++
++  const renderItem = useCallback(
++    ({ item }: { item: Spot }) => {
++      const thumbnail = primaryPhoto(item, mediaBySpot[item.id]);
++      return (
++        <SpotListItem
++          id={item.id}
++          displayName={getSpotDisplayName(item)}
++          thumbnailUri={thumbnail ? resolvePhotoUri(thumbnail.file_path) : undefined}
++          featureType={featureTypesLabel(item)}
++          stopped={item.stopped}
++          naturalSpeed={item.natural_speed}
++          distance={getDistance(item)}
++          onPress={handleRowPress}
++          onLongPress={onSpotLongPress}
++          selectable={selectedIds !== undefined}
++          selected={selectedIds?.has(item.id) ?? false}
++        />
++      );
++    },
++    [handleRowPress, onSpotLongPress, selectedIds, getDistance, mediaBySpot],
++  );
++
++  const keyExtractor = useCallback((item: Spot) => item.id, []);
++
++  // "No matching spots" offers the way out: clear the search if there is one (whitespace is not a search;
++  // selectFilteredSpots trims the same way), otherwise reset the filters.
++  const noMatchAction = searchQuery.trim() !== ''
++    ? { label: 'Clear search', run: () => setSearchQuery('') }
++    : activeFilterCount > 0
++      ? { label: 'Reset filters', run: resetFilters }
++      : undefined;
++
++  const filterButton = (
++    <Pressable
++      onPress={() => setFilterVisible(true)}
++      hitSlop={8}
++      accessibilityLabel={`Filter spots${activeFilterCount > 0 ? `, ${activeFilterCount} active` : ''}`}
++      accessibilityRole="button"
++      style={styles.filterButton}>
++      <Text style={[styles.filterText, activeFilterCount > 0 && styles.filterTextActive]}>
++        Filter{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
++      </Text>
++    </Pressable>
++  );
++
++  return (
++    <View style={styles.container}>
++      <Stack.Screen
++        // These options always carry headerTitle and headerLeft (undefined un-sets them, as '2 selected' needs), so
++        // they overwrite a layout's; a screen sets them through these props, not its own Stack.Screen.
++        options={{
++          headerTitle,
++          headerLeft: headerLeft === undefined ? undefined : () => headerLeft,
++          headerRight: () => (
++            <View style={styles.headerButtons}>
++              {headerActions}
++              {filterButton}
++            </View>
++          ),
++        }}
++      />
++      {aboveList}
++      <View style={styles.modeBar}>
++        <SegmentedControl
++          segments={VIEW_MODES}
++          selectedValue={viewMode}
++          onValueChange={setViewMode}
++        />
++        {/* Search filters both views (it writes the store's searchQuery), so it sits above them. */}
++        <TextInput
++          style={styles.search}
++          value={searchQuery}
++          onChangeText={setSearchQuery}
++          placeholder="Search spots"
++          placeholderTextColor={palette.gray[500]}
++          accessibilityLabel="Search spots"
++          accessibilityRole="search"
++          clearButtonMode="while-editing"
++          autoCorrect={false}
++          autoCapitalize="none"
++          returnKeyType="search"
++        />
++      </View>
++      {viewMode === 'list' ? (
++        <SortChips
++          sortField={sortField}
++          sortDirection={sortDirection}
++          hasLocation={currentLocation != null}
++          onSort={setSort}
++        />
++      ) : null}
++      <View style={styles.body}>
++        {viewMode === 'map' ? (
++          <SpotMap spots={filtered} currentLocation={currentLocation} onOpenSpot={openSpot} />
++        ) : null}
++        {viewMode === 'list' && spots.length === 0 ? (
++          <EmptyState
++            title={emptyTitle}
++            message={emptyMessage}
++            actionLabel={emptyActionLabel}
++            onAction={onEmptyAction}
++          />
++        ) : null}
++        {viewMode === 'list' && spots.length > 0 && sorted.length === 0 ? (
++          <EmptyState
++            icon="magnifyingglass"
++            title="No matching spots"
++            message="Try a different search or clear the filters"
++            actionLabel={noMatchAction?.label}
++            onAction={noMatchAction?.run}
++          />
++        ) : null}
++        {viewMode === 'list' && sorted.length > 0 ? (
++          <FlashList
++            data={sorted}
++            renderItem={renderItem}
++            keyExtractor={keyExtractor}
++            extraData={selectedIds}
++            contentContainerStyle={{ paddingBottom: contentBottomInset }}
++            keyboardDismissMode="on-drag"
++            keyboardShouldPersistTaps="handled"
++          />
++        ) : null}
++      </View>
++      <FilterSheet visible={filterVisible} onClose={() => setFilterVisible(false)} />
++    </View>
++  );
++}
++
++const VIEW_MODES: { label: string; value: ViewMode }[] = [
++  { label: 'List', value: 'list' },
++  { label: 'Map', value: 'map' },
++];
++
++const styles = StyleSheet.create({
++  modeBar: {
++    paddingHorizontal: spacing.md,
++    paddingVertical: spacing.sm,
++    gap: spacing.sm,
++  },
++  search: {
++    backgroundColor: palette.gray[100],
++    borderRadius: radius.md,
++    borderCurve: 'continuous',
++    paddingHorizontal: spacing.md,
++    paddingVertical: spacing.sm,
++    fontSize: 16,
++    color: palette.gray[900],
++  },
++  body: {
++    flex: 1,
++  },
++  container: {
++    flex: 1,
++  },
++  headerButtons: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    gap: spacing.sm,
++  },
++  filterButton: {
++    paddingHorizontal: spacing.sm,
++  },
++  filterText: {
++    fontSize: 16,
++    color: palette.blue[500],
++    fontWeight: '500',
++  },
++  filterTextActive: {
++    fontWeight: '700',
++  },
++});
+diff --git a/src/components/index.ts b/src/components/index.ts
+index 7253e2d..1c50562 100644
+--- a/src/components/index.ts
++++ b/src/components/index.ts
+@@ -10,3 +10,7 @@ export { PhotoGrid } from './PhotoGrid';
+ export { AddPhotosTile } from './AddPhotosTile';
+ export { SpotTagFields, type SpotTags } from './SpotTagFields';
+ export { ZoomablePhoto } from './ZoomablePhoto';
++export { SpotsBrowser } from './SpotsBrowser';
++export { NameListSheet } from './NameListSheet';
++export { AddToListSheet } from './AddToListSheet';
++export { ListPickerChips } from './ListPickerChips';
+diff --git a/src/db/hit-lists.ts b/src/db/hit-lists.ts
+new file mode 100644
+index 0000000..0a4aff1
+--- /dev/null
++++ b/src/db/hit-lists.ts
+@@ -0,0 +1,156 @@
++import type { SQLiteDatabase } from 'expo-sqlite';
++import type { HitList, HitListKind, HitListUpdate, SpotFilters } from '@/src/types';
++import { isObject } from '@/src/utils/is-object';
++
++interface HitListRow {
++  id: string;
++  owner_id: string | null;
++  name: string;
++  kind: string;
++  area_center_lat: number | null;
++  area_center_lng: number | null;
++  area_radius_m: number | null;
++  area_filters_json: string | null;
++  area_place: string | null;
++  shared: number;
++  created_at: string;
++  updated_at: string;
++  deleted_at: string | null;
++}
++
++const HIT_LIST_COLUMNS =
++  'id, owner_id, name, kind, area_center_lat, area_center_lng, area_radius_m, area_filters_json, area_place, shared, created_at, updated_at, deleted_at';
++
++/** Only the app writes this column, but one unreadable row must not take every list down with it. */
++function parseAreaFilters(row: HitListRow): SpotFilters | undefined {
++  if (row.area_filters_json === null) return undefined;
++  try {
++    const parsed: unknown = JSON.parse(row.area_filters_json);
++    if (isObject(parsed) && Array.isArray(parsed.types)) return parsed as unknown as SpotFilters;
++  } catch {
++    // fall through to the warning
++  }
++  console.warn(`[hit-lists] unreadable area_filters_json on list ${row.id}; reading it as no filters`);
++  return undefined;
++}
++
++function rowToHitList(row: HitListRow): HitList {
++  return {
++    id: row.id,
++    name: row.name,
++    kind: row.kind as HitListKind,
++    owner_id: row.owner_id ?? undefined,
++    shared: row.shared === 1,
++    area_center:
++      row.area_center_lat !== null && row.area_center_lng !== null
++        ? { latitude: row.area_center_lat, longitude: row.area_center_lng }
++        : undefined,
++    area_radius_m: row.area_radius_m ?? undefined,
++    area_filters: parseAreaFilters(row),
++    area_place: row.area_place ?? undefined,
++    created_at: row.created_at,
++    updated_at: row.updated_at,
++    deleted_at: row.deleted_at ?? undefined,
++  };
++}
++
++export async function insertHitList(db: SQLiteDatabase, list: HitList): Promise<void> {
++  await db.runAsync(
++    `INSERT INTO hit_lists (${HIT_LIST_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
++    list.id,
++    list.owner_id ?? null,
++    list.name,
++    list.kind,
++    list.area_center?.latitude ?? null,
++    list.area_center?.longitude ?? null,
++    list.area_radius_m ?? null,
++    list.area_filters ? JSON.stringify(list.area_filters) : null,
++    list.area_place ?? null,
++    list.shared ? 1 : 0,
++    list.created_at,
++    list.updated_at,
++    list.deleted_at ?? null,
++  );
++}
++
++/** Live lists, oldest first. */
++export async function getHitLists(db: SQLiteDatabase): Promise<HitList[]> {
++  const rows = await db.getAllAsync<HitListRow>(
++    `SELECT ${HIT_LIST_COLUMNS} FROM hit_lists WHERE deleted_at IS NULL ORDER BY created_at`,
++  );
++  return rows.map(rowToHitList);
++}
++
++/** Writes only the keys given; a deleted list is left alone. */
++export async function updateHitList(db: SQLiteDatabase, id: string, updates: HitListUpdate): Promise<void> {
++  const setClauses: string[] = [];
++  const values: (string | number)[] = [];
++
++  if (updates.name !== undefined) {
++    setClauses.push('name = ?');
++    values.push(updates.name);
++  }
++  if (updates.shared !== undefined) {
++    setClauses.push('shared = ?');
++    values.push(updates.shared ? 1 : 0);
++  }
++
++  // The caller's stamp wins so the store and DB agree.
++  setClauses.push('updated_at = ?');
++  values.push(updates.updated_at ?? new Date().toISOString());
++  values.push(id);
++
++  await db.runAsync(
++    `UPDATE hit_lists SET ${setClauses.join(', ')} WHERE id = ? AND deleted_at IS NULL`,
++    ...values,
++  );
++}
++
++/** Marks a list deleted at `at` (ISO 8601 UTC), which also becomes its updated_at. Its spots are untouched. */
++export async function softDeleteHitList(
++  db: SQLiteDatabase,
++  id: string,
++  at: string = new Date().toISOString(),
++): Promise<void> {
++  await db.runAsync('UPDATE hit_lists SET deleted_at = ?, updated_at = ? WHERE id = ?', at, at, id);
++}
++
++/** Adds the spots in one transaction; a spot already in the list keeps its first added_at. */
++export async function addSpotsToList(
++  db: SQLiteDatabase,
++  listId: string,
++  spotIds: string[],
++  addedAt: string = new Date().toISOString(),
++): Promise<void> {
++  if (spotIds.length === 0) return;
++  await db.withTransactionAsync(async () => {
++    for (const spotId of spotIds) {
++      await db.runAsync(
++        'INSERT OR IGNORE INTO hit_list_spots (list_id, spot_id, added_at) VALUES (?, ?, ?)',
++        listId,
++        spotId,
++        addedAt,
++      );
++    }
++  });
++}
++
++export async function removeSpotFromList(db: SQLiteDatabase, listId: string, spotId: string): Promise<void> {
++  await db.runAsync('DELETE FROM hit_list_spots WHERE list_id = ? AND spot_id = ?', listId, spotId);
++}
++
++/**
++ * `{ [spotId]: listId[] }` for every live list, in the order the spot was added to them. A soft-deleted spot keeps
++ * its rows; the store's selectors hide it.
++ */
++export async function getListMemberships(db: SQLiteDatabase): Promise<Record<string, string[]>> {
++  const rows = await db.getAllAsync<{ spot_id: string; list_id: string }>(
++    `SELECT s.spot_id, s.list_id FROM hit_list_spots s
++     JOIN hit_lists l ON l.id = s.list_id
++     WHERE l.deleted_at IS NULL
++     ORDER BY s.added_at`,
++  );
++  const memberships: Record<string, string[]> = {};
++  for (const { spot_id, list_id } of rows) (memberships[spot_id] ??= []).push(list_id);
++  return memberships;
++}
+diff --git a/src/db/index.ts b/src/db/index.ts
+index a871ade..43b035b 100644
+--- a/src/db/index.ts
++++ b/src/db/index.ts
+@@ -3,3 +3,12 @@ export type { SpotLegacy } from './schema';
+ export { insertSpot, getSpot, getSpots, getSpotLegacy, updateSpot, softDeleteSpot } from './spots';
+ export { insertMedia, getMediaForSpot, getAllMedia, deleteMedia } from './media';
+ export { getSetting, setSetting, getUserSettings, saveUserSettings } from './settings';
++export {
++  insertHitList,
++  getHitLists,
++  updateHitList,
++  softDeleteHitList,
++  addSpotsToList,
++  removeSpotFromList,
++  getListMemberships,
++} from './hit-lists';
+diff --git a/src/db/schema.ts b/src/db/schema.ts
+index 9c08adf..c3cf59d 100644
+--- a/src/db/schema.ts
++++ b/src/db/schema.ts
+@@ -279,8 +279,42 @@ async function migration3(db: SQLiteDatabase): Promise<void> {
+   `);
+ }
+ 
++/**
++ * Version 4: hit lists (S1). A list holds many spots and a spot sits in many lists (hit_list_spots). The area
++ * columns are reserved for area lists (S2) and owner_id / added_by for accounts, so neither adds a migration.
++ * IF NOT EXISTS so a table left behind by a crashed launch can't wedge the upgrade.
++ */
++async function migration4(db: SQLiteDatabase): Promise<void> {
++  await db.execAsync(`
++    CREATE TABLE IF NOT EXISTS hit_lists (
++      id TEXT PRIMARY KEY NOT NULL,
++      owner_id TEXT,
++      name TEXT NOT NULL,
++      kind TEXT NOT NULL DEFAULT 'manual',
++      area_center_lat REAL,
++      area_center_lng REAL,
++      area_radius_m INTEGER,
++      area_filters_json TEXT,
++      area_place TEXT,
++      shared INTEGER NOT NULL DEFAULT 0,
++      created_at TEXT NOT NULL,
++      updated_at TEXT NOT NULL,
++      deleted_at TEXT
++    );
++    CREATE TABLE IF NOT EXISTS hit_list_spots (
++      list_id TEXT NOT NULL REFERENCES hit_lists(id) ON DELETE CASCADE,
++      spot_id TEXT NOT NULL REFERENCES spots(id) ON DELETE CASCADE,
++      added_by TEXT,
++      added_at TEXT NOT NULL,
++      PRIMARY KEY (list_id, spot_id)
++    );
++    CREATE INDEX IF NOT EXISTS idx_hit_lists_deleted_at ON hit_lists(deleted_at);
++    CREATE INDEX IF NOT EXISTS idx_hit_list_spots_spot_id ON hit_list_spots(spot_id);
++  `);
++}
++
+ /** MIGRATIONS[i] takes the DB from version i to i + 1. */
+-export const MIGRATIONS: readonly Migration[] = [migration1, migration2, migration3];
++export const MIGRATIONS: readonly Migration[] = [migration1, migration2, migration3, migration4];
+ export const LATEST_SCHEMA_VERSION = MIGRATIONS.length;
+ 
+ export async function getSchemaVersion(db: SQLiteDatabase): Promise<number> {
+diff --git a/src/hooks/use-db-init.ts b/src/hooks/use-db-init.ts
+index c392960..b3c59e3 100644
+--- a/src/hooks/use-db-init.ts
++++ b/src/hooks/use-db-init.ts
+@@ -1,11 +1,12 @@
+ import { useEffect, useState } from 'react';
+ import { useSQLiteContext } from 'expo-sqlite';
+ 
+-import { migrateDb, getSpots, getAllMedia, getUserSettings } from '@/src/db';
++import { migrateDb, getSpots, getAllMedia, getUserSettings, getHitLists, getListMemberships } from '@/src/db';
+ import { useSpotActions } from '@/src/hooks/use-spot-actions';
+ import { useSpotsStore } from '@/src/stores';
+ import { useSettingsStore } from '@/src/stores/settings-store';
+ import { useMediaStore } from '@/src/stores/media-store';
++import { useHitListsStore } from '@/src/stores/hit-lists-store';
+ import type { Spot } from '@/src/types';
+ import { backfillTowns } from '@/src/utils/reverse-geocode';
+ 
+@@ -15,6 +16,8 @@ export function useDbInit(): { isReady: boolean; upgradeFailed: boolean } {
+   const { updateSpot } = useSpotActions();
+   const loadSettings = useSettingsStore((s) => s.loadSettings);
+   const setAllMedia = useMediaStore((s) => s.setAll);
++  const setLists = useHitListsStore((s) => s.setLists);
++  const setMemberships = useHitListsStore((s) => s.setMemberships);
+   const [isReady, setIsReady] = useState(false);
+   const [upgradeFailed, setUpgradeFailed] = useState(false);
+ 
+@@ -41,6 +44,16 @@ export function useDbInit(): { isReady: boolean; upgradeFailed: boolean } {
+       } catch (err) {
+         console.error('[useDbInit] Failed to initialize database (media):', err);
+       }
++      try {
++        setLists(await getHitLists(db));
++      } catch (err) {
++        console.error('[useDbInit] Failed to initialize database (hit lists):', err);
++      }
++      try {
++        setMemberships(await getListMemberships(db));
++      } catch (err) {
++        console.error('[useDbInit] Failed to initialize database (memberships):', err);
++      }
+       try {
+         const settings = await getUserSettings(db);
+         if (settings) {
+@@ -53,7 +66,8 @@ export function useDbInit(): { isReady: boolean; upgradeFailed: boolean } {
+       // In the background, after the app is usable: towns for untitled spots (D4).
+       void backfillTowns(spots, updateSpot);
+     })();
+-  }, [db, setSpots, updateSpot, setAllMedia, loadSettings]); // all stable, so this still runs once
++    // All stable, so this still runs once.
++  }, [db, setSpots, updateSpot, setAllMedia, setLists, setMemberships, loadSettings]);
+ 
+   return { isReady, upgradeFailed };
+ }
+diff --git a/src/hooks/use-hit-list-actions.ts b/src/hooks/use-hit-list-actions.ts
+new file mode 100644
+index 0000000..8158cb7
+--- /dev/null
++++ b/src/hooks/use-hit-list-actions.ts
+@@ -0,0 +1,128 @@
++import { useCallback } from 'react';
++import { useSQLiteContext } from 'expo-sqlite';
++
++import {
++  insertHitList,
++  updateHitList,
++  softDeleteHitList,
++  addSpotsToList as dbAddSpotsToList,
++  removeSpotFromList as dbRemoveSpotFromList,
++} from '@/src/db';
++import { useHitListsStore } from '@/src/stores';
++import type { HitList } from '@/src/types';
++import { newId } from '@/src/utils/id';
++
++const findList = (id: string) => useHitListsStore.getState().lists.find((l) => l.id === id);
++const listsOf = (spotId: string) => useHitListsStore.getState().membershipBySpot[spotId] ?? [];
++
++/**
++ * List writes, optimistic like useSpotActions.updateSpot: the store changes first so the screen answers at once, then
++ * the DB. A failed write is logged, the store is put back (the DB still has the old state, so the change would
++ * vanish unseen on the next launch) and the promise rejects so the caller can say so.
++ */
++export function useHitListActions() {
++  const db = useSQLiteContext();
++  const addList = useHitListsStore((s) => s.addList);
++  const updateList = useHitListsStore((s) => s.updateList);
++  const removeList = useHitListsStore((s) => s.removeList);
++  const addMemberships = useHitListsStore((s) => s.addMemberships);
++  const removeMemberships = useHitListsStore((s) => s.removeMemberships);
++  const setActiveListId = useHitListsStore((s) => s.setActiveListId);
++
++  const createList = useCallback(
++    async (name: string): Promise<HitList> => {
++      const now = new Date().toISOString();
++      const list: HitList = {
++        id: newId(),
++        name: name.trim(),
++        kind: 'manual',
++        shared: false,
++        created_at: now,
++        updated_at: now,
++      };
++      addList(list);
++      try {
++        await insertHitList(db, list);
++      } catch (err) {
++        console.error('[useHitListActions] createList failed:', err);
++        removeList(list.id);
++        throw err;
++      }
++      return list;
++    },
++    [db, addList, removeList],
++  );
++
++  const renameList = useCallback(
++    async (id: string, name: string) => {
++      const before = findList(id);
++      // One stamp for memory and DB.
++      const applied = { name: name.trim(), updated_at: new Date().toISOString() };
++      updateList(id, applied);
++      try {
++        await updateHitList(db, id, applied);
++      } catch (err) {
++        console.error('[useHitListActions] renameList failed:', err);
++        // Unless a later rename has replaced this one in the meantime.
++        if (before && findList(id)?.updated_at === applied.updated_at) {
++          updateList(id, { name: before.name, updated_at: before.updated_at });
++        }
++        throw err;
++      }
++    },
++    [db, updateList],
++  );
++
++  const deleteList = useCallback(
++    async (id: string) => {
++      const before = findList(id);
++      const wasActive = useHitListsStore.getState().activeListId === id;
++      removeList(id);
++      try {
++        await softDeleteHitList(db, id, new Date().toISOString());
++      } catch (err) {
++        console.error('[useHitListActions] deleteList failed:', err);
++        if (before) {
++          addList(before);
++          // Re-select it unless the user picked another list meanwhile.
++          if (wasActive && useHitListsStore.getState().activeListId === null) setActiveListId(id);
++        }
++        throw err;
++      }
++    },
++    [db, addList, removeList, setActiveListId],
++  );
++
++  const addSpotsToList = useCallback(
++    async (listId: string, spotIds: string[]) => {
++      // A failure takes out only what this call added; spots already in the list stay.
++      const added = [...new Set(spotIds)].filter((spotId) => !listsOf(spotId).includes(listId));
++      addMemberships(listId, spotIds);
++      try {
++        await dbAddSpotsToList(db, listId, spotIds, new Date().toISOString());
++      } catch (err) {
++        console.error('[useHitListActions] addSpotsToList failed:', err);
++        removeMemberships(listId, added);
++        throw err;
++      }
++    },
++    [db, addMemberships, removeMemberships],
++  );
++
++  const removeSpotFromList = useCallback(
++    async (listId: string, spotId: string) => {
++      const wasIn = listsOf(spotId).includes(listId);
++      removeMemberships(listId, [spotId]);
++      try {
++        await dbRemoveSpotFromList(db, listId, spotId);
++      } catch (err) {
++        console.error('[useHitListActions] removeSpotFromList failed:', err);
++        if (wasIn) addMemberships(listId, [spotId]);
++        throw err;
++      }
++    },
++    [db, addMemberships, removeMemberships],
++  );
++
++  return { createList, renameList, deleteList, addSpotsToList, removeSpotFromList };
++}
+diff --git a/src/stores/hit-lists-store.ts b/src/stores/hit-lists-store.ts
+new file mode 100644
+index 0000000..27e359b
+--- /dev/null
++++ b/src/stores/hit-lists-store.ts
+@@ -0,0 +1,119 @@
++import { create } from 'zustand';
++import type { HitList, HitListUpdate, Spot } from '@/src/types';
++
++interface HitListsState {
++  /** Live lists, in the order loaded (getHitLists: oldest first) then created. */
++  lists: HitList[];
++  /** spotId → the ids of the lists it is in. May still name a list that was deleted: the selectors skip those. */
++  membershipBySpot: Record<string, string[]>;
++  /** The Spots tab's list picker; null = 'My spots'. */
++  activeListId: string | null;
++
++  setLists: (lists: HitList[]) => void;
++  setMemberships: (membershipBySpot: Record<string, string[]>) => void;
++  addList: (list: HitList) => void;
++  updateList: (id: string, updates: HitListUpdate) => void;
++  /** Also resets activeListId to null when it was this list. */
++  removeList: (id: string) => void;
++  /** No duplicates: a spot already in the list keeps its place. */
++  addMemberships: (listId: string, spotIds: string[]) => void;
++  /** Drops spots left in no list from the map. */
++  removeMemberships: (listId: string, spotIds: string[]) => void;
++  setActiveListId: (id: string | null) => void;
++}
++
++export const useHitListsStore = create<HitListsState>((set) => ({
++  lists: [],
++  membershipBySpot: {},
++  activeListId: null,
++
++  setLists: (lists) => set({ lists }),
++  setMemberships: (membershipBySpot) => set({ membershipBySpot }),
++
++  addList: (list) => set((s) => ({ lists: [...s.lists, list] })),
++
++  updateList: (id, updates) =>
++    set((s) => {
++      // An undefined key keeps the stored value, as updateHitList in src/db does.
++      const defined = Object.fromEntries(Object.entries(updates).filter(([, v]) => v !== undefined));
++      return { lists: s.lists.map((l) => (l.id === id ? { ...l, ...defined } : l)) };
++    }),
++
++  removeList: (id) =>
++    set((s) => ({
++      lists: s.lists.filter((l) => l.id !== id),
++      activeListId: s.activeListId === id ? null : s.activeListId,
++    })),
++
++  addMemberships: (listId, spotIds) =>
++    set((s) => {
++      const next = { ...s.membershipBySpot };
++      for (const spotId of spotIds) {
++        const current = next[spotId] ?? [];
++        if (!current.includes(listId)) next[spotId] = [...current, listId];
++      }
++      return { membershipBySpot: next };
++    }),
++
++  removeMemberships: (listId, spotIds) =>
++    set((s) => {
++      const next = { ...s.membershipBySpot };
++      for (const spotId of spotIds) {
++        const current = next[spotId];
++        if (!current?.includes(listId)) continue;
++        const rest = current.filter((id) => id !== listId);
++        if (rest.length > 0) next[spotId] = rest;
++        else delete next[spotId];
++      }
++      return { membershipBySpot: next };
++    }),
++
++  setActiveListId: (activeListId) => set({ activeListId }),
++}));
++
++// ── Selectors ───────────────────────────────────────────
++// Pure: screens select the raw state and useMemo these. A selector that builds a new array inside the store hook
++// would hand zustand 5 a fresh value on every render and loop.
++
++/** The list's live spots, in `spots` order. */
++export function selectListSpots(
++  list: HitList,
++  spots: Spot[],
++  membershipBySpot: Record<string, string[]>,
++): Spot[] {
++  return spots.filter((s) => s.deleted_at === undefined && membershipBySpot[s.id]?.includes(list.id));
++}
++
++/** Lists by name, case-insensitive (oldest first among equal names); a new array, the input is untouched. */
++export function selectListsByName(lists: HitList[]): HitList[] {
++  return [...lists].sort(
++    (a, b) =>
++      a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) || a.created_at.localeCompare(b.created_at),
++  );
++}
++
++/** The live lists the spot is in, by name. */
++export function selectSpotLists(
++  spotId: string,
++  lists: HitList[],
++  membershipBySpot: Record<string, string[]>,
++): HitList[] {
++  const ids = membershipBySpot[spotId] ?? [];
++  return selectListsByName(lists.filter((l) => l.deleted_at === undefined && ids.includes(l.id)));
++}
++
++/** `{ [listId]: live spots in it }` for every list given, 0 for an empty one. */
++export function selectListCounts(
++  lists: HitList[],
++  spots: Spot[],
++  membershipBySpot: Record<string, string[]>,
++): Record<string, number> {
++  const counts: Record<string, number> = Object.fromEntries(lists.map((l) => [l.id, 0]));
++  for (const spot of spots) {
++    if (spot.deleted_at !== undefined) continue;
++    for (const listId of membershipBySpot[spot.id] ?? []) {
++      if (Object.hasOwn(counts, listId)) counts[listId] += 1;
++    }
++  }
++  return counts;
++}
+diff --git a/src/stores/index.ts b/src/stores/index.ts
+index faaa577..d3ca847 100644
+--- a/src/stores/index.ts
++++ b/src/stores/index.ts
+@@ -8,3 +8,10 @@ export {
+ export { useSettingsStore } from './settings-store';
+ export { useLocationStore } from './location-store';
+ export { useMediaStore } from './media-store';
++export {
++  useHitListsStore,
++  selectListSpots,
++  selectSpotLists,
++  selectListCounts,
++  selectListsByName,
++} from './hit-lists-store';
+diff --git a/src/types/index.ts b/src/types/index.ts
+index 7d67c40..f10e8bb 100644
+--- a/src/types/index.ts
++++ b/src/types/index.ts
+@@ -70,6 +70,36 @@ export interface Media {
+   uploaded_by?: string; // the account that added it; unset until accounts exist (spec: User, [FUTURE])
+ }
+ 
++export type HitListKind = 'manual' | 'area';
++
++/** A named group of spots (many-to-many: a spot can sit in several lists). Deleting a list never deletes its spots. */
++export interface HitList {
++  id: string;
++  name: string;
++  kind: HitListKind; // 'manual' in S1; 'area' from S2
++  owner_id?: string; // undefined until accounts (S5)
++  shared: boolean; // false in S1; S8
++  member_count?: number; // computed in S8, never stored
++  area_center?: GeoPoint; // S2; both lat and lng NULL → undefined
++  area_radius_m?: number; // S2, whole metres like batch_import_radius
++  area_filters?: SpotFilters; // S2, area_filters_json
++  area_place?: string; // S2, "Capitol Hill"
++  created_at: string; // ISO 8601
++  updated_at: string; // ISO 8601
++  deleted_at?: string; // ISO 8601
++}
++
++/** One spot in one list (hit_list_spots). */
++export interface HitListSpot {
++  list_id: string;
++  spot_id: string;
++  added_by?: string; // undefined until accounts
++  added_at: string; // ISO 8601
++}
++
++/** A patch for a list; undefined keeps the stored value (S2 adds the area fields). */
++export type HitListUpdate = Partial<Pick<HitList, 'name' | 'shared' | 'updated_at'>>;
++
+ export interface UserSettings {
+   units: UnitSystem;
+   batch_import_radius: number; // meters

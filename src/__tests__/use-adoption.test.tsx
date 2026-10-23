@@ -1,6 +1,6 @@
 // useAdoption (S5-06): mounted next to useAuthInit; when a rider is signed in it adopts the phone's rows (or switches
 // accounts, asking first when the last account's changes never reached the server, D66), then syncs.
-import { Alert, type AlertButton } from 'react-native';
+import { Alert, AppState, type AlertButton, type AppStateStatus } from 'react-native';
 import { act, renderHook, waitFor } from '@testing-library/react-native';
 import { useSQLiteContext } from 'expo-sqlite';
 import { createFakeSupabase, type FakeSupabase } from './helpers/fake-supabase';
@@ -42,7 +42,22 @@ const press = async (text: string) => {
   });
 };
 
+let appStateListeners: ((state: AppStateStatus) => void)[];
+const appStateTo = (state: AppStateStatus) =>
+  act(async () => {
+    for (const listener of appStateListeners) listener(state);
+  });
+
 beforeEach(() => {
+  appStateListeners = [];
+  jest.spyOn(AppState, 'addEventListener').mockImplementation((type, listener) => {
+    if (type === 'change') appStateListeners.push(listener as (state: AppStateStatus) => void);
+    return {
+      remove: () => {
+        appStateListeners = appStateListeners.filter((l) => l !== listener);
+      },
+    } as unknown as ReturnType<typeof AppState.addEventListener>;
+  });
   mockFake = createFakeSupabase();
   mockAdopt.mockReset().mockResolvedValue('done');
   mockSyncNow.mockClear();
@@ -188,5 +203,43 @@ describe('useAdoption', () => {
 
     expect(currentOwnerId()).toBeUndefined();
     expect(mockSyncNow).not.toHaveBeenCalled();
+  });
+
+  it('a failed adoption is tried again when the app comes back to the foreground', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    mockAdopt.mockRejectedValueOnce(new Error('database is locked'));
+    signIn();
+    renderHook(() => useAdoption());
+    await waitFor(() => expect(warn).toHaveBeenCalled());
+
+    await appStateTo('active');
+
+    await waitFor(() => expect(mockSyncNow).toHaveBeenCalledTimes(1));
+    expect(mockAdopt).toHaveBeenCalledTimes(2);
+    expect(currentOwnerId()).toBe('rider-b');
+  });
+
+  it('a done adoption is not run again on the foreground', async () => {
+    signIn();
+    renderHook(() => useAdoption());
+    await waitFor(() => expect(mockSyncNow).toHaveBeenCalledTimes(1));
+
+    await appStateTo('active');
+
+    expect(mockAdopt).toHaveBeenCalledTimes(1);
+  });
+
+  it("a stale confirm alert's Cancel signs no one out once that rider is gone", async () => {
+    mockAdopt.mockResolvedValueOnce('needs_confirm');
+    signIn();
+    renderHook(() => useAdoption());
+    await waitFor(() => expect(Alert.alert).toHaveBeenCalled());
+    act(() => useAuthStore.setState(SIGNED_OUT));
+    signIn('rider-c');
+
+    await press('Cancel');
+
+    expect(signOutOfAccount).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().userId).toBe('rider-c');
   });
 });

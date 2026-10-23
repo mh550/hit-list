@@ -19,7 +19,7 @@ import { UnitSystem } from '@/src/types';
 import { saveUserSettings } from '@/src/db';
 import { countPending, resetFailed } from '@/src/db/sync';
 import { syncNow } from '@/src/sync/engine';
-import { releaseAccountData, removeLocalAccountData } from '@/src/sync/adopt';
+import { releaseAccountData, removeLocalAccountData, removeReleasedRows } from '@/src/sync/adopt';
 import { INITIAL_SYNC, useSyncStore } from '@/src/stores/sync-store';
 
 jest.mock('@/src/sync/engine', () => ({ syncNow: jest.fn().mockResolvedValue(undefined) }));
@@ -29,7 +29,8 @@ jest.mock('@/src/db/sync', () => ({
 }));
 jest.mock('@/src/sync/adopt', () => ({
   removeLocalAccountData: jest.fn().mockResolvedValue(true),
-  releaseAccountData: jest.fn().mockResolvedValue(undefined),
+  releaseAccountData: jest.fn().mockResolvedValue({ spotIds: [], listIds: [] }),
+  removeReleasedRows: jest.fn().mockResolvedValue(undefined),
 }));
 
 jest.mock('expo-sqlite', () => ({
@@ -592,6 +593,7 @@ describe('Profile backup status (S5-05)', () => {
 });
 
 describe('Profile sign out and delete: Keep / Remove from this phone (S5-06, D38, D51, D69)', () => {
+  const RELEASED = { spotIds: ['s1', 's2'], listIds: ['l1'] };
   let alert: jest.SpyInstance;
 
   beforeEach(() => {
@@ -600,7 +602,8 @@ describe('Profile sign out and delete: Keep / Remove from this phone (S5-06, D38
     jest.mocked(syncNow).mockReset().mockResolvedValue(undefined);
     jest.mocked(countPending).mockReset().mockResolvedValue(0);
     jest.mocked(removeLocalAccountData).mockReset().mockResolvedValue(true);
-    jest.mocked(releaseAccountData).mockReset().mockResolvedValue(undefined);
+    jest.mocked(releaseAccountData).mockReset().mockResolvedValue(RELEASED);
+    jest.mocked(removeReleasedRows).mockReset().mockResolvedValue(undefined);
     alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
   });
 
@@ -782,12 +785,16 @@ describe('Profile sign out and delete: Keep / Remove from this phone (S5-06, D38
     await pressInAlert('Delete');
   }
 
-  it('Delete account ends signed out with "Your account is deleted. Keep the spots on this phone?" (D51)', async () => {
+  it('Delete account makes the spots phone-only first (the safe answer if none comes), signs out, then asks (D51, D67)', async () => {
     useAuthStore.setState(ANA);
     render(<ProfileScreen />);
 
     await deleteAccountNow();
 
+    expect(releaseAccountData).toHaveBeenCalledWith(expect.anything(), ANA.userId);
+    expect(jest.mocked(releaseAccountData).mock.invocationCallOrder[0]).toBeLessThan(
+      mockFake!.auth.signOut.mock.invocationCallOrder[0],
+    );
     expect(useAuthStore.getState()).toMatchObject(SIGNED_OUT);
     expect(alert).toHaveBeenLastCalledWith(
       'Account deleted',
@@ -800,26 +807,41 @@ describe('Profile sign out and delete: Keep / Remove from this phone (S5-06, D38
     ]);
   });
 
-  it('Keep after Delete account makes the spots phone-only (D67)', async () => {
+  it('Keep after Delete account changes nothing more', async () => {
     useAuthStore.setState(ANA);
     render(<ProfileScreen />);
     await deleteAccountNow();
 
     await pressInAlert('Keep');
 
-    expect(releaseAccountData).toHaveBeenCalledWith(expect.anything(), ANA.userId);
+    expect(releaseAccountData).toHaveBeenCalledTimes(1);
+    expect(removeReleasedRows).not.toHaveBeenCalled();
     expect(removeLocalAccountData).not.toHaveBeenCalled();
   });
 
-  it('Remove after Delete account removes them, waiting changes too (they have no account left to reach)', async () => {
+  it("Remove after Delete account removes exactly the account's released spots and lists", async () => {
     useAuthStore.setState(ANA);
     render(<ProfileScreen />);
     await deleteAccountNow();
 
     await pressInAlert('Remove from this phone');
 
-    expect(removeLocalAccountData).toHaveBeenCalledWith(expect.anything(), ANA.userId, { discardPending: true });
-    expect(releaseAccountData).not.toHaveBeenCalled();
+    expect(removeReleasedRows).toHaveBeenCalledWith(expect.anything(), RELEASED);
+    expect(removeLocalAccountData).not.toHaveBeenCalled();
+  });
+
+  it('a release that fails warns, still signs out, and asks nothing', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.mocked(releaseAccountData).mockRejectedValueOnce(new Error('locked'));
+    useAuthStore.setState(ANA);
+    render(<ProfileScreen />);
+
+    await deleteAccountNow();
+
+    expect(warn).toHaveBeenCalled();
+    expect(useAuthStore.getState()).toMatchObject(SIGNED_OUT);
+    expect(alert).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
   });
 
   it('a failed delete asks nothing about the phone', async () => {

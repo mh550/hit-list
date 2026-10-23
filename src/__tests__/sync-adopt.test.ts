@@ -26,7 +26,9 @@ import {
   setCursor,
   setSyncState,
 } from '@/src/db/sync';
-import { adopt, releaseAccountData, removeLocalAccountData } from '@/src/sync/adopt';
+import { adopt, releaseAccountData, removeLocalAccountData, removeReleasedRows } from '@/src/sync/adopt';
+import { INITIAL_SYNC, useSyncStore } from '@/src/stores/sync-store';
+import * as engine from '@/src/sync/engine';
 import { useHitListsStore, useMediaStore, useSpotsStore } from '@/src/stores';
 
 const A = 'rider-a';
@@ -156,6 +158,56 @@ describe('adopt: the first sign-in', () => {
     expect(await getSyncState(db, 'user_id')).toBeUndefined();
   });
 
+  it("leaves a spot deleted before sign-in phone-only: its photos never upload, its memberships never queue", async () => {
+    await insertSpot(db, createTestSpot({ id: 'live' }));
+    await insertSpot(db, createTestSpot({ id: 'gone', deleted_at: '2026-10-02T00:00:00.000Z' }));
+    putPhoto('gone', 'gm');
+    await insertMedia(db, createTestMedia({ id: 'gm', spot_id: 'gone', file_path: photoPath('gone', 'gm') }));
+    await insertHitList(db, createTestHitList({ id: 'l1' }));
+    await addSpotsToList(db, 'l1', ['live', 'gone']);
+
+    await adopt(db, A);
+
+    expect(await db.getAllAsync('SELECT id, owner_id FROM spots ORDER BY id')).toEqual([
+      { id: 'gone', owner_id: null },
+      { id: 'live', owner_id: A },
+    ]);
+    expect(await ownersOf('media')).toEqual([null]);
+    expect(await outboxOps(db)).toEqual([
+      ['spot', 'live', 'upsert'],
+      ['hit_list', 'l1', 'upsert'],
+      ['hit_list_spot', 'l1/live', 'upsert'],
+    ]);
+    // and nothing left to adopt: a second run writes nothing
+    await db.runAsync('DELETE FROM sync_outbox');
+    await adopt(db, A);
+    expect(await outboxOps(db)).toEqual([]);
+  });
+
+  it('leaves a deleted photo of a live spot phone-only', async () => {
+    await insertSpot(db, createTestSpot({ id: 's1' }));
+    await insertMedia(db, createTestMedia({ id: 'm1', spot_id: 's1', file_path: photoPath('s1', 'm1') }));
+    await db.runAsync("UPDATE media SET deleted_at = '2026-10-02T00:00:00.000Z' WHERE id = 'm1'");
+
+    await adopt(db, A);
+
+    expect(await ownersOf('media')).toEqual([null]);
+    expect(await outboxOps(db)).toEqual([['spot', 's1', 'upsert']]);
+  });
+
+  it('a store reload that fails after the commit still resolves done (the phone is adopted)', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    const reload = jest.spyOn(engine, 'reloadStores').mockRejectedValueOnce(new Error('locked'));
+    await seedPhoneOnly();
+
+    await expect(adopt(db, A)).resolves.toBe('done');
+
+    expect(await getSyncState(db, 'user_id')).toBe(A);
+    expect(warn).toHaveBeenCalled();
+    reload.mockRestore();
+    warn.mockRestore();
+  });
+
   it('reloads the stores, so the screens carry the owner', async () => {
     await seedPhoneOnly();
 
@@ -230,6 +282,15 @@ describe('adopt: another account signs in', () => {
     expect(await getSyncState(db, 'user_id')).toBe(B);
   });
 
+  it("clears the last account's 'Backed up' time (its rows are gone from this phone)", async () => {
+    await setSyncState(db, 'user_id', A);
+    await setSyncState(db, `last_sync_at:${A}`, '2026-10-22T10:00:00.000Z');
+
+    await adopt(db, B);
+
+    expect(await getSyncState(db, `last_sync_at:${A}`)).toBeUndefined();
+  });
+
   it('the same account signing back in after Keep removes nothing', async () => {
     await setSyncState(db, 'user_id', A);
     await seedOwnedBy(A, 'a');
@@ -275,6 +336,16 @@ describe('removeLocalAccountData: Remove from this phone', () => {
     expect(fakeFs.__fileExists(photoUri('a-s1', 'a-m1'))).toBe(true);
   });
 
+  it('new spots get no owner from the moment the rows go (before the sign-out finishes)', async () => {
+    useSyncStore.setState({ adoptedUserId: A });
+    await setSyncState(db, 'user_id', A);
+
+    await removeLocalAccountData(db, A);
+
+    expect(useSyncStore.getState().adoptedUserId).toBeNull();
+    useSyncStore.setState(INITIAL_SYNC);
+  });
+
   it('with discardPending (the account is already deleted) removes them anyway', async () => {
     await setSyncState(db, 'user_id', A);
     await seedOwnedBy(A, 'a');
@@ -309,6 +380,38 @@ describe('releaseAccountData: Keep after Delete account (D67)', () => {
     expect(await getCursor(db, 'spots')).toBe(0);
     expect(await getSyncState(db, 'user_id')).toBeUndefined();
     expect(fakeFs.__fileExists(photoUri('a-s1', 'a-m1'))).toBe(true);
+  });
+
+  it('returns the released spots and lists; removeReleasedRows then removes just those, with their photo files', async () => {
+    useSyncStore.setState({ adoptedUserId: A });
+    await setSyncState(db, 'user_id', A);
+    await seedOwnedBy(A, 'a');
+    await insertSpot(db, createTestSpot({ id: 'phone' }));
+
+    const released = await releaseAccountData(db, A);
+    expect(useSyncStore.getState().adoptedUserId).toBeNull();
+    expect(released).toEqual({ spotIds: ['a-s1', 'a-s2'], listIds: ['a-l1'] });
+
+    await removeReleasedRows(db, released);
+
+    expect((await getSpots(db)).map((s) => s.id)).toEqual(['phone']);
+    expect(await count('media')).toBe(0);
+    expect(await count('hit_lists')).toBe(0);
+    expect(await count('hit_list_spots')).toBe(0);
+    expect(await count('sync_outbox')).toBe(0);
+    expect(fakeFs.__fileExists(photoUri('a-s1', 'a-m1'))).toBe(false);
+    expect(useSpotsStore.getState().spots.map((s) => s.id)).toEqual(['phone']);
+    useSyncStore.setState(INITIAL_SYNC);
+  });
+
+  it("removes another account's rows that came with this one (a share, S8), keeping none of them", async () => {
+    await setSyncState(db, 'user_id', A);
+    await seedOwnedBy(A, 'a');
+    await insertSpot(db, createTestSpot({ id: 'theirs', owner_id: 'rider-c' }));
+
+    await releaseAccountData(db, A);
+
+    expect((await getSpots(db)).map((s) => s.id).sort()).toEqual(['a-s1', 'a-s2']);
   });
 
   it('a later sign-in adopts the released rows like any phone-only spot', async () => {

@@ -904,7 +904,7 @@
         "src/__tests__/sync-photos.test.ts gains cachedPhotoUri: for a media row whose spot is foreign and whose cache file is missing it calls storage.from('photos').download('<owner>/<spot>/<media>.jpg') and writes Paths.cache/photos/<spotId>/<mediaId>.jpg (fake fs), returning that uri; a second call returns the cached uri without a download; a 403/404 download rejects and the tile shows a placeholder (PhotoGrid test with a rejecting resolver); resolvePhotoUri is unchanged for owned media (photo-storage test).",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S8-04",

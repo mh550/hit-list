@@ -20,6 +20,22 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 12:40 · S8-03 · passes
+
+- Others' spots are now read-only on this phone. New: `selectMySpots` (the 'My spots' chip), the area-list owner rule, and `isForeign`/`ownerLabel` (`src/utils/ownership.ts`). New: `riderId()`/`useRiderId` = the signed-in rider, else the phone's account (sync store `phoneUserId`). `assertOwn` guards in the spot, media and hit-list action hooks. Other changes:
+  - Detail shows '@ana's spot' with Save a copy (`src/sync/copy.ts`); the viewer offers no options on others' spots. Owner badge on list rows, ' · @ana' in map callouts.
+  - Photo cache: a `cache/` branch, `cachedPhotoUri`, `usePhotoUri` and a placeholder tile.
+  - Others' spots are never offered by Quick Add, import, the area picker, the select bar, a list's Send (D87) or the town backfill.
+  - Sign-out Keep runs `removeForeignRows` (D86). An account switch re-paths cached media (S8-02 #7).
+- Tests 1760 → 1808. Every change was RED first. `check.sh` green, `npx jest --ci` shows 0 console.error.
+- An Opus review found 2 Important and 4 Minor. #1–#4 and #6 are fixed with RED tests. Most important: offline or signed out, others' spots had been editable. #5 (area owner rule strictness) is left for S8-09. Table in the plan, 'S8-03 review'.
+- Next session (S8-04) must know:
+  - Use `useRiderId()`, not the auth `userId`, for "mine".
+  - A list's action row is now hidden when the rider owns none of its spots (`ownSpots`). S8-04 must restructure it so 'Share list' shows for an owner whose list holds only others' spots.
+  - `getSpots` carries `owner_username`.
+- Proposed changes: S8-03 step 2's `saveCopy(spotId)` is `saveCopy(db, client, uid, spotId)` → `{ spotId, missingPhotos }`. It refuses until adoption made the phone the rider's. Step 3's "differs from the signed-in user" became "differs from `riderId()`" (signed-in rider, else the phone's account).
+- Behaviour to note for Michael (no new D): 'Sign out anyway' (changes waiting) leaves friends' spots on the phone, read-only, because removing them would drop a waiting add to a friend's list. They leave at the next Keep or at another account's sign-in.
+
 ### 2026-10-23 09:10 · S8-02 · passes
 
 - Built the shared-list data layer. Migration 8 adds `hit_list_members` and member-aware membership triggers; `hit-lists.ts` gains the members mirror. New: `src/sync/lists.ts` (share, invite, setRole, removeMember, leave, stopSharing, respondInvite, invitations) and `src/sync/shared-rows.ts`. The S8 pull adds a full members read, others' lists only once joined, others' photos at `cache/photos/…`, the per-list fill, and list and photo reconciliation. The engine now loads invitations and deletes cached photos. New in the Inbox: kind `invite`, `selectSharedWithMe` and `selectInvitations`. Server: `20261025010000_shared_lists_s8.sql` (`list_invitations()`, `share_list`) with pgTAP 110. Tests 1684 → 1760.

@@ -2,6 +2,7 @@
 // displayName). The client is the hand-written fake (helpers/fake-supabase.ts).
 import { AppState, type AppStateStatus } from 'react-native';
 import { act, renderHook, waitFor } from '@testing-library/react-native';
+import { AuthRetryableFetchError } from '@supabase/supabase-js';
 
 import { createFakeSupabase, fakeSession, type FakeSupabase } from './helpers/fake-supabase';
 
@@ -116,6 +117,59 @@ describe('useAuthInit', () => {
     expect(useAuthStore.getState()).toMatchObject({ userId: 'user-ana', username: null });
   });
 
+  it("is 'signed_in' with no username when the profile row is missing", async () => {
+    mockFake!.setSession(ana);
+
+    renderHook(() => useAuthInit());
+
+    await waitFor(() => expect(useAuthStore.getState().status).toBe('signed_in'));
+    expect(useAuthStore.getState()).toMatchObject({ userId: 'user-ana', username: null });
+  });
+
+  it('keeps the account when the app becomes active offline with an expired token', async () => {
+    // auth-js keeps the stored session and answers { session: null, error: AuthRetryableFetchError }.
+    mockFake!.setSession(ana);
+    mockFake!.failNext('select', { message: 'Network request failed' });
+    renderHook(() => useAuthInit());
+    await waitFor(() => expect(useAuthStore.getState().status).toBe('signed_in'));
+    mockFake!.failNext('getSession', new AuthRetryableFetchError('Network request failed', 0));
+
+    act(() => appStateListeners.forEach((listener) => listener('active')));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+
+    expect(useAuthStore.getState()).toMatchObject({ status: 'signed_in', userId: 'user-ana' });
+  });
+
+  it('picks the account up from TOKEN_REFRESHED after an offline launch with an expired token', async () => {
+    useAuthStore.setState({ ...SIGNED_OUT, status: 'unconfigured' });
+    mockFake!.profiles.set('user-ana', { username: 'ana', display_name: null });
+    mockFake!.failNext('getSession', new AuthRetryableFetchError('Network request failed', 0));
+    renderHook(() => useAuthInit());
+    await waitFor(() => expect(mockFake!.auth.getSession).toHaveBeenCalled());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    });
+    // Not known yet: the stored session is still there, so this is not a sign-out.
+    expect(useAuthStore.getState().status).not.toBe('signed_in');
+
+    // Back online, the refresh ticker refreshes the stored session.
+    act(() => mockFake!.emit('TOKEN_REFRESHED', ana));
+
+    await waitFor(() => expect(useAuthStore.getState().status).toBe('signed_in'));
+    expect(useAuthStore.getState().username).toBe('ana');
+  });
+
+  it("is 'signed_out' when getSession fails for good", async () => {
+    mockFake!.failNext('getSession', { message: 'Invalid Refresh Token: Refresh Token Not Found', status: 400 });
+
+    renderHook(() => useAuthInit());
+
+    await waitFor(() => expect(mockFake!.auth.getSession).toHaveBeenCalled());
+    await waitFor(() => expect(useAuthStore.getState().status).toBe('signed_out'));
+  });
+
   it("refetches a profile that failed to load when the app becomes active", async () => {
     mockFake!.setSession(ana);
     mockFake!.profiles.set('user-ana', { username: 'ana', display_name: null });
@@ -173,7 +227,7 @@ describe('useAuthInit', () => {
     expect(useAuthStore.getState().status).toBe('signed_out');
   });
 
-  it('ignores TOKEN_REFRESHED (no profile refetch)', async () => {
+  it('ignores TOKEN_REFRESHED for the account it already shows (no profile refetch)', async () => {
     mockFake!.setSession(ana);
     mockFake!.profiles.set('user-ana', { username: 'ana', display_name: null });
     renderHook(() => useAuthInit());

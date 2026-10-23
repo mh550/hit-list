@@ -119,5 +119,42 @@ describe('sessionStorage', () => {
     expect(SecureStore.setItemAsync).toHaveBeenLastCalledWith(KEY, 'h', {
       keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK,
     });
+
+    await sessionStorage.setItem(KEY, 'h'.repeat(5000));
+
+    expect(SecureStore.setItemAsync).toHaveBeenLastCalledWith(KEY, expect.stringMatching(/^aes256gcm:/), {
+      keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK,
+    });
+  });
+
+  it('ends with a readable session when two large writes overlap', async () => {
+    const first = 'i'.repeat(5000);
+    const second = 'j'.repeat(5000);
+    // The first write's ciphertext lands late, after the second write has finished.
+    const realSetItem = jest.mocked(AsyncStorage.setItem).getMockImplementation()!;
+    jest.mocked(AsyncStorage.setItem).mockImplementationOnce(async (key, value) => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return realSetItem(key, value);
+    });
+
+    await Promise.all([sessionStorage.setItem(KEY, first), sessionStorage.setItem(KEY, second)]);
+
+    expect(await sessionStorage.getItem(KEY)).toBe(second);
+  });
+
+  it('keeps the session when AsyncStorage fails to read for a moment', async () => {
+    const value = 'k'.repeat(5000);
+    await sessionStorage.setItem(KEY, value);
+    jest.mocked(AsyncStorage.getItem).mockRejectedValueOnce(new Error('disk busy'));
+
+    expect(await sessionStorage.getItem(KEY)).toBeNull();
+
+    expect(await sessionStorage.getItem(KEY)).toBe(value);
+  });
+
+  it('never throws when the keychain read fails', async () => {
+    jest.mocked(SecureStore.getItemAsync).mockRejectedValueOnce(new Error('keychain locked'));
+
+    await expect(sessionStorage.getItem(KEY)).resolves.toBeNull();
   });
 });

@@ -130,7 +130,10 @@ function mockAes(nodeCrypto: typeof import('node:crypto')) {
       return new AESEncryptionKey(nodeCrypto.randomBytes(size / 8));
     }
     static async import(input: MockBinary, encoding?: 'hex' | 'base64') {
-      return new AESEncryptionKey(typeof input === 'string' ? Buffer.from(input, encoding ?? 'hex') : toBytes(input));
+      if (typeof input !== 'string') return new AESEncryptionKey(toBytes(input));
+      // Native throws MissingEncodingException for a string without an encoding.
+      if (!encoding) throw new Error('MissingEncodingException');
+      return new AESEncryptionKey(Buffer.from(input, encoding));
     }
     async bytes() {
       return new Uint8Array(this.key);
@@ -175,15 +178,24 @@ function mockAes(nodeCrypto: typeof import('node:crypto')) {
 
 // expo-secure-store is the iOS keychain: an in-memory Map with the members of
 // node_modules/expo-secure-store/build/SecureStore.d.ts (getItemAsync, setItemAsync, deleteItemAsync l.99-123).
+// Keys are checked like the real one (SecureStore.js: /^[\w.-]+$/).
 jest.mock('expo-secure-store', () => {
   const store = new Map<string, string>();
+  const checkKey = (key: string) => {
+    if (!/^[\w.-]+$/.test(key)) throw new Error(`Invalid key provided to SecureStore: ${key}`);
+  };
   return {
     AFTER_FIRST_UNLOCK: 0,
-    getItemAsync: jest.fn(async (key: string) => store.get(key) ?? null),
+    getItemAsync: jest.fn(async (key: string) => {
+      checkKey(key);
+      return store.get(key) ?? null;
+    }),
     setItemAsync: jest.fn(async (key: string, value: string) => {
+      checkKey(key);
       store.set(key, value);
     }),
     deleteItemAsync: jest.fn(async (key: string) => {
+      checkKey(key);
       store.delete(key);
     }),
     __store: store,

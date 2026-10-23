@@ -20,6 +20,13 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 · S9-03 · passes
+
+- New: `src/utils/link-token.ts`, `src/sync/links.ts`, `redeemInvite` in `src/sync/join.ts` (in join.ts to avoid an engine import cycle), `sends.ts` `createLinkSend`/`makeSendLink`/`listSentLinks`/`revokeSentLink`. UI: Send sheet 'Copy link instead' (chips, D44 line, clipboard, 'Link copied'), Sent 'Links' rows + Revoke, members 'Invite link' + rows (Used by @ben, Revoke), Inbox 'Paste a link'. Mocks: expo-clipboard, expo-crypto `digestStringAsync`; the fake gains `invokes`/`invokeHandlers`/`functionsHttpError`. `.env.example` gains `EXPO_PUBLIC_SHARE_BASE_URL`. Jest 1937 → 2045.
+- Verified: each test file RED first (missing module or element; 10 sync-sends cases), then green; `check.sh` green (2045), `npx jest --ci` 0 `console.error` in 3 runs. Opus review: 1 Important + 8 Minor, all but #2 fixed with RED-first tests (table in the plan under "As built (S9-03)"). #1: expiry was parsed without `toIso` (Hermes).
+- Next sessions: S9-05 should call `makeSendLink` (or `createLinkSend` + `createSendLink`) and `redeemInvite` from `src/sync/join`. A 42501 from create/revoke link is now `NotAllowedError`. Review #2 (a clipboard failure after the link was made) is left for S9-07.
+- Proposed changes: S9-03 step 2: the rpc args are the shipped `p_*` names, and the calls take `(client, uid, …)`. Step 3: "createSend with recipientIds []" became `makeSendLink` (D94; an empty friend list still fails). Sent revokes through `revokeSentLink` (withdraw, then `revokeLink`, D93). No new questions.
+
 ### 2026-10-23 · S9-02 · passes
 
 - New: `supabase/functions/share-preview/index.ts` (GET `?t=`, no JWT, Web Crypto SHA-256 → `preview_link(p_sha)` as service role; send = allow-listed frozen fields + `createSignedUrls(…, 600)` only for objects listed under `sends/<id>/`; invite = list name + inviter; one `{"error":"gone"}` 404; `Cache-Control: no-store`), migration `20261026010000_links_s9.sql` (`list_my_links` + `used_by`/`used_by_username`), pgTAP `120-links-s9` (9), `config.toml` (`verify_jwt` false/true, `[edge_runtime.secrets] PUBLIC_SUPABASE_URL`), `src/__integration__/links-function.test.ts` (14). Jest stays 1937 (server-only work).

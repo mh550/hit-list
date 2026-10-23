@@ -1039,7 +1039,7 @@
         "inbox-tab.test.tsx gains a 'Paste a link' row (signed in) opening a field; a pasted invite URL calls redeemInvite and shows 'Joined Downtown'; a 'gone' error shows 'That link doesn't work any more'; a send link (the function says kind 'send') opens the URL with Linking.openURL; the row is absent signed out.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S9-04",

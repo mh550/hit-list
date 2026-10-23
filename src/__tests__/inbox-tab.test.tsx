@@ -1,5 +1,5 @@
 import React from 'react';
-import { Alert, AppState, RefreshControl, type AlertButton, type AppStateStatus } from 'react-native';
+import { AccessibilityInfo, Alert, AppState, RefreshControl, type AlertButton, type AppStateStatus } from 'react-native';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useIsFocused, useRouter } from 'expo-router';
 import { useSQLiteContext as sharedDb } from 'expo-sqlite';
@@ -22,6 +22,7 @@ jest.mock('@/src/sync/friends', () => ({
 jest.mock('@/src/sync/sends', () => ({
   ...jest.requireActual('@/src/sync/sends'),
   saveSend: jest.fn(),
+  hasPendingSave: jest.fn().mockReturnValue(false),
   dismissSend: jest.fn().mockResolvedValue(undefined),
   loadAndApplySends: jest.fn().mockResolvedValue(undefined),
 }));
@@ -38,7 +39,7 @@ import { getSyncState, setSyncState } from '@/src/db/sync';
 import { SIGNED_OUT, useAuthStore, type AuthSnapshot } from '@/src/stores/auth-store';
 import { selectUnseenCount, useInboxStore, type InboxItem } from '@/src/stores/inbox-store';
 import { block, refreshFriends, respond } from '@/src/sync/friends';
-import { dismissSend, loadAndApplySends, saveSend } from '@/src/sync/sends';
+import { dismissSend, hasPendingSave, loadAndApplySends, saveSend } from '@/src/sync/sends';
 import type { FrozenSpot, SendPayload } from '@/src/utils/send-payload';
 
 const ME = 'user-me';
@@ -121,6 +122,7 @@ beforeEach(() => {
   jest.mocked(block).mockReset().mockResolvedValue(undefined);
   jest.mocked(refreshFriends).mockReset().mockResolvedValue(undefined);
   jest.mocked(saveSend).mockReset().mockResolvedValue({ status: 'saved', saved: 3, failedPhotos: 0 });
+  jest.mocked(hasPendingSave).mockReset().mockReturnValue(false);
   jest.mocked(dismissSend).mockReset().mockResolvedValue(undefined);
   jest.mocked(loadAndApplySends).mockReset().mockResolvedValue(undefined);
   jest.mocked(getSyncState).mockReset().mockResolvedValue(undefined);
@@ -415,7 +417,12 @@ describe('Inbox tab: spots sent to you (S7-05)', () => {
     expect(screen.getByTestId('send-thumbnail').props.source).toEqual({
       uri: `https://storage.test/photos/${PAYLOAD.spots[0].photos[0].path}?expires=600`,
     });
-    for (const name of ['Save all', 'Save into a new hit list', 'Pick spots', 'Dismiss']) {
+    for (const name of [
+      'Save all spots from @ana',
+      'Save the spots from @ana into a new hit list',
+      'Pick spots from @ana',
+      'Dismiss the spots from @ana',
+    ]) {
       expect(screen.getByRole('button', { name })).toBeOnTheScreen();
     }
   });
@@ -438,7 +445,7 @@ describe('Inbox tab: spots sent to you (S7-05)', () => {
     });
     await renderTab();
 
-    await press('Save all');
+    await press('Save all spots from @ana');
 
     expect(saveSend).toHaveBeenCalledTimes(1);
     expect(saveSend).toHaveBeenCalledWith(db, mockFake, ME, SEND, {});
@@ -449,7 +456,7 @@ describe('Inbox tab: spots sent to you (S7-05)', () => {
   it('the saved line is gone once the tab loses focus', async () => {
     signIn([SEND]);
     const view = await renderTab();
-    await press('Save all');
+    await press('Save all spots from @ana');
     expect(screen.getByText('Saved 3 spots')).toBeOnTheScreen();
 
     jest.mocked(useIsFocused).mockReturnValue(false);
@@ -467,7 +474,7 @@ describe('Inbox tab: spots sent to you (S7-05)', () => {
     jest.mocked(saveSend).mockResolvedValue({ status: 'saved', saved: 3, failedPhotos: 1 });
     await renderTab();
 
-    await press('Save all');
+    await press('Save all spots from @ana');
 
     expect(screen.getByText("Saved 3 spots · 1 photo couldn't be downloaded")).toBeOnTheScreen();
   });
@@ -477,7 +484,7 @@ describe('Inbox tab: spots sent to you (S7-05)', () => {
     jest.mocked(saveSend).mockResolvedValue({ status: 'saved', saved: 3, failedPhotos: 2, listId: 'list-1' });
     await renderTab();
 
-    await press('Save into a new hit list');
+    await press('Save the spots from @ana into a new hit list');
 
     expect(saveSend).toHaveBeenCalledWith(db, mockFake, ME, SEND, { newList: true });
     expect(screen.getByText("Saved 3 spots into From @ana · 2 photos couldn't be downloaded")).toBeOnTheScreen();
@@ -491,12 +498,12 @@ describe('Inbox tab: spots sent to you (S7-05)', () => {
     );
     await renderTab();
 
-    const saveAll = screen.getByRole('button', { name: 'Save all' });
+    const saveAll = screen.getByRole('button', { name: 'Save all spots from @ana' });
     await act(async () => {
       fireEvent.press(saveAll);
       fireEvent.press(saveAll);
     });
-    expect(screen.queryByRole('button', { name: 'Dismiss' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Dismiss the spots from @ana' })).toBeNull();
     expect(screen.getByLabelText('Saving these spots')).toBeOnTheScreen();
     await act(async () => finish());
 
@@ -513,7 +520,7 @@ describe('Inbox tab: spots sent to you (S7-05)', () => {
     jest.mocked(saveSend).mockResolvedValue(result);
     await renderTab();
 
-    await press('Save all');
+    await press('Save all spots from @ana');
 
     expect(screen.getByText(line)).toBeOnTheScreen();
   });
@@ -523,18 +530,19 @@ describe('Inbox tab: spots sent to you (S7-05)', () => {
     jest.mocked(saveSend).mockRejectedValue(new Error('disk full'));
     await renderTab();
 
-    await press('Save all');
+    await press('Save all spots from @ana');
 
     expect(screen.getByText("Couldn't save these spots. Try again.")).toBeOnTheScreen();
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('[Inbox]'), 'disk full');
-    expect(screen.getByRole('button', { name: 'Save all' })).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: 'Save all spots from @ana' })).toBeOnTheScreen();
   });
 
   it("'Pick spots' lists the three frozen spots checked; unchecking one saves the other two with 'Save (2)'", async () => {
     signIn([SEND]);
+    jest.mocked(saveSend).mockResolvedValue({ status: 'saved', saved: 2, failedPhotos: 0 });
     await renderTab();
 
-    await press('Pick spots');
+    await press('Pick spots from @ana');
     expect(screen.getByRole('header', { name: 'Pick spots' })).toBeOnTheScreen();
     const boxes = screen.getAllByRole('checkbox');
     expect(boxes.map((b) => b.props.accessibilityLabel)).toEqual(['Pier 57, Capitol Hill', 'Untitled, Fremont', 'Red ledge']);
@@ -546,14 +554,14 @@ describe('Inbox tab: spots sent to you (S7-05)', () => {
 
     expect(saveSend).toHaveBeenCalledWith(db, mockFake, ME, SEND, { spotIds: ['s-1', 's-3'] });
     expect(screen.queryByRole('header', { name: 'Pick spots' })).toBeNull();
-    expect(screen.getByText('Saved 3 spots')).toBeOnTheScreen();
+    expect(screen.getByText('Saved 2 spots')).toBeOnTheScreen();
   });
 
   it("the picker's Save is disabled with nothing checked, and Cancel closes it without saving", async () => {
     signIn([SEND]);
     await renderTab();
 
-    await press('Pick spots');
+    await press('Pick spots from @ana');
     for (const name of ['Pier 57, Capitol Hill', 'Untitled, Fremont', 'Red ledge']) {
       fireEvent.press(screen.getByRole('checkbox', { name }));
     }
@@ -571,7 +579,7 @@ describe('Inbox tab: spots sent to you (S7-05)', () => {
     signIn([SEND]);
     await renderTab();
 
-    await press('Dismiss');
+    await press('Dismiss the spots from @ana');
     expect(lastAlert()).toMatchObject({ title: 'Dismiss these spots?', message: "@ana won't be told." });
     expect(lastAlert().buttons.map((b) => b.text)).toEqual(['Cancel', 'Dismiss']);
     const confirm = lastAlert().buttons.find((b) => b.text === 'Dismiss')!;
@@ -589,14 +597,78 @@ describe('Inbox tab: spots sent to you (S7-05)', () => {
     jest.mocked(dismissSend).mockRejectedValue(new Error('offline'));
     await renderTab();
 
-    await press('Dismiss');
+    await press('Dismiss the spots from @ana');
     await pressAlertButton('Cancel');
     expect(dismissSend).not.toHaveBeenCalled();
 
-    await press('Dismiss');
+    await press('Dismiss the spots from @ana');
     await pressAlertButton('Dismiss');
     expect(alert).toHaveBeenLastCalledWith("Couldn't reach the server", 'Try again.');
     expect(screen.getByText('@ana sent you 3 spots')).toBeOnTheScreen();
+  });
+
+  it('the saved line is announced to VoiceOver once', async () => {
+    signIn([SEND]);
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    await renderTab();
+
+    await press('Save all spots from @ana');
+
+    expect(announce).toHaveBeenCalledTimes(1);
+    expect(announce).toHaveBeenCalledWith('Saved 3 spots');
+    expect(screen.getByText('Saved 3 spots').props.accessibilityLiveRegion).toBeUndefined();
+  });
+
+  it('a save that finishes after the tab lost focus leaves no line for the next visit', async () => {
+    signIn([SEND]);
+    let finish: () => void = () => {};
+    jest.mocked(saveSend).mockImplementation(
+      () => new Promise((resolve) => (finish = () => resolve({ status: 'saved', saved: 3, failedPhotos: 0 }))),
+    );
+    const view = await renderTab();
+    await press('Save all spots from @ana');
+
+    jest.mocked(useIsFocused).mockReturnValue(false);
+    view.rerender(<InboxTab />);
+    await act(async () => finish());
+    jest.mocked(useIsFocused).mockReturnValue(true);
+    view.rerender(<InboxTab />);
+    await act(async () => {});
+
+    expect(screen.queryByText('Saved 3 spots')).toBeNull();
+  });
+
+  it("a save the server may have marked offers only 'Try again', which retries it as it was", async () => {
+    signIn([SEND]);
+    jest.mocked(saveSend).mockResolvedValue({ status: 'failed' });
+    await renderTab();
+
+    await press('Save the spots from @ana into a new hit list');
+    jest.mocked(hasPendingSave).mockReturnValue(true);
+    await act(async () => {
+      useInboxStore.getState().setItems(ME, 'send', [{ ...SEND }]);
+    });
+
+    expect(hasPendingSave).toHaveBeenCalledWith(ME, SEND_ID);
+    expect(screen.queryByRole('button', { name: 'Pick spots from @ana' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Dismiss the spots from @ana' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Save all spots from @ana' })).toBeNull();
+    jest.mocked(saveSend).mockClear();
+    await press('Try saving the spots from @ana again');
+
+    expect(saveSend).toHaveBeenCalledWith(db, mockFake, ME, SEND, {});
+  });
+
+  it("while a Dismiss runs the row's spinner reads 'Dismissing'", async () => {
+    signIn([SEND]);
+    jest.mocked(dismissSend).mockImplementation(() => new Promise(() => {}));
+    await renderTab();
+
+    await press('Dismiss the spots from @ana');
+    await pressAlertButton('Dismiss');
+
+    expect(screen.getByLabelText('Dismissing')).toBeOnTheScreen();
+    expect(screen.queryByLabelText('Saving these spots')).toBeNull();
   });
 
   it('loads the sends with the friends when focused and on pull to refresh', async () => {

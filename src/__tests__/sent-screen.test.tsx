@@ -198,6 +198,28 @@ describe('Sent screen', () => {
     expect(screen.getByText('To @ben · 3 spots · Waiting')).toBeOnTheScreen();
   });
 
+  it('a withdraw that finds no session (signed out meanwhile) alerts nothing and keeps the row Waiting', async () => {
+    signIn();
+    jest.mocked(withdrawSend).mockResolvedValue(null);
+    await renderScreen();
+
+    await confirmWithdraw();
+
+    expect(alert).toHaveBeenCalledTimes(1); // the confirm only
+    expect(screen.getByText('To @ben · 3 spots · Waiting')).toBeOnTheScreen();
+  });
+
+  it("the re-read after a Withdraw doesn't show the pull-to-refresh spinner", async () => {
+    signIn();
+    await renderScreen();
+    jest.mocked(listSent).mockImplementation(() => new Promise(() => {}));
+
+    await confirmWithdraw();
+
+    expect(listSent).toHaveBeenCalledTimes(2);
+    expect(screen.UNSAFE_getByType(RefreshControl).props.refreshing).toBe(false);
+  });
+
   it('a double tap on the confirm sends one withdraw, and the row shows a spinner meanwhile', async () => {
     signIn();
     let finish: () => void = () => {};

@@ -16,6 +16,7 @@ import {
   NotBackedUpError,
   createSend,
   dismissSend,
+  hasPendingSave,
   listSent,
   loadAndApplySends,
   loadSends,
@@ -576,6 +577,18 @@ describe('saveSend', () => {
     expect(useInboxStore.getState().items).toEqual([]);
   });
 
+  it('hasPendingSave is true only while a save the server may have marked waits for its retry (the Inbox offers Try again)', async () => {
+    serverMark({ loseFirstAnswer: true });
+    expect(hasPendingSave(ME, SEND_1)).toBe(false);
+
+    await saveSend(db, client(), ME, itemFor(SEND_1));
+    expect(hasPendingSave(ME, SEND_1)).toBe(true);
+    expect(hasPendingSave('rider-other', SEND_1)).toBe(false);
+
+    await saveSend(db, client(), ME, itemFor(SEND_1));
+    expect(hasPendingSave(ME, SEND_1)).toBe(false);
+  });
+
   it('a stale item saved on another phone (a lost answer, then 55000 with this phone’s token) saves nothing', async () => {
     fake.tables.sends[0].saved_at = '2026-10-22 12:00:00+00';
     fake.failNext('rpc', { message: 'network request failed' }, 'mark_send_saved');
@@ -645,6 +658,18 @@ describe('saveSend', () => {
     expect(useInboxStore.getState().items).toEqual([]);
   });
 
+  it('a sends load started while the save runs (pull to refresh) cannot put the saved item back', async () => {
+    const save = saveSend(db, client(), ME, itemFor(SEND_1));
+    // this load starts after the save took its ticket and reads the server before mark_send_saved
+    const session = gate<Awaited<ReturnType<FakeSupabase['auth']['getSession']>>>();
+    fake.auth.getSession.mockImplementationOnce(() => session.promise);
+    const midLoad = loadAndApplySends(db, client(), ME);
+    await save;
+    session.open({ data: { session: fakeSession({ userId: ME }) }, error: null });
+    await midLoad;
+    expect(useInboxStore.getState().items).toEqual([]);
+  });
+
   it('does nothing without a session for the rider', async () => {
     fake.setSession(null);
     expect(await saveSend(db, client(), ME, itemFor(SEND_1))).toBeNull();
@@ -670,6 +695,24 @@ describe('dismissSend and withdrawSend', () => {
     await dismissSend(client(), ME, SEND_1);
     session.open({ data: { session: fakeSession({ userId: ME }) }, error: null });
     await staleLoad;
+    expect(useInboxStore.getState().items).toEqual([]);
+  });
+
+  it('a sends load started while the dismiss runs cannot put the item back', async () => {
+    serverSend(SEND_1);
+    useInboxStore.getState().setItems(ME, 'send', [itemFor(SEND_1)]);
+    const dismissed = gate<{ data: null; error: null }>();
+    fake.rpcHandlers.dismiss_send = () => dismissed.promise as never;
+    const dismiss = dismissSend(client(), ME, SEND_1);
+    await new Promise((resolve) => setImmediate(resolve));
+    // this load starts after the dismiss took its ticket and lands after the item left
+    const session = gate<Awaited<ReturnType<FakeSupabase['auth']['getSession']>>>();
+    fake.auth.getSession.mockImplementationOnce(() => session.promise);
+    const midLoad = loadAndApplySends(db, client(), ME);
+    dismissed.open({ data: null, error: null });
+    await dismiss;
+    session.open({ data: { session: fakeSession({ userId: ME }) }, error: null });
+    await midLoad;
     expect(useInboxStore.getState().items).toEqual([]);
   });
 

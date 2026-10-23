@@ -911,6 +911,7 @@ describe('Profile Friends row (S6-03)', () => {
     const view = render(<ProfileScreen />);
 
     const labels = screen.getAllByRole('button').map((b) => b.props.accessibilityLabel);
+    expect(labels.indexOf('Friends')).toBeGreaterThanOrEqual(0);
     expect(labels.indexOf('Sent')).toBe(labels.indexOf('Friends') + 1);
     fireEvent.press(screen.getByRole('button', { name: 'Sent' }));
     expect(router.push).toHaveBeenCalledWith('/sent');

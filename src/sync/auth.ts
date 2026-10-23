@@ -1,6 +1,7 @@
 import { isAuthRetryableFetchError, type Session, type SupabaseClient } from '@supabase/supabase-js';
 
 import { SIGNED_OUT, type AuthSnapshot } from '@/src/stores/auth-store';
+import { SESSION_STORAGE_KEY, sessionStorage } from '@/src/sync/session-storage';
 
 // The auth store's view of a session. A profile that cannot be read (offline launch, no row yet) is
 // 'signed_in' with no username, never 'needs_username': the rider is not trapped on the username
@@ -101,7 +102,9 @@ export async function saveProfile(
 
 /**
  * Signs the rider out (D62: plain sign out until S5 backs spots up and adds Keep / Remove). A server sign out that
- * fails (offline) or throws falls back to `scope: 'local'`, so the phone is always signed out afterwards.
+ * fails (offline) or throws falls back to `scope: 'local'`. Offline with an expired access token auth-js can't read
+ * the session (its refresh fails), so both return that error before removing anything; then the stored session is
+ * removed here, or the next token refresh would sign the rider back in. The phone is always signed out afterwards.
  */
 export async function signOutOfAccount(client: SupabaseClient): Promise<void> {
   try {
@@ -111,10 +114,12 @@ export async function signOutOfAccount(client: SupabaseClient): Promise<void> {
     // Fall through to the local sign out.
   }
   try {
-    await client.auth.signOut({ scope: 'local' });
+    const { error } = await client.auth.signOut({ scope: 'local' });
+    if (!error) return;
   } catch {
-    // Nothing more to try; the caller shows the rider as signed out.
+    // Fall through to clearing the stored session.
   }
+  await sessionStorage.removeItem(SESSION_STORAGE_KEY).catch(() => {});
 }
 
 /**
@@ -123,7 +128,7 @@ export async function signOutOfAccount(client: SupabaseClient): Promise<void> {
  */
 export async function deleteAccount(client: SupabaseClient): Promise<boolean> {
   try {
-    const { data, error } = await client.functions.invoke<{ ok?: boolean }>('account-delete', { method: 'POST' });
+    const { data, error } = await client.functions.invoke<{ ok?: boolean }>('account-delete');
     return !error && data?.ok === true;
   } catch {
     return false;

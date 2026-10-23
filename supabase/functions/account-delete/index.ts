@@ -1,9 +1,10 @@
 // account-delete (S4-05, D51): deletes the calling rider's account. The user comes only from the caller's JWT
 // (Authorization: Bearer <jwt>, resolved by auth.getUser); the request body is never read, so no request can name
-// another user. Order: the rider's Storage objects first (<uid>/… and sends/<their send id>/…), then the auth user,
-// whose deletion cascades through profiles to every row they own (S3 schema, `on delete cascade`). Storage goes first
-// so a retry after a later failure still finds the files; the reverse would orphan them, as nothing would point at
-// them any more. A direct DELETE on storage.objects is blocked, so files go through the Storage API.
+// another user. Order: the rider's Storage objects first (<uid>/… and sends/<id>/… of every send from or to them),
+// then the auth user, whose deletion cascades through profiles to every row they own (S3 schema, `on delete
+// cascade`). Storage goes first so a retry after a later failure still finds the files; the reverse would orphan
+// them, as nothing would point at them any more. A direct DELETE on storage.objects is blocked, so files go through
+// the Storage API. A photo uploaded between the listing and the user delete is left behind (S8 may sweep orphans).
 // Responses: 200 { ok: true }, 401 { error: 'unauthorized' }, 405 { error: 'method not allowed' },
 // 500 { error: 'delete failed' } (the detail only in the function's log). Plan: docs/plans/2026-10-22-s4-accounts.md.
 import { createClient, type SupabaseClient } from 'npm:@supabase/supabase-js@2.118.0';
@@ -13,6 +14,8 @@ import { corsHeaders } from '../_shared/cors.ts';
 const BUCKET = 'photos';
 /** The Storage API's page size for list and its limit for one remove. */
 const PAGE = 1000;
+/** Folders listed in parallel: a rider with thousands of spots has a folder each, and one at a time is too slow. */
+const LISTS_AT_ONCE = 20;
 
 function json(status: number, body: Record<string, unknown>): Response {
   return new Response(JSON.stringify(body), {
@@ -32,32 +35,41 @@ async function listAll(admin: SupabaseClient, prefix: string): Promise<{ name: s
   }
 }
 
-/** The paths of every file under `prefix`, down any depth of folders. */
-async function filesUnder(admin: SupabaseClient, prefix: string): Promise<string[]> {
+/** The paths of every file under the prefixes, down any depth of folders; LISTS_AT_ONCE folders are read at a time. */
+async function filesUnder(admin: SupabaseClient, prefixes: string[]): Promise<string[]> {
   const paths: string[] = [];
-  for (const entry of await listAll(admin, prefix)) {
-    const path = `${prefix}/${entry.name}`;
-    if (entry.id === null) paths.push(...(await filesUnder(admin, path)));
-    else paths.push(path);
+  for (let i = 0; i < prefixes.length; i += LISTS_AT_ONCE) {
+    const batch = prefixes.slice(i, i + LISTS_AT_ONCE);
+    const listed = await Promise.all(batch.map((prefix) => listAll(admin, prefix)));
+    const folders: string[] = [];
+    listed.forEach((entries, j) => {
+      for (const entry of entries) {
+        const path = `${batch[j]}/${entry.name}`;
+        if (entry.id === null) folders.push(path);
+        else paths.push(path);
+      }
+    });
+    if (folders.length) paths.push(...(await filesUnder(admin, folders)));
   }
   return paths;
 }
 
 async function deleteUserData(admin: SupabaseClient, uid: string): Promise<void> {
-  const paths = await filesUnder(admin, uid);
-
-  // PostgREST caps a response at max_rows (1000), so the rider's sends are read in pages too.
+  // Sends to the rider go too: their rows cascade away with the account, and then nobody (not even the sender) may
+  // read or remove the files. PostgREST caps a response at max_rows (1000), so the sends are read in pages.
+  const prefixes = [uid];
   for (let offset = 0; ; offset += PAGE) {
     const { data: sends, error } = await admin
       .from('sends')
       .select('id')
-      .eq('sender', uid)
+      .or(`sender.eq.${uid},recipient.eq.${uid}`)
       .order('id')
       .range(offset, offset + PAGE - 1);
     if (error) throw error;
-    for (const send of sends) paths.push(...(await filesUnder(admin, `sends/${send.id}`)));
+    prefixes.push(...sends.map((send: { id: string }) => `sends/${send.id}`));
     if (sends.length < PAGE) break;
   }
+  const paths = await filesUnder(admin, prefixes);
 
   for (let i = 0; i < paths.length; i += PAGE) {
     const { error } = await admin.storage.from(BUCKET).remove(paths.slice(i, i + PAGE));

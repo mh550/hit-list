@@ -1,7 +1,7 @@
 import { AppState } from 'react-native';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 
-import { sessionStorage } from './session-storage';
+import { SESSION_STORAGE_KEY, sessionStorage } from './session-storage';
 
 // The one Supabase client, built on first use. A build without both EXPO_PUBLIC_ values has none, and the
 // app is the signed-out app (§3.1). Read with the dot form: Expo inlines only process.env.EXPO_PUBLIC_X.
@@ -16,6 +16,8 @@ export function getSupabase(): SupabaseClient | null {
   const created = createClient(url, anonKey, {
     auth: {
       storage: sessionStorage,
+      // Fixed rather than derived from the URL, so signOutOfAccount can clear it when auth-js can't.
+      storageKey: SESSION_STORAGE_KEY,
       autoRefreshToken: true,
       persistSession: true,
       detectSessionInUrl: false,

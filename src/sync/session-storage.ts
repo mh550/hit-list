@@ -63,6 +63,9 @@ async function readItem(key: string): Promise<string | null> {
   }
 }
 
+/** The one key the client stores its session under (auth-js `storageKey`). */
+export const SESSION_STORAGE_KEY = 'hitlist.auth.session';
+
 export const sessionStorage = {
   getItem: (key: string) => queued(key, () => readItem(key)),
   setItem: (key: string, value: string) => queued(key, () => writeItem(key, value)),

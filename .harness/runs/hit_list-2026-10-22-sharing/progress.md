@@ -20,6 +20,15 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 03:40 · S4-05 · passes
+
+- New: Profile `Account` section (`app/(tabs)/profile.tsx` `AccountSection`, keyed on `userId`): unconfigured line, signed-out copy + `Sign in` → `/auth/sign-in`, signed in `@username` / display name / email + `Sign out` / `Delete account` (alert copy per the feature, `Deleting…`, error in place); `signOutOfAccount` + `deleteAccount` in `src/sync/auth.ts`; `supabase/functions/account-delete/index.ts` (uid only from `auth.getUser(jwt)`, storage under `<uid>/` and `sends/<id>/` of sends from **or to** the rider, then `admin.deleteUser`; 200/401/405/500 JSON) + `_shared/cors.ts`; tsconfig `exclude` and eslint `ignores` `supabase/functions`. Tests 1034 → 1053.
+- RED e395734 (16 fail), GREEN 4de19ca; review-fix RED (3 fail), GREEN. check.sh green, full `npx jest --ci` 0 console.error/warn; `npx expo export --platform ios` exit 0, 4.8 MB. Mutations: dropping the in-flight ref or the session-clear step each fails a test. No Deno on the box: a stand-in strict `tsc` of the function (Deno declared, `npm:` mapped to node_modules) exits 0 and catches a misspelt `deleteUserX`.
+- Opus review: 1 Important fixed (offline sign out with an expired token left the session stored, auth-js 2.118 returns before `_removeSession` in either scope, so the rider came back signed in: the client now has a fixed `storageKey: 'hitlist.auth.session'` and the sign out clears it itself); Minors fixed: recipient sends' files orphaned, serial folder listing, old error after re-sign-in, a retry test that passed trivially. Left (plan): a photo uploaded mid-delete stays in Storage.
+- Next session (S4-06) must know: the function is first run there; check the runtime injects `SUPABASE_URL`/`SUPABASE_ANON_KEY`/`SUPABASE_SERVICE_ROLE_KEY` (500 `delete failed` + log line if not). The fake's `failNext('signOut')` keeps the session (real auth-js removes it on most server errors).
+- Proposed change (step 4 wording): the function deletes `sends/<id>/` of sends to the rider too, not only "their send ids".
+- No new questions for Michael.
+
 ### 2026-10-23 02:45 · S4-04 · passes
 
 - New: `src/utils/username.ts` (`normalizeUsername`, `validateUsername`, first failing rule wins), `app/auth/username.tsx` ('Pick your @username', live message once typed, `@` typed in front dropped, Display name ≤ 50 optional, `Saving…`, 23505 → 'That username is taken', 23514 → the format rule, else "Couldn't save. Try again."), `saveProfile` in `src/sync/auth.ts`, tabs `<Redirect href="/auth/username">` while `needs_username`, root Stack `auth/username` (no back, `gestureEnabled: false`), `Redirect` in the global expo-router mock. Tests 990 → 1034.

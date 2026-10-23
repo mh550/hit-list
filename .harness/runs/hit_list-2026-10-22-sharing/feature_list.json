@@ -452,7 +452,7 @@
         "supabase/functions/account-delete/index.ts exists (Deno; reads the caller's JWT from the Authorization header, resolves the user with the anon client's auth.getUser, deletes the user's storage objects under <uid>/ and sends/<their send ids>/, then auth.admin.deleteUser(uid) with the service-role client; returns { ok: true } or a 401/500 JSON); supabase/functions/_shared/cors.ts holds the CORS headers; the function is exercised for real in S4-06 (no Deno on the box is assumed; the plan records whether deno check was available).",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S4-06",

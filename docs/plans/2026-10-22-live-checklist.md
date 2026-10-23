@@ -78,7 +78,10 @@ Works from S4-05 on (sign-in, username, Profile). Nothing here touches a cloud p
       @username, not asked again.
 - [ ] **Delete account** (needs the `account-delete` function, served by the local stack): Profile → Delete account →
       Delete. Check: back to signed out; in Studio (`http://100.88.90.97:54323`) Authentication shows no user for that
-      email; spots on the phone are untouched.
+      email; spots on the phone are untouched. With Wi-Fi and cellular off, Delete → "Couldn't delete the account. Try
+      again." and still signed in.
+- [ ] **Sign out offline** (S4-05): sign in, turn Wi-Fi and cellular off, Sign out. Check: Profile says signed out; turn
+      the network back on, wait a minute, reopen Expo Go: still signed out (not signed back in).
 - [ ] **Stop:** `npm run db:stop`. **Undo:** delete `.env.local` (the app goes back to signed-out only);
       `npm run db:reset` wipes every local account.
 - [ ] **Later, for a cloud project** (not before the §10 cloud step): in the dashboard, Authentication → Email: OTP

@@ -101,6 +101,7 @@ export default function ProfileScreen() {
   const units = useSettingsStore((s) => s.units);
   const batchRadius = useSettingsStore((s) => s.batch_import_radius);
   const { setUnits, setBatchImportRadius } = useSettingsActions();
+  const userId = useAuthStore((s) => s.userId);
 
   // D23: the radius is stored in metres; the field shows it in the user's unit. `typed` holds the text only while
   // the user is typing, so a units switch or a store update re-renders the field from the stored metres.
@@ -126,7 +127,8 @@ export default function ProfileScreen() {
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled">
       <SectionHeader title="Account" />
-      <AccountSection />
+      {/* A new account (or none) starts with a fresh section: no error or busy state from the one before. */}
+      <AccountSection key={userId ?? 'signed-out'} />
 
       <SectionHeader title="Units" />
       <View style={styles.unitsRow}>

@@ -20,6 +20,15 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 02:50 · S2-06 · passes
+
+- Review: an Opus reviewer read `reviews/s2.diff` (`git diff 2488824..HEAD -- src app __mocks__`, 3,380 lines). It found **no Critical or Important** issues and 5 Minor ones. Three are fixed, each with a RED test first (`5dd05fd`): an empty area list on the Spots tab now uses the area copy; the chooser reads 'Just this 1 spot'; 'Edit area' puts your own filters back on close (Save or Cancel). Two are accepted: place-name drift across edits (needs a migration; noted in D54) and unclustered pins in a big circle (phone check added). The findings and the five written answers (NO_LOCATION, radius steps round-trip, one `selectAreaSpots`, geocode rejection, no geocode on drag) are under 'Review' in `docs/plans/2026-10-22-s2-area.md`.
+- `refactor:` (`5af129a`): one `isAreaList` guard in `src/utils/area.ts` (replaces 4 copies), a new `FilterHeaderButton` shared by `SpotsBrowser` and the picker, `areaLabel` computed once, the picker's start region folded into its `start` state.
+- Docs: CLAUDE.md Layout (`app/area/`, `src/utils/area.ts`, area lists computed never stored, `selectAreaSpots`, `FilterHeaderButton`); README 'Area lists (S2)'.
+- Tests 919 → 924 (+3 area-picker, +1 spots-view-mode, +1 area). Verified: `check.sh` green, 924; `npx jest --ci` 0 console.error.
+- Next: S2 is done; the S2 PR / S3 per the feature list. `docs/plans/2026-10-22-live-checklist.md` doesn't exist yet; S2's phone checks are in `2026-10-22-s2-what-michael-will-see.md`.
+- Questions for Michael: D55 changed slightly (Edit area no longer leaves the list's filters on the Spots tab), so please confirm it with Q16. D53–D56 are still open in spec §9.
+
 ### 2026-10-23 02:10 · S2-05 · passes
 
 - New `docs/plans/2026-10-22-s2-what-michael-will-see.md`: the picker (default imperial and metric, count '1 spot'), the 'Save as hit list' chooser, the Lists tab (one area, one manual list), the area list screen (two-line header, 'Edit area'), 'What to tap', and the checks. Rendered by a temporary test (deleted before the commit); tests stay at 919.

@@ -1,0 +1,3380 @@
+diff --git a/__mocks__/react-native-maps.tsx b/__mocks__/react-native-maps.tsx
+index a7cce8e..291488c 100644
+--- a/__mocks__/react-native-maps.tsx
++++ b/__mocks__/react-native-maps.tsx
+@@ -1,6 +1,9 @@
+-// Manual mock of react-native-maps 1.27.2 for Jest. Prop names are copied from
+-// node_modules/react-native-maps/dist/src/{MapView,MapMarker}.d.ts; each
+-// component is a View that keeps its props so tests can assert on them.
++// Manual mock of react-native-maps 1.27.2 for Jest. Member and prop names are copied from
++// node_modules/react-native-maps/dist/src/{index,MapView,MapMarker,MapCircle}.d.ts (the package has no lib/);
++// each component is a View that keeps its props so tests can assert on them, e.g.
++// `getByTestId('map-circle').props.radius`. MapView spreads every prop onto its View, so a test fires
++// `onRegionChangeComplete(region: Region, details: Details)` with
++// `act(() => getByTestId('map-view').props.onRegionChangeComplete(region, { isGesture: true }))`.
+ // MapView also exposes the imperative methods of MapView.d.ts (the ones the app calls,
+ // e.g. react-native-map-clustering's cluster press) as the shared jest.fn()s in
+ // `mockMapMethods`; reset them in a test's beforeEach, e.g. `mockMapMethods.fitToCoordinates.mockReset()`.
+@@ -8,7 +11,7 @@ import { forwardRef, useImperativeHandle } from 'react';
+ import type { ReactNode } from 'react';
+ import { View } from 'react-native';
+ import type { ViewProps } from 'react-native';
+-import type { LatLng } from 'react-native-maps';
++import type { LatLng, Region } from 'react-native-maps';
+ 
+ type AnyProps = { children?: ReactNode; testID?: string; [key: string]: unknown };
+ 
+@@ -16,6 +19,7 @@ type FitToOptions = { edgePadding?: { top: number; right: number; bottom: number
+ 
+ export const mockMapMethods = {
+   fitToCoordinates: jest.fn<void, [coordinates?: LatLng[], options?: FitToOptions]>(),
++  animateToRegion: jest.fn<void, [region: Region, duration?: number]>(),
+ };
+ 
+ const MapView = forwardRef<typeof mockMapMethods, ViewProps>(function MapView(
+@@ -34,4 +38,9 @@ export function Marker({ children, ...props }: AnyProps) {
+   return <View {...props}>{children}</View>;
+ }
+ 
++/** MapCircle.d.ts: `center: LatLng`, `radius: number` (metres), `fillColor`, `strokeColor`, `strokeWidth`. */
++export function Circle(props: AnyProps) {
++  return <View testID="map-circle" {...props} />;
++}
++
+ export default MapView;
+diff --git a/app/(tabs)/lists.tsx b/app/(tabs)/lists.tsx
+index 3b87340..9f1b552 100644
+--- a/app/(tabs)/lists.tsx
++++ b/app/(tabs)/lists.tsx
+@@ -7,15 +7,17 @@ import { EmptyState, NameListSheet } from '@/src/components';
+ import { palette, spacing } from '@/src/constants/theme';
+ import { useHitListActions } from '@/src/hooks/use-hit-list-actions';
+ import { selectListCounts, selectListsByName, useHitListsStore, useSpotsStore } from '@/src/stores';
++import { useSettingsStore } from '@/src/stores/settings-store';
+ import type { HitList } from '@/src/types';
+-
+-const spotCountLabel = (n: number) => (n === 1 ? '1 spot' : `${n} spots`);
++import { areaLabel } from '@/src/utils/area';
++import { spotCountLabel } from '@/src/utils/spot-name';
+ 
+ export default function ListsScreen() {
+   const router = useRouter();
+   const lists = useHitListsStore((s) => s.lists);
+   const membershipBySpot = useHitListsStore((s) => s.membershipBySpot);
+   const spots = useSpotsStore((s) => s.spots);
++  const units = useSettingsStore((s) => s.units);
+   const { createList } = useHitListActions();
+   const [naming, setNaming] = useState(false);
+ 
+@@ -40,16 +42,19 @@ export default function ListsScreen() {
+ 
+   const renderItem = ({ item }: { item: HitList }) => {
+     const count = spotCountLabel(counts[item.id] ?? 0);
++    // No place on the row: rows are tight (the list's own header has it).
++    const area = item.kind === 'area' && item.area_radius_m !== undefined ? areaLabel(item.area_radius_m, units) : null;
+     return (
+       <Pressable
+         style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+         onPress={() => router.push(`/list/${item.id}`)}
+         accessibilityRole="button"
+-        accessibilityLabel={`${item.name}, ${count}`}>
++        accessibilityLabel={[item.name, area, count].filter(Boolean).join(', ')}>
+         <View style={styles.rowText}>
+           <Text style={styles.rowName} numberOfLines={1}>
+             {item.name}
+           </Text>
++          {area ? <Text style={styles.rowCount}>{area}</Text> : null}
+           <Text style={styles.rowCount}>{count}</Text>
+         </View>
+         <IconSymbol name="chevron.right" size={18} color={palette.gray[400]} />
+@@ -59,14 +64,24 @@ export default function ListsScreen() {
+ 
+   return (
+     <View style={styles.container}>
+-      <Pressable
+-        style={({ pressed }) => [styles.newButton, pressed && styles.rowPressed]}
+-        onPress={() => setNaming(true)}
+-        accessibilityRole="button"
+-        accessibilityLabel="New hit list">
+-        <IconSymbol name="plus" size={20} color={palette.blue[500]} />
+-        <Text style={styles.newText}>New hit list</Text>
+-      </Pressable>
++      <View style={styles.newRow}>
++        <Pressable
++          style={({ pressed }) => [styles.newButton, pressed && styles.rowPressed]}
++          onPress={() => setNaming(true)}
++          accessibilityRole="button"
++          accessibilityLabel="New hit list">
++          <IconSymbol name="plus" size={20} color={palette.blue[500]} />
++          <Text style={styles.newText}>New hit list</Text>
++        </Pressable>
++        <Pressable
++          style={({ pressed }) => [styles.newButton, pressed && styles.rowPressed]}
++          onPress={() => router.push('/area')}
++          accessibilityRole="button"
++          accessibilityLabel="New area list">
++          <IconSymbol name="plus" size={20} color={palette.blue[500]} />
++          <Text style={styles.newText}>Area list</Text>
++        </Pressable>
++      </View>
+ 
+       {sections.length === 0 ? (
+         // No action button: the one above is the action, and two 'New hit list' labels would collide.
+@@ -110,14 +125,17 @@ const styles = StyleSheet.create({
+   container: {
+     flex: 1,
+   },
++  newRow: {
++    flexDirection: 'row',
++    borderBottomWidth: StyleSheet.hairlineWidth,
++    borderBottomColor: palette.gray[200],
++  },
+   newButton: {
+     flexDirection: 'row',
+     alignItems: 'center',
+     gap: spacing.sm,
+     paddingHorizontal: spacing.lg,
+     paddingVertical: spacing.md,
+-    borderBottomWidth: StyleSheet.hairlineWidth,
+-    borderBottomColor: palette.gray[200],
+   },
+   newText: {
+     fontSize: 17,
+diff --git a/app/_layout.tsx b/app/_layout.tsx
+index b8f3558..f6c7661 100644
+--- a/app/_layout.tsx
++++ b/app/_layout.tsx
+@@ -47,6 +47,10 @@ export default function RootLayout() {
+                 <Stack.Screen name="import/index" options={{ title: 'Import Photos' }} />
+                 <Stack.Screen name="import/review" options={{ title: 'Review Import' }} />
+                 <Stack.Screen name="list/[id]/index" options={{ title: 'Hit list' }} />
++                <Stack.Screen
++                  name="area/index"
++                  options={{ presentation: 'fullScreenModal', title: 'Pick an area' }}
++                />
+               </Stack>
+             </DBInitializer>
+           </SQLiteProvider>
+diff --git a/app/area/index.tsx b/app/area/index.tsx
+new file mode 100644
+index 0000000..ec68a8e
+--- /dev/null
++++ b/app/area/index.tsx
+@@ -0,0 +1,559 @@
++import { useLayoutEffect, useMemo, useRef, useState } from 'react';
++import {
++  Alert,
++  KeyboardAvoidingView,
++  Modal,
++  Pressable,
++  ScrollView,
++  StyleSheet,
++  Text,
++  TextInput,
++  View,
++} from 'react-native';
++import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
++import { geocodeAsync, type LocationGeocodedLocation } from 'expo-location';
++import MapView, { Circle, Marker, type Details, type Region } from 'react-native-maps';
++import { useSafeAreaInsets } from 'react-native-safe-area-context';
++
++import { Button, Chip, EmptyState, HeaderTextButton, NameListCard, useGuardedSubmit } from '@/src/components';
++import { FilterSheet } from '@/src/components/FilterSheet';
++import { palette, radius, spacing } from '@/src/constants/theme';
++import { useCurrentLocation } from '@/src/hooks/use-current-location';
++import { useHitListActions } from '@/src/hooks/use-hit-list-actions';
++import { selectActiveFilterCount, selectAreaSpots, useHitListsStore, useSpotsStore } from '@/src/stores';
++import { useLocationStore } from '@/src/stores/location-store';
++import { useSettingsStore } from '@/src/stores/settings-store';
++import type { GeoPoint, HitList } from '@/src/types';
++import {
++  DEFAULT_AREA_RADIUS_M,
++  RADIUS_STEPS_M,
++  circleRegion,
++  keepsPlace,
++  nearestStep,
++  radiusLabel,
++} from '@/src/utils/area';
++import { initialRegion } from '@/src/utils/map-region';
++import { spotCountLabel } from '@/src/utils/spot-name';
++
++/** D54: what the area is "of", and where that place put the centre (dragging well away from it drops the name). */
++interface Place {
++  name: string;
++  center: GeoPoint;
++}
++
++const MY_LOCATION = 'my location';
++const CIRCLE_FILL = `${palette.blue[500]}1F`; // ~12% of the primary blue
++const CIRCLE_STROKE = `${palette.blue[500]}B3`;
++
++type AreaList = HitList & { kind: 'area'; area_center: GeoPoint; area_radius_m: number };
++const isAreaList = (list: HitList | undefined): list is AreaList =>
++  list?.kind === 'area' && list.area_center !== undefined && list.area_radius_m !== undefined;
++
++/**
++ * Pick an area: a circle on the map around a fixed centre pin (drag the map to move it), radius chips in the rider's
++ * units, a place search, 'Use my location', the shared filters (D55) and a live count of the spots inside.
++ * The count is selectAreaSpots, the same rule an area list uses. 'Save as hit list' makes a manual list of the spots
++ * inside now or an area list of the circle; with `?listId` it edits that area list's circle ('Save area').
++ */
++export default function AreaPicker() {
++  const { listId } = useLocalSearchParams<{ listId?: string }>();
++  const editList = useHitListsStore((s) =>
++    listId === undefined ? undefined : s.lists.find((l) => l.id === listId && l.deleted_at === undefined),
++  );
++  const router = useRouter();
++  if (listId === undefined) return <AreaPickerBody />;
++  if (!isAreaList(editList)) {
++    // A full-screen modal: Cancel is the only way out.
++    return (
++      <View style={styles.container}>
++        <Stack.Screen
++          options={{
++            headerLeft: () => <HeaderTextButton onPress={() => router.back()}>Cancel</HeaderTextButton>,
++            headerRight: () => null,
++          }}
++        />
++        <EmptyState icon="list.bullet" title="This list is gone" message="It may have been deleted." />
++      </View>
++    );
++  }
++  return <AreaPickerBody editList={editList} />;
++}
++
++function AreaPickerBody({ editList }: { editList?: AreaList }) {
++  const router = useRouter();
++  const insets = useSafeAreaInsets();
++  useCurrentLocation();
++  const spots = useSpotsStore((s) => s.spots);
++  const filters = useSpotsStore((s) => s.filters);
++  const currentLocation = useLocationStore((s) => s.currentLocation);
++  const units = useSettingsStore((s) => s.units);
++  const { createList, addSpotsToList, deleteList, updateHitList } = useHitListActions();
++
++  // The start is fixed on mount: a fix that arrives later only enables 'Use my location', the map doesn't jump.
++  const [start] = useState<{ center: GeoPoint; place?: Place; radiusM: number }>(() => {
++    if (editList) {
++      const { area_center, area_place, area_radius_m } = editList;
++      return {
++        center: area_center,
++        place: area_place === undefined ? undefined : { name: area_place, center: area_center },
++        radiusM: area_radius_m, // kept as saved, even off this unit's chips (D56)
++      };
++    }
++    const radiusM = nearestStep(DEFAULT_AREA_RADIUS_M, units);
++    if (currentLocation) {
++      return { center: currentLocation, place: { name: MY_LOCATION, center: currentLocation }, radiusM };
++    }
++    const { latitude, longitude } = initialRegion(spots, null);
++    return { center: { latitude, longitude }, radiusM };
++  });
++  const [center, setCenter] = useState(start.center);
++  const [place, setPlace] = useState(start.place);
++  const [radiusM, setRadiusM] = useState(start.radiusM);
++  // react-native-maps reads initialRegion on mount; a new object later could move the camera before the map is ready.
++  const [mapStart] = useState(() => circleRegion(start.center, radiusM));
++  const [searchText, setSearchText] = useState('');
++  const [notFound, setNotFound] = useState(false);
++  const [filterVisible, setFilterVisible] = useState(false);
++  const [choosing, setChoosing] = useState(false);
++  const [savingArea, setSavingArea] = useState(false);
++  // Read by Cancel: a back while 'Save area' writes, then the save's own back, would pop the list screen too.
++  const savingAreaRef = useRef(false);
++  const mapRef = useRef<MapView | null>(null);
++  // A geocode answer applies only if nothing has moved the centre or changed the text since its submit: every such
++  // action bumps this counter.
++  const searchSeq = useRef(0);
++  // The radius a late geocode answer must fit the camera to (the one in its closure may be stale).
++  const radiusRef = useRef(radiusM);
++
++  const areaSpots = useMemo(
++    () => selectAreaSpots(spots, center, radiusM, filters),
++    [spots, center, radiusM, filters],
++  );
++  const activeFilterCount = selectActiveFilterCount(filters);
++
++  // D55: editing an area list loads its filters into the shared ones (the Filter badge shows them); once per list,
++  // before the first paint so the count doesn't open on the Spots tab's filters.
++  const editListId = editList?.id;
++  useLayoutEffect(() => {
++    const list = useHitListsStore.getState().lists.find((l) => l.id === editListId);
++    if (!list) return;
++    const { resetFilters, setFilters } = useSpotsStore.getState();
++    resetFilters();
++    if (list.area_filters) setFilters(list.area_filters);
++  }, [editListId]);
++
++  const reportSaveFailure = () => Alert.alert("Couldn't save the list", 'Please try again.');
++
++  const saveNewList = async (kind: SaveKind, name: string) => {
++    let listId: string;
++    try {
++      if (kind === 'manual') {
++        const ids = areaSpots.map((s) => s.id); // the spots inside at the moment of Create
++        listId = (await createList(name, { kind: 'manual' })).id;
++        try {
++          await addSpotsToList(listId, ids);
++        } catch (err) {
++          // Don't leave an empty copy behind for the retry to duplicate (the hook logs a failed delete).
++          deleteList(listId).catch(() => {});
++          throw err;
++        }
++      } else {
++        const list = await createList(name, {
++          kind: 'area',
++          area_center: center,
++          area_radius_m: radiusM,
++          area_place: place?.name,
++          area_filters: { ...filters },
++        });
++        listId = list.id;
++      }
++    } catch (err) {
++      // useHitListActions has logged it and taken the list back out of the store; the name sheet stays open.
++      reportSaveFailure();
++      throw err;
++    }
++    // Closed first: the name card would take a second Create until the transition starts, and the screen shouldn't
++    // go while it presents a Modal.
++    setChoosing(false);
++    router.replace(`/list/${listId}`);
++  };
++
++  const saveArea = async () => {
++    if (!editList || savingAreaRef.current) return;
++    savingAreaRef.current = true;
++    setSavingArea(true);
++    try {
++      await updateHitList(editList.id, {
++        area_center: center,
++        area_radius_m: radiusM,
++        area_place: place?.name ?? null,
++        area_filters: { ...filters },
++      });
++    } catch {
++      savingAreaRef.current = false;
++      setSavingArea(false);
++      reportSaveFailure();
++      return;
++    }
++    router.back();
++  };
++
++  const cancelSearch = () => {
++    searchSeq.current += 1;
++  };
++
++  const moveTo = (point: GeoPoint, placeName: string) => {
++    setCenter(point);
++    setPlace({ name: placeName, center: point });
++    mapRef.current?.animateToRegion(circleRegion(point, radiusRef.current));
++  };
++
++  // Never geocodes: only a submitted search does. A drag wins over a search still in flight.
++  const onRegionChangeComplete = ({ latitude, longitude }: Region, details?: Details) => {
++    if (details?.isGesture) cancelSearch();
++    const next = { latitude, longitude };
++    setCenter(next);
++    if (place && !keepsPlace(place.center, next, radiusM)) setPlace(undefined);
++  };
++
++  const pickRadius = (step: number) => {
++    // An unchanged region would leave the native map ignoring region changes until the next one (react-native-maps).
++    if (step === radiusM) return;
++    radiusRef.current = step;
++    setRadiusM(step);
++    mapRef.current?.animateToRegion(circleRegion(center, step));
++  };
++
++  const goToMyLocation = () => {
++    if (!currentLocation) return;
++    cancelSearch();
++    moveTo(currentLocation, MY_LOCATION);
++  };
++
++  const search = async () => {
++    const text = searchText.trim();
++    if (text === '') return;
++    cancelSearch();
++    const seq = searchSeq.current;
++    let results: LocationGeocodedLocation[];
++    try {
++      results = await geocodeAsync(text); // Apple's geocoder: the typed text goes to Apple
++    } catch {
++      results = []; // offline or rate-limited reads the same as no match
++    }
++    if (seq !== searchSeq.current) return;
++    // The native geocoder returns null coordinates for a placemark without a location, whatever the types say.
++    const hit = results.find((r) => Number.isFinite(r.latitude) && Number.isFinite(r.longitude));
++    if (!hit) {
++      setNotFound(true);
++      return;
++    }
++    setNotFound(false);
++    moveTo({ latitude: hit.latitude, longitude: hit.longitude }, text);
++  };
++
++  const onSearchTextChange = (text: string) => {
++    cancelSearch();
++    setSearchText(text);
++    setNotFound(false);
++  };
++
++  return (
++    <View style={styles.container}>
++      <Stack.Screen
++        options={{
++          headerLeft: () => (
++            <HeaderTextButton onPress={() => !savingAreaRef.current && router.back()}>Cancel</HeaderTextButton>
++          ),
++          headerRight: () => (
++            <HeaderTextButton
++              onPress={() => setFilterVisible(true)}
++              accessibilityLabel={`Filter spots${activeFilterCount > 0 ? `, ${activeFilterCount} active` : ''}`}
++              emphasized={activeFilterCount > 0}>
++              {`Filter${activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}`}
++            </HeaderTextButton>
++          ),
++        }}
++      />
++      <View style={styles.searchRow}>
++        <TextInput
++          style={styles.search}
++          value={searchText}
++          onChangeText={onSearchTextChange}
++          onSubmitEditing={search}
++          placeholder="Search a place"
++          placeholderTextColor={palette.gray[500]}
++          accessibilityLabel="Search a place"
++          accessibilityRole="search"
++          clearButtonMode="while-editing"
++          autoCorrect={false}
++          returnKeyType="search"
++        />
++        <Button
++          title="Use my location"
++          variant="secondary"
++          size="sm"
++          disabled={currentLocation == null}
++          onPress={goToMyLocation}
++        />
++      </View>
++      {notFound ? <Text style={styles.notFound}>No place found</Text> : null}
++
++      <View style={styles.mapWrap}>
++        <MapView
++          ref={mapRef}
++          style={StyleSheet.absoluteFill}
++          initialRegion={mapStart}
++          onRegionChangeComplete={onRegionChangeComplete}>
++          <Circle
++            center={center}
++            radius={radiusM}
++            fillColor={CIRCLE_FILL}
++            strokeColor={CIRCLE_STROKE}
++            strokeWidth={2}
++          />
++          {areaSpots.map((s) => (
++            <Marker key={s.id} coordinate={s.location} pinColor={palette.blue[500]} />
++          ))}
++        </MapView>
++        {/* The map moves under this pin; its tip is the circle's centre. */}
++        <View style={styles.pinLayer} pointerEvents="none">
++          <View style={styles.pin} testID="area-center-pin">
++            <View style={styles.pinHead} />
++            <View style={styles.pinStem} />
++          </View>
++        </View>
++      </View>
++
++      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
++        {RADIUS_STEPS_M[units].map((step) => (
++          <Chip
++            key={step}
++            role="radio"
++            label={radiusLabel(step, units)}
++            selected={step === radiusM}
++            onPress={() => pickRadius(step)}
++          />
++        ))}
++      </ScrollView>
++
++      <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
++        <Text style={styles.count} accessibilityLiveRegion="polite">
++          {spotCountLabel(areaSpots.length)}
++        </Text>
++        {editList ? (
++          <Button title="Save area" onPress={saveArea} disabled={savingArea} />
++        ) : (
++          <Button title="Save as hit list" onPress={() => setChoosing(true)} />
++        )}
++      </View>
++
++      <FilterSheet visible={filterVisible} onClose={() => setFilterVisible(false)} />
++      <SaveChooser
++        visible={choosing}
++        count={areaSpots.length}
++        onClose={() => setChoosing(false)}
++        onSave={saveNewList}
++      />
++    </View>
++  );
++}
++
++/** 'Just these N' (a manual list of the spots inside now) or 'Keep it updated' (an area list). */
++type SaveKind = 'manual' | 'area';
++
++interface ChooserProps {
++  visible: boolean;
++  count: number;
++  onClose: () => void;
++  /** Rejects to keep the name card open (the caller has said why). */
++  onSave: (kind: SaveKind, name: string) => Promise<void>;
++}
++
++/** 'Save as hit list': mounted only while visible, so every open starts at the choice. */
++function SaveChooser({ visible, ...rest }: ChooserProps) {
++  if (!visible) return null;
++  return <SaveChooserContent {...rest} />;
++}
++
++/**
++ * A snapshot of the spots inside now, or an area list that keeps up; then the list's name. Both steps share one
++ * Modal: iOS doesn't present a second Modal while the first is still going away.
++ */
++function SaveChooserContent({ count, onClose, onSave }: Omit<ChooserProps, 'visible'>) {
++  const [kind, setKind] = useState<SaveKind | null>(null);
++  const { submitting, submit, cancel } = useGuardedSubmit((name) => (kind ? onSave(kind, name) : undefined), onClose);
++  return (
++    <Modal visible transparent animationType="fade" onRequestClose={cancel}>
++      <KeyboardAvoidingView behavior="padding" style={styles.backdrop}>
++        <Pressable style={StyleSheet.absoluteFill} onPress={cancel} accessible={false} />
++        {kind ? (
++          <NameListCard
++            title="New hit list"
++            confirmLabel="Create"
++            submitting={submitting}
++            onCancel={cancel}
++            onSubmit={submit}
++          />
++        ) : (
++          <View style={styles.card}>
++            <Text style={styles.cardTitle} accessibilityRole="header">
++              Save as hit list
++            </Text>
++            {count > 0 ? (
++              <ChooserOption
++                title={`Just these ${spotCountLabel(count)}`}
++                hint="A normal hit list of the spots inside the circle right now"
++                onPress={() => setKind('manual')}
++              />
++            ) : null}
++            <ChooserOption
++              title="Keep it updated"
++              hint="An area list: your spots inside this circle, now and later"
++              onPress={() => setKind('area')}
++            />
++            <View style={styles.cardButtons}>
++              <Button title="Cancel" variant="secondary" onPress={onClose} />
++            </View>
++          </View>
++        )}
++      </KeyboardAvoidingView>
++    </Modal>
++  );
++}
++
++function ChooserOption({ title, hint, onPress }: { title: string; hint: string; onPress: () => void }) {
++  return (
++    <Pressable
++      onPress={onPress}
++      accessibilityRole="button"
++      accessibilityLabel={title}
++      accessibilityHint={hint}
++      style={({ pressed }) => [styles.option, pressed && styles.optionPressed]}>
++      <Text style={styles.optionTitle}>{title}</Text>
++      <Text style={styles.optionHint}>{hint}</Text>
++    </Pressable>
++  );
++}
++
++const PIN_HEAD = 16;
++const PIN_STEM = 14;
++
++const styles = StyleSheet.create({
++  container: {
++    flex: 1,
++  },
++  searchRow: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    gap: spacing.sm,
++    paddingHorizontal: spacing.md,
++    paddingTop: spacing.sm,
++    paddingBottom: spacing.sm,
++  },
++  search: {
++    flex: 1,
++    backgroundColor: palette.gray[100],
++    borderRadius: radius.md,
++    borderCurve: 'continuous',
++    paddingHorizontal: spacing.md,
++    paddingVertical: spacing.sm,
++    fontSize: 16,
++    color: palette.gray[900],
++  },
++  notFound: {
++    paddingHorizontal: spacing.md,
++    paddingBottom: spacing.sm,
++    fontSize: 14,
++    color: palette.red[700],
++  },
++  mapWrap: {
++    flex: 1,
++  },
++  pinLayer: {
++    ...StyleSheet.absoluteFill,
++    alignItems: 'center',
++    justifyContent: 'center',
++  },
++  pin: {
++    alignItems: 'center',
++    // Lift the pin by half its height so the stem's tip, not its middle, sits on the centre.
++    transform: [{ translateY: -(PIN_HEAD + PIN_STEM) / 2 }],
++  },
++  pinHead: {
++    width: PIN_HEAD,
++    height: PIN_HEAD,
++    borderRadius: PIN_HEAD / 2,
++    backgroundColor: palette.blue[500],
++    borderWidth: 2,
++    borderColor: palette.white,
++  },
++  pinStem: {
++    width: 2,
++    height: PIN_STEM,
++    backgroundColor: palette.blue[500],
++  },
++  chips: {
++    gap: spacing.sm,
++    paddingHorizontal: spacing.md,
++    paddingVertical: spacing.sm,
++  },
++  bottomBar: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    justifyContent: 'space-between',
++    gap: spacing.md,
++    paddingHorizontal: spacing.md,
++    paddingTop: spacing.md,
++    borderTopWidth: StyleSheet.hairlineWidth,
++    borderTopColor: palette.gray[200],
++  },
++  count: {
++    fontSize: 17,
++    fontWeight: '600',
++    color: palette.gray[900],
++    fontVariant: ['tabular-nums'],
++  },
++  backdrop: {
++    flex: 1,
++    justifyContent: 'center',
++    padding: spacing.xl,
++    backgroundColor: 'rgba(0, 0, 0, 0.4)',
++  },
++  card: {
++    backgroundColor: palette.white,
++    borderRadius: radius.lg,
++    borderCurve: 'continuous',
++    padding: spacing.lg,
++    gap: spacing.md,
++  },
++  cardTitle: {
++    fontSize: 18,
++    fontWeight: '700',
++    color: palette.gray[900],
++  },
++  option: {
++    padding: spacing.md,
++    borderRadius: radius.md,
++    borderCurve: 'continuous',
++    borderWidth: 1,
++    borderColor: palette.gray[200],
++    gap: spacing.xs,
++  },
++  optionPressed: {
++    backgroundColor: palette.gray[100],
++  },
++  optionTitle: {
++    fontSize: 16,
++    fontWeight: '600',
++    color: palette.blue[500],
++  },
++  optionHint: {
++    fontSize: 14,
++    color: palette.gray[500],
++  },
++  cardButtons: {
++    flexDirection: 'row',
++    justifyContent: 'flex-end',
++  },
++});
+diff --git a/app/list/[id]/index.tsx b/app/list/[id]/index.tsx
+index 0ca7bf1..e21bef1 100644
+--- a/app/list/[id]/index.tsx
++++ b/app/list/[id]/index.tsx
+@@ -1,5 +1,5 @@
+ import { useMemo, useState } from 'react';
+-import { Alert, StyleSheet, View } from 'react-native';
++import { Alert, StyleSheet, Text, View } from 'react-native';
+ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
+ import { useSafeAreaInsets } from 'react-native-safe-area-context';
+ 
+@@ -8,9 +8,20 @@ import { EMPTY_LIST_COPY } from '@/src/components/SpotsBrowser';
+ import { palette, spacing } from '@/src/constants/theme';
+ import { useHitListActions } from '@/src/hooks/use-hit-list-actions';
+ import { selectListSpots, useHitListsStore, useSpotsStore } from '@/src/stores';
++import { useSettingsStore } from '@/src/stores/settings-store';
++import { areaLabel } from '@/src/utils/area';
+ import { getSpotDisplayName } from '@/src/utils/spot-name';
+ 
+-/** One hit list: the Spots tab's List | Map body scoped to the list's spots, plus Rename and Delete list. */
++/** The area empty state: its spots arrive by being saved inside the circle. */
++const EMPTY_AREA_COPY = {
++  emptyTitle: 'No spots in this area yet',
++  emptyMessage: 'Spots you save inside the circle show up here',
++} as const;
++
++/**
++ * One hit list: the Spots tab's List | Map body scoped to the list's spots, plus Rename and Delete list. An area list's
++ * spots are computed from its circle, so it has 'Edit area' in place of 'Remove from list'.
++ */
+ export default function ListScreen() {
+   const { id } = useLocalSearchParams<{ id: string }>();
+   const router = useRouter();
+@@ -18,6 +29,7 @@ export default function ListScreen() {
+   const list = useHitListsStore((s) => s.lists.find((l) => l.id === id && l.deleted_at === undefined));
+   const membershipBySpot = useHitListsStore((s) => s.membershipBySpot);
+   const spots = useSpotsStore((s) => s.spots);
++  const units = useSettingsStore((s) => s.units);
+   const { renameList, deleteList, removeSpotFromList } = useHitListActions();
+   const [renaming, setRenaming] = useState(false);
+   // Set once Delete is confirmed: the store drops the list before router.back() runs, so 'gone' would flash.
+@@ -32,7 +44,7 @@ export default function ListScreen() {
+     // expo-router's Stack.Screen only sets options, so clear the list's title and Rename/Filter buttons here.
+     return (
+       <View style={styles.container}>
+-        <Stack.Screen options={{ title: 'Hit list', headerRight: () => null }} />
++        <Stack.Screen options={{ title: 'Hit list', headerTitle: undefined, headerRight: () => null }} />
+         {deleting ? null : (
+           <EmptyState icon="list.bullet" title="This list is gone" message="It may have been deleted." />
+         )}
+@@ -93,6 +105,23 @@ export default function ListScreen() {
+     ]);
+   };
+ 
++  const isArea = list.kind === 'area';
++  const areaTitle =
++    isArea && list.area_radius_m !== undefined ? (
++      <View
++        style={styles.title}
++        accessible
++        accessibilityRole="header"
++        accessibilityLabel={`${list.name}, ${areaLabel(list.area_radius_m, units, list.area_place)}`}>
++        <Text style={styles.titleName} numberOfLines={1}>
++          {list.name}
++        </Text>
++        <Text style={styles.titleArea} numberOfLines={1}>
++          {areaLabel(list.area_radius_m, units, list.area_place)}
++        </Text>
++      </View>
++    ) : undefined;
++
+   const renameButton = (
+     <HeaderTextButton onPress={() => setRenaming(true)} accessibilityLabel="Rename list">
+       Rename
+@@ -104,12 +133,20 @@ export default function ListScreen() {
+       <Stack.Screen options={{ title: list.name }} />
+       <SpotsBrowser
+         spots={listSpots}
+-        {...EMPTY_LIST_COPY}
++        {...(isArea ? EMPTY_AREA_COPY : EMPTY_LIST_COPY)}
++        headerTitle={areaTitle}
+         headerActions={renameButton}
+-        onSpotLongPress={handleSpotLongPress}
++        onSpotLongPress={isArea ? undefined : handleSpotLongPress}
+       />
+       <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
+-        <Button title="Delete list" variant="destructive" onPress={confirmDelete} accessibilityLabel="Delete list" />
++        {isArea ? (
++          <View style={styles.barButton}>
++            <Button title="Edit area" variant="secondary" onPress={() => router.push(`/area?listId=${list.id}`)} />
++          </View>
++        ) : null}
++        <View style={styles.barButton}>
++          <Button title="Delete list" variant="destructive" onPress={confirmDelete} accessibilityLabel="Delete list" />
++        </View>
+       </View>
+       <NameListSheet
+         visible={renaming}
+@@ -128,9 +165,27 @@ const styles = StyleSheet.create({
+     flex: 1,
+   },
+   bottomBar: {
++    flexDirection: 'row',
++    gap: spacing.sm,
+     paddingHorizontal: spacing.md,
+     paddingTop: spacing.md,
+     borderTopWidth: StyleSheet.hairlineWidth,
+     borderTopColor: palette.gray[200],
+   },
++  barButton: {
++    flex: 1,
++  },
++  title: {
++    alignItems: 'center',
++    maxWidth: 220,
++  },
++  titleName: {
++    fontSize: 17,
++    fontWeight: '600',
++    color: palette.gray[900],
++  },
++  titleArea: {
++    fontSize: 12,
++    color: palette.gray[500],
++  },
+ });
+diff --git a/app/spot/[id]/index.tsx b/app/spot/[id]/index.tsx
+index 0710079..f87b01d 100644
+--- a/app/spot/[id]/index.tsx
++++ b/app/spot/[id]/index.tsx
+@@ -3,6 +3,7 @@ import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
+ import { useSQLiteContext } from 'expo-sqlite';
+ import { StyleSheet, ScrollView, View, Text, Pressable } from 'react-native';
+ 
++import type { Spot } from '@/src/types';
+ import { getSpotLegacy, type SpotLegacy } from '@/src/db';
+ import { useSpotsStore, useMediaStore, useSettingsStore, useHitListsStore, selectSpotLists } from '@/src/stores';
+ import { AddPhotosTile, AddToListSheet, Chip, ChipGroup, PhotoGrid, SpeedScale, Tag } from '@/src/components';
+@@ -64,12 +65,12 @@ function OlderDetails({ spotId }: { spotId: string }) {
+ }
+ 
+ /** 'In lists': a chip per list the spot is in (opens it), then '+ Add to hit list', which files it from here. */
+-function InLists({ spotId }: { spotId: string }) {
++function InLists({ spot }: { spot: Spot }) {
+   const router = useRouter();
+   const lists = useHitListsStore((s) => s.lists);
+   const membershipBySpot = useHitListsStore((s) => s.membershipBySpot);
+-  const inLists = useMemo(() => selectSpotLists(spotId, lists, membershipBySpot), [spotId, lists, membershipBySpot]);
+-  const spotIds = useMemo(() => [spotId], [spotId]);
++  const inLists = useMemo(() => selectSpotLists(spot, lists, membershipBySpot), [spot, lists, membershipBySpot]);
++  const spotIds = useMemo(() => [spot.id], [spot.id]);
+   const [adding, setAdding] = useState(false);
+ 
+   return (
+@@ -151,7 +152,7 @@ export default function SpotDetailScreen() {
+           </ChipGroup>
+         ) : null}
+ 
+-        <InLists spotId={spot.id} />
++        <InLists spot={spot} />
+ 
+         <SpeedScale readonly value={spot.natural_speed} />
+ 
+diff --git a/src/__tests__/add-to-list-sheet.test.tsx b/src/__tests__/add-to-list-sheet.test.tsx
+index c863205..6f03313 100644
+--- a/src/__tests__/add-to-list-sheet.test.tsx
++++ b/src/__tests__/add-to-list-sheet.test.tsx
+@@ -1,7 +1,7 @@
+ import { act, fireEvent, render, screen } from '@testing-library/react-native';
+ import { Alert } from 'react-native';
+-import { useHitListsStore } from '@/src/stores';
+-import { createTestHitList } from './factories';
++import { useHitListsStore, useSpotsStore } from '@/src/stores';
++import { CITIES, createTestHitList, createTestSpot } from './factories';
+ 
+ const mockCreateList = jest.fn();
+ const mockAddSpotsToList = jest.fn();
+@@ -43,14 +43,18 @@ describe('AddToListSheet', () => {
+     expect(screen.queryByText('Add to hit list')).toBeNull();
+   });
+ 
+-  it('shows every live manual list by name, checked when the spot is in it', () => {
++  it('shows every live list by name, checked when the spot is in it', () => {
+     const area = createTestHitList({ id: 'L-area', name: 'Area', kind: 'area' });
+     const gone = createTestHitList({ id: 'L-gone', name: 'Gone', deleted_at: '2026-10-02T12:00:00.000Z' });
+     useHitListsStore.setState({ lists: [downtown, bridges, area, gone] });
+     render(<AddToListSheet visible spotIds={['a']} onClose={jest.fn()} />);
+ 
+     expect(screen.getByText('Add to hit list')).toBeOnTheScreen();
+-    expect(screen.getAllByRole('checkbox').map((r) => r.props.accessibilityLabel)).toEqual(['Bridges', 'Downtown']);
++    expect(screen.getAllByRole('checkbox').map((r) => r.props.accessibilityLabel)).toEqual([
++      'Area',
++      'Bridges',
++      'Downtown',
++    ]);
+     expect(row('Downtown').props.accessibilityState).toEqual({ checked: true });
+     expect(row('Bridges').props.accessibilityState).toEqual({ checked: false });
+   });
+@@ -194,4 +198,56 @@ describe('AddToListSheet', () => {
+ 
+     expect(onClose).toHaveBeenCalledTimes(1);
+   });
++
++  describe('area lists (S2-04)', () => {
++    const HINT = 'Area list: spots inside its circle are in it automatically';
++    const weekend = createTestHitList({
++      id: 'L-weekend',
++      name: 'Weekend',
++      kind: 'area',
++      area_center: CITIES.seattle,
++      area_radius_m: 1609,
++    });
++
++    beforeEach(() => {
++      useSpotsStore.setState({
++        spots: [
++          createTestSpot({ id: 'a', location: CITIES.seattle }),
++          createTestSpot({ id: 'b', location: CITIES.seattle }),
++          createTestSpot({ id: 'far', location: CITIES.portland }),
++        ],
++      });
++      useHitListsStore.setState({ lists: [downtown, weekend], membershipBySpot: {} });
++    });
++
++    it('shows an area list as a disabled row with its hint', () => {
++      render(<AddToListSheet visible spotIds={['far']} onClose={jest.fn()} />);
++
++      expect(row('Weekend').props.accessibilityState).toEqual({ disabled: true, checked: false });
++      expect(screen.getByText(HINT)).toBeTruthy();
++      expect(row('Downtown').props.accessibilityState).toEqual({ checked: false });
++    });
++
++    it('checks it when every given spot is inside its circle', () => {
++      render(<AddToListSheet visible spotIds={['a', 'b']} onClose={jest.fn()} />);
++
++      expect(row('Weekend').props.accessibilityState).toEqual({ disabled: true, checked: true });
++    });
++
++    it('leaves it unchecked when one given spot is outside', () => {
++      render(<AddToListSheet visible spotIds={['a', 'far']} onClose={jest.fn()} />);
++
++      expect(row('Weekend').props.accessibilityState).toEqual({ disabled: true, checked: false });
++    });
++
++    it('never writes when its row is pressed', () => {
++      render(<AddToListSheet visible spotIds={['far']} onClose={jest.fn()} />);
++
++      fireEvent.press(row('Weekend'));
++      fireEvent.press(screen.getByText(HINT));
++
++      expect(mockAddSpotsToList).not.toHaveBeenCalled();
++      expect(mockRemoveSpotFromList).not.toHaveBeenCalled();
++    });
++  });
+ });
+diff --git a/src/__tests__/area-list-live.test.tsx b/src/__tests__/area-list-live.test.tsx
+new file mode 100644
+index 0000000..2d7e20f
+--- /dev/null
++++ b/src/__tests__/area-list-live.test.tsx
+@@ -0,0 +1,87 @@
++import { act, render, renderHook, screen } from '@testing-library/react-native';
++import { SafeAreaProvider } from 'react-native-safe-area-context';
++import { useLocalSearchParams } from 'expo-router';
++import type { SQLiteDatabase } from 'expo-sqlite';
++
++import { getListMemberships, getSpots, insertHitList } from '@/src/db';
++import { useSpotActions } from '@/src/hooks/use-spot-actions';
++import { useHitListsStore, useMediaStore, useSpotsStore } from '@/src/stores';
++import { useLocationStore } from '@/src/stores/location-store';
++import { DEFAULT_FILTERS, SortDirection, SortField, type GeoPoint } from '@/src/types';
++import { CITIES, createTestHitList, createTestSpot } from './factories';
++import { createMigratedTestDb } from './helpers/node-sqlite-db';
++
++import ListScreen from '@/app/list/[id]/index';
++
++let mockDb: SQLiteDatabase;
++jest.mock('expo-sqlite', () => ({
++  ...jest.requireActual('expo-sqlite'),
++  useSQLiteContext: () => mockDb,
++}));
++
++/** A point `meters` due north of `p` (haversine's Earth: 6371 km). */
++const north = (p: GeoPoint, meters: number): GeoPoint => ({
++  latitude: p.latitude + (meters / 6_371_000) * (180 / Math.PI),
++  longitude: p.longitude,
++});
++
++const METRICS = {
++  frame: { x: 0, y: 0, width: 390, height: 844 },
++  insets: { top: 47, left: 0, right: 0, bottom: 34 },
++};
++
++const around = createTestHitList({
++  id: 'L-around',
++  name: 'Around downtown',
++  kind: 'area',
++  area_center: CITIES.seattle,
++  area_radius_m: 1609,
++  area_filters: { ...DEFAULT_FILTERS },
++});
++
++beforeEach(async () => {
++  mockDb = await createMigratedTestDb();
++  await insertHitList(mockDb, around);
++  useHitListsStore.setState({ lists: [around], membershipBySpot: {}, activeListId: null });
++  useSpotsStore.setState({
++    spots: [],
++    filters: { ...DEFAULT_FILTERS },
++    searchQuery: '',
++    sortField: SortField.Name,
++    sortDirection: SortDirection.Asc,
++    sortChosen: true,
++    viewMode: 'list',
++  });
++  useMediaStore.setState({ mediaBySpot: {} });
++  useLocationStore.setState({ currentLocation: null });
++  jest.mocked(useLocalSearchParams).mockReturnValue({ id: around.id });
++});
++
++/** The spot actions first: `screen` follows the latest render, which must be the list. */
++function renderListWithActions() {
++  const { result } = renderHook(() => useSpotActions());
++  render(
++    <SafeAreaProvider initialMetrics={METRICS}>
++      <ListScreen />
++    </SafeAreaProvider>,
++  );
++  return result;
++}
++
++describe('An area list is live (S2-04, real SQLite)', () => {
++  it('shows a spot saved 500 m from the centre with no other action, and not one saved 2 km away', async () => {
++    const actions = renderListWithActions();
++    expect(screen.getByText('No spots in this area yet')).toBeTruthy();
++
++    await act(async () => {
++      await actions.current.addSpot(createTestSpot({ id: 'near', name: 'Near rail', location: north(CITIES.seattle, 500) }));
++      await actions.current.addSpot(createTestSpot({ id: 'far', name: 'Far ledge', location: north(CITIES.seattle, 2000) }));
++    });
++
++    expect(screen.getByText('Near rail')).toBeTruthy();
++    expect(screen.queryByText('Far ledge')).toBeNull();
++    // Both are saved, and nothing wrote a membership: the list is its circle.
++    expect((await getSpots(mockDb)).map((s) => s.id).sort()).toEqual(['far', 'near']);
++    expect(await getListMemberships(mockDb)).toEqual({});
++  });
++});
+diff --git a/src/__tests__/area-picker.test.tsx b/src/__tests__/area-picker.test.tsx
+new file mode 100644
+index 0000000..e7dec78
+--- /dev/null
++++ b/src/__tests__/area-picker.test.tsx
+@@ -0,0 +1,790 @@
++import { isValidElement, type ReactElement } from 'react';
++import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
++import { SafeAreaProvider } from 'react-native-safe-area-context';
++import { useLocalSearchParams, useRouter } from 'expo-router';
++import { Alert } from 'react-native';
++import { geocodeAsync } from 'expo-location';
++import * as ReactNativeMaps from 'react-native-maps';
++import type { Region } from 'react-native-maps';
++import { useHitListsStore, useSpotsStore } from '@/src/stores';
++import { useLocationStore } from '@/src/stores/location-store';
++import { useSettingsStore } from '@/src/stores/settings-store';
++import {
++  DEFAULT_FILTERS,
++  FeatureType,
++  UnitSystem,
++  type GeoPoint,
++  type HitList,
++  type HitListUpdate,
++  type NewHitList,
++} from '@/src/types';
++import { circleRegion } from '@/src/utils/area';
++import { NO_LOCATION } from '@/src/utils/geo';
++import { initialRegion } from '@/src/utils/map-region';
++import { CITIES, createTestHitList, createTestSpot } from './factories';
++
++const mockCreateList = jest.fn(
++  (name: string, opts?: NewHitList): Promise<HitList> =>
++    Promise.resolve(createTestHitList({ id: 'L-new', name, ...opts })),
++);
++const mockAddSpotsToList = jest.fn((listId: string, spotIds: string[]): Promise<void> => {
++  void listId;
++  void spotIds;
++  return Promise.resolve();
++});
++const mockUpdateHitList = jest.fn((id: string, updates: HitListUpdate): Promise<void> => {
++  void id;
++  void updates;
++  return Promise.resolve();
++});
++const mockDeleteList = jest.fn((id: string): Promise<void> => {
++  void id;
++  return Promise.resolve();
++});
++jest.mock('@/src/hooks/use-hit-list-actions', () => ({
++  useHitListActions: () => ({
++    createList: mockCreateList,
++    renameList: jest.fn(),
++    updateHitList: mockUpdateHitList,
++    deleteList: mockDeleteList,
++    addSpotsToList: mockAddSpotsToList,
++    removeSpotFromList: jest.fn(),
++  }),
++}));
++
++import AreaPicker from '@/app/area/index';
++
++const { mockMapMethods } = ReactNativeMaps as unknown as {
++  mockMapMethods: { animateToRegion: jest.Mock<void, [region: Region, duration?: number]> };
++};
++
++const METRICS = {
++  frame: { x: 0, y: 0, width: 390, height: 844 },
++  insets: { top: 47, left: 0, right: 0, bottom: 34 },
++};
++
++/** A point `meters` due north of `p` (haversine's Earth: 6371 km). */
++const north = (p: GeoPoint, meters: number): GeoPoint => ({
++  latitude: p.latitude + (meters / 6_371_000) * (180 / Math.PI),
++  longitude: p.longitude,
++});
++
++/** 23 spots inside the default 2 mi circle around Seattle, 4 well outside, 1 with no location. */
++const inside = Array.from({ length: 23 }, (_, i) =>
++  createTestSpot({ id: `in-${i}`, location: north(CITIES.seattle, i * 100), feature_types: [FeatureType.Ledge] }),
++);
++const outside = Array.from({ length: 4 }, (_, i) =>
++  createTestSpot({ id: `out-${i}`, location: north(CITIES.seattle, 10_000 + i * 100) }),
++);
++const unlocated = createTestSpot({ id: 'no-loc', location: NO_LOCATION });
++
++function renderPicker() {
++  return render(
++    <SafeAreaProvider initialMetrics={METRICS}>
++      <AreaPicker />
++    </SafeAreaProvider>,
++  );
++}
++
++const circle = () => screen.getByTestId('map-circle').props as { center: GeoPoint; radius: number };
++
++type ScreenOptions = { title?: string; headerLeft?: () => ReactElement; headerRight?: () => ReactElement };
++/** Every Stack.Screen's options, merged in render order (as the navigator merges them). */
++function headerOptions(): ScreenOptions {
++  const screens = screen.UNSAFE_getAllByType('Stack.Screen' as never);
++  return Object.assign({}, ...screens.map((s) => (s.props as { options?: ScreenOptions }).options));
++}
++
++/** Presses a header button by calling its onPress (rendering the header as a second root would hide the screen). */
++function pressHeader(side: 'headerLeft' | 'headerRight', label: string) {
++  const el = headerOptions()[side]!();
++  const button = [el, ...((el.props as { children?: unknown }).children as unknown[] ?? [])]
++    .flat()
++    .find(
++      (c): c is ReactElement<{ onPress: () => void }> =>
++        // HeaderTextButton's label defaults to its text.
++        isValidElement<{ accessibilityLabel?: string; children?: unknown }>(c) &&
++        (c.props.accessibilityLabel ?? c.props.children) === label,
++    );
++  if (!button) throw new Error(`no header button labelled ${label}`);
++  act(() => button.props.onPress());
++}
++
++function moveMap(center: GeoPoint) {
++  act(() =>
++    screen.getByTestId('map-view').props.onRegionChangeComplete(
++      { ...center, latitudeDelta: 0.05, longitudeDelta: 0.05 },
++      { isGesture: true },
++    ),
++  );
++}
++
++beforeEach(() => {
++  mockMapMethods.animateToRegion.mockReset();
++  jest.mocked(geocodeAsync).mockReset();
++  jest.mocked(geocodeAsync).mockResolvedValue([]);
++  useSpotsStore.setState({ spots: [], filters: { ...DEFAULT_FILTERS }, searchQuery: '' });
++  useLocationStore.setState({ currentLocation: null });
++  useSettingsStore.setState({ units: UnitSystem.Imperial });
++});
++
++describe('Area picker: map and centre', () => {
++  it('starts on the current location when it is known', () => {
++    useSpotsStore.setState({ spots: [createTestSpot({ location: CITIES.portland })] });
++    useLocationStore.setState({ currentLocation: CITIES.spokane });
++    renderPicker();
++
++    expect(circle().center).toEqual(CITIES.spokane);
++    expect(screen.getByTestId('area-center-pin')).toBeTruthy();
++  });
++
++  it("otherwise starts on the centre of the spots' initial region", () => {
++    const spots = [createTestSpot({ location: CITIES.portland }), createTestSpot({ location: CITIES.spokane })];
++    useSpotsStore.setState({ spots });
++    renderPicker();
++
++    const { latitude, longitude } = initialRegion(spots, null);
++    expect(circle().center).toEqual({ latitude, longitude });
++    expect(screen.getByTestId('map-view').props.initialRegion).toEqual(
++      circleRegion({ latitude, longitude }, 3219),
++    );
++  });
++
++  it('keeps the start centre when a fix arrives later', () => {
++    useSpotsStore.setState({ spots: [createTestSpot({ location: CITIES.portland })] });
++    renderPicker();
++    act(() => useLocationStore.setState({ currentLocation: CITIES.spokane }));
++
++    expect(circle().center).toEqual(CITIES.portland);
++  });
++
++  it('a region change moves the circle and recomputes the count, without geocoding', () => {
++    useSpotsStore.setState({ spots: [...inside, ...outside, unlocated] });
++    useLocationStore.setState({ currentLocation: CITIES.seattle });
++    renderPicker();
++    expect(screen.getByText('23 spots')).toBeTruthy();
++
++    const far = north(CITIES.seattle, 10_150);
++    moveMap(far);
++
++    expect(circle().center).toEqual(far);
++    expect(screen.getByText('4 spots')).toBeTruthy();
++    expect(geocodeAsync).not.toHaveBeenCalled();
++  });
++
++  it('pins only the spots inside the circle', () => {
++    useSpotsStore.setState({ spots: [...inside, ...outside, unlocated] });
++    useLocationStore.setState({ currentLocation: CITIES.seattle });
++    renderPicker();
++
++    const pins = screen.UNSAFE_getAllByType(ReactNativeMaps.Marker);
++    expect(pins.map((p) => p.props.coordinate)).toEqual(inside.map((s) => s.location));
++  });
++});
++
++describe('Area picker: radius chips', () => {
++  it('shows the imperial chips with 2 mi selected by default', () => {
++    renderPicker();
++
++    expect(screen.getAllByRole('radio')).toHaveLength(7);
++    expect(screen.getAllByRole('radio', { checked: true })).toHaveLength(1);
++    for (const label of ['0.25 mi', '0.5 mi', '1 mi', '2 mi', '5 mi', '10 mi', '25 mi']) {
++      expect(screen.getByRole('radio', { name: label })).toBeTruthy();
++    }
++    expect(screen.getByRole('radio', { name: '2 mi' })).toBeChecked();
++    expect(circle().radius).toBe(3219);
++  });
++
++  it('shows the metric chips with 2 km selected by default', () => {
++    useSettingsStore.setState({ units: UnitSystem.Metric });
++    renderPicker();
++
++    expect(screen.getAllByRole('radio')).toHaveLength(7);
++    for (const label of ['0.5 km', '1 km', '2 km', '5 km', '10 km', '25 km', '50 km']) {
++      expect(screen.getByRole('radio', { name: label })).toBeTruthy();
++    }
++    expect(screen.getByRole('radio', { name: '2 km' })).toBeChecked();
++    expect(circle().radius).toBe(2000);
++  });
++
++  it("pressing '5 mi' sets the circle's radius to 8047 and fits the camera to it", () => {
++    useLocationStore.setState({ currentLocation: CITIES.seattle });
++    renderPicker();
++
++    fireEvent.press(screen.getByRole('radio', { name: '5 mi' }));
++
++    expect(circle().radius).toBe(8047);
++    expect(screen.getByRole('radio', { name: '5 mi' })).toBeChecked();
++    expect(screen.getByRole('radio', { name: '2 mi' })).not.toBeChecked();
++    expect(mockMapMethods.animateToRegion).toHaveBeenCalledWith(circleRegion(CITIES.seattle, 8047));
++  });
++
++  it('re-tapping the selected chip leaves the camera alone', () => {
++    renderPicker();
++
++    fireEvent.press(screen.getByRole('radio', { name: '2 mi' }));
++
++    expect(mockMapMethods.animateToRegion).not.toHaveBeenCalled();
++  });
++
++  it('keeps the map\'s initialRegion as it was on mount (a new one could snap the camera back while loading)', () => {
++    useLocationStore.setState({ currentLocation: CITIES.seattle });
++    renderPicker();
++    const mounted = screen.getByTestId('map-view').props.initialRegion;
++
++    moveMap(CITIES.spokane);
++    fireEvent.press(screen.getByRole('radio', { name: '5 mi' }));
++
++    expect(screen.getByTestId('map-view').props.initialRegion).toBe(mounted);
++    expect(mounted).toEqual(circleRegion(CITIES.seattle, 3219));
++  });
++});
++
++describe('Area picker: count', () => {
++  it("reads '23 spots' for 23 inside, 4 outside and one with no location", () => {
++    useSpotsStore.setState({ spots: [...inside, ...outside, unlocated] });
++    useLocationStore.setState({ currentLocation: CITIES.seattle });
++    renderPicker();
++
++    expect(screen.getByText('23 spots')).toBeTruthy();
++  });
++
++  it("reads '1 spot' in the singular", () => {
++    useSpotsStore.setState({ spots: [inside[0], ...outside] });
++    useLocationStore.setState({ currentLocation: CITIES.seattle });
++    renderPicker();
++
++    expect(screen.getByText('1 spot')).toBeTruthy();
++  });
++
++  it('leaves out deleted spots', () => {
++    useSpotsStore.setState({ spots: [inside[0], { ...inside[1], deleted_at: '2026-10-02T12:00:00.000Z' }] });
++    useLocationStore.setState({ currentLocation: CITIES.seattle });
++    renderPicker();
++
++    expect(screen.getByText('1 spot')).toBeTruthy();
++  });
++});
++
++describe('Area picker: place search', () => {
++  it('geocodes the submitted text and moves the centre to the first result', async () => {
++    const capitolHill = { latitude: 47.625, longitude: -122.3214 };
++    jest.mocked(geocodeAsync).mockResolvedValue([capitolHill, CITIES.portland]);
++    useLocationStore.setState({ currentLocation: CITIES.seattle });
++    renderPicker();
++
++    const field = screen.getByLabelText('Search a place');
++    fireEvent.changeText(field, '  Capitol Hill ');
++    fireEvent(field, 'submitEditing');
++
++    await waitFor(() => expect(circle().center).toEqual(capitolHill));
++    expect(geocodeAsync).toHaveBeenCalledWith('Capitol Hill');
++    expect(mockMapMethods.animateToRegion).toHaveBeenCalledWith(circleRegion(capitolHill, 3219));
++    expect(screen.queryByText('No place found')).toBeNull();
++  });
++
++  it('ignores a blank search', () => {
++    renderPicker();
++
++    const field = screen.getByLabelText('Search a place');
++    fireEvent.changeText(field, '   ');
++    fireEvent(field, 'submitEditing');
++
++    expect(geocodeAsync).not.toHaveBeenCalled();
++  });
++
++  it("shows 'No place found' for a search with no result, and clears it on the next edit", async () => {
++    useLocationStore.setState({ currentLocation: CITIES.seattle });
++    renderPicker();
++
++    const field = screen.getByLabelText('Search a place');
++    fireEvent.changeText(field, 'Nowhere at all');
++    fireEvent(field, 'submitEditing');
++
++    expect(await screen.findByText('No place found')).toBeTruthy();
++    expect(circle().center).toEqual(CITIES.seattle);
++
++    fireEvent.changeText(field, 'Nowhere at al');
++    expect(screen.queryByText('No place found')).toBeNull();
++  });
++
++  it("shows 'No place found' when geocoding rejects, with no console.error", async () => {
++    const consoleError = jest.spyOn(console, 'error');
++    jest.mocked(geocodeAsync).mockRejectedValue(new Error('network down'));
++    renderPicker();
++
++    const field = screen.getByLabelText('Search a place');
++    fireEvent.changeText(field, 'Capitol Hill');
++    fireEvent(field, 'submitEditing');
++
++    expect(await screen.findByText('No place found')).toBeTruthy();
++    expect(consoleError).not.toHaveBeenCalled();
++    consoleError.mockRestore();
++  });
++
++  it('ignores a result that arrives after a newer search', async () => {
++    const first = { latitude: 47.7, longitude: -122.3 };
++    const second = { latitude: 47.5, longitude: -122.4 };
++    let resolveFirst: (r: GeoPoint[]) => void = () => {};
++    jest
++      .mocked(geocodeAsync)
++      .mockImplementationOnce(() => new Promise((resolve) => (resolveFirst = resolve)))
++      .mockResolvedValueOnce([second]);
++    renderPicker();
++
++    const field = screen.getByLabelText('Search a place');
++    fireEvent.changeText(field, 'First');
++    fireEvent(field, 'submitEditing');
++    fireEvent.changeText(field, 'Second');
++    fireEvent(field, 'submitEditing');
++    await waitFor(() => expect(circle().center).toEqual(second));
++
++    await act(async () => resolveFirst([first]));
++    expect(circle().center).toEqual(second);
++  });
++});
++
++describe('Area picker: a search still in flight', () => {
++  const hit = { latitude: 47.625, longitude: -122.3214 };
++  /** Submits 'Capitol Hill' with a geocode answer the test hands over later. */
++  function submitPending() {
++    let answer: (r: GeoPoint[]) => void = () => {};
++    jest.mocked(geocodeAsync).mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));
++    const field = screen.getByLabelText('Search a place');
++    fireEvent.changeText(field, 'Capitol Hill');
++    fireEvent(field, 'submitEditing');
++    return (r: GeoPoint[]) => act(async () => answer(r));
++  }
++
++  it('fits the camera to the radius picked while it was pending', async () => {
++    useLocationStore.setState({ currentLocation: CITIES.seattle });
++    renderPicker();
++    const answer = submitPending();
++
++    fireEvent.press(screen.getByRole('radio', { name: '25 mi' }));
++    await answer([hit]);
++
++    expect(circle().center).toEqual(hit);
++    expect(mockMapMethods.animateToRegion).toHaveBeenLastCalledWith(circleRegion(hit, 40234));
++  });
++
++  it("is dropped after 'Use my location'", async () => {
++    useLocationStore.setState({ currentLocation: CITIES.seattle });
++    renderPicker();
++    const answer = submitPending();
++
++    fireEvent.press(screen.getByRole('button', { name: 'Use my location' }));
++    await answer([hit]);
++
++    expect(circle().center).toEqual(CITIES.seattle);
++  });
++
++  it('is dropped after the rider drags the map', async () => {
++    renderPicker();
++    const answer = submitPending();
++
++    moveMap(CITIES.spokane);
++    await answer([hit]);
++
++    expect(circle().center).toEqual(CITIES.spokane);
++  });
++
++  it("is dropped after an edit, so a late empty answer doesn't bring back 'No place found'", async () => {
++    renderPicker();
++    const answer = submitPending();
++
++    fireEvent.changeText(screen.getByLabelText('Search a place'), 'Capitol Hil');
++    await answer([]);
++
++    expect(screen.queryByText('No place found')).toBeNull();
++  });
++
++  it('skips a result with no coordinates (the native geocoder can return nulls)', async () => {
++    useLocationStore.setState({ currentLocation: CITIES.seattle });
++    renderPicker();
++    const answer = submitPending();
++
++    await answer([{ latitude: null, longitude: null } as unknown as GeoPoint]);
++
++    expect(screen.getByText('No place found')).toBeTruthy();
++    expect(circle().center).toEqual(CITIES.seattle);
++  });
++});
++
++describe("Area picker: 'Use my location'", () => {
++  it('is disabled with no fix', () => {
++    renderPicker();
++
++    expect(screen.getByRole('button', { name: 'Use my location' })).toBeDisabled();
++  });
++
++  it('recentres on the current location once there is one', () => {
++    useSpotsStore.setState({ spots: [createTestSpot({ location: CITIES.portland })] });
++    renderPicker();
++    act(() => useLocationStore.setState({ currentLocation: CITIES.spokane }));
++
++    const button = screen.getByRole('button', { name: 'Use my location' });
++    expect(button).toBeEnabled();
++    fireEvent.press(button);
++
++    expect(circle().center).toEqual(CITIES.spokane);
++    expect(mockMapMethods.animateToRegion).toHaveBeenCalledWith(circleRegion(CITIES.spokane, 3219));
++  });
++});
++
++describe('Area picker: filters', () => {
++  it('opens the FilterSheet from the header', () => {
++    renderPicker();
++    expect(screen.queryByText('Filters')).toBeNull();
++
++    pressHeader('headerRight', 'Filter spots');
++
++    expect(screen.getByText('Filters')).toBeTruthy();
++  });
++
++  it("counts only the spots that pass the store's filters", () => {
++    const rails = [0, 1, 2].map((i) =>
++      createTestSpot({ id: `rail-${i}`, location: north(CITIES.seattle, 50 + i), feature_types: [FeatureType.Rail] }),
++    );
++    useSpotsStore.setState({ spots: [...inside, ...rails] });
++    useLocationStore.setState({ currentLocation: CITIES.seattle });
++    renderPicker();
++    expect(screen.getByText('26 spots')).toBeTruthy();
++
++    act(() => useSpotsStore.getState().setFilters({ types: [FeatureType.Rail] }));
++
++    expect(screen.getByText('3 spots')).toBeTruthy();
++  });
++
++  it("ignores the Spots tab's text search", () => {
++    useSpotsStore.setState({ spots: [inside[0], inside[1]], searchQuery: 'nothing matches this' });
++    useLocationStore.setState({ currentLocation: CITIES.seattle });
++    renderPicker();
++
++    expect(screen.getByText('2 spots')).toBeTruthy();
++  });
++
++  it('shows the active filter count on the header button', () => {
++    useSpotsStore.setState({ filters: { ...DEFAULT_FILTERS, types: [FeatureType.Rail] } });
++    renderPicker();
++
++    expect(() => pressHeader('headerRight', 'Filter spots, 1 active')).not.toThrow();
++    expect((headerOptions().headerRight!().props as { children: string }).children).toBe('Filter (1)');
++  });
++});
++
++describe('Area picker: header', () => {
++  it("'Cancel' goes back", () => {
++    const back = jest.fn();
++    jest.mocked(useRouter).mockReturnValue({ push: jest.fn(), back, replace: jest.fn(), dismissAll: jest.fn() } as never);
++    renderPicker();
++
++    pressHeader('headerLeft', 'Cancel');
++
++    expect(back).toHaveBeenCalledTimes(1);
++  });
++});
++
++describe("Area picker: 'Save as hit list'", () => {
++  it('is the only bottom action (no Send yet)', () => {
++    renderPicker();
++
++    expect(screen.getByRole('button', { name: 'Save as hit list' })).toBeTruthy();
++    expect(screen.queryByText(/Send/)).toBeNull();
++  });
++
++  it('offers the two ways to save, with their hints', () => {
++    useSpotsStore.setState({ spots: [...inside, ...outside] });
++    useLocationStore.setState({ currentLocation: CITIES.seattle });
++    renderPicker();
++
++    fireEvent.press(screen.getByRole('button', { name: 'Save as hit list' }));
++
++    expect(screen.getByRole('button', { name: 'Just these 23 spots' })).toBeTruthy();
++    expect(screen.getByText('A normal hit list of the spots inside the circle right now')).toBeTruthy();
++    expect(screen.getByRole('button', { name: 'Keep it updated' })).toBeTruthy();
++    expect(screen.getByText('An area list: your spots inside this circle, now and later')).toBeTruthy();
++    expect(screen.queryByText(/Send/)).toBeNull();
++  });
++
++  it("'Cancel' only closes the chooser", () => {
++    useSpotsStore.setState({ spots: inside });
++    useLocationStore.setState({ currentLocation: CITIES.seattle });
++    renderPicker();
++
++    fireEvent.press(screen.getByRole('button', { name: 'Save as hit list' }));
++    fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
++
++    expect(screen.queryByText('Keep it updated')).toBeNull();
++    expect(screen.queryByText('Just these 23 spots')).toBeNull();
++    expect(screen.queryByLabelText('List name')).toBeNull();
++    expect(mockCreateList).not.toHaveBeenCalled();
++  });
++
++  it("hides 'Just these 0 spots' when the circle is empty", () => {
++    renderPicker();
++
++    fireEvent.press(screen.getByRole('button', { name: 'Save as hit list' }));
++
++    expect(screen.queryByText(/^Just these/)).toBeNull();
++    expect(screen.getByRole('button', { name: 'Keep it updated' })).toBeTruthy();
++  });
++});
++
++const CAPITOL_HILL = { latitude: 47.625, longitude: -122.3214 };
++
++describe('Area picker: saving a new list (S2-04)', () => {
++  const replace = jest.fn();
++
++  beforeEach(() => {
++    mockCreateList.mockClear();
++    mockAddSpotsToList.mockClear();
++    mockDeleteList.mockClear();
++    replace.mockReset();
++    jest.mocked(useRouter).mockReturnValue({ push: jest.fn(), back: jest.fn(), replace, dismissAll: jest.fn() } as never);
++    jest.mocked(useLocalSearchParams).mockReturnValue({});
++    useSpotsStore.setState({ spots: [...inside, ...outside, unlocated] });
++    useLocationStore.setState({ currentLocation: CITIES.seattle });
++  });
++
++  function choose(option: string) {
++    fireEvent.press(screen.getByRole('button', { name: 'Save as hit list' }));
++    fireEvent.press(screen.getByRole('button', { name: option }));
++  }
++
++  async function nameIt(name: string) {
++    fireEvent.changeText(screen.getByLabelText('List name'), name);
++    await act(async () => {
++      fireEvent.press(screen.getByRole('button', { name: 'Create' }));
++    });
++  }
++
++  it.each(['Just these 23 spots', 'Keep it updated'])("'%s' asks for a name in place of the chooser", (option) => {
++    renderPicker();
++    choose(option);
++
++    expect(screen.getByText('New hit list')).toBeTruthy();
++    expect(screen.getByLabelText('List name')).toBeTruthy();
++    expect(screen.queryByRole('button', { name: 'Keep it updated' })).toBeNull();
++  });
++
++  it("'Just these 23 spots' → Create makes a manual list of the 23 spots inside and opens it", async () => {
++    renderPicker();
++    choose('Just these 23 spots');
++    await nameIt('Weekend');
++
++    expect(mockCreateList).toHaveBeenCalledWith('Weekend', { kind: 'manual' });
++    expect(mockAddSpotsToList).toHaveBeenCalledTimes(1);
++    expect(mockAddSpotsToList).toHaveBeenCalledWith('L-new', inside.map((sp) => sp.id));
++    expect(replace).toHaveBeenCalledWith('/list/L-new');
++    expect(mockCreateList.mock.invocationCallOrder[0]).toBeLessThan(mockAddSpotsToList.mock.invocationCallOrder[0]);
++    expect(mockAddSpotsToList.mock.invocationCallOrder[0]).toBeLessThan(replace.mock.invocationCallOrder[0]);
++  });
++
++  it('closes the chooser before it navigates, so Create cannot run twice', async () => {
++    renderPicker();
++    choose('Keep it updated');
++    await nameIt('Weekend');
++
++    expect(screen.queryByLabelText('List name')).toBeNull();
++    expect(screen.queryByRole('button', { name: 'Create' })).toBeNull();
++    expect(mockCreateList).toHaveBeenCalledTimes(1);
++    expect(replace).toHaveBeenCalledTimes(1);
++  });
++
++  it("'Keep it updated' → Create makes an area list of the circle, place and filters, with no memberships", async () => {
++    jest.mocked(geocodeAsync).mockResolvedValue([CAPITOL_HILL]);
++    useSpotsStore.setState({ filters: { types: [FeatureType.Rail], stopped: true } });
++    renderPicker();
++    const field = screen.getByLabelText('Search a place');
++    fireEvent.changeText(field, 'Capitol Hill');
++    fireEvent(field, 'submitEditing');
++    await waitFor(() => expect(circle().center).toEqual(CAPITOL_HILL));
++
++    choose('Keep it updated');
++    await nameIt('Weekend');
++
++    expect(mockCreateList).toHaveBeenCalledWith('Weekend', {
++      kind: 'area',
++      area_center: CAPITOL_HILL,
++      area_radius_m: 3219,
++      area_place: 'Capitol Hill',
++      area_filters: { types: [FeatureType.Rail], stopped: true },
++    });
++    expect(mockAddSpotsToList).not.toHaveBeenCalled();
++    expect(replace).toHaveBeenCalledWith('/list/L-new');
++  });
++
++  it("'Keep it updated' after a drag saves the radius picked and no place", async () => {
++    renderPicker();
++    fireEvent.press(screen.getByRole('radio', { name: '5 mi' }));
++    moveMap(CITIES.portland);
++
++    choose('Keep it updated');
++    await nameIt('Portland');
++
++    const [, opts] = mockCreateList.mock.calls[0];
++    expect(opts).toEqual(expect.objectContaining({ kind: 'area', area_center: CITIES.portland, area_radius_m: 8047 }));
++    expect(opts && 'area_place' in opts ? opts.area_place : undefined).toBeUndefined();
++  });
++
++  it("a failed create says so, keeps the name sheet open and doesn't navigate", async () => {
++    mockCreateList.mockRejectedValueOnce(new Error('disk full'));
++    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
++    renderPicker();
++    choose('Keep it updated');
++    await nameIt('Weekend');
++
++    expect(alertSpy).toHaveBeenCalledWith("Couldn't save the list", 'Please try again.');
++    expect(screen.getByLabelText('List name')).toBeTruthy();
++    expect(replace).not.toHaveBeenCalled();
++    alertSpy.mockRestore();
++  });
++
++  it("a failed add takes the new list back out, says so and doesn't navigate", async () => {
++    mockAddSpotsToList.mockRejectedValueOnce(new Error('disk full'));
++    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
++    renderPicker();
++    choose('Just these 23 spots');
++    await nameIt('Weekend');
++
++    expect(mockDeleteList).toHaveBeenCalledWith('L-new');
++    expect(alertSpy).toHaveBeenCalledWith("Couldn't save the list", 'Please try again.');
++    expect(screen.getByLabelText('List name')).toBeTruthy();
++    expect(replace).not.toHaveBeenCalled();
++    alertSpy.mockRestore();
++  });
++
++  it("the name sheet's Cancel closes it without saving", () => {
++    renderPicker();
++    choose('Keep it updated');
++    fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
++
++    expect(screen.queryByLabelText('List name')).toBeNull();
++    expect(mockCreateList).not.toHaveBeenCalled();
++  });
++});
++
++describe('Area picker: editing an area list (S2-04)', () => {
++  const back = jest.fn();
++  const fremont = { latitude: 47.6505, longitude: -122.3493 };
++  const areaList = createTestHitList({
++    id: 'L-area',
++    name: 'Fremont',
++    kind: 'area',
++    area_center: fremont,
++    area_radius_m: 8047,
++    area_place: 'Fremont',
++    area_filters: { types: [FeatureType.Rail] },
++  });
++
++  beforeEach(() => {
++    mockUpdateHitList.mockClear();
++    mockCreateList.mockClear();
++    back.mockReset();
++    jest.mocked(useRouter).mockReturnValue({ push: jest.fn(), back, replace: jest.fn(), dismissAll: jest.fn() } as never);
++    jest.mocked(useLocalSearchParams).mockReturnValue({ listId: 'L-area' });
++    useHitListsStore.setState({ lists: [areaList, createTestHitList({ id: 'L-manual', name: 'Manual' })] });
++    useSpotsStore.setState({ filters: { types: [], stopped: true } });
++    useLocationStore.setState({ currentLocation: CITIES.seattle });
++  });
++
++  afterAll(() => {
++    jest.mocked(useLocalSearchParams).mockReturnValue({});
++    useHitListsStore.setState({ lists: [] });
++  });
++
++  it("opens on the list's centre, radius and place, and loads its filters into the shared filters", () => {
++    renderPicker();
++
++    expect(circle()).toEqual(expect.objectContaining({ center: fremont, radius: 8047 }));
++    expect(screen.getByTestId('map-view').props.initialRegion).toEqual(circleRegion(fremont, 8047));
++    expect(screen.getByRole('radio', { name: '5 mi' }).props.accessibilityState).toEqual(
++      expect.objectContaining({ checked: true }),
++    );
++    expect(useSpotsStore.getState().filters).toEqual({ types: [FeatureType.Rail] });
++  });
++
++  it("has the single bottom action 'Save area', which writes the circle, place and filters, then goes back", async () => {
++    renderPicker();
++
++    expect(screen.queryByRole('button', { name: 'Save as hit list' })).toBeNull();
++    await act(async () => {
++      fireEvent.press(screen.getByRole('button', { name: 'Save area' }));
++    });
++
++    expect(mockUpdateHitList).toHaveBeenCalledWith('L-area', {
++      area_center: fremont,
++      area_radius_m: 8047,
++      area_place: 'Fremont',
++      area_filters: { types: [FeatureType.Rail] },
++    });
++    expect(back).toHaveBeenCalledTimes(1);
++    expect(mockUpdateHitList.mock.invocationCallOrder[0]).toBeLessThan(back.mock.invocationCallOrder[0]);
++    expect(mockCreateList).not.toHaveBeenCalled();
++  });
++
++  it("'Save area' after a drag away and a new radius clears the place", async () => {
++    renderPicker();
++    fireEvent.press(screen.getByRole('radio', { name: '1 mi' }));
++    moveMap(CITIES.portland);
++    await act(async () => {
++      fireEvent.press(screen.getByRole('button', { name: 'Save area' }));
++    });
++
++    expect(mockUpdateHitList).toHaveBeenCalledWith(
++      'L-area',
++      expect.objectContaining({ area_center: CITIES.portland, area_radius_m: 1609, area_place: null }),
++    );
++  });
++
++  it("ignores Cancel while 'Save area' is writing (two backs would pop the list too)", async () => {
++    let finish: () => void = () => {};
++    mockUpdateHitList.mockImplementationOnce(() => new Promise<void>((resolve) => (finish = resolve)));
++    renderPicker();
++
++    fireEvent.press(screen.getByRole('button', { name: 'Save area' }));
++    pressHeader('headerLeft', 'Cancel');
++    await act(async () => finish());
++
++    expect(back).toHaveBeenCalledTimes(1);
++  });
++
++  it("a failed 'Save area' says so and stays", async () => {
++    mockUpdateHitList.mockRejectedValueOnce(new Error('disk full'));
++    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
++    renderPicker();
++    await act(async () => {
++      fireEvent.press(screen.getByRole('button', { name: 'Save area' }));
++    });
++
++    expect(alertSpy).toHaveBeenCalledWith("Couldn't save the list", 'Please try again.');
++    expect(back).not.toHaveBeenCalled();
++    alertSpy.mockRestore();
++  });
++
++  it("keeps a saved radius that isn't a chip of the rider's units, with no chip selected (D56)", () => {
++    useSettingsStore.setState({ units: UnitSystem.Metric });
++    renderPicker();
++
++    expect(circle().radius).toBe(8047);
++    for (const chip of screen.getAllByRole('radio')) {
++      expect(chip.props.accessibilityState).toEqual(expect.objectContaining({ checked: false }));
++    }
++  });
++
++  it.each([
++    ['an unknown id', 'L-missing'],
++    ['a manual list', 'L-manual'],
++  ])("shows 'This list is gone' for %s", (_, listId) => {
++    jest.mocked(useLocalSearchParams).mockReturnValue({ listId });
++    renderPicker();
++
++    expect(screen.getByText('This list is gone')).toBeTruthy();
++    expect(screen.queryByTestId('map-view')).toBeNull();
++    expect(screen.queryByRole('button', { name: 'Save area' })).toBeNull();
++    expect(useSpotsStore.getState().filters).toEqual({ types: [], stopped: true });
++    pressHeader('headerLeft', 'Cancel');
++    expect(back).toHaveBeenCalledTimes(1);
++  });
++});
+diff --git a/src/__tests__/area.test.ts b/src/__tests__/area.test.ts
+new file mode 100644
+index 0000000..4a1dd0d
+--- /dev/null
++++ b/src/__tests__/area.test.ts
+@@ -0,0 +1,148 @@
++import {
++  RADIUS_STEPS_M,
++  DEFAULT_AREA_RADIUS_M,
++  spotsInCircle,
++  nearestStep,
++  radiusLabel,
++  areaLabel,
++  circleRegion,
++  keepsPlace,
++} from '@/src/utils/area';
++import { NO_LOCATION, distanceMeters } from '@/src/utils/geo';
++import { UnitSystem, type GeoPoint } from '@/src/types';
++import { CITIES, createTestSpot } from './factories';
++
++const { Imperial, Metric } = UnitSystem;
++
++/** A point `meters` due north of `p` (haversine's Earth: 6371 km). */
++const north = (p: GeoPoint, meters: number): GeoPoint => ({
++  latitude: p.latitude + (meters / 6_371_000) * (180 / Math.PI),
++  longitude: p.longitude,
++});
++
++describe('RADIUS_STEPS_M', () => {
++  it('holds the imperial and metric chips in whole metres', () => {
++    expect(RADIUS_STEPS_M.imperial).toEqual([402, 805, 1609, 3219, 8047, 16093, 40234]);
++    expect(RADIUS_STEPS_M.metric).toEqual([500, 1000, 2000, 5000, 10000, 25000, 50000]);
++    expect(DEFAULT_AREA_RADIUS_M).toBe(3219);
++  });
++});
++
++describe('spotsInCircle', () => {
++  const center = CITIES.seattle;
++  const edge = createTestSpot({ id: 'edge', location: { latitude: 47.62, longitude: -122.35 } });
++  const r = distanceMeters(center, edge.location);
++
++  it('keeps a spot exactly on the boundary and drops it once the radius is 1 m short', () => {
++    expect(spotsInCircle([edge], center, r)).toEqual([edge]);
++    expect(spotsInCircle([edge], center, r - 1)).toEqual([]);
++  });
++
++  it('drops a spot 1 m outside the circle', () => {
++    const outside = createTestSpot({ id: 'out', location: north(center, 1001) });
++    const inside = createTestSpot({ id: 'in', location: north(center, 999) });
++    expect(spotsInCircle([outside, inside], center, 1000).map((s) => s.id)).toEqual(['in']);
++  });
++
++  it('never returns a NO_LOCATION spot, even for a circle around (0, 0)', () => {
++    const nowhere = createTestSpot({ id: 'nowhere', location: NO_LOCATION });
++    expect(spotsInCircle([nowhere], NO_LOCATION, 50_000)).toEqual([]);
++    expect(spotsInCircle([nowhere], center, 50_000)).toEqual([]);
++  });
++
++  it('keeps the input order', () => {
++    const a = createTestSpot({ id: 'a', location: north(center, 300) });
++    const b = createTestSpot({ id: 'b', location: north(center, 100) });
++    const c = createTestSpot({ id: 'c', location: north(center, 200) });
++    expect(spotsInCircle([a, b, c], center, 500).map((s) => s.id)).toEqual(['a', 'b', 'c']);
++  });
++});
++
++describe('nearestStep', () => {
++  it('returns the closest step of the unit', () => {
++    expect(nearestStep(1700, Imperial)).toBe(1609);
++    expect(nearestStep(3219, Metric)).toBe(2000);
++    expect(nearestStep(3219, Imperial)).toBe(3219);
++    expect(nearestStep(1, Imperial)).toBe(402);
++    expect(nearestStep(1_000_000, Metric)).toBe(50000);
++  });
++
++  it('breaks a tie towards the smaller step', () => {
++    expect(nearestStep(1500, Metric)).toBe(1000);
++  });
++});
++
++describe('radiusLabel', () => {
++  it('labels every chip of both units', () => {
++    expect(RADIUS_STEPS_M.imperial.map((m) => radiusLabel(m, Imperial))).toEqual([
++      '0.25 mi',
++      '0.5 mi',
++      '1 mi',
++      '2 mi',
++      '5 mi',
++      '10 mi',
++      '25 mi',
++    ]);
++    expect(RADIUS_STEPS_M.metric.map((m) => radiusLabel(m, Metric))).toEqual([
++      '0.5 km',
++      '1 km',
++      '2 km',
++      '5 km',
++      '10 km',
++      '25 km',
++      '50 km',
++    ]);
++  });
++
++  it('converts a radius saved in the other unit (D56)', () => {
++    expect(radiusLabel(3219, Metric)).toBe('3.2 km');
++    expect(radiusLabel(2000, Imperial)).toBe('1.2 mi');
++  });
++});
++
++describe('areaLabel', () => {
++  it('reads Area · <radius> [of <place>]', () => {
++    expect(areaLabel(3219, Imperial)).toBe('Area · 2 mi');
++    expect(areaLabel(2000, Metric, 'Capitol Hill')).toBe('Area · 2 km of Capitol Hill');
++    expect(areaLabel(402, Imperial)).toBe('Area · 0.25 mi');
++  });
++
++  it('trims the place and ignores a blank one', () => {
++    expect(areaLabel(3219, Imperial, '  Capitol Hill ')).toBe('Area · 2 mi of Capitol Hill');
++    expect(areaLabel(3219, Imperial, '   ')).toBe('Area · 2 mi');
++    expect(areaLabel(3219, Imperial, '')).toBe('Area · 2 mi');
++  });
++});
++
++describe('circleRegion', () => {
++  it('centres on the circle and holds it with a margin (1 mi at 47.6°)', () => {
++    const center = { latitude: 47.6, longitude: -122.3 };
++    const region = circleRegion(center, 1609);
++    expect(region.latitude).toBe(47.6);
++    expect(region.longitude).toBe(-122.3);
++
++    const circleLatSpan = (2 * 1609) / 111_320; // ≈ 0.0289°
++    expect(region.latitudeDelta).toBeGreaterThanOrEqual(circleLatSpan * 1.2);
++    expect(region.longitudeDelta).toBeGreaterThanOrEqual(region.latitudeDelta / Math.cos((47.6 * Math.PI) / 180));
++    // The circle's north and east edges are inside the region's half-spans.
++    expect(region.latitudeDelta / 2).toBeGreaterThan(north(center, 1609).latitude - 47.6);
++    const eastEdgeDeg = (1609 / (6_371_000 * Math.cos((47.6 * Math.PI) / 180))) * (180 / Math.PI);
++    expect(region.longitudeDelta / 2).toBeGreaterThan(eastEdgeDeg);
++  });
++
++  it('stays inside the spans MKMapView accepts', () => {
++    const polar = circleRegion({ latitude: 89.99, longitude: 0 }, 50_000);
++    expect(polar.latitudeDelta).toBeLessThanOrEqual(180);
++    expect(polar.longitudeDelta).toBeLessThanOrEqual(360);
++    expect(circleRegion(CITIES.seattle, 1e9).latitudeDelta).toBe(180);
++  });
++});
++
++describe('keepsPlace (D54)', () => {
++  const place = CITIES.seattle;
++  it('keeps the place within a quarter of the radius and drops it beyond', () => {
++    expect(keepsPlace(place, place, 3219)).toBe(true);
++    expect(keepsPlace(place, north(place, 0.2 * 3219), 3219)).toBe(true);
++    expect(keepsPlace(place, north(place, 0.3 * 3219), 3219)).toBe(false);
++  });
++});
+diff --git a/src/__tests__/db-hit-lists.test.ts b/src/__tests__/db-hit-lists.test.ts
+index 10db66d..b4f6315 100644
+--- a/src/__tests__/db-hit-lists.test.ts
++++ b/src/__tests__/db-hit-lists.test.ts
+@@ -208,6 +208,56 @@ describe('hit lists in SQLite (src/db/hit-lists.ts)', () => {
+     });
+   });
+ 
++  describe('area lists', () => {
++    let areaList: HitList;
++
++    beforeEach(async () => {
++      areaList = createTestHitList({
++        name: 'Weekend',
++        kind: 'area',
++        area_center: CITIES.seattle,
++        area_radius_m: 3219,
++        area_place: 'Capitol Hill',
++        area_filters: { types: [FeatureType.Rail] },
++        created_at: '2026-10-04T00:00:00.000Z',
++      });
++      await insertHitList(db, areaList);
++    });
++
++    const readArea = async () => (await getHitLists(db)).find((l) => l.id === areaList.id);
++
++    it('an area list round-trips its center, radius, place and filters, and holds no hit_list_spots rows', async () => {
++      expect(await readArea()).toEqual(areaList);
++      expect(await memberRows(db)).toEqual([]);
++    });
++
++    it('updateHitList changes the center, radius, place and filters', async () => {
++      const updates = {
++        area_center: CITIES.portland,
++        area_radius_m: 8047,
++        area_place: 'Pearl District',
++        area_filters: { types: [FeatureType.Ledge], stopped: true },
++        updated_at: '2026-10-09T00:00:00.000Z',
++      };
++      await updateHitList(db, areaList.id, updates);
++
++      expect(await readArea()).toEqual({ ...areaList, ...updates });
++    });
++
++    it('updateHitList with area_place: null clears the place and nothing else', async () => {
++      await updateHitList(db, areaList.id, { area_place: null, updated_at: '2026-10-09T00:00:00.000Z' });
++
++      const { area_place: _dropped, ...rest } = areaList;
++      expect(await readArea()).toEqual({ ...rest, updated_at: '2026-10-09T00:00:00.000Z' });
++    });
++
++    it('a name-only update leaves the area columns', async () => {
++      await updateHitList(db, areaList.id, { name: 'Sunday', updated_at: '2026-10-09T00:00:00.000Z' });
++
++      expect(await readArea()).toEqual({ ...areaList, name: 'Sunday', updated_at: '2026-10-09T00:00:00.000Z' });
++    });
++  });
++
+   it('updateHitList leaves a deleted list alone', async () => {
+     await softDeleteHitList(db, list.id, '2026-10-07T00:00:00.000Z');
+ 
+diff --git a/src/__tests__/hit-lists-store.test.ts b/src/__tests__/hit-lists-store.test.ts
+index 2944520..6dadef5 100644
+--- a/src/__tests__/hit-lists-store.test.ts
++++ b/src/__tests__/hit-lists-store.test.ts
+@@ -1,11 +1,15 @@
+ import {
+   useHitListsStore,
++  useSpotsStore,
++  selectAreaSpots,
+   selectListSpots,
+   selectSpotLists,
+   selectListCounts,
+   selectListsByName,
+ } from '@/src/stores';
+-import { createTestHitList, createTestSpot } from './factories';
++import { DEFAULT_FILTERS, FeatureType, type GeoPoint } from '@/src/types';
++import { NO_LOCATION } from '@/src/utils/geo';
++import { CITIES, createTestHitList, createTestSpot } from './factories';
+ 
+ const initial = useHitListsStore.getState();
+ 
+@@ -94,11 +98,11 @@ describe('hit-lists selectors', () => {
+ 
+   it('selectSpotLists: the live lists a spot is in, by name, skipping lists not in the store', () => {
+     const lists = [L1, L2, L3];
+-    expect(selectSpotLists('a', lists, membership)).toEqual([L2, L1]);
+-    expect(selectSpotLists('c', lists, membership)).toEqual([L2]);
+-    expect(selectSpotLists('nowhere', lists, membership)).toEqual([]);
++    expect(selectSpotLists(a, lists, membership)).toEqual([L2, L1]);
++    expect(selectSpotLists(c, lists, membership)).toEqual([L2]);
++    expect(selectSpotLists(createTestSpot({ id: 'nowhere' }), lists, membership)).toEqual([]);
+     const softDeleted = { ...L1, deleted_at: '2026-10-03T00:00:00.000Z' };
+-    expect(selectSpotLists('b', [softDeleted, L2], membership)).toEqual([]);
++    expect(selectSpotLists(b, [softDeleted, L2], membership)).toEqual([]);
+   });
+ 
+   it('selectListCounts: live spots per list, 0 for an empty list', () => {
+@@ -111,3 +115,98 @@ describe('hit-lists selectors', () => {
+     expect(lists.map((l) => l.id)).toEqual(['L1', 'L3', 'L2']);
+   });
+ });
++
++describe('area lists (computed from the circle and its filters, never stored)', () => {
++  const initialSpots = useSpotsStore.getState();
++  /** A point `meters` due north of `p` (haversine's Earth: 6371 km). */
++  const north = (p: GeoPoint, meters: number): GeoPoint => ({
++    latitude: p.latitude + (meters / 6_371_000) * (180 / Math.PI),
++    longitude: p.longitude,
++  });
++  const center = CITIES.seattle;
++  const rail = createTestSpot({ id: 'rail', location: north(center, 500), feature_types: [FeatureType.Rail] });
++  const ledge = createTestSpot({ id: 'ledge', location: north(center, 800), feature_types: [FeatureType.Ledge] });
++  const far = createTestSpot({ id: 'far', location: north(center, 2000), feature_types: [FeatureType.Rail] });
++  const nowhere = createTestSpot({ id: 'nowhere', location: NO_LOCATION, feature_types: [FeatureType.Rail] });
++  const gone = createTestSpot({
++    id: 'gone',
++    location: north(center, 100),
++    feature_types: [FeatureType.Rail],
++    deleted_at: '2026-10-02T00:00:00.000Z',
++  });
++  const spots = [ledge, far, nowhere, gone, rail];
++  const area = createTestHitList({ id: 'AREA', name: 'Area', kind: 'area', area_center: center, area_radius_m: 1609 });
++  const railsOnly = { ...area, id: 'RAILS', area_filters: { types: [FeatureType.Rail] } };
++
++  beforeEach(() => {
++    useSpotsStore.setState(initialSpots, true);
++    useHitListsStore.setState(initial, true);
++  });
++
++  it('selectAreaSpots: live, located spots inside the circle that pass the filters, in spots order', () => {
++    expect(selectAreaSpots(spots, center, 1609, DEFAULT_FILTERS).map((s) => s.id)).toEqual(['ledge', 'rail']);
++    expect(selectAreaSpots(spots, center, 1609, { types: [FeatureType.Rail] }).map((s) => s.id)).toEqual(['rail']);
++    expect(selectAreaSpots(spots, NO_LOCATION, 50_000, DEFAULT_FILTERS)).toEqual([]);
++  });
++
++  it('selectListSpots: an area list holds the live spots inside its circle, with no memberships', () => {
++    expect(selectListSpots(area, spots, {}).map((s) => s.id)).toEqual(['ledge', 'rail']);
++  });
++
++  it('selectListSpots: area_filters apply (types rail drops a ledge inside the circle)', () => {
++    expect(selectListSpots(railsOnly, spots, {}).map((s) => s.id)).toEqual(['rail']);
++  });
++
++  it('selectListSpots: memberships never add a spot to an area list', () => {
++    expect(selectListSpots(area, spots, { far: ['AREA'] }).map((s) => s.id)).toEqual(['ledge', 'rail']);
++  });
++
++  it('selectListSpots: an area list missing its centre or radius holds nothing', () => {
++    expect(selectListSpots({ ...area, area_center: undefined }, spots, {})).toEqual([]);
++    expect(selectListSpots({ ...area, area_radius_m: undefined }, spots, {})).toEqual([]);
++  });
++
++  it('a spot added to the spots store inside the circle is in the next selectListSpots call', () => {
++    useSpotsStore.getState().setSpots([rail]);
++    expect(selectListSpots(area, useSpotsStore.getState().spots, {}).map((s) => s.id)).toEqual(['rail']);
++
++    useSpotsStore.getState().addSpot(createTestSpot({ id: 'new', location: north(center, 1000) }));
++
++    const ids = selectListSpots(area, useSpotsStore.getState().spots, {}).map((s) => s.id);
++    expect(ids).toHaveLength(2);
++    expect(ids).toEqual(expect.arrayContaining(['rail', 'new']));
++  });
++
++  it('selectListCounts counts area lists the same way, next to manual ones', () => {
++    const manual = createTestHitList({ id: 'M' });
++    expect(selectListCounts([manual, area, railsOnly], spots, { far: ['M'], rail: ['M'] })).toEqual({
++      M: 2,
++      AREA: 2,
++      RAILS: 1,
++    });
++  });
++
++  it('selectSpotLists includes an area list for a spot inside its circle and not for one outside', () => {
++    const manual = createTestHitList({ id: 'M', name: 'Zoo' });
++    const lists = [manual, area, railsOnly];
++    expect(selectSpotLists(rail, lists, { rail: ['M'] }).map((l) => l.id)).toEqual(['AREA', 'RAILS', 'M']);
++    expect(selectSpotLists(ledge, lists, {}).map((l) => l.id)).toEqual(['AREA']);
++    expect(selectSpotLists(far, lists, {})).toEqual([]);
++    expect(selectSpotLists(nowhere, lists, {})).toEqual([]);
++  });
++
++  it('updateList sets the area fields, and area_place: null clears the place', () => {
++    const list = { ...area, area_place: 'Capitol Hill' };
++    useHitListsStore.setState({ lists: [list] });
++    const moved = north(center, 300);
++
++    useHitListsStore.getState().updateList('AREA', { area_center: moved, area_radius_m: 8047 });
++    expect(useHitListsStore.getState().lists[0]).toEqual({ ...list, area_center: moved, area_radius_m: 8047 });
++
++    useHitListsStore.getState().updateList('AREA', { area_place: null });
++    const cleared = useHitListsStore.getState().lists[0];
++    expect(cleared.area_place).toBeUndefined();
++    expect('area_place' in cleared).toBe(false);
++    expect(cleared.area_radius_m).toBe(8047);
++  });
++});
+diff --git a/src/__tests__/list-screen.test.tsx b/src/__tests__/list-screen.test.tsx
+index 032cf9d..02f6e8a 100644
+--- a/src/__tests__/list-screen.test.tsx
++++ b/src/__tests__/list-screen.test.tsx
+@@ -5,9 +5,10 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
+ import { useLocalSearchParams, useRouter } from 'expo-router';
+ import { useHitListsStore, useMediaStore, useSpotsStore } from '@/src/stores';
+ import { useLocationStore } from '@/src/stores/location-store';
+-import { DEFAULT_FILTERS, FeatureType, SortDirection, SortField } from '@/src/types';
++import { DEFAULT_FILTERS, FeatureType, SortDirection, SortField, UnitSystem } from '@/src/types';
+ import { SpotMap } from '@/src/components/SpotMap';
+-import { createTestHitList, createTestSpot } from './factories';
++import { useSettingsStore } from '@/src/stores/settings-store';
++import { CITIES, createTestHitList, createTestSpot } from './factories';
+ 
+ const mockRenameList = jest.fn((id: string, name: string): Promise<void> => {
+   void id;
+@@ -58,7 +59,7 @@ function renderList() {
+   );
+ }
+ 
+-type ScreenOptions = { title?: string; headerRight?: () => ReactElement };
++type ScreenOptions = { title?: string; headerTitle?: string | (() => ReactElement); headerRight?: () => ReactElement };
+ /** Every Stack.Screen's options, merged in render order (as the navigator merges them). */
+ function headerOptions(): ScreenOptions {
+   const screens = screen.UNSAFE_getAllByType('Stack.Screen' as never);
+@@ -332,3 +333,95 @@ describe('List screen: gone', () => {
+     expect(screen.queryByText('Pier rail')).toBeNull();
+   });
+ });
++
++describe('List screen: an area list (S2-04)', () => {
++  const weekend = createTestHitList({
++    id: 'L-weekend',
++    name: 'Weekend',
++    kind: 'area',
++    area_center: CITIES.seattle,
++    area_radius_m: 3219,
++    area_place: 'Capitol Hill',
++  });
++  const near = createTestSpot({ id: 'near', name: 'Near rail', location: CITIES.seattle });
++  const far = createTestSpot({ id: 'far', name: 'Far ledge', location: CITIES.portland });
++
++  beforeEach(() => {
++    useSettingsStore.setState({ units: UnitSystem.Imperial });
++    jest.mocked(useLocalSearchParams).mockReturnValue({ id: weekend.id });
++    useSpotsStore.setState({ spots: [near, far] });
++    // A stale membership row must not matter: an area list's spots come from its circle.
++    useHitListsStore.setState({ lists: [weekend], membershipBySpot: { far: [weekend.id] } });
++  });
++
++  it('shows the spots inside its circle', () => {
++    renderList();
++
++    expect(screen.getByText('Near rail')).toBeTruthy();
++    expect(screen.queryByText('Far ledge')).toBeNull();
++  });
++
++  it("titles the header with its name over 'Area · 2 mi of Capitol Hill'", () => {
++    renderList();
++
++    const { headerTitle } = headerOptions();
++    expect(typeof headerTitle).toBe('function');
++    render((headerTitle as () => ReactElement)());
++    expect(screen.getByText('Weekend')).toBeTruthy();
++    expect(screen.getByText('Area · 2 mi of Capitol Hill')).toBeTruthy();
++    // VoiceOver reads the two lines as one header.
++    expect(screen.getByRole('header', { name: 'Weekend, Area · 2 mi of Capitol Hill' }).props.accessible).toBe(true);
++  });
++
++  it('drops the two-line title once the list is gone', () => {
++    renderList();
++    act(() => useHitListsStore.getState().removeList(weekend.id));
++
++    const screens = screen.UNSAFE_getAllByType('Stack.Screen' as never);
++    const options = (screens.at(-1)!.props as { options: ScreenOptions }).options;
++    expect('headerTitle' in options).toBe(true);
++    expect(options.headerTitle).toBeUndefined();
++  });
++
++  it("drops 'of <place>' when the list has no place", () => {
++    useHitListsStore.setState({ lists: [{ ...weekend, area_place: undefined }] });
++    renderList();
++
++    render((headerOptions().headerTitle as () => ReactElement)());
++    expect(screen.getByText('Area · 2 mi')).toBeTruthy();
++  });
++
++  it("'Edit area' opens the picker on this list", () => {
++    renderList();
++
++    fireEvent.press(screen.getByRole('button', { name: 'Edit area' }));
++    expect(mockPush).toHaveBeenCalledWith(`/area?listId=${weekend.id}`);
++    expect(screen.getByRole('button', { name: 'Delete list' })).toBeTruthy();
++  });
++
++  it("has no 'Remove from list' on a long press (its spots are computed)", () => {
++    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
++    renderList();
++
++    fireEvent(screen.getByRole('button', { name: /^Near rail/ }), 'longPress');
++    expect(alert).not.toHaveBeenCalled();
++  });
++
++  it('shows the area empty copy when no spot is inside', () => {
++    useSpotsStore.setState({ spots: [far] });
++    renderList();
++
++    expect(screen.getByText('No spots in this area yet')).toBeTruthy();
++    expect(screen.getByText('Spots you save inside the circle show up here')).toBeTruthy();
++  });
++
++  it('a manual list keeps the plain title and has no Edit area', () => {
++    jest.mocked(useLocalSearchParams).mockReturnValue({ id: downtown.id });
++    useHitListsStore.setState({ lists: [downtown, weekend], membershipBySpot: { near: [downtown.id] } });
++    renderList();
++
++    expect(headerOptions().title).toBe('Downtown');
++    expect(headerOptions().headerTitle).toBeUndefined();
++    expect(screen.queryByRole('button', { name: 'Edit area' })).toBeNull();
++  });
++});
+diff --git a/src/__tests__/lists-tab.test.tsx b/src/__tests__/lists-tab.test.tsx
+index 2e165a6..5b67cd0 100644
+--- a/src/__tests__/lists-tab.test.tsx
++++ b/src/__tests__/lists-tab.test.tsx
+@@ -2,8 +2,9 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
+ import { Alert } from 'react-native';
+ import { useRouter } from 'expo-router';
+ import { useHitListsStore, useSpotsStore } from '@/src/stores';
+-import type { HitList } from '@/src/types';
+-import { createTestHitList, createTestSpot } from './factories';
++import { useSettingsStore } from '@/src/stores/settings-store';
++import { UnitSystem, type GeoPoint, type HitList } from '@/src/types';
++import { CITIES, createTestHitList, createTestSpot } from './factories';
+ 
+ // createList is held open by a test that double-taps Create; the others resolve at once.
+ let finishCreate: (list: HitList) => void = () => {};
+@@ -114,12 +115,11 @@ describe('Lists tab', () => {
+     expect(screen.getByText('1 spot')).toBeTruthy();
+   });
+ 
+-  it("has no 'Shared with me' section and no area-list entry yet", () => {
++  it("has no 'Shared with me' section yet", () => {
+     seedTwoLists();
+     render(<ListsScreen />);
+ 
+     expect(screen.queryByText('Shared with me')).toBeNull();
+-    expect(screen.queryByLabelText('New area list')).toBeNull();
+   });
+ 
+   it('opens the list screen when a row is pressed', () => {
+@@ -230,4 +230,70 @@ describe('Lists tab', () => {
+     expect(mockPush).toHaveBeenCalledWith('/list/L-new');
+     expect(screen.queryByPlaceholderText('Name')).toBeNull();
+   });
++
++  describe('area lists (S2-04)', () => {
++    /** A point `meters` due north of `p` (haversine's Earth: 6371 km). */
++    const north = (p: GeoPoint, meters: number): GeoPoint => ({
++      latitude: p.latitude + (meters / 6_371_000) * (180 / Math.PI),
++      longitude: p.longitude,
++    });
++    const weekend = createTestHitList({
++      id: 'L-weekend',
++      name: 'Weekend',
++      kind: 'area',
++      area_center: CITIES.seattle,
++      area_radius_m: 3219,
++      area_place: 'Capitol Hill',
++    });
++
++    beforeEach(() => {
++      useSettingsStore.setState({ units: UnitSystem.Imperial });
++    });
++
++    it("'+ Area list' opens the area picker", () => {
++      render(<ListsScreen />);
++
++      expect(screen.getByText('Area list')).toBeTruthy();
++      fireEvent.press(screen.getByRole('button', { name: 'New area list' }));
++      expect(mockPush).toHaveBeenCalledWith('/area');
++    });
++
++    it("an area list's row shows 'Area · 2 mi' and the live count of the spots inside its circle", () => {
++      useSpotsStore.setState({
++        spots: [
++          createTestSpot({ id: 'in-1', location: north(CITIES.seattle, 100) }),
++          createTestSpot({ id: 'in-2', location: north(CITIES.seattle, 3000) }),
++          createTestSpot({ id: 'out', location: north(CITIES.seattle, 3300) }),
++        ],
++      });
++      useHitListsStore.setState({ lists: [weekend, downtown] });
++      render(<ListsScreen />);
++
++      expect(screen.getByText('Area · 2 mi')).toBeTruthy();
++      expect(screen.queryByText(/Capitol Hill/)).toBeNull();
++      expect(screen.getByText('2 spots')).toBeTruthy();
++      fireEvent.press(screen.getByLabelText('Weekend, Area · 2 mi, 2 spots'));
++      expect(mockPush).toHaveBeenCalledWith('/list/L-weekend');
++      // A manual row keeps its one line.
++      expect(screen.getByLabelText('Downtown, 0 spots')).toBeTruthy();
++    });
++
++    it('counts a spot saved inside the circle on the next render', () => {
++      useHitListsStore.setState({ lists: [weekend] });
++      render(<ListsScreen />);
++      expect(screen.getByLabelText('Weekend, Area · 2 mi, 0 spots')).toBeTruthy();
++
++      act(() => useSpotsStore.setState({ spots: [createTestSpot({ id: 'new', location: CITIES.seattle })] }));
++
++      expect(screen.getByLabelText('Weekend, Area · 2 mi, 1 spot')).toBeTruthy();
++    });
++
++    it("labels the radius in the rider's units", () => {
++      useSettingsStore.setState({ units: UnitSystem.Metric });
++      useHitListsStore.setState({ lists: [weekend] });
++      render(<ListsScreen />);
++
++      expect(screen.getByText('Area · 3.2 km')).toBeTruthy();
++    });
++  });
+ });
+diff --git a/src/__tests__/root-layout.test.tsx b/src/__tests__/root-layout.test.tsx
+index ccbf4e8..713ff1e 100644
+--- a/src/__tests__/root-layout.test.tsx
++++ b/src/__tests__/root-layout.test.tsx
+@@ -51,6 +51,15 @@ describe('RootLayout: photo viewer', () => {
+   });
+ });
+ 
++describe('RootLayout: area picker', () => {
++  it("registers area/index as a full-screen modal titled 'Pick an area'", () => {
++    render(<RootLayout />);
++
++    const picker = screen.UNSAFE_getAllByProps({ name: 'area/index' })[0];
++    expect(picker.props.options).toEqual({ presentation: 'fullScreenModal', title: 'Pick an area' });
++  });
++});
++
+ describe("gesture-handler's jest setup", () => {
+   it('lets a test drive a gesture through jest-utils', () => {
+     const onEnd = jest.fn();
+diff --git a/src/__tests__/spot-detail.test.tsx b/src/__tests__/spot-detail.test.tsx
+index c67ac94..d3cbf79 100644
+--- a/src/__tests__/spot-detail.test.tsx
++++ b/src/__tests__/spot-detail.test.tsx
+@@ -8,7 +8,7 @@ import { useHitListsStore, useMediaStore, useSettingsStore, useSpotsStore } from
+ import { palette } from '@/src/constants/theme';
+ import { resolvePhotoUri } from '@/src/utils/photo-storage';
+ import { FeatureType, UnitSystem, type Media, type Spot } from '@/src/types';
+-import { createTestHitList, createTestMedia, createTestSpot } from './factories';
++import { CITIES, createTestHitList, createTestMedia, createTestSpot } from './factories';
+ 
+ import SpotDetailScreen from '@/app/spot/[id]/index';
+ 
+@@ -347,6 +347,33 @@ describe("Spot detail: 'In lists' row", () => {
+     expect(screen.queryByRole('header', { name: 'Add to hit list' })).toBeNull();
+   });
+ 
++  describe('area lists (S2-04)', () => {
++    const weekend = createTestHitList({
++      id: 'L-weekend',
++      name: 'Weekend',
++      kind: 'area',
++      area_center: CITIES.seattle,
++      area_radius_m: 1609,
++    });
++
++    it('shows a chip for an area list whose circle holds the spot, which opens the list', async () => {
++      useHitListsStore.setState({ lists: [weekend, downtown], membershipBySpot: { 'spot-1': [downtown.id] } });
++      await renderDetail({ id: 'spot-1', location: CITIES.seattle });
++
++      const order = texts();
++      expect(order.slice(order.indexOf('In lists'))).toEqual(['In lists', 'Downtown', 'Weekend', '+ Add to hit list']);
++      fireEvent.press(screen.getByRole('button', { name: 'Weekend' }));
++      expect(push).toHaveBeenCalledWith(`/list/${weekend.id}`);
++    });
++
++    it('shows no chip for an area list when the spot is outside its circle', async () => {
++      useHitListsStore.setState({ lists: [weekend], membershipBySpot: {} });
++      await renderDetail({ id: 'spot-1', location: CITIES.portland });
++
++      expect(screen.queryByText('Weekend')).toBeNull();
++    });
++  });
++
+   it('shows a new membership as a chip at once', async () => {
+     await renderInLists([]);
+ 
+diff --git a/src/__tests__/spot-name.test.ts b/src/__tests__/spot-name.test.ts
+index 2bf4b00..afdacd8 100644
+--- a/src/__tests__/spot-name.test.ts
++++ b/src/__tests__/spot-name.test.ts
+@@ -1,4 +1,10 @@
+-import { getSpotDisplayName, formatSpotTime, featureTypesLabel, featureTypesList } from '@/src/utils/spot-name';
++import {
++  getSpotDisplayName,
++  formatSpotTime,
++  featureTypesLabel,
++  featureTypesList,
++  spotCountLabel,
++} from '@/src/utils/spot-name';
+ import { FeatureType } from '@/src/types';
+ import type { Spot } from '@/src/types';
+ import { createTestSpot } from './factories';
+@@ -78,3 +84,11 @@ describe('featureTypesList', () => {
+     expect(list([])).toBeUndefined();
+   });
+ });
++
++describe('spotCountLabel', () => {
++  it("reads '1 spot' in the singular and 'N spots' otherwise", () => {
++    expect(spotCountLabel(1)).toBe('1 spot');
++    expect(spotCountLabel(0)).toBe('0 spots');
++    expect(spotCountLabel(23)).toBe('23 spots');
++  });
++});
+diff --git a/src/__tests__/use-hit-list-actions.test.ts b/src/__tests__/use-hit-list-actions.test.ts
+index 48a1bfc..078acc9 100644
+--- a/src/__tests__/use-hit-list-actions.test.ts
++++ b/src/__tests__/use-hit-list-actions.test.ts
+@@ -4,7 +4,8 @@ import type { SQLiteDatabase } from 'expo-sqlite';
+ import { getHitLists, getListMemberships, insertHitList, insertSpot } from '@/src/db';
+ import { useHitListActions } from '@/src/hooks/use-hit-list-actions';
+ import { useHitListsStore } from '@/src/stores';
+-import { createTestHitList, createTestSpot } from './factories';
++import { FeatureType } from '@/src/types';
++import { CITIES, createTestHitList, createTestSpot } from './factories';
+ import { createMigratedTestDb } from './helpers/node-sqlite-db';
+ 
+ let mockDb: SQLiteDatabase;
+@@ -83,6 +84,130 @@ describe('useHitListActions', () => {
+     expect(consoleSpy).toHaveBeenCalledWith('[useHitListActions] createList failed:', err);
+   });
+ 
++  it('createList with area options saves an area list (centre, radius, place, filters) to the store and the DB', async () => {
++    const { result } = renderHook(() => useHitListActions());
++    let created!: Awaited<ReturnType<typeof result.current.createList>>;
++    await act(async () => {
++      created = await result.current.createList('Weekend', {
++        kind: 'area',
++        area_center: CITIES.seattle,
++        area_radius_m: 3219,
++        area_place: 'Capitol Hill',
++        area_filters: { types: [FeatureType.Rail], stopped: false },
++      });
++    });
++
++    expect(created).toEqual(
++      expect.objectContaining({
++        name: 'Weekend',
++        kind: 'area',
++        area_center: CITIES.seattle,
++        area_radius_m: 3219,
++        area_place: 'Capitol Hill',
++        area_filters: { types: [FeatureType.Rail], stopped: false },
++      }),
++    );
++    expect(store().lists).toEqual([created]);
++    expect(await getHitLists(mockDb)).toEqual([created]);
++    expect(await getListMemberships(mockDb)).toEqual({});
++  });
++
++  it('createList: an area list with no place leaves area_place out', async () => {
++    const { result } = renderHook(() => useHitListActions());
++    let created!: Awaited<ReturnType<typeof result.current.createList>>;
++    await act(async () => {
++      created = await result.current.createList('Around', {
++        kind: 'area',
++        area_center: CITIES.seattle,
++        area_radius_m: 1609,
++        area_filters: { types: [] },
++      });
++    });
++
++    expect(created).toEqual(expect.objectContaining({ kind: 'area', area_radius_m: 1609 }));
++    expect(created.area_place).toBeUndefined();
++    expect(await getHitLists(mockDb)).toEqual([created]);
++  });
++
++  it('updateHitList patches the store first, then the DB, with one updated_at', async () => {
++    const list = await seedList({
++      kind: 'area',
++      area_center: CITIES.seattle,
++      area_radius_m: 3219,
++      area_place: 'Capitol Hill',
++      area_filters: { types: [] },
++    });
++    const { result } = renderHook(() => useHitListActions());
++    let pending!: Promise<void>;
++    act(() => {
++      pending = result.current.updateHitList(list.id, {
++        area_center: CITIES.portland,
++        area_radius_m: 8047,
++        area_place: null,
++        area_filters: { types: [FeatureType.Ledge] },
++      });
++    });
++    expect(store().lists[0].area_center).toEqual(CITIES.portland);
++    await act(async () => {
++      await pending;
++    });
++
++    const [saved] = await getHitLists(mockDb);
++    expect(saved).toEqual(
++      expect.objectContaining({
++        area_center: CITIES.portland,
++        area_radius_m: 8047,
++        area_filters: { types: [FeatureType.Ledge] },
++      }),
++    );
++    expect(saved.area_place).toBeUndefined();
++    expect(saved.updated_at > list.updated_at).toBe(true);
++    expect(store().lists[0]).toEqual(saved);
++  });
++
++  it('updateHitList: a failed write restores every patched key and rejects', async () => {
++    const list = await seedList({
++      kind: 'area',
++      area_center: CITIES.seattle,
++      area_radius_m: 3219,
++      area_place: 'Capitol Hill',
++      area_filters: { types: [] },
++    });
++    const { err, consoleSpy } = failNextWrite();
++    const { result } = renderHook(() => useHitListActions());
++    await act(async () => {
++      await expect(
++        result.current.updateHitList(list.id, { area_center: CITIES.portland, area_radius_m: 8047, area_place: null }),
++      ).rejects.toBe(err);
++    });
++    expect(store().lists).toEqual([list]);
++    expect(await getHitLists(mockDb)).toEqual([list]);
++    expect(consoleSpy).toHaveBeenCalledWith('[useHitListActions] updateHitList failed:', err);
++  });
++
++  it('updateHitList: a failed write takes back a key the list did not have before', async () => {
++    const list = await seedList({ kind: 'area', area_center: CITIES.seattle, area_radius_m: 3219 });
++    const { err } = failNextWrite();
++    const { result } = renderHook(() => useHitListActions());
++    await act(async () => {
++      await expect(
++        result.current.updateHitList(list.id, { area_filters: { types: [FeatureType.Rail] } }),
++      ).rejects.toBe(err);
++    });
++    expect(store().lists[0].area_filters).toBeUndefined();
++    expect(store().lists).toEqual([list]);
++  });
++
++  it('updateHitList: a failed write that clears no place keeps a list that had none without one', async () => {
++    const list = await seedList({ kind: 'area', area_center: CITIES.seattle, area_radius_m: 3219 });
++    const { err } = failNextWrite();
++    const { result } = renderHook(() => useHitListActions());
++    await act(async () => {
++      await expect(result.current.updateHitList(list.id, { area_place: 'Fremont' })).rejects.toBe(err);
++    });
++    expect(store().lists).toEqual([list]);
++  });
++
+   it('renameList renames in the store first, then the DB, with one updated_at', async () => {
+     const list = await seedList();
+     const { result } = renderHook(() => useHitListActions());
+diff --git a/src/components/AddToListSheet.tsx b/src/components/AddToListSheet.tsx
+index cda180d..9d1b6b4 100644
+--- a/src/components/AddToListSheet.tsx
++++ b/src/components/AddToListSheet.tsx
+@@ -3,7 +3,8 @@ import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'rea
+ 
+ import { IconSymbol } from '@/components/ui/icon-symbol';
+ import { useHitListActions } from '@/src/hooks/use-hit-list-actions';
+-import { selectListsByName, useHitListsStore } from '@/src/stores';
++import { selectListSpots, selectListsByName, useHitListsStore, useSpotsStore } from '@/src/stores';
++import type { HitList } from '@/src/types';
+ import { palette, radius, spacing } from '@/src/constants/theme';
+ import { NameListSheet } from './NameListSheet';
+ 
+@@ -15,8 +16,9 @@ interface Props {
+ }
+ 
+ /**
+- * A set of switches, one per manual list: each toggle writes at once (no staging) and Done only closes. A list is
+- * checked when every given spot is in it, so toggling an unchecked one adds them all.
++ * A set of switches, one per list: each toggle writes at once (no staging) and Done only closes. A list is checked
++ * when every given spot is in it, so toggling an unchecked one adds them all. An area list's row is read-only: its
++ * spots are the ones inside its circle, so it shows whether they are and never writes.
+  */
+ export function AddToListSheet({ visible, ...rest }: Props) {
+   if (!visible) return null;
+@@ -26,26 +28,30 @@ export function AddToListSheet({ visible, ...rest }: Props) {
+ function AddToListSheetContent({ spotIds, onClose }: Omit<Props, 'visible'>) {
+   const lists = useHitListsStore((s) => s.lists);
+   const membershipBySpot = useHitListsStore((s) => s.membershipBySpot);
++  const spots = useSpotsStore((s) => s.spots);
+   const { createList, addSpotsToList, removeSpotFromList } = useHitListActions();
+   const [naming, setNaming] = useState(false);
+ 
+-  const rows = useMemo(
+-    () => selectListsByName(lists.filter((l) => l.kind === 'manual' && l.deleted_at === undefined)),
+-    [lists],
+-  );
++  const rows = useMemo(() => selectListsByName(lists.filter((l) => l.deleted_at === undefined)), [lists]);
++  const given = useMemo(() => {
++    const ids = new Set(spotIds);
++    return spots.filter((s) => ids.has(s.id));
++  }, [spots, spotIds]);
+   // No spots is in no list (every() over [] would check them all).
+-  const holdsAll = (listId: string) =>
+-    spotIds.length > 0 && spotIds.every((id) => membershipBySpot[id]?.includes(listId));
++  const holdsAll = (list: HitList) =>
++    list.kind === 'area'
++      ? given.length > 0 && selectListSpots(list, given, membershipBySpot).length === given.length
++      : spotIds.length > 0 && spotIds.every((id) => membershipBySpot[id]?.includes(list.id));
+ 
+   // The hook has already put the store back when a write fails; this only says so, once per toggle.
+   const reportFailure = (write: Promise<unknown>) =>
+     write.catch(() => Alert.alert("Couldn't update the list", 'Please try again.'));
+   const add = (listId: string) => reportFailure(addSpotsToList(listId, spotIds));
+ 
+-  const toggle = (listId: string) =>
+-    holdsAll(listId)
+-      ? reportFailure(Promise.all(spotIds.map((id) => removeSpotFromList(listId, id))))
+-      : add(listId);
++  const toggle = (list: HitList) =>
++    holdsAll(list)
++      ? reportFailure(Promise.all(spotIds.map((id) => removeSpotFromList(list.id, id))))
++      : add(list.id);
+ 
+   const create = async (name: string) => {
+     let listId: string;
+@@ -73,11 +79,33 @@ function AddToListSheetContent({ spotIds, onClose }: Omit<Props, 'visible'>) {
+ 
+         <ScrollView contentContainerStyle={styles.content}>
+           {rows.map((list) => {
+-            const checked = holdsAll(list.id);
++            const checked = holdsAll(list);
++            if (list.kind === 'area') {
++              return (
++                <View
++                  key={list.id}
++                  style={[styles.row, styles.rowDisabled]}
++                  accessible
++                  accessibilityRole="checkbox"
++                  accessibilityLabel={list.name}
++                  accessibilityHint={AREA_HINT}
++                  accessibilityState={{ disabled: true, checked }}>
++                  <View style={styles.rowLabel}>
++                    <Text style={styles.rowText} numberOfLines={1}>
++                      {list.name}
++                    </Text>
++                    <Text style={styles.rowHint}>{AREA_HINT}</Text>
++                  </View>
++                  <View style={[styles.box, checked && styles.boxChecked]}>
++                    {checked ? <IconSymbol name="checkmark" size={16} color={palette.white} /> : null}
++                  </View>
++                </View>
++              );
++            }
+             return (
+               <Pressable
+                 key={list.id}
+-                onPress={() => toggle(list.id)}
++                onPress={() => toggle(list)}
+                 style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+                 accessibilityRole="checkbox"
+                 accessibilityLabel={list.name}
+@@ -113,6 +141,8 @@ function AddToListSheetContent({ spotIds, onClose }: Omit<Props, 'visible'>) {
+   );
+ }
+ 
++const AREA_HINT = 'Area list: spots inside its circle are in it automatically';
++
+ const styles = StyleSheet.create({
+   container: {
+     flex: 1,
+@@ -154,6 +184,17 @@ const styles = StyleSheet.create({
+   rowPressed: {
+     backgroundColor: palette.gray[100],
+   },
++  rowDisabled: {
++    opacity: 0.5,
++  },
++  rowLabel: {
++    flexShrink: 1,
++    gap: 2,
++  },
++  rowHint: {
++    fontSize: 13,
++    color: palette.gray[500],
++  },
+   rowText: {
+     flexShrink: 1,
+     fontSize: 17,
+diff --git a/src/components/Chip.tsx b/src/components/Chip.tsx
+index a05acca..97efcc9 100644
+--- a/src/components/Chip.tsx
++++ b/src/components/Chip.tsx
+@@ -10,9 +10,10 @@ interface ChipProps {
+   onPress?: () => void;
+   /**
+    * 'checkbox' (default) for toggles in a set; 'button' for one-of choices such as the sort chips; 'tab' for a row
+-   * that switches what the screen shows (the list picker). 'button' and 'tab' report `selected`, 'checkbox' `checked`.
++   * that switches what the screen shows (the list picker); 'radio' for one value of a setting (the area radius).
++   * 'button' and 'tab' report `selected`, 'checkbox' and 'radio' `checked`.
+    */
+-  role?: 'checkbox' | 'button' | 'tab';
++  role?: 'checkbox' | 'button' | 'tab' | 'radio';
+   disabled?: boolean;
+   accessibilityLabel?: string;
+   accessibilityHint?: string;
+@@ -35,7 +36,9 @@ export function Chip({
+       accessibilityRole={role}
+       accessibilityLabel={accessibilityLabel}
+       accessibilityHint={accessibilityHint}
+-      accessibilityState={role === 'checkbox' ? { checked: selected, disabled } : { selected, disabled }}>
++      accessibilityState={
++        role === 'checkbox' || role === 'radio' ? { checked: selected, disabled } : { selected, disabled }
++      }>
+       <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+         {label}
+       </Text>
+diff --git a/src/components/NameListSheet.tsx b/src/components/NameListSheet.tsx
+index 4c600f4..b1c1074 100644
+--- a/src/components/NameListSheet.tsx
++++ b/src/components/NameListSheet.tsx
+@@ -22,58 +22,86 @@ export function NameListSheet({ visible, ...rest }: Props) {
+   return <NameListSheetContent {...rest} />;
+ }
+ 
+-function NameListSheetContent({ title, initialName = '', confirmLabel, onCancel, onSubmit }: Omit<Props, 'visible'>) {
+-  const [name, setName] = useState(initialName);
++function NameListSheetContent({ onCancel, onSubmit, ...card }: Omit<Props, 'visible'>) {
++  const { submitting, submit, cancel } = useGuardedSubmit(onSubmit, onCancel);
++  return (
++    <Modal visible transparent animationType="fade" onRequestClose={cancel} testID="name-list-sheet-modal">
++      <KeyboardAvoidingView behavior="padding" style={styles.backdrop}>
++        <Pressable style={StyleSheet.absoluteFill} onPress={cancel} accessible={false} />
++        <NameListCard {...card} submitting={submitting} onCancel={cancel} onSubmit={submit} />
++      </KeyboardAvoidingView>
++    </Modal>
++  );
++}
++
++/**
++ * Runs one submit at a time (a second tap can land before the disabled state renders) and turns cancel into a no-op
++ * while one runs: closing mid-submit would let the caller act (navigate, alert) for a sheet the user already
++ * dismissed. A rejection is swallowed: the caller reports it, the sheet just lets the user try again.
++ */
++export function useGuardedSubmit(onSubmit: Props['onSubmit'], onCancel: () => void) {
+   const [submitting, setSubmitting] = useState(false);
+-  // A second tap can land before the disabled state renders; the ref makes it a no-op.
+   const inFlight = useRef(false);
+-  const trimmed = name.trim();
+-  // Closing mid-submit would let the caller act (navigate, alert) for a sheet the user already dismissed.
+   const cancel = () => {
+     if (!inFlight.current) onCancel();
+   };
+-
+-  const submit = async () => {
+-    if (trimmed === '' || inFlight.current) return;
++  const submit = async (name: string) => {
++    if (inFlight.current) return;
+     inFlight.current = true;
+     setSubmitting(true);
+     try {
+-      await onSubmit(trimmed);
++      await onSubmit(name);
+     } catch {
+-      // The caller reports the failure; the sheet just lets the user try again.
++      // Reported by the caller.
+     } finally {
+       inFlight.current = false;
+       setSubmitting(false);
+     }
+   };
++  return { submitting, submit, cancel };
++}
++
++interface CardProps {
++  title: string;
++  initialName?: string;
++  confirmLabel: string;
++  /** Disables both buttons while a submit runs (useGuardedSubmit). */
++  submitting: boolean;
++  onCancel: () => void;
++  /** Gets the trimmed, non-empty name. */
++  onSubmit: (name: string) => void;
++}
++
++/** The sheet's card alone, for a screen that shows it inside its own Modal (one Modal at a time on iOS). */
++export function NameListCard({ title, initialName = '', confirmLabel, submitting, onCancel, onSubmit }: CardProps) {
++  const [name, setName] = useState(initialName);
++  const trimmed = name.trim();
++  const submit = () => {
++    if (trimmed !== '') onSubmit(trimmed);
++  };
+ 
+   return (
+-    <Modal visible transparent animationType="fade" onRequestClose={cancel} testID="name-list-sheet-modal">
+-      <KeyboardAvoidingView behavior="padding" style={styles.backdrop}>
+-        <Pressable style={StyleSheet.absoluteFill} onPress={cancel} accessible={false} />
+-        <View style={styles.card}>
+-          <Text style={styles.title} accessibilityRole="header">
+-            {title}
+-          </Text>
+-          <TextInput
+-            style={styles.input}
+-            value={name}
+-            onChangeText={setName}
+-            placeholder="Name"
+-            placeholderTextColor={palette.gray[400]}
+-            accessibilityLabel="List name"
+-            autoFocus
+-            returnKeyType="done"
+-            submitBehavior="submit"
+-            onSubmitEditing={submit}
+-          />
+-          <View style={styles.buttons}>
+-            <Button title="Cancel" variant="secondary" onPress={cancel} disabled={submitting} />
+-            <Button title={confirmLabel} onPress={submit} disabled={trimmed === '' || submitting} />
+-          </View>
+-        </View>
+-      </KeyboardAvoidingView>
+-    </Modal>
++    <View style={styles.card}>
++      <Text style={styles.title} accessibilityRole="header">
++        {title}
++      </Text>
++      <TextInput
++        style={styles.input}
++        value={name}
++        onChangeText={setName}
++        placeholder="Name"
++        placeholderTextColor={palette.gray[400]}
++        accessibilityLabel="List name"
++        autoFocus
++        returnKeyType="done"
++        submitBehavior="submit"
++        onSubmitEditing={submit}
++      />
++      <View style={styles.buttons}>
++        <Button title="Cancel" variant="secondary" onPress={onCancel} disabled={submitting} />
++        <Button title={confirmLabel} onPress={submit} disabled={trimmed === '' || submitting} />
++      </View>
++    </View>
+   );
+ }
+ 
+diff --git a/src/components/SpotsBrowser.tsx b/src/components/SpotsBrowser.tsx
+index 7963193..b7149a6 100644
+--- a/src/components/SpotsBrowser.tsx
++++ b/src/components/SpotsBrowser.tsx
+@@ -44,8 +44,8 @@ interface SpotsBrowserProps {
+   contentBottomInset?: number;
+   /** Rendered in the header before the Filter button (a screen's own headerRight would replace Filter). */
+   headerActions?: ReactNode;
+-  /** Overrides the header's title text ('2 selected'); undefined shows the screen's title. */
+-  headerTitle?: string;
++  /** Overrides the header's title: text ('2 selected') or a node (an area list's two lines); undefined shows the screen's title. */
++  headerTitle?: ReactNode;
+   /** The header's left side (the Spots tab's 'Select' / 'Cancel'); undefined keeps the default (a back button). */
+   headerLeft?: ReactNode;
+   onSpotLongPress?: (id: string) => void;
+@@ -181,7 +181,9 @@ export function SpotsBrowser({
+         // These options always carry headerTitle and headerLeft (undefined un-sets them, as '2 selected' needs), so
+         // they overwrite a layout's; a screen sets them through these props, not its own Stack.Screen.
+         options={{
+-          headerTitle,
++          // A string is the title text; any other node is drawn as the title component.
++          headerTitle:
++            typeof headerTitle === 'string' || headerTitle == null ? (headerTitle ?? undefined) : () => headerTitle,
+           headerLeft: headerLeft === undefined ? undefined : () => headerLeft,
+           headerRight: () => (
+             <View style={styles.headerButtons}>
+diff --git a/src/components/index.ts b/src/components/index.ts
+index cd40faf..e1a0b56 100644
+--- a/src/components/index.ts
++++ b/src/components/index.ts
+@@ -11,7 +11,7 @@ export { AddPhotosTile } from './AddPhotosTile';
+ export { SpotTagFields, type SpotTags } from './SpotTagFields';
+ export { ZoomablePhoto } from './ZoomablePhoto';
+ export { SpotsBrowser } from './SpotsBrowser';
+-export { NameListSheet } from './NameListSheet';
++export { NameListCard, NameListSheet, useGuardedSubmit } from './NameListSheet';
+ export { AddToListSheet } from './AddToListSheet';
+ export { ListPickerChips } from './ListPickerChips';
+ export { HeaderTextButton } from './HeaderTextButton';
+diff --git a/src/db/hit-lists.ts b/src/db/hit-lists.ts
+index f5b7ffd..c432966 100644
+--- a/src/db/hit-lists.ts
++++ b/src/db/hit-lists.ts
+@@ -81,10 +81,10 @@ export async function getHitLists(db: SQLiteDatabase): Promise<HitList[]> {
+   return rows.map(rowToHitList);
+ }
+ 
+-/** Writes only the keys given; a deleted list is left alone. */
++/** Writes only the keys given (`area_place: null` clears the place); a deleted list is left alone. */
+ export async function updateHitList(db: SQLiteDatabase, id: string, updates: HitListUpdate): Promise<void> {
+   const setClauses: string[] = [];
+-  const values: (string | number)[] = [];
++  const values: (string | number | null)[] = [];
+ 
+   if (updates.name !== undefined) {
+     setClauses.push('name = ?');
+@@ -94,6 +94,22 @@ export async function updateHitList(db: SQLiteDatabase, id: string, updates: Hit
+     setClauses.push('shared = ?');
+     values.push(updates.shared ? 1 : 0);
+   }
++  if (updates.area_center !== undefined) {
++    setClauses.push('area_center_lat = ?', 'area_center_lng = ?');
++    values.push(updates.area_center.latitude, updates.area_center.longitude);
++  }
++  if (updates.area_radius_m !== undefined) {
++    setClauses.push('area_radius_m = ?');
++    values.push(updates.area_radius_m);
++  }
++  if (updates.area_filters !== undefined) {
++    setClauses.push('area_filters_json = ?');
++    values.push(JSON.stringify(updates.area_filters));
++  }
++  if (updates.area_place !== undefined) {
++    setClauses.push('area_place = ?');
++    values.push(updates.area_place); // null clears it
++  }
+ 
+   // The caller's stamp wins so the store and DB agree.
+   setClauses.push('updated_at = ?');
+diff --git a/src/hooks/use-hit-list-actions.ts b/src/hooks/use-hit-list-actions.ts
+index 8158cb7..1741d68 100644
+--- a/src/hooks/use-hit-list-actions.ts
++++ b/src/hooks/use-hit-list-actions.ts
+@@ -3,13 +3,13 @@ import { useSQLiteContext } from 'expo-sqlite';
+ 
+ import {
+   insertHitList,
+-  updateHitList,
++  updateHitList as dbUpdateHitList,
+   softDeleteHitList,
+   addSpotsToList as dbAddSpotsToList,
+   removeSpotFromList as dbRemoveSpotFromList,
+ } from '@/src/db';
+ import { useHitListsStore } from '@/src/stores';
+-import type { HitList } from '@/src/types';
++import type { HitList, HitListUpdate, NewHitList } from '@/src/types';
+ import { newId } from '@/src/utils/id';
+ 
+ const findList = (id: string) => useHitListsStore.getState().lists.find((l) => l.id === id);
+@@ -24,18 +24,19 @@ export function useHitListActions() {
+   const db = useSQLiteContext();
+   const addList = useHitListsStore((s) => s.addList);
+   const updateList = useHitListsStore((s) => s.updateList);
++  const replaceList = useHitListsStore((s) => s.replaceList);
+   const removeList = useHitListsStore((s) => s.removeList);
+   const addMemberships = useHitListsStore((s) => s.addMemberships);
+   const removeMemberships = useHitListsStore((s) => s.removeMemberships);
+   const setActiveListId = useHitListsStore((s) => s.setActiveListId);
+ 
+   const createList = useCallback(
+-    async (name: string): Promise<HitList> => {
++    async (name: string, opts: NewHitList = { kind: 'manual' }): Promise<HitList> => {
+       const now = new Date().toISOString();
+       const list: HitList = {
+         id: newId(),
+         name: name.trim(),
+-        kind: 'manual',
++        ...opts,
+         shared: false,
+         created_at: now,
+         updated_at: now,
+@@ -60,7 +61,7 @@ export function useHitListActions() {
+       const applied = { name: name.trim(), updated_at: new Date().toISOString() };
+       updateList(id, applied);
+       try {
+-        await updateHitList(db, id, applied);
++        await dbUpdateHitList(db, id, applied);
+       } catch (err) {
+         console.error('[useHitListActions] renameList failed:', err);
+         // Unless a later rename has replaced this one in the meantime.
+@@ -73,6 +74,33 @@ export function useHitListActions() {
+     [db, updateList],
+   );
+ 
++  // Named after the DB function it wraps; renameList stays for the name alone.
++  const updateHitList = useCallback(
++    async (id: string, updates: HitListUpdate) => {
++      const before = findList(id);
++      const applied: HitListUpdate = { ...updates, updated_at: new Date().toISOString() };
++      updateList(id, applied);
++      try {
++        await dbUpdateHitList(db, id, applied);
++      } catch (err) {
++        console.error('[useHitListActions] updateHitList failed:', err);
++        // Put back the keys this call patched (dropping those the list didn't have), unless a later update has
++        // replaced it in the meantime.
++        const current = findList(id);
++        if (before && current?.updated_at === applied.updated_at) {
++          const restored: Record<string, unknown> = { ...current, updated_at: before.updated_at };
++          for (const key of Object.keys(updates) as (keyof HitListUpdate)[]) {
++            if (before[key] === undefined) delete restored[key];
++            else restored[key] = before[key];
++          }
++          replaceList(restored as unknown as HitList);
++        }
++        throw err;
++      }
++    },
++    [db, updateList, replaceList],
++  );
++
+   const deleteList = useCallback(
+     async (id: string) => {
+       const before = findList(id);
+@@ -124,5 +152,5 @@ export function useHitListActions() {
+     [db, addMemberships, removeMemberships],
+   );
+ 
+-  return { createList, renameList, deleteList, addSpotsToList, removeSpotFromList };
++  return { createList, renameList, updateHitList, deleteList, addSpotsToList, removeSpotFromList };
+ }
+diff --git a/src/stores/hit-lists-store.ts b/src/stores/hit-lists-store.ts
+index 27e359b..f3f4bfe 100644
+--- a/src/stores/hit-lists-store.ts
++++ b/src/stores/hit-lists-store.ts
+@@ -1,5 +1,7 @@
+ import { create } from 'zustand';
+-import type { HitList, HitListUpdate, Spot } from '@/src/types';
++import { DEFAULT_FILTERS, type GeoPoint, type HitList, type HitListUpdate, type Spot, type SpotFilters } from '@/src/types';
++import { spotsInCircle } from '@/src/utils/area';
++import { selectFilteredSpots } from './spots-store';
+ 
+ interface HitListsState {
+   /** Live lists, in the order loaded (getHitLists: oldest first) then created. */
+@@ -13,6 +15,8 @@ interface HitListsState {
+   setMemberships: (membershipBySpot: Record<string, string[]>) => void;
+   addList: (list: HitList) => void;
+   updateList: (id: string, updates: HitListUpdate) => void;
++  /** Swaps in this version of the list, by id (a failed write's revert, which may need to drop a key). */
++  replaceList: (list: HitList) => void;
+   /** Also resets activeListId to null when it was this list. */
+   removeList: (id: string) => void;
+   /** No duplicates: a spot already in the list keeps its place. */
+@@ -32,13 +36,23 @@ export const useHitListsStore = create<HitListsState>((set) => ({
+ 
+   addList: (list) => set((s) => ({ lists: [...s.lists, list] })),
+ 
+-  updateList: (id, updates) =>
++  updateList: (id, { area_place, ...rest }) =>
+     set((s) => {
+-      // An undefined key keeps the stored value, as updateHitList in src/db does.
+-      const defined = Object.fromEntries(Object.entries(updates).filter(([, v]) => v !== undefined));
+-      return { lists: s.lists.map((l) => (l.id === id ? { ...l, ...defined } : l)) };
++      // An undefined key keeps the stored value, as updateHitList in src/db does; area_place: null clears the place.
++      const defined = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined));
++      return {
++        lists: s.lists.map((l) => {
++          if (l.id !== id) return l;
++          const next: HitList = { ...l, ...defined };
++          if (area_place === null) delete next.area_place;
++          else if (area_place !== undefined) next.area_place = area_place;
++          return next;
++        }),
++      };
+     }),
+ 
++  replaceList: (list) => set((s) => ({ lists: s.lists.map((l) => (l.id === list.id ? list : l)) })),
++
+   removeList: (id) =>
+     set((s) => ({
+       lists: s.lists.filter((l) => l.id !== id),
+@@ -75,12 +89,27 @@ export const useHitListsStore = create<HitListsState>((set) => ({
+ // Pure: screens select the raw state and useMemo these. A selector that builds a new array inside the store hook
+ // would hand zustand 5 a fresh value on every render and loop.
+ 
+-/** The list's live spots, in `spots` order. */
++/**
++ * The one rule for "in the area" (picker count, area lists, detail, sheet): live, located, inside the circle (the
++ * boundary counts), passing the filters; in `spots` order.
++ */
++export function selectAreaSpots(spots: Spot[], center: GeoPoint, radiusM: number, filters: SpotFilters): Spot[] {
++  return selectFilteredSpots(spotsInCircle(spots.filter((s) => s.deleted_at === undefined), center, radiusM), filters);
++}
++
++/**
++ * The list's live spots, in `spots` order. A manual list's come from its memberships; an area list's are computed from
++ * its circle and filters (never stored), and an area list missing its centre or radius holds none.
++ */
+ export function selectListSpots(
+   list: HitList,
+   spots: Spot[],
+   membershipBySpot: Record<string, string[]>,
+ ): Spot[] {
++  if (list.kind === 'area') {
++    if (list.area_center === undefined || list.area_radius_m === undefined) return [];
++    return selectAreaSpots(spots, list.area_center, list.area_radius_m, list.area_filters ?? DEFAULT_FILTERS);
++  }
+   return spots.filter((s) => s.deleted_at === undefined && membershipBySpot[s.id]?.includes(list.id));
+ }
+ 
+@@ -92,14 +121,15 @@ export function selectListsByName(lists: HitList[]): HitList[] {
+   );
+ }
+ 
+-/** The live lists the spot is in, by name. */
++/** The live lists the spot is in, by name: the manual lists it was added to and the area lists whose circle holds it. */
+ export function selectSpotLists(
+-  spotId: string,
++  spot: Spot,
+   lists: HitList[],
+   membershipBySpot: Record<string, string[]>,
+ ): HitList[] {
+-  const ids = membershipBySpot[spotId] ?? [];
+-  return selectListsByName(lists.filter((l) => l.deleted_at === undefined && ids.includes(l.id)));
++  return selectListsByName(
++    lists.filter((l) => l.deleted_at === undefined && selectListSpots(l, [spot], membershipBySpot).length > 0),
++  );
+ }
+ 
+ /** `{ [listId]: live spots in it }` for every list given, 0 for an empty one. */
+@@ -108,11 +138,20 @@ export function selectListCounts(
+   spots: Spot[],
+   membershipBySpot: Record<string, string[]>,
+ ): Record<string, number> {
+-  const counts: Record<string, number> = Object.fromEntries(lists.map((l) => [l.id, 0]));
++  const counts: Record<string, number> = {};
++  const manualIds = new Set<string>();
++  for (const list of lists) {
++    if (list.kind === 'area') counts[list.id] = selectListSpots(list, spots, membershipBySpot).length;
++    else {
++      counts[list.id] = 0;
++      manualIds.add(list.id);
++    }
++  }
++  // Manual lists: one pass over the spots.
+   for (const spot of spots) {
+     if (spot.deleted_at !== undefined) continue;
+     for (const listId of membershipBySpot[spot.id] ?? []) {
+-      if (Object.hasOwn(counts, listId)) counts[listId] += 1;
++      if (manualIds.has(listId)) counts[listId] += 1;
+     }
+   }
+   return counts;
+diff --git a/src/stores/index.ts b/src/stores/index.ts
+index d3ca847..a5198e1 100644
+--- a/src/stores/index.ts
++++ b/src/stores/index.ts
+@@ -10,6 +10,7 @@ export { useLocationStore } from './location-store';
+ export { useMediaStore } from './media-store';
+ export {
+   useHitListsStore,
++  selectAreaSpots,
+   selectListSpots,
+   selectSpotLists,
+   selectListCounts,
+diff --git a/src/types/index.ts b/src/types/index.ts
+index f10e8bb..0ad2cf2 100644
+--- a/src/types/index.ts
++++ b/src/types/index.ts
+@@ -97,8 +97,20 @@ export interface HitListSpot {
+   added_at: string; // ISO 8601
+ }
+ 
+-/** A patch for a list; undefined keeps the stored value (S2 adds the area fields). */
+-export type HitListUpdate = Partial<Pick<HitList, 'name' | 'shared' | 'updated_at'>>;
++/**
++ * A patch for a list; undefined keeps the stored value (S2 adds the area fields). `area_place: null` clears the place
++ * (as `null` does in a SpotUpdate).
++ */
++export type HitListUpdate = Partial<
++  Pick<HitList, 'name' | 'shared' | 'updated_at' | 'area_center' | 'area_radius_m' | 'area_filters'>
++> & {
++  area_place?: string | null;
++};
++
++/** What createList needs beyond the name: a manual list, or an area list's circle, place and filters. */
++export type NewHitList =
++  | { kind: 'manual' }
++  | { kind: 'area'; area_center: GeoPoint; area_radius_m: number; area_place?: string; area_filters: SpotFilters };
+ 
+ export interface UserSettings {
+   units: UnitSystem;
+diff --git a/src/utils/area.ts b/src/utils/area.ts
+new file mode 100644
+index 0000000..59f9985
+--- /dev/null
++++ b/src/utils/area.ts
+@@ -0,0 +1,64 @@
++import type { Region } from 'react-native-maps';
++import { UnitSystem, type GeoPoint, type Spot } from '@/src/types';
++import { distanceMeters, isKnownLocation } from '@/src/utils/geo';
++
++const METERS_PER_MILE = 1609.344;
++const METERS_PER_KM = 1000;
++const METERS_PER_DEGREE_LAT = 111_320;
++const REGION_MARGIN = 1.3; // the circle's edge stays clear of the screen border
++const MIN_COS_LAT = 0.01; // near the poles a degree of longitude shrinks to nothing
++const MAX_LAT_DELTA = 180; // MKMapView throws 'Invalid Region' beyond these spans (as in map-region.ts)
++const MAX_LNG_DELTA = 360;
++
++/** The radius chips, in whole metres, per unit (D56). */
++export const RADIUS_STEPS_M: Record<UnitSystem, readonly number[]> = {
++  imperial: [402, 805, 1609, 3219, 8047, 16093, 40234], // 0.25, 0.5, 1, 2, 5, 10, 25 mi (Math.round(mi × 1609.344))
++  metric: [500, 1000, 2000, 5000, 10000, 25000, 50000], // 0.5, 1, 2, 5, 10, 25, 50 km
++};
++
++/** 2 mi; metric riders get nearestStep(3219, metric) = 2000. */
++export const DEFAULT_AREA_RADIUS_M = 3219;
++
++/** Spots with a known location whose haversine distance to `center` is ≤ radiusM (the boundary counts), input order. */
++export function spotsInCircle(spots: Spot[], center: GeoPoint, radiusM: number): Spot[] {
++  return spots.filter((s) => isKnownLocation(s.location) && distanceMeters(center, s.location) <= radiusM);
++}
++
++/** The step of `units` closest to radiusM (ties go to the smaller one). */
++export function nearestStep(radiusM: number, units: UnitSystem): number {
++  return RADIUS_STEPS_M[units].reduce((best, step) =>
++    Math.abs(step - radiusM) < Math.abs(best - radiusM) ? step : best,
++  );
++}
++
++/** '0.25 mi', '2 mi', '3.2 km': below 1 unit two decimals, otherwise one, trailing zeros dropped. */
++export function radiusLabel(radiusM: number, units: UnitSystem): string {
++  const imperial = units === UnitSystem.Imperial;
++  const value = radiusM / (imperial ? METERS_PER_MILE : METERS_PER_KM);
++  const rounded = Number(value.toFixed(value < 1 ? 2 : 1));
++  return `${rounded} ${imperial ? 'mi' : 'km'}`;
++}
++
++/** 'Area · 2 mi' / 'Area · 2 mi of Capitol Hill' (place trimmed; blank = none). */
++export function areaLabel(radiusM: number, units: UnitSystem, place?: string): string {
++  const label = `Area · ${radiusLabel(radiusM, units)}`;
++  const trimmed = place?.trim();
++  return trimmed ? `${label} of ${trimmed}` : label;
++}
++
++/** A camera region centred on `center` whose span holds the whole circle with a 1.3× margin. */
++export function circleRegion(center: GeoPoint, radiusM: number): Region {
++  const latitudeDelta = ((2 * radiusM) / METERS_PER_DEGREE_LAT) * REGION_MARGIN;
++  const cosLat = Math.max(Math.cos((center.latitude * Math.PI) / 180), MIN_COS_LAT);
++  return {
++    latitude: center.latitude,
++    longitude: center.longitude,
++    latitudeDelta: Math.min(latitudeDelta, MAX_LAT_DELTA),
++    longitudeDelta: Math.min(latitudeDelta / cosLat, MAX_LNG_DELTA),
++  };
++}
++
++/** D54: the place still describes `center` when it is within a quarter of the radius of where the place put it. */
++export function keepsPlace(placeCenter: GeoPoint, center: GeoPoint, radiusM: number): boolean {
++  return distanceMeters(placeCenter, center) <= radiusM / 4;
++}
+diff --git a/src/utils/spot-name.ts b/src/utils/spot-name.ts
+index eb74018..31c8a69 100644
+--- a/src/utils/spot-name.ts
++++ b/src/utils/spot-name.ts
+@@ -41,3 +41,8 @@ export function featureTypesLabel(spot: Spot): string | undefined {
+ export function featureTypesList(spot: Spot): string | undefined {
+   return spot.feature_types.map((t) => FEATURE_TYPE_LABELS[t]).join(' · ') || undefined;
+ }
++
++/** '1 spot' / '23 spots' (the Lists tab rows, the area picker's count). */
++export function spotCountLabel(n: number): string {
++  return n === 1 ? '1 spot' : `${n} spots`;
++}

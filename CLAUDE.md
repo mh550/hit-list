@@ -44,7 +44,7 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   `(tabs)/lists.tsx` 'My hit lists' (rows with live spot counts, '+ New hit list' → `NameListSheet` → `/list/<id>`),
   `list/[id]/` one list (`SpotsBrowser` scoped to its spots, Rename, long-press 'Remove from list', 'Delete list',
   a 'This list is gone' state; an area list (S2) shows 'Area · 2 mi of <place>' under its title and 'Edit area', no
-  Remove), `area/index.tsx` 'Pick an area' (`fullScreenModal`: MapView with a fixed centre pin + `Circle`, radius chips,
+  Remove), `area/` (`app/area/index.tsx`) 'Pick an area' (`fullScreenModal`: MapView with a fixed centre pin + `Circle`, radius chips,
   'Search a place' (`geocodeAsync` on submit only, never on a region change), 'Use my location', the shared filters, a
   live count; 'Save as hit list' → 'Just these N' (manual list) / 'Keep it updated' (area list); `?listId` = edit mode,
   'Save area'), `(tabs)/profile.tsx`,
@@ -90,7 +90,7 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   `useSpotActions`, `useHitListActions` (create (`createList(name, NewHitList)`)/rename/`updateHitList`/delete a list, add/remove spots: store first, then the DB, revert + rethrow on failure), `useMediaActions` (photo save and remove, also used for adding photos from edit: `savePhotos` resolves the `Media[]` it actually saved; removal deletes the row only, D3), `useCurrentLocation`.
 - `src/utils/` pure logic: geo (`NO_LOCATION`, `isKnownLocation`, haversine), exif,
   photo-storage, reverse-geocode, spot-name (D4 label), map-region, import-clustering, nearby-spots (`nearbySpots`:
-  live known-location spots within a radius, nearest first; `nearbyLabel` 'Near <name> · 16 ft'), area (S2:
+  live known-location spots within a radius, nearest first; `nearbyLabel` 'Near <name> · 16 ft'), area (`src/utils/area.ts`, S2:
   `RADIUS_STEPS_M` per unit in whole metres, `DEFAULT_AREA_RADIUS_M`, `spotsInCircle` (boundary inclusive, never
   `NO_LOCATION`), `nearestStep`, `radiusLabel`/`areaLabel` 'Area · 2 mi of Capitol Hill', `circleRegion`, `keepsPlace`, `isAreaList` (the one "area list with a circle" guard)), gallery-gestures (the viewer's
   pure maths: `clampScale`, `toggleZoom`, `clampPan`, `pagingEnabled`, `shouldClose`, `focalZoom`, `pinchPan`, `doubleTapZoom`,

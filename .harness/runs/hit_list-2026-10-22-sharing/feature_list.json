@@ -256,7 +256,7 @@
         "CLAUDE.md Layout mentions app/area/, src/utils/area.ts and the area-list rule (computed, never stored); README Status gains an 'Area lists (S2)' bullet.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S3-01",

@@ -189,6 +189,7 @@ describe('Sent screen', () => {
 
     expect(screen.getByText('To @ben · 3 spots · Saved')).toBeOnTheScreen();
     expect(alert).toHaveBeenLastCalledWith('They already saved these.');
+    expect(screen.queryByRole('button', { name: /^Withdraw/ })).toBeNull();
   });
 
   it("a failed withdraw warns, alerts \"Couldn't reach the server\" and keeps the row Waiting", async () => {

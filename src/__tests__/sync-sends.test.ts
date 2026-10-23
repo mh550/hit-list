@@ -227,6 +227,17 @@ describe('createSend', () => {
     expect(fake.calls).toEqual([]);
   });
 
+  it('a friend or a spot given twice is sent once', async () => {
+    const one = await backedUpSpot('Library rail', 1);
+    const result = await createSend(db, client(), ME, {
+      spotIds: [one.spot.id, one.spot.id],
+      recipientIds: [ANA, ANA],
+      sender: SENDER,
+    });
+    expect(kinds()).toEqual(['copy', 'rpc create_send']);
+    expect(result?.sentTo.map((f) => f.id)).toEqual([ANA]);
+  });
+
   it('a spot that is gone (deleted or never here) refuses too', async () => {
     const gone = await backedUpSpot('Gone', 0, { deleted_at: '2026-10-20T10:00:00.000Z' });
     await expect(
@@ -616,6 +627,48 @@ describe('saveSend', () => {
     expect(await countRows('spots')).toBe(2);
     expect(await countRows('media')).toBe(3);
     for (const m of await getAllMedia(db)) expect(fakeFs.__fileBytes(`${DOC}${m.file_path}`)).toEqual(BYTES);
+  });
+
+  it('offline (every photo fails to download) it marks nothing and saves nothing; back online the save has its photos', async () => {
+    const paths = [PHOTO_A1, PHOTO_A2, PHOTO_B1].map((id) => `photos/sends/${SEND_1}/${id}.jpg`);
+    for (const path of paths) fake.objects.delete(path);
+
+    expect(await saveSend(db, client(), ME, itemFor(SEND_1))).toEqual({ status: 'failed' });
+    expect(rpcArgs('mark_send_saved')).toHaveLength(0);
+    expect(await countRows('spots')).toBe(0);
+    expect(hasPendingSave(ME, SEND_1)).toBe(false);
+    expect(useInboxStore.getState().items.map((i) => i.id)).toEqual([SEND_1]);
+
+    for (const path of paths) fake.objects.set(path, BYTES);
+    expect(await saveSend(db, client(), ME, itemFor(SEND_1))).toEqual({ status: 'saved', saved: 2, failedPhotos: 0 });
+    expect(await countRows('media')).toBe(3);
+  });
+
+  it('a photo that failed is downloaded again on the retry after a lost answer', async () => {
+    serverMark({ loseFirstAnswer: true });
+    const path = `photos/sends/${SEND_1}/${PHOTO_A1}.jpg`;
+    fake.objects.delete(path);
+    expect(await saveSend(db, client(), ME, itemFor(SEND_1))).toEqual({ status: 'failed' });
+
+    fake.objects.set(path, BYTES);
+    expect(await saveSend(db, client(), ME, itemFor(SEND_1))).toEqual({ status: 'saved', saved: 2, failedPhotos: 0 });
+    expect(await countRows('media')).toBe(3);
+    for (const m of await getAllMedia(db)) expect(fakeFs.__fileBytes(`${DOC}${m.file_path}`)).toEqual(BYTES);
+  });
+
+  it('a sends load after a lost answer keeps the item waiting for Try again (the server lists it saved)', async () => {
+    serverMark({ loseFirstAnswer: true });
+    expect(await saveSend(db, client(), ME, itemFor(SEND_1))).toEqual({ status: 'failed' });
+    fake.tables.sends[0].saved_at = '2026-10-22 12:00:00+00';
+
+    await loadAndApplySends(db, client(), ME);
+    expect(useInboxStore.getState().items.map((i) => i.id)).toEqual([SEND_1]);
+
+    const retry = useInboxStore.getState().items[0] as SendItem;
+    expect(await saveSend(db, client(), ME, retry)).toMatchObject({ status: 'saved', saved: 2 });
+    expect(useInboxStore.getState().items).toEqual([]);
+    await loadAndApplySends(db, client(), ME);
+    expect(useInboxStore.getState().items).toEqual([]);
   });
 
   it('a send the sender took back (no longer readable) inserts nothing and drops the item', async () => {

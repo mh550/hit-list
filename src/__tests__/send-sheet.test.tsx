@@ -1,6 +1,6 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { ActivityIndicator, Image, Modal } from 'react-native';
+import { AccessibilityInfo, ActivityIndicator, Image, Modal } from 'react-native';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useRouter } from 'expo-router';
 import { useSQLiteContext as sharedDb } from 'expo-sqlite';
@@ -403,10 +403,90 @@ describe('SendSheet review fixes (S7-04)', () => {
   });
 });
 
-describe('SendSheet copy (D34: Send is a copy, never the live word)', () => {
-  const WRONG = /Share|Shared|Invite/;
+describe('SendSheet review fixes (S7-08)', () => {
+  const PROFILE_FAILED = "Couldn't load your profile. Try again.";
 
-  it('no state of the sheet renders Share, Shared or Invite', async () => {
+  it('a rider whose profile did not load gets a line, not a silent tap; the profile is read again and the next tap sends', async () => {
+    signIn();
+    useAuthStore.setState({ username: null, displayName: null });
+    mockFake!.profiles.set('user-me', { username: 'me', display_name: 'Me Myself' });
+    jest.mocked(createSend).mockResolvedValue({ sentTo: [ANA] });
+    await renderSheet();
+    fireEvent.press(friend('@ana'));
+    await pressSend();
+
+    expect(screen.getByText(PROFILE_FAILED)).toBeOnTheScreen();
+    expect(createSend).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().username).toBe('me');
+
+    await pressSend();
+    expect(createSend).toHaveBeenCalledWith(db, mockFake, 'user-me', {
+      spotIds: ['a', 'b', 'c'],
+      recipientIds: ['id-ana'],
+      sender: { username: 'me', display_name: 'Me Myself' },
+    });
+  });
+
+  it('Cancel works while the backup before a send runs, and then nothing is sent', async () => {
+    signIn();
+    let backedUp!: () => void;
+    jest.mocked(syncNow).mockReturnValue(new Promise<void>((resolve) => (backedUp = resolve)));
+    await renderSheet();
+    fireEvent.press(friend('@ana'));
+    await pressSend();
+
+    const cancel = screen.getByRole('button', { name: 'Cancel' });
+    expect(cancel.props.accessibilityState).toMatchObject({ disabled: false });
+    fireEvent.press(cancel);
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    await act(async () => backedUp());
+    expect(createSend).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(useToastStore.getState().text).toBeNull();
+  });
+
+  it('a swipe-down while the backup runs closes the sheet too, and nothing is sent', async () => {
+    signIn();
+    let backedUp!: () => void;
+    jest.mocked(syncNow).mockReturnValue(new Promise<void>((resolve) => (backedUp = resolve)));
+    await renderSheet();
+    fireEvent.press(friend('@ana'));
+    await pressSend();
+
+    act(() => screen.UNSAFE_getByType(Modal).props.onRequestClose());
+    expect(onClose).toHaveBeenCalledTimes(1);
+    screen.unmount();
+    await act(async () => backedUp());
+    expect(createSend).not.toHaveBeenCalled();
+  });
+
+  it('VoiceOver hears the failure, D78 and partial lines (a live region is Android only)', async () => {
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    signIn();
+    jest.mocked(createSend).mockRejectedValueOnce(new Error('offline'));
+    await renderSheet();
+    fireEvent.press(friend('@ana'));
+    await pressSend();
+    expect(announce).toHaveBeenLastCalledWith(FAILED);
+
+    jest.mocked(createSend).mockRejectedValueOnce(new NotBackedUpError(1));
+    await pressSend();
+    expect(announce).toHaveBeenLastCalledWith(NOT_BACKED_UP);
+
+    fireEvent.press(friend('@ben'));
+    jest.mocked(createSend).mockResolvedValueOnce({ sentTo: [ANA], failed: { to: BEN, message: 'x' } });
+    await pressSend();
+    expect(announce).toHaveBeenLastCalledWith("Sent to @ana. Couldn't send to @ben. Try again.");
+    expect(announce).toHaveBeenCalledTimes(3);
+    announce.mockRestore();
+  });
+});
+
+describe('SendSheet copy (D34: Send is a copy, never the live word)', () => {
+  const WRONG = /share|invite/i;
+
+  it('no state of the sheet renders Share, Shared or Invite (any case)', async () => {
     await renderSheet();
     expect(allText()).not.toMatch(WRONG);
     screen.unmount();
@@ -425,8 +505,8 @@ describe('SendSheet copy (D34: Send is a copy, never the live word)', () => {
     expect(allText()).not.toMatch(WRONG);
   });
 
-  it('the source file never says Share', () => {
+  it('the source file never says Share (any case)', () => {
     const source = readFileSync(join(__dirname, '../components/SendSheet.tsx'), 'utf8');
-    expect(source).not.toMatch(/Share/);
+    expect(source).not.toMatch(/share/i);
   });
 });

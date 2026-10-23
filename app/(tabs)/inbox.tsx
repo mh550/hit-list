@@ -22,10 +22,12 @@ import { palette, radius, spacing, typography } from '@/src/constants/theme';
 import { useAuthStore } from '@/src/stores/auth-store';
 import {
   INBOX_KINDS,
+  inviteLine,
   useInboxStore,
   type FriendRequestItem,
   type InboxItem,
   type InboxKind,
+  type InviteItem,
   type SendItem,
 } from '@/src/stores/inbox-store';
 import { getSupabase } from '@/src/sync/client';
@@ -347,14 +349,30 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
     );
   };
 
+  // S8-06 adds Join / Decline; until then the invitation reads as its line
+  const renderInvite = (item: InviteItem) => {
+    const line = inviteLine(item);
+    return (
+      <View style={styles.row} accessible accessibilityLabel={line}>
+        <View style={styles.rowText}>
+          <Text style={styles.title} numberOfLines={2}>
+            {line}
+          </Text>
+        </View>
+      </View>
+    );
+  };
+
   const renderItem = ({ item }: { item: InboxItem }) => {
     switch (item.kind) {
       case 'friend_request':
         return renderRequest(item);
       case 'send':
         return renderSend(item);
+      case 'invite':
+        return renderInvite(item);
       default: {
-        // S8 adds its kind here; a kind without a row is a type error
+        // a kind without a row is a type error
         const unhandled: never = item;
         console.warn('[Inbox] no row for', (unhandled as InboxItem).kind);
         return null;

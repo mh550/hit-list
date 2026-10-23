@@ -2,7 +2,7 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { create } from 'zustand';
 
 import { getSyncState, inboxSeenKey, setSyncState } from '@/src/db/sync';
-import type { FriendProfile } from '@/src/types';
+import type { FriendProfile, HitListKind, MemberRole } from '@/src/types';
 import type { SendPayload, SendSender } from '@/src/utils/send-payload';
 import { useAuthStore } from './auth-store';
 
@@ -36,8 +36,29 @@ export interface SendItem extends InboxItemBase {
   payload: SendPayload;
 }
 
-// S8 adds `| InviteItem` (kind 'invite').
-export type InboxItem = FriendRequestItem | SendItem;
+/**
+ * An invitation to a friend's shared hit list (S8, D83): its name, kind, owner and spot count from
+ * list_invitations(), no spots until Join. `id` is the list's id; `created_at` the server's invited_at.
+ */
+export interface InviteItem extends InboxItemBase {
+  kind: 'invite';
+  listId: string;
+  listName: string;
+  listKind: HitListKind;
+  /** the list's owner, who invited the rider */
+  from: FriendProfile;
+  role: MemberRole;
+  spotCount: number;
+}
+
+export type InboxItem = FriendRequestItem | SendItem | InviteItem;
+
+/** '@ana invited you to Downtown (12 spots)' (D83: the count, never the spots). */
+export function inviteLine(item: InviteItem): string {
+  const who = item.from.username ? `@${item.from.username}` : 'A friend';
+  const count = item.spotCount === 0 ? 'no spots yet' : item.spotCount === 1 ? '1 spot' : `${item.spotCount} spots`;
+  return `${who} invited you to ${item.listName} (${count})`;
+}
 
 type ItemsOf<K extends InboxKind> = Extract<InboxItem, { kind: K }>[];
 

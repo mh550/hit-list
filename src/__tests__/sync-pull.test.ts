@@ -16,7 +16,9 @@ import {
   insertSpot,
   removeSpotFromList,
   updateSpot,
+  upsertMembers,
 } from '@/src/db';
+import { getProfiles } from '@/src/db/profiles';
 import { clearOutbox, getCursor, parkRow, peekOutbox, setCursor, setSyncState } from '@/src/db/sync';
 import { pull, PULL_PAGE, REV_OVERLAP } from '@/src/sync/pull';
 import { downloadMissingPhotos, type PhotoIO } from '@/src/sync/photos';
@@ -133,10 +135,18 @@ describe('pull: bring the server rows down (real SQLite, fake client)', () => {
   }
 
   describe('the per-table pulls', () => {
-    it('asks each table for rev > 0 in rev order, 500 at a time, spots → media → hit_lists → hit_list_spots', async () => {
+    it('reads the members mirror, then asks each table for rev > 0 in rev order, 500 at a time, spots → media → hit_lists → hit_list_spots', async () => {
       serve({});
       await pull(db, asClient(fake), ME);
       expect(fake.selects).toEqual([
+        {
+          table: 'hit_list_members',
+          columns: 'list_id, user_id, role, status, joined_at',
+          filters: [],
+          order: ['list_id', 'user_id'],
+          limit: undefined,
+          range: [0, 999],
+        },
         revQuery('spots', 0),
         revQuery('media', 0),
         revQuery('hit_lists', 0),
@@ -428,17 +438,23 @@ describe('pull: bring the server rows down (real SQLite, fake client)', () => {
       expect(await getCursor(db, 'media')).toBe(5);
       expect(warn).toHaveBeenCalled();
       // the other tables still pull
-      expect(fake.selects.map((s) => s.table)).toEqual(['spots', 'media', 'hit_lists', 'hit_list_spots']);
+      expect(fake.selects.map((s) => s.table)).toEqual(['hit_list_members', 'spots', 'media', 'hit_lists', 'hit_list_spots']);
     });
 
-    it('a membership whose list is not here stops that table; its cursor stays', async () => {
+    it('a membership whose list is not here waits while the lists table stopped; once complete it is skipped (S8)', async () => {
       serve({
         spots: [serverSpot({ primary_photo_id: null })],
         hit_list_spots: [serverMembership({ list_id: 'not-here', rev: 4 })],
       });
+      fake.failNext('select', { message: 'offline' }, 'hit_lists');
       await pull(db, asClient(fake), ME);
       expect(await getListMemberships(db)).toEqual({});
       expect(await getCursor(db, 'hit_list_spots')).toBe(0);
+
+      // every list readable is here now: one that isn't is someone else's the rider can't hold (yet)
+      await pull(db, asClient(fake), ME);
+      expect(await getListMemberships(db)).toEqual({});
+      expect(await getCursor(db, 'hit_list_spots')).toBe(4);
     });
 
     it('does not bring back a membership the rider removed and has not pushed yet', async () => {
@@ -575,7 +591,7 @@ describe('pull: bring the server rows down (real SQLite, fake client)', () => {
     it('asks which of the local foreign spots are still readable and removes the rest, with their photos and memberships', async () => {
       await seedForeign();
 
-      expect(await pull(db, asClient(fake), ME)).toEqual({ changed: true });
+      expect(await pull(db, asClient(fake), ME)).toEqual({ changed: true, removedSpotIds: ['foreign-2'] });
 
       expect(spotSelects(fake, 'id')).toEqual([
         {
@@ -607,6 +623,371 @@ describe('pull: bring the server rows down (real SQLite, fake client)', () => {
       await pull(db, asClient(fake), ME);
       expect(spotSelects(fake, 'id')).toEqual([]);
       expect(await getSpot(db, 'mine')).not.toBeNull();
+    });
+  });
+});
+
+describe('pull: shared lists (S8, members mirror, others’ rows, fill, reconciliation)', () => {
+  let db: SQLiteDatabase;
+  let fake: FakeSupabase;
+  let warn: jest.SpyInstance;
+  const ANA = 'rider-ana';
+  const BEN = 'rider-ben';
+  const membersQuery = (from: number): FakeSelect => ({
+    table: 'hit_list_members',
+    columns: 'list_id, user_id, role, status, joined_at',
+    filters: [],
+    order: ['list_id', 'user_id'],
+    limit: undefined,
+    range: [from, from + 999],
+  });
+  const serverMember = (overrides: Row = {}): Row => ({
+    list_id: 'their-list',
+    user_id: ME,
+    role: 'add',
+    status: 'member',
+    joined_at: '2026-10-22T09:00:00+00:00',
+    ...overrides,
+  });
+  const theirList = (overrides: Row = {}) =>
+    serverList({ id: 'their-list', owner_id: ANA, shared: true, rev: 30, ...overrides });
+  const mirror = () =>
+    db.getAllAsync<Row>("SELECT list_id || '/' || user_id || ' ' || role || ' ' || status AS row FROM hit_list_members ORDER BY 1");
+  const ids = async (table: string) =>
+    (await db.getAllAsync<{ id: string }>(`SELECT id FROM ${table} ORDER BY id`)).map((r) => r.id);
+  const memberships = async () =>
+    (await db.getAllAsync<{ id: string }>("SELECT list_id || '/' || spot_id AS id FROM hit_list_spots ORDER BY 1")).map(
+      (r) => r.id,
+    );
+  /** Someone else's rows as a pull wrote them (server revs, nothing queued). */
+  async function heldForeignList(listId = 'their-list', owner = ANA, kind: 'manual' | 'area' = 'manual') {
+    await db.runAsync(
+      `INSERT INTO hit_lists (id, owner_id, name, kind, area_center_lat, area_center_lng, area_radius_m, shared, created_at, updated_at, rev)
+       VALUES (?, ?, 'Downtown', ?, ?, ?, ?, 1, ?, ?, 30)`,
+      listId,
+      owner,
+      kind,
+      kind === 'area' ? 47.61 : null,
+      kind === 'area' ? -122.33 : null,
+      kind === 'area' ? 2000 : null,
+      T1,
+      T1,
+    );
+  }
+  async function heldForeignSpot(id: string, owner = ANA, listId: string | null = 'their-list') {
+    await db.runAsync(
+      `INSERT INTO spots (id, owner_id, latitude, longitude, created_at, updated_at, rev, primary_photo_id)
+       VALUES (?, ?, 47.61, -122.33, ?, ?, 10, ?)`,
+      id,
+      owner,
+      T1,
+      T1,
+      `${id}-photo`,
+    );
+    await db.runAsync(
+      `INSERT INTO media (id, spot_id, owner_id, file_path, created_at, updated_at, rev) VALUES (?, ?, ?, ?, ?, ?, 11)`,
+      `${id}-photo`,
+      id,
+      owner,
+      `cache/photos/${id}/${id}-photo.jpg`,
+      T1,
+      T1,
+    );
+    if (listId) {
+      await db.runAsync(
+        'INSERT INTO hit_list_spots (list_id, spot_id, added_by, added_at, rev) VALUES (?, ?, ?, ?, 12)',
+        listId,
+        id,
+        owner,
+        T1,
+      );
+    }
+  }
+
+  beforeEach(async () => {
+    db = await createMigratedTestDb();
+    await adoptPhoneFor(db, ME);
+    fake = createFakeSupabase({ session: fakeSession({ userId: ME }) });
+    for (const t of ['spots', 'media', 'hit_lists', 'hit_list_spots', 'hit_list_members']) fake.tables[t] = [];
+    warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    warn.mockRestore();
+  });
+
+  describe('the members mirror (a full read: the server deletes member rows for real)', () => {
+    it('reads every member row first, in pages of 1000, and makes the mirror exactly that', async () => {
+      await db.runAsync(
+        "INSERT INTO hit_list_members (list_id, user_id, role, status) VALUES ('gone-list', ?, 'add', 'member')",
+        BEN,
+      );
+      fake.tables.hit_list_members = [serverMember({ list_id: 'my-list', user_id: ANA, status: 'invited', joined_at: null })];
+
+      expect(await pull(db, asClient(fake), ME)).toEqual({ changed: true });
+
+      expect(fake.selects[0]).toEqual(membersQuery(0));
+      expect(await mirror()).toEqual([{ row: `my-list/${ANA} add invited` }]);
+      // a second pull reads the same rows: no change
+      expect(await pull(db, asClient(fake), ME)).toEqual({ changed: false });
+    });
+
+    it('asks for the next page after a full one', async () => {
+      fake.tables.hit_list_members = Array.from({ length: 1001 }, (_, i) =>
+        serverMember({ list_id: `list-${String(i).padStart(4, '0')}`, user_id: ANA }),
+      );
+      await pull(db, asClient(fake), ME);
+      expect(fake.selects.filter((s) => s.table === 'hit_list_members')).toEqual([membersQuery(0), membersQuery(1000)]);
+      expect(await mirror()).toHaveLength(1001);
+    });
+
+    it('mirrors the names of members and list owners from profiles (D72)', async () => {
+      fake.profiles.set(ANA, { username: 'ana', display_name: 'Ana' });
+      fake.tables.hit_list_members = [serverMember()];
+      fake.tables.hit_lists = [theirList()];
+
+      await pull(db, asClient(fake), ME);
+
+      expect(fake.selects).toContainEqual(
+        expect.objectContaining({ table: 'profiles', filters: [['in', 'id', [ANA]]] }),
+      );
+      expect(await getProfiles(db, [ANA])).toEqual({ [ANA]: { id: ANA, username: 'ana', display_name: 'Ana' } });
+    });
+
+    it('a failed members read is a failed pull that removes nothing (mirror and others’ lists stay)', async () => {
+      await heldForeignList();
+      await heldForeignSpot('ana-1');
+      await upsertMembers(db, [{ list_id: 'their-list', user_id: ME, role: 'add', status: 'member' }]);
+      fake.tables.spots = [{ id: 'ana-1' }];
+      fake.failSelect((s) => s.table === 'hit_list_members', { message: 'offline' });
+
+      const result = await pull(db, asClient(fake), ME);
+
+      expect(result.failed).toBe(true);
+      expect(await mirror()).toEqual([{ row: `their-list/${ME} add member` }]);
+      expect(await ids('hit_lists')).toEqual(['their-list']);
+      expect(await ids('spots')).toEqual(['ana-1']);
+    });
+  });
+
+  describe('others’ rows by rev', () => {
+    it('a foreign photo row points into the cache (cache/photos/…), an own one into photos/', async () => {
+      await heldForeignSpot('ana-1', ANA, null);
+      fake.tables.spots = [{ id: 'ana-1' }];
+      await insertSpot(db, createTestSpot({ id: 'spot-1', owner_id: ME }));
+      await clearOutbox(db);
+      fake.tables.media = [
+        serverMedia({ id: 'theirs', spot_id: 'ana-1', owner_id: ANA, rev: 20 }),
+        serverMedia({ id: 'mine', spot_id: 'spot-1', rev: 21 }),
+      ];
+
+      await pull(db, asClient(fake), ME);
+
+      expect(await db.getAllAsync('SELECT id, file_path FROM media WHERE id IN (?, ?) ORDER BY id', 'theirs', 'mine')).toEqual([
+        { id: 'mine', file_path: 'photos/spot-1/mine.jpg' },
+        { id: 'theirs', file_path: 'cache/photos/ana-1/theirs.jpg' },
+      ]);
+    });
+
+    it('applies a friend’s list row only once the mirror says the rider joined it; an invitation’s row is skipped', async () => {
+      fake.tables.hit_list_members = [
+        serverMember(),
+        serverMember({ list_id: 'invited-list', status: 'invited', joined_at: null }),
+      ];
+      fake.tables.hit_lists = [theirList(), theirList({ id: 'invited-list', rev: 31 })];
+
+      await pull(db, asClient(fake), ME);
+
+      expect(await ids('hit_lists')).toEqual(['their-list']);
+      expect(await getCursor(db, 'hit_lists')).toBe(31);
+      expect(await outboxOps(db)).toEqual([]);
+    });
+
+    it('with the members read failed the hit_lists table stops at the first foreign row (its cursor stays)', async () => {
+      fake.failSelect((s) => s.table === 'hit_list_members', { message: 'offline' });
+      fake.tables.hit_lists = [serverList({ rev: 3 }), theirList({ rev: 30 })];
+
+      await pull(db, asClient(fake), ME);
+
+      expect(await ids('hit_lists')).toEqual(['list-1']);
+      expect(await getCursor(db, 'hit_lists')).toBe(3);
+    });
+
+    it('a membership or foreign photo whose parent is not held is skipped once the earlier tables are complete', async () => {
+      fake.tables.hit_list_spots = [serverMembership({ list_id: 'not-held', rev: 40 })];
+      fake.tables.media = [serverMedia({ id: 'theirs', spot_id: 'not-held', owner_id: ANA, rev: 41 })];
+
+      expect((await pull(db, asClient(fake), ME)).failed).toBeUndefined();
+
+      expect(await getCursor(db, 'hit_list_spots')).toBe(40);
+      expect(await getCursor(db, 'media')).toBe(41);
+    });
+
+    it('while an earlier table stopped, a membership whose spot is missing still stops its table', async () => {
+      fake.tables.spots = [serverSpot({ id: 'later', rev: 5 })];
+      fake.failSelect((s) => s.table === 'spots' && s.columns === '*', { message: 'offline' });
+      fake.tables.hit_list_spots = [serverMembership({ spot_id: 'later', rev: 40 })];
+      await insertHitList(db, createTestHitList({ id: 'list-1', owner_id: ME }));
+      await clearOutbox(db);
+
+      await pull(db, asClient(fake), ME);
+
+      expect(await getCursor(db, 'hit_list_spots')).toBe(0);
+    });
+  });
+
+  describe('the per-list fill (readable rows not held, whatever their rev)', () => {
+    beforeEach(async () => {
+      // every rev was already pulled: only the fill can bring old rows
+      for (const t of ['spots', 'media', 'hit_lists', 'hit_list_spots'] as const) await setCursor(db, t, 1000);
+      fake.tables.hit_list_members = [serverMember()];
+    });
+
+    it('fetches a joined list by id, then its memberships, the spots and photos not held, and the memberships', async () => {
+      fake.tables.hit_lists = [theirList({ rev: 30 })];
+      fake.tables.hit_list_spots = [serverMembership({ list_id: 'their-list', spot_id: 'ana-1', added_by: ANA, rev: 33 })];
+      fake.tables.spots = [serverSpot({ id: 'ana-1', owner_id: ANA, primary_photo_id: 'ana-photo', rev: 31 })];
+      fake.tables.media = [serverMedia({ id: 'ana-photo', spot_id: 'ana-1', owner_id: ANA, rev: 32 })];
+
+      expect((await pull(db, asClient(fake), ME)).changed).toBe(true);
+
+      expect(await ids('hit_lists')).toEqual(['their-list']);
+      expect(await ids('spots')).toEqual(['ana-1']);
+      expect(await db.getAllAsync('SELECT id, file_path FROM media')).toEqual([
+        { id: 'ana-photo', file_path: 'cache/photos/ana-1/ana-photo.jpg' },
+      ]);
+      expect(await memberships()).toEqual(['their-list/ana-1']);
+      expect(await outboxOps(db)).toEqual([]);
+      expect(fake.selects).toContainEqual(
+        expect.objectContaining({ table: 'hit_lists', filters: [['in', 'id', ['their-list']]] }),
+      );
+      expect(fake.selects).toContainEqual(
+        expect.objectContaining({
+          table: 'hit_list_spots',
+          filters: [['eq', 'list_id', 'their-list']],
+          order: ['spot_id'],
+          range: [0, 999],
+        }),
+      );
+    });
+
+    it('fills a member’s spot in the rider’s own shared list', async () => {
+      await insertHitList(db, createTestHitList({ id: 'list-1', owner_id: ME, shared: true }));
+      await clearOutbox(db);
+      fake.tables.hit_list_members = [serverMember({ list_id: 'list-1', user_id: ANA })];
+      fake.tables.hit_list_spots = [serverMembership({ spot_id: 'ana-1', added_by: ANA, rev: 33 })];
+      fake.tables.spots = [serverSpot({ id: 'ana-1', owner_id: ANA, primary_photo_id: null, rev: 31 })];
+
+      await pull(db, asClient(fake), ME);
+
+      expect(await memberships()).toEqual(['list-1/ana-1']);
+      expect(await outboxOps(db)).toEqual([]);
+    });
+
+    it('a friend’s shared area list is filled with the owner’s readable spots', async () => {
+      await heldForeignList('their-list', ANA, 'area');
+      fake.tables.spots = [serverSpot({ id: 'ana-1', owner_id: ANA, primary_photo_id: null, rev: 31 })];
+
+      await pull(db, asClient(fake), ME);
+
+      expect(fake.selects).toContainEqual(
+        expect.objectContaining({ table: 'spots', columns: 'id', filters: [['eq', 'owner_id', ANA]], order: ['id'] }),
+      );
+      expect(await ids('spots')).toEqual(['ana-1']);
+    });
+
+    it('a list whose read was cut off is neither filled nor reconciled', async () => {
+      await heldForeignList();
+      await heldForeignSpot('ana-1');
+      fake.tables.hit_list_spots = [serverMembership({ list_id: 'their-list', spot_id: 'ana-2', added_by: ANA, rev: 33 })];
+      fake.tables.spots = [serverSpot({ id: 'ana-2', owner_id: ANA, primary_photo_id: null, rev: 31 }), { id: 'ana-1' }];
+      fake.failSelect((s) => s.table === 'hit_list_spots' && s.columns === '*' && s.range !== undefined, {
+        message: 'offline',
+      });
+
+      await pull(db, asClient(fake), ME);
+
+      expect(await memberships()).toEqual(['their-list/ana-1']);
+      expect(await ids('spots')).toEqual(['ana-1']);
+    });
+  });
+
+  describe('reconciliation', () => {
+    beforeEach(async () => {
+      await heldForeignList();
+      await heldForeignSpot('ana-1');
+      await heldForeignSpot('ana-2');
+      await insertSpot(db, createTestSpot({ id: 'mine', owner_id: ME }));
+      await clearOutbox(db);
+      fake.tables.hit_list_members = [serverMember()];
+      fake.tables.spots = [{ id: 'ana-1' }, { id: 'ana-2' }];
+      fake.tables.media = [{ id: 'ana-1-photo', spot_id: 'ana-1' }, { id: 'ana-2-photo', spot_id: 'ana-2' }];
+      fake.tables.hit_list_spots = [
+        { list_id: 'their-list', spot_id: 'ana-1', added_by: ANA, added_at: T1_SERVER, rev: null },
+      ];
+    });
+
+    it('a membership of a friend’s shared list the server no longer has goes, queuing nothing', async () => {
+      await pull(db, asClient(fake), ME);
+      expect(await memberships()).toEqual(['their-list/ana-1']);
+      expect(await outboxOps(db)).toEqual([]);
+    });
+
+    it('the rider’s add still waiting stays; a parked (refused, view only) one goes with its outbox row', async () => {
+      await addSpotsToList(db, 'their-list', ['mine'], T1, ME);
+      const [row] = await peekOutbox(db, 10);
+      await pull(db, asClient(fake), ME);
+      expect(await memberships()).toContain('their-list/mine');
+
+      await parkRow(db, row.id, 'new row violates row-level security policy');
+      await pull(db, asClient(fake), ME);
+      expect(await memberships()).not.toContain('their-list/mine');
+      expect(await outboxOps(db)).toEqual([]);
+    });
+
+    it('a list the rider left (no member row) goes with its memberships and the others’ spots, own spots stay', async () => {
+      fake.tables.hit_list_members = [];
+
+      const result = await pull(db, asClient(fake), ME);
+
+      expect(await ids('hit_lists')).toEqual([]);
+      expect(await memberships()).toEqual([]);
+      expect(await ids('spots')).toEqual(['mine']);
+      expect(await ids('media')).toEqual([]);
+      expect(result.removedSpotIds).toEqual(['ana-1', 'ana-2']);
+      expect(await outboxOps(db)).toEqual([]);
+    });
+
+    it('a list deleted by its owner goes too', async () => {
+      await db.runAsync("UPDATE hit_lists SET deleted_at = ? WHERE id = 'their-list'", T2);
+      await pull(db, asClient(fake), ME);
+      expect(await ids('hit_lists')).toEqual([]);
+    });
+
+    it('the session ending before the removals removes nothing', async () => {
+      fake.tables.hit_list_members = [];
+      fake.auth.getSession.mockImplementation(async () => ({ data: { session: null }, error: null }));
+      fake.auth.getSession.mockImplementationOnce(async () => ({
+        data: { session: fakeSession({ userId: ME }) },
+        error: null,
+      }));
+
+      await pull(db, asClient(fake), ME);
+
+      expect(await ids('hit_lists')).toEqual(['their-list']);
+      expect(await ids('spots')).toEqual(['ana-1', 'ana-2', 'mine']);
+    });
+
+    it('a friend’s photo deleted on the server goes with its row; a primary naming it is cleared', async () => {
+      fake.tables.media = [{ id: 'ana-1-photo', spot_id: 'ana-1' }];
+      fake.tables.hit_list_spots.push({ list_id: 'their-list', spot_id: 'ana-2', added_by: ANA, added_at: T1_SERVER, rev: null });
+
+      const result = await pull(db, asClient(fake), ME);
+
+      expect(await ids('media')).toEqual(['ana-1-photo']);
+      expect((await rawSpot(db, 'ana-2'))?.primary_photo_id).toBeNull();
+      expect(result.removedPhotoPaths).toEqual(['cache/photos/ana-2/ana-2-photo.jpg']);
+      expect(await outboxOps(db)).toEqual([]);
     });
   });
 });

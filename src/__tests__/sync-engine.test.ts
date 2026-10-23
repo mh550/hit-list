@@ -3,6 +3,7 @@ import { createMigratedTestDb } from './helpers/node-sqlite-db';
 import { createFakeSupabase, fakeSession, type FakeSupabase } from './helpers/fake-supabase';
 import { ME, adoptPhoneFor } from './helpers/outbox';
 import { createTestHitList, createTestMedia, createTestSpot } from './factories';
+import { fakeFs } from './helpers/fake-fs';
 
 let mockFake: FakeSupabase | null = null;
 jest.mock('@/src/sync/client', () => ({
@@ -182,6 +183,55 @@ describe('syncNow', () => {
     const tablesInOrder = mockFake!.selects.map((s) => s.table).filter((t) => t === 'friendships' || t === 'sends');
     expect(tablesInOrder).toEqual(['friendships', 'sends']);
     expect(useInboxStore.getState().items).toEqual([expect.objectContaining({ kind: 'send', id: sendId })]);
+  });
+
+  it('loads the invitations after the sends and puts them in the Inbox (S8, kind invite)', async () => {
+    useAuthStore.setState({ ...SIGNED_OUT, status: 'signed_in', userId: ME });
+    mockFake!.rpcHandlers.list_invitations = () => ({
+      data: [
+        {
+          list_id: 'list-1',
+          name: 'Downtown',
+          kind: 'manual',
+          owner_id: 'rider-ana',
+          owner_username: 'ana',
+          owner_display_name: null,
+          role: 'add',
+          spot_count: 12,
+          invited_at: '2026-10-23 10:00:00+00',
+        },
+      ],
+      error: null,
+    });
+
+    await syncNow(db);
+
+    const sendsAt = mockFake!.selects.findIndex((s) => s.table === 'sends');
+    expect(sendsAt).toBeGreaterThanOrEqual(0);
+    expect(mockFake!.rpcs.map((r) => r.fn)).toContain('list_invitations');
+    expect(useInboxStore.getState().items).toEqual([
+      expect.objectContaining({ kind: 'invite', id: 'list-1', listName: 'Downtown', spotCount: 12 }),
+    ]);
+  });
+
+  it("deletes the cache folders and files of others' rows the pull removed", async () => {
+    fakeFs.__resetFs();
+    new fakeFs.Directory(fakeFs.Paths.cache, 'photos', 'ana-1').create({ intermediates: true });
+    fakeFs.__putFile('file:///data/Caches/photos/ana-1/p.jpg');
+    new fakeFs.Directory(fakeFs.Paths.cache, 'photos', 'ana-2').create({ intermediates: true });
+    fakeFs.__putFile('file:///data/Caches/photos/ana-2/gone.jpg');
+    fakeFs.__putFile('file:///data/Caches/photos/ana-2/kept.jpg');
+    mockPull.mockResolvedValueOnce({
+      changed: true,
+      removedSpotIds: ['ana-1'],
+      removedPhotoPaths: ['cache/photos/ana-2/gone.jpg'],
+    });
+
+    await syncNow(db);
+
+    expect(fakeFs.__fileExists('file:///data/Caches/photos/ana-1/p.jpg')).toBe(false);
+    expect(fakeFs.__fileExists('file:///data/Caches/photos/ana-2/gone.jpg')).toBe(false);
+    expect(fakeFs.__fileExists('file:///data/Caches/photos/ana-2/kept.jpg')).toBe(true);
   });
 
   it('a sends load that fails warns and still counts as backed up', async () => {

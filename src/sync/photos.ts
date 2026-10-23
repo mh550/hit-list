@@ -25,6 +25,37 @@ export interface PhotoIO {
   remove(filePath: string): void;
 }
 
+/** Where another rider's photo is cached on this phone, as their media row's file_path (S8, §3.4: never Paths.document). */
+export const cachedPhotoPath = (spotId: string, mediaId: string) => `cache/photos/${spotId}/${mediaId}.jpg`;
+
+/**
+ * Deletes each spot's cached photo folder (`Paths.cache/photos/<spotId>/`) once its rows left the phone (Leave, Stop
+ * sharing, a pull that lost read). A folder that isn't there is skipped; one that can't be deleted warns.
+ */
+export function deleteCachedPhotos(spotIds: readonly string[]): void {
+  for (const spotId of spotIds) {
+    try {
+      const dir = new Directory(Paths.cache, 'photos', spotId);
+      if (dir.exists) dir.delete();
+    } catch (err) {
+      console.warn(`[sync] could not delete the cached photos of ${spotId}:`, errorMessage(err));
+    }
+  }
+}
+
+/** Deletes single cached photos (`cache/photos/…` file paths) of rows a pull removed; others' paths are ignored. */
+export function deleteCachedFiles(filePaths: readonly string[]): void {
+  for (const filePath of filePaths) {
+    if (!filePath.startsWith('cache/')) continue;
+    try {
+      const file = new File(Paths.cache, filePath.slice('cache/'.length));
+      if (file.exists) file.delete();
+    } catch (err) {
+      console.warn(`[sync] could not delete the cached photo ${filePath}:`, errorMessage(err));
+    }
+  }
+}
+
 /** Where a photo lives in the bucket; always derived, local media has no storage_path column. */
 export const storagePath = (owner: string, media: Pick<Media, 'id' | 'spot_id'>) =>
   `${owner}/${media.spot_id}/${media.id}.jpg`;

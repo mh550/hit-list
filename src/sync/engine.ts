@@ -5,7 +5,8 @@ import { useSyncStore } from '@/src/stores/sync-store';
 import { getSupabase } from './client';
 import { errorMessage } from './errors';
 import { loadAndApplyFriends } from './friends';
-import { downloadMissingPhotos } from './photos';
+import { loadAndApplyInvites } from './lists';
+import { deleteCachedFiles, deleteCachedPhotos, downloadMissingPhotos } from './photos';
 import { pull } from './pull';
 import { push } from './push';
 import { runExclusive } from './queue';
@@ -102,6 +103,9 @@ async function syncOnce(db: SQLiteDatabase): Promise<void> {
       const result = await pull(db, client, uid);
       changed = result.changed;
       if (result.failed) error ??= 'pull: the server could not be read';
+      // others' rows the pull removed take their cached photos with them (S8; files aren't in the transaction)
+      deleteCachedPhotos(result.removedSpotIds ?? []);
+      deleteCachedFiles(result.removedPhotoPaths ?? []);
     } catch (err) {
       fail('pull', err);
     }
@@ -124,10 +128,11 @@ async function syncOnce(db: SQLiteDatabase): Promise<void> {
       useSyncStore.setState({ lastSyncAt });
     }
     useSyncStore.setState({ failedCount, lastError: error });
-    // friends and requests (S6), then the sends to the rider (S7), once the backup is settled: a slow read never
-    // holds the pulled spots or 'Backed up' back; neither rejects
+    // friends and requests (S6), the sends to the rider (S7), then the list invitations (S8), once the backup is
+    // settled: a slow read never holds the pulled spots or 'Backed up' back; none rejects
     await loadAndApplyFriends(db, client, uid);
     await loadAndApplySends(db, client, uid);
+    await loadAndApplyInvites(db, client, uid);
   } catch (err) {
     fail('sync', err);
     useSyncStore.setState({ lastError: error });

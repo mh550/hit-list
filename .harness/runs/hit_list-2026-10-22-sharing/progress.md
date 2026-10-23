@@ -20,6 +20,12 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 11:00 · S6-06 · passes
+
+- Added `docs/plans/2026-10-22-s6-what-michael-will-see.md`: Friends signed out / unconfigured / two friends + one sent request, all seven Add result lines, Inbox signed out / empty / two requests, tab bar with badge '2', 'What to tap' with two riders (add, accept, block, vanishes from find), verification record. Renders came from temporary Jest tests (deleted; tree walk of text, labels, roles).
+- Verified: `npx jest --silent` 91 suites 1487 passed, 0 `console.error` non-silent; `test:integration` 35 passed (3 suites) with db:start/reset, stack stopped, 0 supabase_* containers; `npx expo export --platform ios` exit 0, 5,202,562 byte hbc; `check.sh` green 1487.
+- Next session: S6 is complete; S7 begins. No code changed. Questions for Michael: none new. Proposed changes: none.
+
 ### 2026-10-23 10:30 · S6-05 · passes
 
 - Added `src/__integration__/friends.test.ts` (6 cases, riders ana/ben/cal, each with a node:sqlite phone whose `sync_state.user_id` is theirs): 'BEN' finds ben + one pending request (and a direct uppercase `find_profile`), ben sees it incoming, ana's mirror and friends store keep ben's name, ben's Inbox gets the item; accept → both list the other; ana+cal friends, cal blocks ana → friendship gone both sides, cal's profile unreadable and absent from ana's `find_profile` (not ben's), `addFriend` → `{ found: false }`, a direct send answers `P0002` like an unknown name; 'nobody_…' → not found, own name → self; remove, unblock, ask again. Plan gains "As built (S6-05)". Jest default suite 1487 → 1487 (integration is separate: 29 → 35).

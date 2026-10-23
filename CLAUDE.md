@@ -32,6 +32,10 @@ npm run lint                   # expo lint (must be 0 errors; no eslint-disable 
 npx jest --ci                  # all tests (Jest runs with TZ=UTC, see jest.global-setup.js)
 npx expo export --platform ios --output-dir /tmp/hl-export   # headless "does it bundle for the phone"
 npx expo-doctor                # must be clean
+npm run db:start               # supabase start: the local stack (need Docker; not in CI)
+npm run db:reset               # supabase db reset: migrations + seed.sql on a fresh database
+npm run test:db                # supabase test db: every supabase/tests/*.test.sql (pgTAP)
+npm run db:stop                # supabase stop: always stop the stack after use
 ```
 
 CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch push.
@@ -96,6 +100,11 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   pure maths: `clampScale`, `toggleZoom`, `clampPan`, `pagingEnabled`, `shouldClose`, `focalZoom`, `pinchPan`, `doubleTapZoom`,
   `dragDown`), legacy-details (`formatLegacyDetails(legacy, units)` →
   labelled 'Older details' rows: fixed key order, lengths in the user's units, unknown keys humanised, never throws).
+- `supabase/` the backend (S3, local stack only; `supabase/README.md`, plan `docs/plans/2026-10-22-s3-backend.md`):
+  `config.toml` (`project_id = "hit-list"`), `migrations/` SQL, **append-only** (never edit a shipped one), `tests/`
+  pgTAP (`NNN-*.test.sql`; every RLS policy and function has its cases there), `seed.sql` = the `tests` schema only
+  (`create_user`, `authenticate_as`, `clear_auth`; runs on `db reset`, never pushed). The CLI is the pinned `supabase`
+  devDependency (`npx supabase …`).
 
 ## Conventions that are easy to get wrong
 
@@ -138,6 +147,7 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   Apple; ≤ 10 sequential backfills per launch).
 - expo-router 57 has no `@react-navigation/*` dependencies; import from `expo-router` /
   `expo-router/js-tabs`.
+- **Docker** (the Supabase stack): Only containers named supabase_*_hit-list belong to this project; never touch dj-*, n8n-* or any other container; never docker system prune; never docker compose in another directory.
 
 ## Testing
 

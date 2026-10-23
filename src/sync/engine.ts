@@ -161,11 +161,11 @@ const storeValues = () => [
 ];
 
 /**
- * What a pull changed reaches the screens: the same loads as useDbInit's. A change the rider made while the loads ran
+ * What a pull (or adoption, src/sync/adopt.ts) changed reaches the screens: the same loads as useDbInit's. A change the rider made while the loads ran
  * is in the store but maybe not in what was read, so then it reads again rather than put an older state back (the
  * action hooks issue their DB write right after the store update, so the next read sees it).
  */
-async function reloadStores(db: SQLiteDatabase): Promise<void> {
+export async function reloadStores(db: SQLiteDatabase): Promise<void> {
   for (let attempt = 0; attempt < RELOAD_TRIES; attempt += 1) {
     const before = storeValues();
     const [spots, media, lists, memberships] = await Promise.all([

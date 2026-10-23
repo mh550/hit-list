@@ -9,6 +9,7 @@ import {
   removeSpotFromList as dbRemoveSpotFromList,
 } from '@/src/db';
 import { useHitListsStore } from '@/src/stores';
+import { currentOwnerId } from '@/src/sync/owner';
 import type { HitList, HitListUpdate, NewHitList } from '@/src/types';
 import { newId } from '@/src/utils/id';
 
@@ -36,6 +37,8 @@ export function useHitListActions() {
       const list: HitList = {
         id: newId(),
         name: name.trim(),
+        // the signed-in rider's once the phone is theirs (S5-06), else phone-only until adoption
+        owner_id: currentOwnerId(),
         ...opts,
         shared: false,
         created_at: now,

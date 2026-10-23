@@ -78,7 +78,7 @@ describe('backfillTowns', () => {
     expect(reverseGeocodeAsync).toHaveBeenCalledTimes(10);
     expect(maxInFlight).toBe(1);
     expect(update).toHaveBeenCalledTimes(10);
-    expect(update).toHaveBeenCalledWith(spots[0].id, { generated_name: 'Seattle' });
+    expect(update).toHaveBeenCalledWith(spots[0].id, 'Seattle');
   });
 
   it('keeps naming the other spots when one update fails', async () => {

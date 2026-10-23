@@ -8,6 +8,7 @@ import 'react-native-reanimated';
 
 import { DB_NAME } from '@/src/db';
 import { DBInitializer } from '@/src/components/DBInitializer';
+import { useAdoption } from '@/src/hooks/use-adoption';
 import { useAuthInit } from '@/src/hooks/use-auth-init';
 import { useSync } from '@/src/hooks/use-sync';
 import { palette } from '@/src/constants/theme';
@@ -20,10 +21,11 @@ function LoadingScreen() {
   );
 }
 
-// Mirrors the Supabase session into the auth store, then syncs while signed in (S5); inside DBInitializer, so both
-// start once the DB is ready.
+// Mirrors the Supabase session into the auth store, adopts the phone's rows for the signed-in rider, and syncs while
+// signed in (S5); inside DBInitializer, so all three start once the DB is ready.
 function AuthInit() {
   useAuthInit();
+  useAdoption();
   useSync();
   return null;
 }

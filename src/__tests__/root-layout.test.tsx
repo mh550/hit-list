@@ -31,9 +31,11 @@ jest.mock('@/src/components/DBInitializer', () => ({
 let mockFake: FakeSupabase;
 jest.mock('@/src/sync/client', () => ({ getSupabase: () => mockFake, isConfigured: () => true }));
 
-// The sync hook needs the DB connection; here it only reports that it mounted.
+// The sync and adoption hooks need the DB connection; here they only report that they mounted.
 const mockUseSync = jest.fn();
 jest.mock('@/src/hooks/use-sync', () => ({ useSync: () => mockUseSync() }));
+const mockUseAdoption = jest.fn();
+jest.mock('@/src/hooks/use-adoption', () => ({ useAdoption: () => mockUseAdoption() }));
 
 import { createFakeSupabase, type FakeSupabase } from './helpers/fake-supabase';
 import { useAuthStore, SIGNED_OUT } from '@/src/stores/auth-store';
@@ -160,5 +162,17 @@ describe('RootLayout: auth', () => {
     mockDbReady = true;
     render(<RootLayout />);
     expect(mockUseSync).toHaveBeenCalled();
+  });
+
+  it('mounts useAdoption (adopt, then sync, S5-06) once the DB is ready, and not before', () => {
+    mockUseAdoption.mockClear();
+    mockDbReady = false;
+    const { unmount } = render(<RootLayout />);
+    expect(mockUseAdoption).not.toHaveBeenCalled();
+    unmount();
+
+    mockDbReady = true;
+    render(<RootLayout />);
+    expect(mockUseAdoption).toHaveBeenCalled();
   });
 });

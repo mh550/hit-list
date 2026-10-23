@@ -13,7 +13,7 @@ import { backfillTowns } from '@/src/utils/reverse-geocode';
 export function useDbInit(): { isReady: boolean; upgradeFailed: boolean } {
   const db = useSQLiteContext();
   const setSpots = useSpotsStore((s) => s.setSpots);
-  const { updateSpot } = useSpotActions();
+  const { setTown } = useSpotActions();
   const loadSettings = useSettingsStore((s) => s.loadSettings);
   const setAllMedia = useMediaStore((s) => s.setAll);
   const setLists = useHitListsStore((s) => s.setLists);
@@ -64,10 +64,10 @@ export function useDbInit(): { isReady: boolean; upgradeFailed: boolean } {
       }
       setIsReady(true); // even after an error, so the splash screen never strands the app
       // In the background, after the app is usable: towns for untitled spots (D4).
-      void backfillTowns(spots, updateSpot);
+      void backfillTowns(spots, setTown);
     })();
     // All stable, so this still runs once.
-  }, [db, setSpots, updateSpot, setAllMedia, setLists, setMemberships, loadSettings]);
+  }, [db, setSpots, setTown, setAllMedia, setLists, setMemberships, loadSettings]);
 
   return { isReady, upgradeFailed };
 }

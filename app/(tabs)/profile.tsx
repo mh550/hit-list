@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { Alert, StyleSheet, ScrollView, View, Text, TextInput, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
-import { useSQLiteContext } from 'expo-sqlite';
+import { useSQLiteContext, type SQLiteDatabase } from 'expo-sqlite';
 
 import { ACCOUNTS_NOT_SET_UP, AuthError, Button } from '@/src/components';
 import { useSettingsStore } from '@/src/stores/settings-store';
 import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
 import { useSyncStore } from '@/src/stores/sync-store';
-import { resetFailed } from '@/src/db/sync';
+import { countPending, resetFailed } from '@/src/db/sync';
 import { syncNow } from '@/src/sync/engine';
+import { releaseAccountData, removeLocalAccountData } from '@/src/sync/adopt';
 import { useSettingsActions } from '@/src/hooks/use-settings-actions';
 import { getSupabase } from '@/src/sync/client';
 import { deleteAccount, signOutOfAccount } from '@/src/sync/auth';
@@ -22,6 +23,26 @@ function SectionHeader({ title }: { title: string }) {
 }
 
 const DELETE_FAILED = "Couldn't delete the account. Try again.";
+const REMOVE_FAILED = "Couldn't remove the spots from this phone. Try again.";
+const REMOVE_WAITING = "Some changes aren't backed up yet, so nothing was removed.";
+
+/** Sign out's last backup gives up after this long (offline it would only wait), then asks Keep / Remove anyway. */
+const LAST_BACKUP_MS = 10_000;
+
+async function lastBackup(db: SQLiteDatabase): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const giveUp = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, LAST_BACKUP_MS);
+  });
+  await Promise.race([syncNow(db), giveUp]);
+  clearTimeout(timer);
+}
+
+/** The changes-waiting alert's title; `null` = the count could not be read. */
+function waitingTitle(pending: number | null): string {
+  if (pending === null) return "Some changes aren't backed up yet";
+  return pending === 1 ? "1 change isn't backed up yet" : `${pending} changes aren't backed up yet`;
+}
 
 /** How often 'Backed up · 3 min ago' is worked out again while Profile is open. */
 const BACKUP_LINE_TICK_MS = 60_000;
@@ -69,8 +90,11 @@ function BackupStatus({ userId }: { userId: string | null }) {
 
 // The account in its three states (§3.1, §5.6): a build without Supabase values, signed out, signed in. The tabs
 // redirect a 'needs_username' account to the username screen, so it shows here only for a moment, as signed in.
+// Sign out backs up once more, then asks Keep / Remove from this phone, or, with changes still waiting, offers only
+// Sign out anyway (D38, D69); Delete account ends with Keep / Remove too (D51, D67).
 function AccountSection() {
   const router = useRouter();
+  const db = useSQLiteContext();
   const status = useAuthStore((s) => s.status);
   const email = useAuthStore((s) => s.email);
   const username = useAuthStore((s) => s.username);
@@ -79,7 +103,7 @@ function AccountSection() {
   const setAuth = useAuthStore((s) => s.setAuth);
   const [busy, setBusy] = useState<'signing_out' | 'deleting' | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // An alert's Delete or a second tap can land before the disabled state renders.
+  // An alert's button or a second tap can land before the disabled state renders.
   const inFlight = useRef(false);
 
   const client = getSupabase();
@@ -99,20 +123,86 @@ function AccountSection() {
     );
   }
 
-  const run = async (kind: 'signing_out' | 'deleting') => {
-    if (inFlight.current) return;
+  const begin = (kind: 'signing_out' | 'deleting') => {
+    if (inFlight.current) return false;
     inFlight.current = true;
     setBusy(kind);
     setError(null);
-    const deleted = kind === 'signing_out' || (await deleteAccount(client));
-    if (deleted) {
-      await signOutOfAccount(client);
-      setAuth(SIGNED_OUT);
-    } else {
-      setError(DELETE_FAILED);
-    }
+    return true;
+  };
+  const end = () => {
     inFlight.current = false;
     setBusy(null);
+  };
+  const finishSignOut = async () => {
+    await signOutOfAccount(client);
+    setAuth(SIGNED_OUT);
+    end();
+  };
+
+  const removeThenSignOut = async () => {
+    try {
+      if (userId && !(await removeLocalAccountData(db, userId))) {
+        setError(REMOVE_WAITING);
+        end();
+        return;
+      }
+    } catch (err) {
+      console.warn('[Profile] Remove from this phone failed:', err);
+      setError(REMOVE_FAILED);
+      end();
+      return;
+    }
+    await finishSignOut();
+  };
+
+  const signOut = async () => {
+    if (!begin('signing_out')) return;
+    await lastBackup(db);
+    let pending: number | null;
+    try {
+      pending = await countPending(db);
+    } catch (err) {
+      console.warn('[Profile] could not count the changes not backed up:', err);
+      pending = null;
+    }
+    if (pending === 0) {
+      Alert.alert('Keep spots on this phone?', "They're backed up in your account either way.", [
+        { text: 'Keep', style: 'default', onPress: () => void finishSignOut() },
+        { text: 'Remove from this phone', style: 'destructive', onPress: () => void removeThenSignOut() },
+        { text: 'Cancel', style: 'cancel', onPress: end },
+      ]);
+      return;
+    }
+    Alert.alert(waitingTitle(pending), "Sign out anyway and they'll back up next time you sign in to this account.", [
+      { text: 'Cancel', style: 'cancel', onPress: end },
+      { text: 'Sign out anyway', style: 'destructive', onPress: () => void finishSignOut() },
+    ]);
+  };
+
+  const deleteNow = async () => {
+    if (!begin('deleting')) return;
+    if (!(await deleteAccount(client))) {
+      setError(DELETE_FAILED);
+      end();
+      return;
+    }
+    const deletedId = userId;
+    await finishSignOut();
+    if (!deletedId) return;
+    const warn = (what: string) => (err: unknown) => console.warn(`[Profile] ${what} after Delete account failed:`, err);
+    Alert.alert('Account deleted', 'Your account is deleted. Keep the spots on this phone?', [
+      {
+        text: 'Keep',
+        style: 'default',
+        onPress: () => void releaseAccountData(db, deletedId).catch(warn('Keep')),
+      },
+      {
+        text: 'Remove from this phone',
+        style: 'destructive',
+        onPress: () => void removeLocalAccountData(db, deletedId, { discardPending: true }).catch(warn('Remove')),
+      },
+    ]);
   };
 
   const confirmDelete = () =>
@@ -121,7 +211,7 @@ function AccountSection() {
       'Your spots, photos, hit lists and sends are deleted from the server. Spots on this phone stay until you remove them.',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Delete', style: 'destructive', onPress: () => void run('deleting') },
+        { text: 'Delete', style: 'destructive', onPress: () => void deleteNow() },
       ],
     );
 
@@ -135,7 +225,7 @@ function AccountSection() {
       <Button
         title={busy === 'signing_out' ? 'Signing out…' : 'Sign out'}
         variant="secondary"
-        onPress={() => void run('signing_out')}
+        onPress={() => void signOut()}
         disabled={busy !== null}
       />
       <Button

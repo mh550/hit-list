@@ -11,6 +11,11 @@ export interface SyncSnapshot {
   failedCount: number;
   /** The last sync's first error message, `null` after one that went through. */
   lastError: string | null;
+  /**
+   * The signed-in rider once adoption made the phone's rows theirs (useAdoption), `null` signed out: new spots and
+   * lists get it as owner (src/sync/owner.ts).
+   */
+  adoptedUserId: string | null;
 }
 
 export const INITIAL_SYNC: SyncSnapshot = {
@@ -19,6 +24,7 @@ export const INITIAL_SYNC: SyncSnapshot = {
   syncing: false,
   failedCount: 0,
   lastError: null,
+  adoptedUserId: null,
 };
 
 export const useSyncStore = create<SyncSnapshot>(() => ({ ...INITIAL_SYNC }));

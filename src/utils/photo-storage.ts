@@ -29,3 +29,18 @@ export function resolvePhotoUri(filePath: string): string {
   if (HAS_SCHEME.test(filePath) || filePath.startsWith('/')) return filePath;
   return new File(Paths.document, filePath).uri;
 }
+
+/**
+ * Deletes each spot's photo folder (`photos/<spotId>/`) when an account's rows leave the phone (S5-06). A folder that
+ * is not there is skipped; one that can't be deleted warns and the rest still go.
+ */
+export function deleteSpotPhotos(spotIds: string[]): void {
+  for (const spotId of spotIds) {
+    try {
+      const dir = new Directory(Paths.document, PHOTOS_DIR, spotId);
+      if (dir.exists) dir.delete();
+    } catch (err) {
+      console.warn(`[deleteSpotPhotos] could not delete the photos of ${spotId}:`, err);
+    }
+  }
+}

@@ -28,13 +28,14 @@ export function geocodeTown(point: GeoPoint): Promise<string | undefined> {
   return result;
 }
 
-type UpdateSpot = (id: string, updates: Pick<Spot, 'generated_name'>) => Promise<void>;
+/** Stores a spot's town without moving its updated_at (useSpotActions.setTown). */
+type SetTown = (id: string, town: string) => Promise<void>;
 
 /**
  * Names up to `limit` untitled, town-less spots, one request at a time (Apple's geocoder
  * throttles bursts). Spots that get no town keep their label and are retried next launch.
  */
-export async function backfillTowns(spots: Spot[], updateSpot: UpdateSpot, limit = 10): Promise<void> {
+export async function backfillTowns(spots: Spot[], setTown: SetTown, limit = 10): Promise<void> {
   const pending = spots
     .filter((s) => !s.name && !s.generated_name && isKnownLocation(s.location))
     .slice(0, limit);
@@ -42,9 +43,9 @@ export async function backfillTowns(spots: Spot[], updateSpot: UpdateSpot, limit
     const town = await geocodeTown(spot.location);
     if (!town) continue;
     try {
-      await updateSpot(spot.id, { generated_name: town });
+      await setTown(spot.id, town);
     } catch {
-      // updateSpot logged it; this spot is retried next launch.
+      // setTown logged it; this spot is retried next launch.
     }
   }
 }

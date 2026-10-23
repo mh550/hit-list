@@ -105,20 +105,15 @@ export async function saveProfile(
 }
 
 /**
- * Signs the rider out (D62: plain sign out until S5 backs spots up and adds Keep / Remove). A server sign out that
- * fails (offline) or throws falls back to `scope: 'local'`. Offline with an expired access token auth-js can't read
- * the session (its refresh fails), so both return that error before removing anything; then the stored session is
- * removed here, or the next token refresh would sign the rider back in. The phone is always signed out afterwards.
+ * Signs the rider out (D62: plain sign out until S5 backs spots up and adds Keep / Remove). auth-js 2.118 removes the
+ * stored session itself when the server sign out fails or is refused (`_signOut`), so its `scope: 'local'` would add
+ * nothing. Offline with an expired access token it can't read the session (its refresh fails) and returns that error
+ * before removing anything; then, or when it throws, the stored session is removed here, or the next token refresh
+ * would sign the rider back in. The phone is always signed out afterwards.
  */
 export async function signOutOfAccount(client: SupabaseClient): Promise<void> {
   try {
     const { error } = await client.auth.signOut();
-    if (!error) return;
-  } catch {
-    // Fall through to the local sign out.
-  }
-  try {
-    const { error } = await client.auth.signOut({ scope: 'local' });
     if (!error) return;
   } catch {
     // Fall through to clearing the stored session.

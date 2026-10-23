@@ -302,38 +302,42 @@ describe('Profile account section (S4-05)', () => {
   it('signs out of this phone when the server sign out fails (offline)', async () => {
     useAuthStore.setState(ANA);
     mockFake!.failNext('signOut', { message: 'Network request failed' });
-    render(<ProfileScreen />);
-    await act(async () => {
-      fireEvent.press(screen.getByRole('button', { name: 'Sign out' }));
-    });
-    expect(mockFake!.auth.signOut).toHaveBeenCalledTimes(2);
-    expect(mockFake!.auth.signOut).toHaveBeenLastCalledWith({ scope: 'local' });
-    expect(useAuthStore.getState()).toMatchObject(SIGNED_OUT);
-  });
-
-  it('signs out of this phone even when signOut throws', async () => {
-    useAuthStore.setState(ANA);
-    mockFake!.auth.signOut.mockRejectedValueOnce(new Error('boom'));
-    render(<ProfileScreen />);
-    await act(async () => {
-      fireEvent.press(screen.getByRole('button', { name: 'Sign out' }));
-    });
-    expect(mockFake!.auth.signOut).toHaveBeenLastCalledWith({ scope: 'local' });
-    expect(useAuthStore.getState()).toMatchObject(SIGNED_OUT);
-  });
-
-  it('clears the stored session itself when auth-js cannot (offline with an expired access token)', async () => {
-    // auth-js 2.118: the session read fails (the refresh is offline), so both signOut() and signOut({ scope:
-    // 'local' }) return that error before removing anything, and the stored session would sign the rider back in.
-    useAuthStore.setState(ANA);
-    const offline = { error: { name: 'AuthRetryableFetchError', message: 'Network request failed', status: 0 } };
-    mockFake!.auth.signOut.mockResolvedValueOnce(offline as never).mockResolvedValueOnce(offline as never);
     const remove = jest.spyOn(sessionStorage, 'removeItem');
     render(<ProfileScreen />);
     await act(async () => {
       fireEvent.press(screen.getByRole('button', { name: 'Sign out' }));
     });
-    expect(mockFake!.auth.signOut).toHaveBeenLastCalledWith({ scope: 'local' });
+    expect(mockFake!.auth.signOut).toHaveBeenCalledTimes(1);
+    expect(remove).toHaveBeenCalledWith(SESSION_STORAGE_KEY);
+    expect(useAuthStore.getState()).toMatchObject(SIGNED_OUT);
+    remove.mockRestore();
+  });
+
+  it('signs out of this phone even when signOut throws', async () => {
+    useAuthStore.setState(ANA);
+    mockFake!.auth.signOut.mockRejectedValueOnce(new Error('boom'));
+    const remove = jest.spyOn(sessionStorage, 'removeItem');
+    render(<ProfileScreen />);
+    await act(async () => {
+      fireEvent.press(screen.getByRole('button', { name: 'Sign out' }));
+    });
+    expect(remove).toHaveBeenCalledWith(SESSION_STORAGE_KEY);
+    expect(useAuthStore.getState()).toMatchObject(SIGNED_OUT);
+    remove.mockRestore();
+  });
+
+  it('clears the stored session itself when auth-js cannot (offline with an expired access token)', async () => {
+    // auth-js 2.118: the session read fails (the refresh is offline), so signOut() returns that error before removing
+    // anything, and the stored session would sign the rider back in.
+    useAuthStore.setState(ANA);
+    const offline = { error: { name: 'AuthRetryableFetchError', message: 'Network request failed', status: 0 } };
+    mockFake!.auth.signOut.mockResolvedValueOnce(offline as never);
+    const remove = jest.spyOn(sessionStorage, 'removeItem');
+    render(<ProfileScreen />);
+    await act(async () => {
+      fireEvent.press(screen.getByRole('button', { name: 'Sign out' }));
+    });
+    expect(mockFake!.auth.signOut).toHaveBeenCalledTimes(1);
     expect(remove).toHaveBeenCalledWith(SESSION_STORAGE_KEY);
     expect(useAuthStore.getState()).toMatchObject(SIGNED_OUT);
     remove.mockRestore();

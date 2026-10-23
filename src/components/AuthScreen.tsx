@@ -16,11 +16,14 @@ export function AuthScreen({ children }: { children: React.ReactNode }) {
   );
 }
 
-/** A build without Supabase values (§3.1): the auth screens show this line and nothing else. */
+/** What a build without Supabase values (§3.1) says where an account would be: the auth screens and Profile. */
+export const ACCOUNTS_NOT_SET_UP = "Accounts aren't set up in this build";
+
+/** A build without Supabase values: the auth screens show this line and nothing else. */
 export function AccountsNotSetUp() {
   return (
     <View style={styles.notSetUp}>
-      <Text style={styles.notSetUpText}>Accounts aren&apos;t set up in this build</Text>
+      <Text style={styles.notSetUpText}>{ACCOUNTS_NOT_SET_UP}</Text>
     </View>
   );
 }

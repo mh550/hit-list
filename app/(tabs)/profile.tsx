@@ -2,7 +2,7 @@ import { useRef, useState } from 'react';
 import { Alert, StyleSheet, ScrollView, View, Text, TextInput, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 
-import { AuthError, Button } from '@/src/components';
+import { ACCOUNTS_NOT_SET_UP, AuthError, Button } from '@/src/components';
 import { useSettingsStore } from '@/src/stores/settings-store';
 import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
 import { useSettingsActions } from '@/src/hooks/use-settings-actions';
@@ -34,7 +34,7 @@ function AccountSection() {
 
   const client = getSupabase();
   if (!client || status === 'unconfigured') {
-    return <Text style={styles.accountBody}>Accounts aren&apos;t set up in this build</Text>;
+    return <Text style={styles.accountBody}>{ACCOUNTS_NOT_SET_UP}</Text>;
   }
 
   if (status === 'signed_out') {

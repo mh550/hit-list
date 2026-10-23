@@ -165,7 +165,7 @@ server answered only warns, the next pull converges, S8-09)), pull's S8 steps (m
 `cache/photos/<spot>/<media>.jpg`, the per-list fill, list/photo reconciliation, `removedSpotIds`/`removedPhotoPaths`),
 `copy.ts` (S8-03: `saveCopy`, Save a copy of another rider's spot: the photos are downloaded into the cache first and
 copied into `Paths.document` as the rider's own new spot, D89), `join.ts` (S8-06: `joinList` = `respondInvite` →
-`syncNow`, one join per list across the Inbox and Lists tabs), **others' photos live only in `Paths.cache`, never
+`syncNow`, one join per list across the Inbox and Lists tabs; S9-03 `redeemInvite` = `redeem_invite` → `syncNow`, here and not in links.ts to avoid an engine import cycle), `links.ts` (S9-03: `createSendLink(client, uid, sendId, '1d' | '7d' | '30d' | 'never')` / `createInviteLink(…, listId, role)` (7 days) → the URL, `revokeLink`, `listMyLinks(…, kind)` (status `active`/`expired`/`revoked`/`used` from `toIso`'d times), `previewLink` (the `share-preview` function; `LinkGoneError` only for the `{"error":"gone"}` 404), `shareBaseUrl()` = `EXPO_PUBLIC_SHARE_BASE_URL` or `http://localhost:8080/share/` (D92); `sends.ts` adds `createLinkSend` (a send with no recipient), `makeSendLink`, `listSentLinks`, `revokeSentLink` (withdraw, then revoke, D93)), **others' photos live only in `Paths.cache`, never
 `Paths.document`, and leave with their rows; others' spots, media and lists are read-only (D47)** (see Conventions),
 `errors.ts` (`errorMessage`, `serverError` keeps a supabase-js error's `code`), `tickets.ts` (`createTickets()`: per rider, the newest load wins; friends and sends loads each have one); push marks a row done only while the rider's session lasts (an anon DELETE answers 204
 for 0 rows); a pull keeps the local row on an `updated_at` tie while a change of it waits in the outbox; media
@@ -179,7 +179,7 @@ for 0 rows); a pull keeps the local row on an `updated_at` tie while a change of
   every list screen (D52).
 - `src/hooks/` `useDbInit` (migrate, then load spots/media/hit lists + memberships/settings even if the migration threw, background town backfill),
   `useSpotActions`, `useHitListActions` (create (`createList(name, NewHitList)`)/rename/`updateHitList`/delete a list, add/remove spots: store first, then the DB, revert + rethrow on failure), `useMediaActions` (photo save and remove, also used for adding photos from edit: `savePhotos` resolves the `Media[]` it actually saved; removal deletes the row only, D3), `useCurrentLocation`.
-- `src/utils/` pure logic: geo (`NO_LOCATION`, `isKnownLocation`, haversine), exif,
+- `src/utils/` pure logic: link-token (`src/utils/link-token.ts`, S9-03: `newToken()` 16 random bytes as base64url (22 chars), `tokenHash` SHA-256 lowercase hex, `linkUrl(base, token)` = `<base>#t=<token>`, `parseToken` (a URL with `#t=`/`?t=`/`&t=` or a bare token; a regex, never `URL.searchParams`), `TOKEN_RE`), geo (`NO_LOCATION`, `isKnownLocation`, haversine), exif,
   photo-storage, reverse-geocode, spot-name (D4 label), map-region, import-clustering, nearby-spots (`nearbySpots`:
   live known-location spots within a radius, nearest first; `nearbyLabel` 'Near <name> · 16 ft'), area (`src/utils/area.ts`, S2:
   `RADIUS_STEPS_M` per unit in whole metres, `DEFAULT_AREA_RADIUS_M`, `spotsInCircle` (boundary inclusive, never
@@ -190,6 +190,7 @@ for 0 rows); a pull keeps the local row on an `updated_at` tie while a change of
   pure maths: `clampScale`, `toggleZoom`, `clampPan`, `pagingEnabled`, `shouldClose`, `focalZoom`, `pinchPan`, `doubleTapZoom`,
   `dragDown`), legacy-details (`formatLegacyDetails(legacy, units)` →
   labelled 'Older details' rows: fixed key order, lengths in the user's units, unknown keys humanised, never throws).
+- `web/share/` (S9-04): the link page, static, no build: `index.html` (the `hitlist-functions-url` meta = where `share-preview` lives, CSP, `no-referrer`) + `share.js` (token from the fragment, `?t=` fallback; `textContent` only, never `innerHTML`; labels copied from `src/constants/labels.ts`, change both together); `README.md` (serve with `cd web && python3 -m http.server 8080`; hosting is a live step). Tested in jsdom (`web-share.test.ts`, `src/__integration__/links.test.ts`).
 - `supabase/` the backend (S3, local stack only; `supabase/README.md`, plan `docs/plans/2026-10-22-s3-backend.md`):
   `config.toml` (`project_id = "hit-list"`), `migrations/` SQL, **append-only** (never edit a shipped one), `tests/`
   pgTAP (`NNN-*.test.sql`; every RLS policy and function has its cases there), `seed.sql` = the `tests` schema only
@@ -199,7 +200,8 @@ for 0 rows); a pull keeps the local row on an `updated_at` tie while a change of
   no `sends` row yet) is only its stager's; `create_send` refuses another's staged id, needs a username and stamps
   `payload.sender` (D80); `mark_send_saved` saves once (55000; the same `p_token` again succeeds); `spots.from_username`;
   `staged_send_objects` (service role, account-delete). pgTAP `100-sends-s7`.
-  `functions/` Edge Functions (Deno, outside tsc/eslint): `account-delete/index.ts` (the uid comes only from the caller's
+  S9 migration `20261026010000_links_s9.sql`: `list_my_links` gains `used_by`/`used_by_username` (pgTAP `120-links-s9`; the links table, `create_link`/`revoke_link`/`preview_link`/`redeem_invite` are S3-07's `20261023041500_links.sql`, pgTAP `080`).
+  `functions/` Edge Functions (Deno, outside tsc/eslint): `share-preview/index.ts` (S9-02, `verify_jwt = false` in `config.toml`: GET `?t=` → SHA-256 → service-role `preview_link(p_sha)`; a send = allow-listed frozen payload fields (no read of `spots`/`media`) + 600 s signed URLs only for objects listed under `sends/<id>/`, origin rewritten to `PUBLIC_SUPABASE_URL` (`[edge_runtime.secrets]`, local only); an invite = list name + inviter; every dead case one byte-identical 404 `{"error":"gone"}`; JSON only, `Cache-Control: no-store`), `account-delete/index.ts` (the uid comes only from the caller's
   JWT via `auth.getUser`, never the body; 401 without one; removes Storage under `<uid>/` and `sends/<id>/` of every
   send from or to the rider, then `auth.admin.deleteUser`), `_shared/cors.ts`. The local edge runtime does not reload an edited
   function: `docker restart supabase_edge_runtime_hit-list`.
@@ -265,6 +267,7 @@ for 0 rows); a pull keeps the local row on an `updated_at` tie while a change of
   `Paths.cache/photos/<spot>/<media>.jpg` (file_path `cache/…`, never `Paths.document`), shown through `usePhotoUri`
   (`cachedPhotoUri` downloads on first show; a failed tile shows `photo-placeholder`); sign-out Keep runs
   `removeForeignRows` after the server sign-out (D86).
+- **Link tokens live in the fragment (S9, D45)**: a link is `<base>#t=<token>`, so the page's host never sees the token; the server stores only `token_sha256` (no column holds a plain token); the page sends it only to `share-preview`, the app only to `redeem_invite`. Never log a token or a link URL (no `console.*`, no error message that carries it: React Native's `Linking.openURL` rejection holds the URL). A dead link is one 'gone' answer, never which kind of dead.
 - **Send = copy, Share = live: never mix the words (D34)**; the sentences are asserted in `send-sheet.test.tsx` and
   `share-list-sheet.test.tsx` (S8). No Send UI says 'Share' (a test reads `SendSheet.tsx`), and no Share UI says 'Send'.
 - **Accounts are optional**: every screen that needs a session checks `useAuthStore` status and shows a one-line

@@ -80,6 +80,14 @@ three-filter list (M5), the review screens (M6) and the import radius in your un
   with the member count. Members (the strip on the list) lets the owner change roles, remove a member or stop sharing,
   and a member leave; the first spot you add to a shared list asks 'Everyone in Downtown (4) will see this spot.' once.
   When you leave or are removed, the list, its spots and their cached photos leave your phone on the next sync.
+- Links (S9): the Send sheet's 'Copy link instead' makes a one-time copy that anyone with the link can look at in a
+  browser, no account needed, until it expires (1 day, 7 days, 30 days or never) or you revoke it from Sent ('Link ·
+  3 spots · Active until Nov 21', Revoke). A shared list's owner makes an 'Invite link' on the members screen (works
+  once, 7 days, one role) and sees 'Used by @ben' or revokes it. Expo Go can't open links, so the Inbox has 'Paste a
+  link': an invite link joins the list, a send link opens its page. The page is `web/share/` (one static file and a
+  script, data from the `share-preview` Edge Function); the token sits after `#`, so the page's host never sees it,
+  and a dead link (unknown, expired, revoked, used) always reads 'This link doesn't work any more.' Hosting the page
+  is a live step (`docs/plans/2026-10-22-live-checklist.md`).
 
 ## Run it
 

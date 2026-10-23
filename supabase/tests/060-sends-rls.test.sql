@@ -82,7 +82,7 @@ select results_eq(
   $$ select sender, recipient, payload, withdrawn_at, saved_at, dismissed_at from public.sends
      where id = '00000000-0000-0000-0000-0000000005e1' $$,
   $$ values (current_setting('t.sender')::uuid, current_setting('t.rec')::uuid,
-             '{"spots": [{"name": "Library rail"}]}'::jsonb, null::timestamptz, null::timestamptz,
+             '{"sender": {"username": "sender", "display_name": null}, "spots": [{"name": "Library rail"}]}'::jsonb, null::timestamptz, null::timestamptz,
              null::timestamptz) $$,
   'create_send inserts one row with the caller as sender'
 );
@@ -104,7 +104,7 @@ select results_eq(
 );
 select results_eq(
   $$ select payload from public.sends where id = '00000000-0000-0000-0000-0000000005e1' $$,
-  $$ values ('{"spots": [{"name": "Library rail"}]}'::jsonb) $$,
+  $$ values ('{"sender": {"username": "sender", "display_name": null}, "spots": [{"name": "Library rail"}]}'::jsonb) $$,
   'recipient reads the send''s payload'
 );
 select is_empty($$ select id from public.sends where id = '00000000-0000-0000-0000-0000000005e4' $$,
@@ -153,7 +153,7 @@ select is_empty($$ delete from public.sends where id = '00000000-0000-0000-0000-
 reset role;
 select results_eq(
   $$ select recipient, payload, saved_at from public.sends where id = '00000000-0000-0000-0000-0000000005e1' $$,
-  $$ values (current_setting('t.rec')::uuid, '{"spots": [{"name": "Library rail"}]}'::jsonb, null::timestamptz) $$,
+  $$ values (current_setting('t.rec')::uuid, '{"sender": {"username": "sender", "display_name": null}, "spots": [{"name": "Library rail"}]}'::jsonb, null::timestamptz) $$,
   'the direct updates and deletes changed nothing'
 );
 

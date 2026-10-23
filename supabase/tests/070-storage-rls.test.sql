@@ -3,7 +3,7 @@
 -- land only under the writer's own spot or send. Rows are inserted into storage.objects as the users, as the Storage
 -- API does. §3.3 cases; the Case table in docs/plans/2026-10-22-s3-backend.md names each test.
 begin;
-select plan(46);
+select plan(47);
 
 -- People ----------------------------------------------------------------------------------------------------------
 select set_config('t.owner', tests.create_user('owner@test.local', 'owner')::text, true);
@@ -279,17 +279,25 @@ select throws_ok(
      values ('photos', 'sends/00000000-0000-0000-0000-0000000000e2/00000000-0000-0000-0000-0000000000f3.jpg') $$,
   '42501', null, 'the sender cannot upload into a withdrawn send'
 );
+-- S7 (D77): a photo is staged under a send id before the send exists, owned by its stager (100-sends-s7).
 select throws_ok(
   $$ insert into storage.objects (bucket_id, name)
      values ('photos', 'sends/00000000-0000-0000-0000-00000000dead/00000000-0000-0000-0000-0000000000f3.jpg') $$,
-  '42501', null, 'nobody uploads into a send that does not exist'
+  '42501', null, 'nobody uploads into a send that does not exist without owning the object'
+);
+select lives_ok(
+  $$ insert into storage.objects (bucket_id, name, owner_id)
+     values ('photos', 'sends/00000000-0000-0000-0000-00000000dead/00000000-0000-0000-0000-0000000000f3.jpg',
+             current_setting('t.sender')) $$,
+  'a rider stages a photo for a send id nobody has used'
 );
 select results_eq(
   $$ select name from storage.objects order by name $$,
   $$ values ('sends/00000000-0000-0000-0000-0000000000e1/00000000-0000-0000-0000-0000000000f1.jpg'),
             ('sends/00000000-0000-0000-0000-0000000000e2/00000000-0000-0000-0000-0000000000f2.jpg'),
-            ('sends/00000000-0000-0000-0000-0000000000e3/00000000-0000-0000-0000-0000000000f6.jpg') $$,
-  'the sender reads their sends'' photo objects, a withdrawn one''s included'
+            ('sends/00000000-0000-0000-0000-0000000000e3/00000000-0000-0000-0000-0000000000f6.jpg'),
+            ('sends/00000000-0000-0000-0000-00000000dead/00000000-0000-0000-0000-0000000000f3.jpg') $$,
+  'the sender reads their sends'' photo objects, a withdrawn one''s and a staged one''s included'
 );
 
 select tests.authenticate_as(current_setting('t.rec')::uuid);

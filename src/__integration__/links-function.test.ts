@@ -120,19 +120,31 @@ const SPOTS: FrozenSpotInput[] = [
   },
 ];
 
+let outsidePath: string;
+
+async function setDisplayName(name: string) {
+  const { error } = await ana.client.from('profiles').update({ display_name: name }).eq('id', ana.userId);
+  if (error) throw error;
+}
+
 let live: { sendId: string; photoPaths: string[]; link: { id: string; token: string } };
 
 beforeAll(async () => {
   ana = await createRider(uniqueUsername('ana'));
   riders.push(ana);
-  const { error } = await ana.client.from('profiles').update({ display_name: 'Ana A' }).eq('id', ana.userId);
-  if (error) throw error;
-  // A photo entry the sender wrote pointing at her own spot folder: never signed, it isn't under sends/<id>/.
+  await setDisplayName('Ana A');
+  // A photo entry the sender wrote pointing at a real object outside sends/<id>/ (her own spot photo): a function
+  // that signed payload paths as written would sign it.
   const outside = randomUUID();
-  const send = await linkOnlySend(ana, SPOTS, 1, [
-    { media_id: outside, path: `${ana.userId}/${randomUUID()}/${outside}.jpg`, captured_at: null },
-  ]);
+  outsidePath = `${ana.userId}/${randomUUID()}/${outside}.jpg`;
+  const { error } = await adminClient()
+    .storage.from('photos')
+    .upload(outsidePath, FIXTURE, { contentType: 'image/jpeg', upsert: false });
+  if (error) throw error;
+  const send = await linkOnlySend(ana, SPOTS, 1, [{ media_id: outside, path: outsidePath, captured_at: null }]);
   live = { ...send, link: await sendLink(ana, send.sendId, inADay()) };
+  // The sender shown is the profile's now, not the name create_send stamped into the payload (D80).
+  await setDisplayName('Ana B');
 });
 
 afterAll(async () => {
@@ -148,8 +160,9 @@ describe('a live send link', () => {
     expect(headers.get('access-control-allow-origin')).toBe('*');
 
     const body = JSON.parse(text);
+    expect(Object.keys(body).sort()).toEqual(['expires_at', 'kind', 'sender', 'spots']);
     expect(body.kind).toBe('send');
-    expect(body.sender).toEqual({ username: ana.username, display_name: 'Ana A' });
+    expect(body.sender).toEqual({ username: ana.username, display_name: 'Ana B' });
     expect(typeof body.expires_at).toBe('string');
     expect(body.spots).toHaveLength(2);
     expect(body.spots.map(({ photo_urls: _, ...rest }: { photo_urls: string[] }) => rest)).toEqual(SPOTS);
@@ -162,8 +175,11 @@ describe('a live send link', () => {
   it('signs only the photos under sends/<id>/, with URLs on the public origin that fetch the fixture bytes', async () => {
     const body = JSON.parse((await preview(live.link.token)).text);
     const urls: string[] = body.spots.flatMap((s: { photo_urls: string[] }) => s.photo_urls);
-    // one staged photo per spot; the sender's out-of-folder path got no URL
+    // one staged photo per spot; the sender's out-of-folder path (a real object) got no URL
     expect(body.spots.map((s: { photo_urls: string[] }) => s.photo_urls.length)).toEqual([1, 1]);
+    expect(urls.map((url) => new URL(url).pathname)).toEqual(
+      live.photoPaths.map((path) => `/storage/v1/object/sign/photos/${path}`),
+    );
     for (const url of urls) {
       expect(new URL(url).origin).toBe(new URL(supabaseUrl()).origin);
       const response = await fetch(url);
@@ -171,6 +187,7 @@ describe('a live send link', () => {
       expect(new Uint8Array(await response.arrayBuffer())).toEqual(FIXTURE);
     }
     expect(urls.join(' ')).not.toContain(ana.userId);
+    expect(urls.join(' ')).not.toContain(outsidePath);
   });
 
   it('answers OPTIONS with CORS and anything but GET with 405', async () => {
@@ -208,7 +225,7 @@ describe('an invite link', () => {
     expect(body).toEqual({
       kind: 'invite',
       list_name: 'Downtown',
-      inviter: { username: ana.username, display_name: 'Ana A' },
+      inviter: { username: ana.username, display_name: 'Ana B' },
       expires_at: expect.any(String),
     });
     expect(body.spots).toBeUndefined();
@@ -217,57 +234,93 @@ describe('an invite link', () => {
 
 describe('a dead token', () => {
   const GONE = '{"error":"gone"}';
-  const gones: { name: string; status: number; text: string; headers: Headers }[] = [];
+  /** Each dead case's token, made dead in beforeAll after checking it was live (so a 404 proves the change). */
+  const dead: Record<string, string> = {};
 
-  async function expectGone(name: string, token: string) {
-    const answer = await preview(token);
-    gones.push({ name, ...answer });
-    expect(answer.status).toBe(404);
-    expect(answer.text).toBe(GONE);
+  async function liveSendLink(): Promise<{ sendId: string; link: { id: string; token: string } }> {
+    const send = await linkOnlySend(ana, SPOTS.slice(0, 1));
+    const link = await sendLink(ana, send.sendId, inADay());
+    expect((await preview(link.token)).status).toBe(200);
+    return { sendId: send.sendId, link };
   }
 
-  it('answers gone for an unknown token and a malformed one', async () => {
-    await expectGone('unknown', newToken());
-    await expectGone('malformed', 'not a token');
-    await expectGone('empty', '');
-  });
+  async function liveInviteLink(): Promise<{ listId: string; token: string }> {
+    const listId = randomUUID();
+    const { error } = await ana.client
+      .from('hit_lists')
+      .insert({ id: listId, owner_id: ana.userId, name: 'Gone soon', kind: 'manual', updated_at: new Date().toISOString() });
+    if (error) throw error;
+    await rpc(ana.client, 'share_list', { p_list: listId });
+    const token = newToken();
+    await rpc(ana.client, 'create_link', {
+      p_kind: 'invite',
+      p_target: listId,
+      p_token_sha256: sha(token),
+      p_expires_at: new Date(Date.now() + 7 * 864e5).toISOString(),
+      p_role: 'view',
+    });
+    expect((await preview(token)).status).toBe(200);
+    return { listId, token };
+  }
 
-  it('answers gone after revoke_link', async () => {
-    const send = await linkOnlySend(ana, SPOTS.slice(0, 1));
-    const link = await sendLink(ana, send.sendId, null);
-    expect((await preview(link.token)).status).toBe(200);
-    await rpc(ana.client, 'revoke_link', { p_id: link.id });
-    await expectGone('revoked', link.token);
-  });
+  beforeAll(async () => {
+    dead.unknown = newToken();
+    dead.malformed = 'not a token';
+    dead.empty = '';
 
-  it('answers gone after withdraw_send', async () => {
-    const send = await linkOnlySend(ana, SPOTS.slice(0, 1));
-    const link = await sendLink(ana, send.sendId, inADay());
-    expect((await preview(link.token)).status).toBe(200);
-    await rpc(ana.client, 'withdraw_send', { p_id: send.sendId });
-    await expectGone('withdrawn', link.token);
-  });
+    const revoked = await liveSendLink();
+    await rpc(ana.client, 'revoke_link', { p_id: revoked.link.id });
+    dead.revoked = revoked.link.token;
 
-  it('answers gone once expires_at has passed', async () => {
-    const send = await linkOnlySend(ana, SPOTS.slice(0, 1));
-    const link = await sendLink(ana, send.sendId, inADay());
-    expect((await preview(link.token)).status).toBe(200);
+    const withdrawn = await liveSendLink();
+    await rpc(ana.client, 'withdraw_send', { p_id: withdrawn.sendId });
+    dead.withdrawn = withdrawn.link.token;
+
+    const expired = await liveSendLink();
     const { error } = await adminClient()
       .from('links')
       .update({ expires_at: new Date(Date.now() - 60000).toISOString() })
-      .eq('id', link.id);
+      .eq('id', expired.link.id);
     if (error) throw error;
-    await expectGone('expired', link.token);
+    dead.expired = expired.link.token;
+
+    const used = await liveInviteLink();
+    const ben = await createRider(uniqueUsername('ben'));
+    riders.push(ben);
+    expect(await rpc(ben.client, 'redeem_invite', { p_token: used.token })).toBe(used.listId);
+    dead.used = used.token;
+
+    const unshared = await liveInviteLink();
+    await rpc(ana.client, 'stop_sharing', { p_list: unshared.listId });
+    dead.unshared = unshared.token;
+
+    const deleted = await liveInviteLink();
+    const { error: deleteError } = await ana.client
+      .from('hit_lists')
+      .update({ deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      .eq('id', deleted.listId);
+    if (deleteError) throw deleteError;
+    dead.deleted = deleted.token;
   });
 
-  it('is byte-identical across every dead case, headers included', () => {
-    expect(gones.map((g) => g.name)).toEqual(['unknown', 'malformed', 'empty', 'revoked', 'withdrawn', 'expired']);
+  it.each(['unknown', 'malformed', 'empty', 'revoked', 'withdrawn', 'expired', 'used', 'unshared', 'deleted'])(
+    'answers 404 gone for a %s token',
+    async (name) => {
+      const answer = await preview(dead[name]);
+      expect(answer.status).toBe(404);
+      expect(answer.text).toBe(GONE);
+    },
+  );
+
+  it('is byte-identical across every dead case, headers included', async () => {
     const shape = (h: Headers) =>
       ['content-type', 'cache-control', 'access-control-allow-origin', 'referrer-policy'].map((k) => h.get(k));
-    for (const g of gones) {
-      expect(g.text).toBe(GONE);
-      expect(shape(g.headers)).toEqual(shape(gones[0].headers));
+    const answers = await Promise.all(Object.values(dead).map(preview));
+    expect(answers).toHaveLength(9);
+    for (const answer of answers) {
+      expect(answer.status).toBe(404);
+      expect(answer.text).toBe(GONE);
+      expect(shape(answer.headers)).toEqual(['application/json', 'no-store', '*', 'no-referrer']);
     }
-    expect(shape(gones[0].headers)).toEqual(['application/json', 'no-store', '*', 'no-referrer']);
   });
 });

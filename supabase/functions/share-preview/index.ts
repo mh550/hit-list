@@ -84,15 +84,14 @@ async function stagedMediaIds(admin: SupabaseClient, sendId: string): Promise<Se
 /**
  * storage-js builds a signed URL on the client's SUPABASE_URL, which in the local edge runtime is the internal
  * gateway (not reachable from a browser). PUBLIC_SUPABASE_URL (config.toml [edge_runtime.secrets] locally; the cloud's
- * SUPABASE_URL is public already) replaces its origin; the path and the signature stay as they are.
+ * SUPABASE_URL is public already) replaces everything before the path, port and any path prefix included (a value
+ * with no port, e.g. https://box.tailnet.ts.net, must not keep the gateway's :8000); the path and the signature (which
+ * signs the object path, not the host) stay as they are.
  */
 function publicUrl(signedUrl: string, publicOrigin: string | null): string {
   if (!publicOrigin) return signedUrl;
   const url = new URL(signedUrl);
-  const base = new URL(publicOrigin);
-  url.protocol = base.protocol;
-  url.host = base.host;
-  return url.toString();
+  return publicOrigin.replace(/\/+$/, '') + url.pathname + url.search;
 }
 
 async function sendSpots(admin: SupabaseClient, row: PreviewRow, publicOrigin: string | null): Promise<SpotOut[]> {

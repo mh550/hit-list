@@ -253,13 +253,17 @@ has been run.
       prints `404` with no Authorization header (verify_jwt off), and `curl -s …` of the same prints `{"error":"gone"}`.
       In `web/share/index.html` set `<meta name="hitlist-functions-url" content="http://100.88.90.97:54321/functions/v1">`
       (don't commit that edit), and in `.env.local` `EXPO_PUBLIC_SHARE_BASE_URL=http://100.88.90.97:8080/share/`;
-      restart Metro. Check: Copy link on the phone, paste it into Safari on the phone: the spots and photos show.
+      restart Metro. Photo URLs: in `supabase/config.toml` `[edge_runtime.secrets]` set
+      `PUBLIC_SUPABASE_URL = "http://100.88.90.97:54321"` (S9-02; the committed `http://127.0.0.1:54321` only loads on
+      the box itself; don't commit the edit), then `npm run db:stop && npm run db:start`. Check: the `photo_urls` in
+      the function's answer for a live link start with `http://100.88.90.97:54321/storage/v1/object/sign/photos/sends/`. Check: Copy link on the phone, paste it into Safari on the phone: the spots and photos show.
       Revoke it in Sent, reload Safari: `This link doesn't work any more.` **Undo:** stop the Python server (Ctrl-C),
       remove the line from `.env.local`, `git checkout web/share/index.html`.
 - [ ] **Deploy the functions (cloud, after the S3/S5 cloud steps):** dry run: `npx supabase functions list` (linked
       project) shows what's there. Then `npx supabase functions deploy share-preview` and
       `npx supabase functions deploy account-delete` (each reads `supabase/config.toml`: `share-preview` must say
-      `verify_jwt = false`, `account-delete` `true`). Check: `curl -s 'https://<ref>.supabase.co/functions/v1/share-preview?t=AAAAAAAAAAAAAAAAAAAAAA'`
+      `verify_jwt = false`, `account-delete` `true`). Don't set `PUBLIC_SUPABASE_URL` in the cloud: the function then
+      keeps the cloud's own `SUPABASE_URL`, which is public (`npx supabase secrets list` must not show it). Check: `curl -s 'https://<ref>.supabase.co/functions/v1/share-preview?t=AAAAAAAAAAAAAAAAAAAAAA'`
       → `{"error":"gone"}` and status 404 with no headers sent; `curl -s -X POST https://<ref>.supabase.co/functions/v1/account-delete`
       → 401. The function's service-role key comes from the platform (never set it yourself, never in the repo).
       **Undo:** `npx supabase functions delete share-preview` (links stop previewing; the app still works).

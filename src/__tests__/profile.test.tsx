@@ -369,7 +369,7 @@ describe('Profile account section (S4-05)', () => {
 
   it('an answer without ok: true counts as a failure', async () => {
     useAuthStore.setState(ANA);
-    mockFake!.functions.invoke.mockResolvedValueOnce({ data: { error: 'delete failed' }, error: null });
+    mockFake!.functions.invoke.mockResolvedValueOnce({ data: { error: 'delete failed' }, error: null } as never);
     render(<ProfileScreen />);
     await pressInDeleteAlert('Delete');
     expect(screen.getByText("Couldn't delete the account. Try again.")).toBeTruthy();

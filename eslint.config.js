@@ -5,7 +5,8 @@ const expoConfig = require('eslint-config-expo/flat');
 module.exports = defineConfig([
   expoConfig,
   {
-    ignores: ['dist/*', 'node_modules/*', 'ios/*', 'android/*'],
+    // supabase/functions is Deno (npm: imports, the Deno global): checked by its runtime, not the app's tsc/lint.
+    ignores: ['dist/*', 'node_modules/*', 'ios/*', 'android/*', 'supabase/functions/*'],
   },
   {
     rules: {

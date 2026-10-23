@@ -98,3 +98,34 @@ export async function saveProfile(
     return 'failed';
   }
 }
+
+/**
+ * Signs the rider out (D62: plain sign out until S5 backs spots up and adds Keep / Remove). A server sign out that
+ * fails (offline) or throws falls back to `scope: 'local'`, so the phone is always signed out afterwards.
+ */
+export async function signOutOfAccount(client: SupabaseClient): Promise<void> {
+  try {
+    const { error } = await client.auth.signOut();
+    if (!error) return;
+  } catch {
+    // Fall through to the local sign out.
+  }
+  try {
+    await client.auth.signOut({ scope: 'local' });
+  } catch {
+    // Nothing more to try; the caller shows the rider as signed out.
+  }
+}
+
+/**
+ * Deletes the rider's account on the server through the account-delete Edge Function (D51), which takes the user
+ * from the session's JWT, never from a body. Resolves true only for its `{ ok: true }`; the caller then signs out.
+ */
+export async function deleteAccount(client: SupabaseClient): Promise<boolean> {
+  try {
+    const { data, error } = await client.functions.invoke<{ ok?: boolean }>('account-delete', { method: 'POST' });
+    return !error && data?.ok === true;
+  } catch {
+    return false;
+  }
+}

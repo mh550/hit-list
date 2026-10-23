@@ -1,14 +1,100 @@
-import { useState } from 'react';
-import { StyleSheet, ScrollView, View, Text, TextInput, Pressable } from 'react-native';
+import { useRef, useState } from 'react';
+import { Alert, StyleSheet, ScrollView, View, Text, TextInput, Pressable } from 'react-native';
+import { useRouter } from 'expo-router';
 
+import { AuthError, Button } from '@/src/components';
 import { useSettingsStore } from '@/src/stores/settings-store';
+import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
 import { useSettingsActions } from '@/src/hooks/use-settings-actions';
+import { getSupabase } from '@/src/sync/client';
+import { deleteAccount, signOutOfAccount } from '@/src/sync/auth';
 import { palette, spacing, radius } from '@/src/constants/theme';
 import { UnitSystem } from '@/src/types';
 import { radiusFromInput, radiusToDisplay, radiusUnitLabel } from '@/src/utils/units';
 
 function SectionHeader({ title }: { title: string }) {
   return <Text style={styles.sectionHeader}>{title}</Text>;
+}
+
+const DELETE_FAILED = "Couldn't delete the account. Try again.";
+
+// The account in its three states (§3.1, §5.6): a build without Supabase values, signed out, signed in. The tabs
+// redirect a 'needs_username' account to the username screen, so it shows here only for a moment, as signed in.
+function AccountSection() {
+  const router = useRouter();
+  const status = useAuthStore((s) => s.status);
+  const email = useAuthStore((s) => s.email);
+  const username = useAuthStore((s) => s.username);
+  const displayName = useAuthStore((s) => s.displayName);
+  const setAuth = useAuthStore((s) => s.setAuth);
+  const [busy, setBusy] = useState<'signing_out' | 'deleting' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  // An alert's Delete or a second tap can land before the disabled state renders.
+  const inFlight = useRef(false);
+
+  const client = getSupabase();
+  if (!client || status === 'unconfigured') {
+    return <Text style={styles.accountBody}>Accounts aren&apos;t set up in this build</Text>;
+  }
+
+  if (status === 'signed_out') {
+    return (
+      <View style={styles.account}>
+        <Text style={styles.accountTitle}>Sign in to back up your spots and share them</Text>
+        <Text style={styles.fieldHint}>
+          Signing in uploads the spots already on this phone to your account. Nothing is deleted.
+        </Text>
+        <Button title="Sign in" onPress={() => router.push('/auth/sign-in')} />
+      </View>
+    );
+  }
+
+  const run = async (kind: 'signing_out' | 'deleting') => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy(kind);
+    setError(null);
+    const deleted = kind === 'signing_out' || (await deleteAccount(client));
+    if (deleted) {
+      await signOutOfAccount(client);
+      setAuth(SIGNED_OUT);
+    } else {
+      setError(DELETE_FAILED);
+    }
+    inFlight.current = false;
+    setBusy(null);
+  };
+
+  const confirmDelete = () =>
+    Alert.alert(
+      'Delete your account?',
+      'Your spots, photos, hit lists and sends are deleted from the server. Spots on this phone stay until you remove them.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => void run('deleting') },
+      ],
+    );
+
+  return (
+    <View style={styles.account}>
+      {username ? <Text style={styles.accountTitle}>@{username}</Text> : null}
+      {displayName ? <Text style={styles.accountBody}>{displayName}</Text> : null}
+      {email ? <Text style={styles.fieldHint}>{email}</Text> : null}
+      <AuthError message={error} />
+      <Button
+        title={busy === 'signing_out' ? 'Signing out…' : 'Sign out'}
+        variant="secondary"
+        onPress={() => void run('signing_out')}
+        disabled={busy !== null}
+      />
+      <Button
+        title={busy === 'deleting' ? 'Deleting…' : 'Delete account'}
+        variant="destructive"
+        onPress={confirmDelete}
+        disabled={busy !== null}
+      />
+    </View>
+  );
 }
 
 export default function ProfileScreen() {
@@ -39,6 +125,9 @@ export default function ProfileScreen() {
       style={styles.container}
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled">
+      <SectionHeader title="Account" />
+      <AccountSection />
+
       <SectionHeader title="Units" />
       <View style={styles.unitsRow}>
         <Pressable
@@ -98,6 +187,18 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: palette.gray[900],
     marginTop: spacing.lg,
+  },
+  account: {
+    gap: spacing.sm,
+  },
+  accountTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: palette.gray[900],
+  },
+  accountBody: {
+    fontSize: 15,
+    color: palette.gray[700],
   },
   unitsRow: {
     flexDirection: 'row',

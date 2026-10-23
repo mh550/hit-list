@@ -861,7 +861,6 @@ describe('migrateDb (PRAGMA user_version)', () => {
       expect(await snapshot()).toEqual(before);
     });
   });
-  });
 
   it('rolls back a failing migration and stays at the previous version', async () => {
     const db = createTestDb();

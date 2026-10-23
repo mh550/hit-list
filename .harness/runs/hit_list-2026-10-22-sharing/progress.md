@@ -20,6 +20,22 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 03:10 · S5-02 · passes
+
+- **What changed:** migration 5 is appended to `src/db/schema.ts`. It adds `owner_id`/`rev` to the tables, `updated_at`/`deleted_at` to media, `sync_outbox` and `sync_state`, drops `sync_queue` (D65), adds owner indexes and 8 outbox triggers. New `src/db/sync.ts` holds the outbox, cursor and state helpers. `Spot`/`Media` carry `owner_id`, `deleteMedia` is now a soft delete, `SyncQueueItem` is deleted. Tests went 1069 → 1122; new `db-sync.test.ts` and `helpers/outbox.ts`, plus cases in db-migrate/spots/media/hit-lists. Commits: RED `4346111`, GREEN `10448c7`, then the review RED/GREEN pair.
+- **Verified:** check.sh green, 1122 tests, 0 `console.error`. `git diff` of schema.ts removes only the `MIGRATIONS` array line, so migrations 1–4 are untouched. An Opus review found 0 Critical. Fixed: a second soft delete of a spot or list re-stamped `deleted_at` and queued an upsert (now guarded by `deleted_at IS NULL`, RED first); a test that never asserted the pull-insert half; `SpotUpdate` no longer takes `owner_id`; the v4/v5 re-run tests now check something real; a cascade-delete case was added.
+- **Next session must know:**
+  - Below v5, `getSpots` **and** `getAllMedia` throw. A failed upgrade now loads only settings and lists, and the app stays blocked (D28). The failed-upgrade test was updated to match.
+  - A future rebuild of `spots`/`hit_lists` must drop and recreate `hit_list_spots_outbox_*` (recorded in CLAUDE.md).
+  - Pull (S5-04) must write a strictly newer `rev` and must never `INSERT OR REPLACE` (comment on the trigger).
+  - `Media.updated_at` is not on the type; push reads the row itself.
+- **Left open:**
+  - Review #5: `savePhotos` puts the `Media` in the store without the spot's `owner_id` until the next reload. The engine (S5-05) reloads.
+  - Review #7: `enqueueMemberships` skips an id when an older upsert waits even if a delete follows it. No path reaches this today.
+  - New spots and lists don't get an owner yet, and the town backfill doesn't keep `updated_at` yet; both are for S5-05/06 (`currentOwnerId`).
+- **Questions for Michael:** none new.
+- **Proposed changes:** none.
+
 ### 2026-10-23 02:00 · S5-01 · passes
 
 - **What changed:** `expo-image-manipulator` ~57.0.21 installed with `npx expo install`, in its own chore commit `5cc9e8f`. `npx expo export --platform ios` exits 0 (5.0 MB, scratch dir) and expo-doctor passes 21/21. Wrote `docs/plans/2026-10-22-s5-sync.md`, which covers Migration 5, Outbox, Push and photos, Pull, Engine, Adoption and switch, Sign out, the integration test design and a test list per feature. Added D65–D69 *default* to spec §2 and asked them as §9 Q26–Q30. No code changed: 1069 → 1069 tests, check.sh green.

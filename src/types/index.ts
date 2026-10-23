@@ -53,8 +53,8 @@ export interface Spot {
   owner_id?: string; // the account it belongs to (S5); undefined = phone-only, not adopted
 }
 
-/** A patch for a spot; `null` for `name`, `notes`, `natural_speed` or `primary_photo_id` clears the stored value (undefined keeps it). */
-export type SpotUpdate = Omit<Partial<Spot>, 'name' | 'notes' | 'natural_speed' | 'primary_photo_id'> & {
+/** A patch for a spot (never its owner: adoption sets that, S5-06); `null` for `name`, `notes`, `natural_speed` or `primary_photo_id` clears the stored value (undefined keeps it). */
+export type SpotUpdate = Omit<Partial<Spot>, 'name' | 'notes' | 'natural_speed' | 'primary_photo_id' | 'owner_id'> & {
   name?: string | null;
   notes?: string | null;
   natural_speed?: NaturalSpeed | null;

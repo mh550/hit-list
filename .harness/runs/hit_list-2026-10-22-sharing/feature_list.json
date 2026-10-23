@@ -532,7 +532,7 @@
         "getSpots/getHitLists/getAllMedia return owner_id (undefined when NULL) and the Spot/Media/HitList types carry owner_id?: string; the SyncQueueItem type is deleted from src/types/index.ts.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S5-03",

@@ -156,11 +156,11 @@ export async function updateSpot(
   );
 }
 
-/** Marks a spot deleted at `at` (ISO 8601 UTC), which also becomes its updated_at. */
+/** Marks a spot deleted at `at` (ISO 8601 UTC), which also becomes its updated_at; a deleted spot keeps its first stamp. */
 export async function softDeleteSpot(
   db: SQLiteDatabase,
   id: string,
   at: string = new Date().toISOString(),
 ): Promise<void> {
-  await db.runAsync(`UPDATE spots SET deleted_at = ?, updated_at = ? WHERE id = ?`, at, at, id);
+  await db.runAsync('UPDATE spots SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL', at, at, id);
 }

@@ -325,7 +325,11 @@ const ME = `(SELECT value FROM sync_state WHERE key = 'user_id')`;
 const NOW_ISO = `strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`;
 const OUTBOX_OP = `CASE WHEN OLD.deleted_at IS NULL AND NEW.deleted_at IS NOT NULL THEN 'delete' ELSE 'upsert' END`;
 
-/** The insert and update triggers of a table whose rows carry owner_id, deleted_at and rev. */
+/**
+ * The insert and update triggers of a table whose rows carry owner_id, deleted_at and rev. A pull must write a
+ * strictly newer rev (`WHERE rev IS NULL OR rev < ?`): re-writing the same rev would queue an echo. And never
+ * `INSERT OR REPLACE` a spot: the replace cascade-deletes its media and memberships without queuing anything.
+ */
 const ownedTableTriggers = (table: string, entity: string) => `
   CREATE TRIGGER ${table}_outbox_ins AFTER INSERT ON ${table}
     WHEN NEW.owner_id = ${ME} AND NEW.rev IS NULL

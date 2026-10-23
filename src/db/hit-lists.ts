@@ -122,13 +122,21 @@ export async function updateHitList(db: SQLiteDatabase, id: string, updates: Hit
   );
 }
 
-/** Marks a list deleted at `at` (ISO 8601 UTC), which also becomes its updated_at. Its spots are untouched. */
+/**
+ * Marks a list deleted at `at` (ISO 8601 UTC), which also becomes its updated_at; a deleted list keeps its first stamp.
+ * Its spots are untouched.
+ */
 export async function softDeleteHitList(
   db: SQLiteDatabase,
   id: string,
   at: string = new Date().toISOString(),
 ): Promise<void> {
-  await db.runAsync('UPDATE hit_lists SET deleted_at = ?, updated_at = ? WHERE id = ?', at, at, id);
+  await db.runAsync(
+    'UPDATE hit_lists SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL',
+    at,
+    at,
+    id,
+  );
 }
 
 /**

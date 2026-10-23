@@ -8,8 +8,8 @@ import {
   addSpotsToList as dbAddSpotsToList,
   removeSpotFromList as dbRemoveSpotFromList,
 } from '@/src/db';
-import { useHitListsStore } from '@/src/stores';
-import { currentOwnerId } from '@/src/sync/owner';
+import { useHitListsStore, useSpotsStore } from '@/src/stores';
+import { assertOwn, currentOwnerId } from '@/src/sync/owner';
 import type { HitList, HitListUpdate, NewHitList } from '@/src/types';
 import { newId } from '@/src/utils/id';
 
@@ -20,6 +20,8 @@ const listsOf = (spotId: string) => useHitListsStore.getState().membershipBySpot
  * List writes, optimistic like useSpotActions.updateSpot: the store changes first so the screen answers at once, then
  * the DB. A failed write is logged, the store is put back (the DB still has the old state, so the change would
  * vanish unseen on the next launch) and the promise rejects so the caller can say so.
+ * Another rider's list can't be renamed, changed or deleted here ('not your list'), and another rider's spot never
+ * goes into a list from this phone ('not your spot'): both reject before anything changes (S8, D47).
  */
 export function useHitListActions() {
   const db = useSQLiteContext();
@@ -60,6 +62,7 @@ export function useHitListActions() {
   const renameList = useCallback(
     async (id: string, name: string) => {
       const before = findList(id);
+      assertOwn(before, 'list');
       // One stamp for memory and DB.
       const applied = { name: name.trim(), updated_at: new Date().toISOString() };
       updateList(id, applied);
@@ -81,6 +84,7 @@ export function useHitListActions() {
   const updateHitList = useCallback(
     async (id: string, updates: HitListUpdate) => {
       const before = findList(id);
+      assertOwn(before, 'list');
       const applied: HitListUpdate = { ...updates, updated_at: new Date().toISOString() };
       updateList(id, applied);
       try {
@@ -107,6 +111,7 @@ export function useHitListActions() {
   const deleteList = useCallback(
     async (id: string) => {
       const before = findList(id);
+      assertOwn(before, 'list');
       const wasActive = useHitListsStore.getState().activeListId === id;
       removeList(id);
       try {
@@ -126,6 +131,8 @@ export function useHitListActions() {
 
   const addSpotsToList = useCallback(
     async (listId: string, spotIds: string[]) => {
+      const spots = useSpotsStore.getState().spots;
+      for (const spotId of spotIds) assertOwn(spots.find((s) => s.id === spotId), 'spot');
       // A failure takes out only what this call added; spots already in the list stay.
       const added = [...new Set(spotIds)].filter((spotId) => !listsOf(spotId).includes(listId));
       addMemberships(listId, spotIds);

@@ -105,6 +105,15 @@ export const useSpotsStore = create<SpotsState>((set) => ({
 
 // ── Selectors ───────────────────────────────────────────
 
+/**
+ * 'My spots' (S8, D47): phone-only spots and `uid`'s, never another rider's (pulled through a shared list). Signed
+ * out (`uid` null) every spot on the phone counts as the rider's: sign-out takes others' spots off it (D86).
+ */
+export function selectMySpots(spots: Spot[], uid: string | null | undefined): Spot[] {
+  if (!uid) return spots;
+  return spots.filter((s) => s.owner_id === undefined || s.owner_id === uid);
+}
+
 /** The spots the filters and the search (`searchQuery`, trimmed, case-insensitive) let through. */
 export function selectFilteredSpots(
   spots: Spot[],

@@ -3,7 +3,8 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { getHitLists, getListMemberships, insertHitList, insertSpot } from '@/src/db';
 import { useHitListActions } from '@/src/hooks/use-hit-list-actions';
-import { useHitListsStore } from '@/src/stores';
+import { useHitListsStore, useSpotsStore } from '@/src/stores';
+import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
 import { FeatureType } from '@/src/types';
 import { CITIES, createTestHitList, createTestSpot } from './factories';
 import { createMigratedTestDb } from './helpers/node-sqlite-db';
@@ -365,6 +366,35 @@ describe('useHitListActions', () => {
     });
     expect(store().membershipBySpot).toEqual({});
     consoleSpy.mockRestore();
+  });
+
+  describe("another rider's list or spot (S8, D47)", () => {
+    beforeEach(() => {
+      useAuthStore.setState({ status: 'signed_in', userId: 'u-me', email: null, username: 'me', displayName: null });
+    });
+    afterEach(() => {
+      useAuthStore.setState(SIGNED_OUT);
+      useSpotsStore.setState({ spots: [] });
+    });
+
+    it("renameList, updateHitList and deleteList reject a list someone else owns with 'not your list'", async () => {
+      const theirs = await seedList({ id: 'theirs', name: 'Crew', owner_id: 'u-ana', shared: true });
+      const { result } = renderHook(() => useHitListActions());
+      await expect(result.current.renameList('theirs', 'Mine')).rejects.toThrow('not your list');
+      await expect(result.current.updateHitList('theirs', { name: 'Mine' })).rejects.toThrow('not your list');
+      await expect(result.current.deleteList('theirs')).rejects.toThrow('not your list');
+      expect(store().lists).toEqual([theirs]);
+      expect((await getHitLists(mockDb)).map((l) => l.name)).toEqual(['Crew']);
+    });
+
+    it("addSpotsToList rejects another rider's spot with 'not your spot' and adds none of the batch", async () => {
+      const list = await seedList({ id: 'L' });
+      useSpotsStore.setState({ spots: [createTestSpot({ id: 'a' }), createTestSpot({ id: 'anas', owner_id: 'u-ana' })] });
+      const { result } = renderHook(() => useHitListActions());
+      await expect(result.current.addSpotsToList(list.id, ['a', 'anas'])).rejects.toThrow('not your spot');
+      expect(store().membershipBySpot).toEqual({});
+      expect(await getListMemberships(mockDb)).toEqual({});
+    });
   });
 
   describe('owner of a new list (S5-06)', () => {

@@ -164,6 +164,17 @@ describe('area lists (computed from the circle and its filters, never stored)', 
     expect(selectListSpots(area, spots, { far: ['AREA'] }).map((s) => s.id)).toEqual(['ledge', 'rail']);
   });
 
+  it("selectListSpots (S8): an area list holds only its owner's spots; a member's own spots in ana's circle never show", () => {
+    const anas = { ...rail, id: 'anas', owner_id: 'u-ana' };
+    const mine = { ...ledge, id: 'mine', owner_id: 'u-me' };
+    const phoneOnly = { ...rail, id: 'phone' };
+    const pool = [anas, mine, phoneOnly];
+    expect(selectListSpots({ ...area, owner_id: 'u-ana' }, pool, {}).map((s) => s.id)).toEqual(['anas', 'phone']);
+    expect(selectListSpots({ ...area, owner_id: 'u-me' }, pool, {}).map((s) => s.id)).toEqual(['mine', 'phone']);
+    // a phone-only list (signed out after Keep) still holds the kept spots of the last account
+    expect(selectListSpots(area, pool, {}).map((s) => s.id)).toEqual(['anas', 'mine', 'phone']);
+  });
+
   it('selectListSpots: an area list missing its centre or radius holds nothing', () => {
     expect(selectListSpots({ ...area, area_center: undefined }, spots, {})).toEqual([]);
     expect(selectListSpots({ ...area, area_radius_m: undefined }, spots, {})).toEqual([]);

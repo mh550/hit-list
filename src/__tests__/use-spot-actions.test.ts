@@ -3,6 +3,7 @@ import { useSpotActions } from '@/src/hooks/use-spot-actions';
 import { useSpotsStore } from '@/src/stores';
 import { createTestSpot } from './factories';
 import { INITIAL_SYNC, useSyncStore } from '@/src/stores/sync-store';
+import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
 import { geocodeTown } from '@/src/utils/reverse-geocode';
 
 jest.mock('@/src/utils/reverse-geocode', () => ({ geocodeTown: jest.fn().mockResolvedValue(undefined) }));
@@ -279,6 +280,35 @@ describe('useSpotActions', () => {
         updated_at: '2026-10-21T09:00:00.000Z',
       });
       expect(useSpotsStore.getState().spots[0].generated_name).toBe('Tacoma');
+    });
+  });
+
+  describe("another rider's spot (S8, D47)", () => {
+    const anas = createTestSpot({ id: 'anas', name: "Ana's ledge", owner_id: 'u-ana' });
+    beforeEach(() => {
+      useSpotsStore.setState({ spots: [anas] });
+      useAuthStore.setState({ status: 'signed_in', userId: 'u-me', email: null, username: 'me', displayName: null });
+    });
+    afterEach(() => useAuthStore.setState(SIGNED_OUT));
+
+    it("updateSpot, setTown and removeSpot reject with 'not your spot' and write nothing", async () => {
+      const { result } = renderHook(() => useSpotActions());
+      await expect(result.current.updateSpot('anas', { name: 'Mine now' })).rejects.toThrow('not your spot');
+      await expect(result.current.setTown('anas', 'Tacoma')).rejects.toThrow('not your spot');
+      await expect(result.current.removeSpot('anas')).rejects.toThrow('not your spot');
+      expect(mockUpdateSpot).not.toHaveBeenCalled();
+      expect(mockSoftDeleteSpot).not.toHaveBeenCalled();
+      expect(useSpotsStore.getState().spots).toEqual([anas]);
+    });
+
+    it("the rider's own and phone-only spots still update", async () => {
+      useSpotsStore.setState({ spots: [{ ...anas, owner_id: 'u-me' }, createTestSpot({ id: 'phone' })] });
+      const { result } = renderHook(() => useSpotActions());
+      await act(async () => {
+        await result.current.updateSpot('anas', { name: 'Mine' });
+        await result.current.updateSpot('phone', { name: 'Phone' });
+      });
+      expect(mockUpdateSpot).toHaveBeenCalledTimes(2);
     });
   });
 });

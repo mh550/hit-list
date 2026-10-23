@@ -182,6 +182,35 @@ describe('Spots tab list picker', () => {
   });
 });
 
+describe("Spots tab: others' spots (S8, D47)", () => {
+  const crew = createTestHitList({ id: 'L-crew', name: 'Crew', owner_id: 'rider-ana', shared: true });
+  const mine = createTestSpot({ name: 'My rail', owner_id: 'rider-me', location: CITIES.seattle });
+  const anas = createTestSpot({ name: "Ana's ledge", owner_id: 'rider-ana', location: CITIES.portland });
+
+  beforeEach(() => {
+    useSpotsStore.setState({ spots: [mine, anas], filters: { ...DEFAULT_FILTERS }, searchQuery: '', viewMode: 'list' });
+    useMediaStore.setState({ mediaBySpot: {} });
+    useHitListsStore.setState({
+      lists: [crew],
+      membershipBySpot: { [mine.id]: [crew.id], [anas.id]: [crew.id] },
+      activeListId: null,
+    });
+    useAuthStore.setState({ status: 'signed_in', userId: 'rider-me', email: null, username: 'me', displayName: null });
+  });
+  afterEach(() => act(() => useAuthStore.setState(SIGNED_OUT)));
+  afterAll(() => useHitListsStore.setState({ lists: [], membershipBySpot: {}, activeListId: null }));
+
+  it("'My spots' leaves a friend's spot out; the shared list's chip shows it with the rider's own", () => {
+    render(<SpotsScreen />);
+    expect(screen.getByText('My rail')).toBeTruthy();
+    expect(screen.queryByText("Ana's ledge")).toBeNull();
+
+    fireEvent.press(screen.getByRole('tab', { name: 'Crew' }));
+    expect(screen.getByText('My rail')).toBeTruthy();
+    expect(screen.getByText("Ana's ledge")).toBeTruthy();
+  });
+});
+
 describe('Spots tab pull-to-refresh', () => {
   beforeEach(() => {
     useSpotsStore.setState({ spots, filters: { ...DEFAULT_FILTERS }, searchQuery: '', viewMode: 'list' });

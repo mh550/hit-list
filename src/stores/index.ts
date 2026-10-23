@@ -2,6 +2,7 @@ export {
   useSpotsStore,
   selectFilteredSpots,
   selectSortedSpots,
+  selectMySpots,
   selectEffectiveSort,
   selectActiveFilterCount,
 } from './spots-store';

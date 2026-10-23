@@ -109,7 +109,11 @@ export function selectListSpots(
 ): Spot[] {
   if (list.kind === 'area') {
     if (!isAreaList(list)) return [];
-    return selectAreaSpots(spots, list.area_center, list.area_radius_m, list.area_filters ?? DEFAULT_FILTERS);
+    // the server's area rule is the owner's spots (S8): never a member's own, never a friend's in a list of mine
+    const owners = spots.filter(
+      (s) => s.owner_id === undefined || list.owner_id === undefined || s.owner_id === list.owner_id,
+    );
+    return selectAreaSpots(owners, list.area_center, list.area_radius_m, list.area_filters ?? DEFAULT_FILTERS);
   }
   return spots.filter((s) => s.deleted_at === undefined && membershipBySpot[s.id]?.includes(list.id));
 }

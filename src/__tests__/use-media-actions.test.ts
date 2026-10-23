@@ -1,8 +1,9 @@
 import { renderHook, act } from '@testing-library/react-native';
 import { useMediaActions } from '@/src/hooks/use-media-actions';
-import { useMediaStore } from '@/src/stores';
+import { useMediaStore, useSpotsStore } from '@/src/stores';
+import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
 import { fakeFs as fs } from './helpers/fake-fs';
-import { createTestMedia } from './factories';
+import { createTestMedia, createTestSpot } from './factories';
 
 const mockDeleteMedia = jest.fn(async (_db: unknown, _id: string) => {});
 const mockDb = {};
@@ -130,5 +131,38 @@ describe('useMediaActions.savePhotos', () => {
     expect(useMediaStore.getState().mediaBySpot.s1.map((m) => m.id)).toEqual(['n2']);
     expect(consoleSpy).toHaveBeenCalledTimes(1);
     consoleSpy.mockRestore();
+  });
+});
+
+describe("useMediaActions: another rider's spot (S8, D47)", () => {
+  const { insertMedia: mockInsertMedia } = jest.requireMock('@/src/db') as { insertMedia: jest.Mock };
+  const theirs = createTestMedia({ id: 'm-ana', spot_id: 'anas', owner_id: 'u-ana' });
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    fs.__resetFs();
+    fs.__putFile('file:///picked/n1.jpg');
+    useSpotsStore.setState({ spots: [createTestSpot({ id: 'anas', owner_id: 'u-ana' })] });
+    useMediaStore.setState({ mediaBySpot: { anas: [theirs] } });
+    useAuthStore.setState({ status: 'signed_in', userId: 'u-me', email: null, username: 'me', displayName: null });
+  });
+  afterEach(() => {
+    useAuthStore.setState(SIGNED_OUT);
+    useSpotsStore.setState({ spots: [] });
+  });
+
+  it("savePhotos and removePhotos reject with 'not your spot', nothing written or copied", async () => {
+    const { result } = renderHook(() => useMediaActions());
+    const draft = {
+      id: 'n1',
+      spot_id: 'anas',
+      sourceUri: 'file:///picked/n1.jpg',
+      created_at: '2026-10-21T10:00:00.000Z',
+    };
+    await expect(result.current.savePhotos([draft])).rejects.toThrow('not your spot');
+    await expect(result.current.removePhotos(['m-ana'])).rejects.toThrow('not your spot');
+    expect(mockInsertMedia).not.toHaveBeenCalled();
+    expect(mockDeleteMedia).not.toHaveBeenCalled();
+    expect(useMediaStore.getState().mediaBySpot).toEqual({ anas: [theirs] });
   });
 });

@@ -5,7 +5,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 
 import { IconSymbol } from '@/components/ui/icon-symbol';
 
-import { selectListSpots, useHitListsStore, useSpotsStore } from '@/src/stores';
+import { selectListSpots, selectMySpots, useHitListsStore, useSpotsStore } from '@/src/stores';
 import { EMPTY_AREA_COPY, EMPTY_LIST_COPY, SpotsBrowser } from '@/src/components/SpotsBrowser';
 import { HeaderTextButton } from '@/src/components/HeaderTextButton';
 import { AddToListSheet } from '@/src/components/AddToListSheet';
@@ -28,6 +28,7 @@ export default function SpotsScreen() {
   const router = useRouter();
   const db = useSQLiteContext();
   const signedIn = useAuthStore((s) => s.status === 'signed_in');
+  const uid = useAuthStore((s) => s.userId);
   // The spinner is the rider's pull only (syncNow never rejects); background syncs show nothing here.
   const [pulling, setPulling] = useState(false);
   const pullToSync = () => {
@@ -39,11 +40,12 @@ export default function SpotsScreen() {
   const lists = useHitListsStore((s) => s.lists);
   const membershipBySpot = useHitListsStore((s) => s.membershipBySpot);
   const activeListId = useHitListsStore((s) => s.activeListId);
-  // The picker's scope: a live list's spots, or every spot ('My spots', or an id no longer among the lists).
+  // The picker's scope: a live list's spots whoever owns them, or the rider's own ('My spots', or an id no longer
+  // among the lists; others' spots only come with a shared list, D47).
   const activeList = lists.find((l) => l.id === activeListId && l.deleted_at === undefined);
   const spots = useMemo(
-    () => (activeList ? selectListSpots(activeList, allSpots, membershipBySpot) : allSpots),
-    [activeList, allSpots, membershipBySpot],
+    () => (activeList ? selectListSpots(activeList, allSpots, membershipBySpot) : selectMySpots(allSpots, uid)),
+    [activeList, allSpots, membershipBySpot, uid],
   );
 
   // Select mode: null = off; otherwise the chosen ids in tap order (the sheet files them in that order).

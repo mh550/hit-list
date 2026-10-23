@@ -3,7 +3,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 
 import { insertSpot, updateSpot as dbUpdateSpot, softDeleteSpot } from '@/src/db';
 import { useSpotsStore } from '@/src/stores';
-import { currentOwnerId } from '@/src/sync/owner';
+import { assertOwn, currentOwnerId } from '@/src/sync/owner';
 import type { Spot, SpotUpdate } from '@/src/types';
 import { geocodeTown } from '@/src/utils/reverse-geocode';
 
@@ -20,6 +20,7 @@ export function useSpotActions() {
       const stamped = { ...updates, updated_at: updates.updated_at ?? new Date().toISOString() };
       const find = () => useSpotsStore.getState().spots.find((s) => s.id === id);
       const before = find();
+      assertOwn(before, 'spot'); // another rider's spot is read-only here (D47)
       storeUpdateSpot(id, stamped);
       const applied = find();
       try {
@@ -73,6 +74,7 @@ export function useSpotActions() {
 
   const removeSpot = useCallback(
     async (id: string) => {
+      assertOwn(useSpotsStore.getState().spots.find((s) => s.id === id), 'spot');
       const at = new Date().toISOString();
       storeRemoveSpot(id);
       try {

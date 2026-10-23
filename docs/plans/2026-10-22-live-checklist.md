@@ -75,7 +75,8 @@ Works from S4-05 on (sign-in, username, Profile). Nothing here touches a cloud p
       no swipe down. Type `ab` (shows "At least 3 characters"), then a free name; the keyboard's Next goes to Display
       name; Done. Check: both sheets close and the Profile tab shows, with no second copy of the tabs in a sheet
       (swiping down must not reveal Sign in again). Try a username another account already has: "That username is
-      taken". Close Expo Go on the username screen and reopen: the tabs send you straight back to it.
+      taken". Close Expo Go on the username screen and reopen: the tabs send you straight back to it. Then `Sign out` under
+      Done (S4-08): the Profile tab, signed out, no sheet left over.
 - [ ] **Stay signed in:** close Expo Go fully and reopen. Check: still signed in on Profile.
 - [ ] **Sign out / back in:** Sign out (spots stay on the phone, D62), sign in again with the same email. Check: same
       @username, not asked again.

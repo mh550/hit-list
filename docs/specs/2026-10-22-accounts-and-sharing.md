@@ -113,6 +113,7 @@ it can **Save a copy** (it becomes their own private spot, with "From @name" on 
 | D61 | **The session is stored in the iOS keychain, large sessions encrypted** *default* | Supabase's LargeSecureStore pattern: a session up to 2048 bytes lives in `expo-secure-store`; a larger one is AES-256-GCM encrypted (expo-crypto, a fresh key per write) into AsyncStorage with the key in SecureStore. A key with no ciphertext (app reinstalled) reads as signed out. | S4 plan (`docs/plans/2026-10-22-s4-accounts.md`): SecureStore caps a value at 2048 bytes and a Supabase session is usually larger (§9 Q22) |
 | D62 | **Sign out in S4 is plain; the Keep / Remove prompt (D38) arrives with S5** *default* | S4 signs out (falling back to a local sign-out when offline) and leaves every spot on the phone. S5, which backs spots up first, adds "Keep spots on this phone?". | S4 plan: before S5 nothing is on the server, so "Remove from this phone" would lose data (§9 Q23) |
 | D63 | **A display name is optional** *default* | Onboarding asks for an @username (required) and a display name (optional, ≤ 50, D58); without one, Profile and friends see only @username. | S4 plan: one fewer step to get in (§9 Q24) |
+| D64 | **The username screen has a Sign out** *default* | Onboarding can't be dismissed and the tabs send a rider without an @username back to it, so a ghost `Sign out` under Done signs out (spots stay) and returns to Profile. | S4-08 review (Important): without it a rider who won't pick a name, or whose save keeps failing, can only delete the app (§9 Q25) |
 
 ---
 
@@ -377,6 +378,8 @@ it stops at a milestone boundary; S9 (links) is last among the features because 
 23. **Signing out before backup exists (D62).** Default: in S4, Sign out just signs out and keeps every spot on the
     phone; the Keep / Remove question (Q3) comes with S5. OK?
 24. **Display name (D63).** Default: optional; friends see @username when you leave it empty. Should it be required?
+25. **A way out of picking a username (D64).** Default: the username screen has a small 'Sign out' under Done that
+    signs out and goes back to Profile. Or should picking a username be the only way on?
 
 ---
 

@@ -36,6 +36,8 @@ Delete alert: title `Delete your account?`, message `Your spots, photos, hit lis
 - Heading (role header): `Pick your @username`; a visual `@` prefix.
 - Fields: `Username` (placeholder `username`), `Display name` (placeholder `Ana B`, max 50), helper `Optional. Shown to friends.`
 - `Done` (button): disabled until the name is valid; `Saving…` while busy.
+- `Sign out` (ghost button, added in S4-08): `Signing out…`, then the Profile tab, signed out. With no account the
+  screen shows only `Signed out. Sign in again from Profile.` and `Back to Profile`.
 
 | Input | Message under the field (live region, polite) | Done |
 |---|---|---|

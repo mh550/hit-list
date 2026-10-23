@@ -17,12 +17,14 @@ import EditSpotScreen from '@/app/spot/[id]/edit';
 
 const mockDismissAll = jest.fn();
 
-function renderEdit(ownerId?: string) {
+async function renderEdit(ownerId?: string) {
   const spot = createTestSpot({ id: 's1', name: 'Bridge rail', owner_id: ownerId });
   useSpotsStore.setState({ spots: [spot] });
   useMediaStore.setState({ mediaBySpot: {} });
   jest.mocked(useLocalSearchParams).mockReturnValue({ id: spot.id });
-  return render(<EditSpotScreen />);
+  const view = render(<EditSpotScreen />);
+  await act(async () => {});
+  return view;
 }
 
 describe('Edit spot (S8-09 review)', () => {
@@ -38,20 +40,20 @@ describe('Edit spot (S8-09 review)', () => {
     useAuthStore.setState({ status: 'signed_in', userId: 'u-me', email: null, username: 'me', displayName: null });
   });
   afterEach(() => {
-    useAuthStore.setState(SIGNED_OUT);
+    act(() => useAuthStore.setState(SIGNED_OUT));
     jest.restoreAllMocks();
   });
 
-  it("another rider's spot reached directly (a link) shows no editor: no Save, no Delete (D47)", () => {
-    renderEdit('u-ana');
+  it("another rider's spot reached directly (a link) shows no editor: no Save, no Delete (D47)", async () => {
+    await renderEdit('u-ana');
     expect(screen.getByText("This spot isn't yours to edit.")).toBeOnTheScreen();
     expect(screen.queryByText('Save')).toBeNull();
     expect(screen.queryByText('Delete spot')).toBeNull();
     expect(screen.queryByDisplayValue('Bridge rail')).toBeNull();
   });
 
-  it('the rider’s own spot still shows the editor', () => {
-    renderEdit('u-me');
+  it('the rider’s own spot still shows the editor', async () => {
+    await renderEdit('u-me');
     expect(screen.getByDisplayValue('Bridge rail')).toBeOnTheScreen();
     expect(screen.queryByText("This spot isn't yours to edit.")).toBeNull();
   });
@@ -59,7 +61,7 @@ describe('Edit spot (S8-09 review)', () => {
   it('a Delete that fails says so and stays on the screen (no unhandled rejection)', async () => {
     mockRemoveSpot.mockRejectedValueOnce(new Error('not your spot'));
     const alert = jest.spyOn(Alert, 'alert');
-    renderEdit('u-me');
+    await renderEdit('u-me');
 
     await act(async () => fireEvent.press(screen.getByText('Delete spot')));
     const confirm = alert.mock.calls[0][2]?.find((b) => b.text === 'Delete');

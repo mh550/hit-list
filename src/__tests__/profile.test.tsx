@@ -905,4 +905,19 @@ describe('Profile Friends row (S6-03)', () => {
 
     expect(screen.queryByRole('button', { name: /^Friends/ })).toBeNull();
   });
+
+  it("signed in has a 'Sent' row under Friends that opens /sent (S7-05); signed out has none", () => {
+    useAuthStore.setState(ANA);
+    const view = render(<ProfileScreen />);
+
+    const labels = screen.getAllByRole('button').map((b) => b.props.accessibilityLabel);
+    expect(labels.indexOf('Sent')).toBe(labels.indexOf('Friends') + 1);
+    fireEvent.press(screen.getByRole('button', { name: 'Sent' }));
+    expect(router.push).toHaveBeenCalledWith('/sent');
+
+    view.unmount();
+    useAuthStore.setState(SIGNED_OUT);
+    render(<ProfileScreen />);
+    expect(screen.queryByRole('button', { name: 'Sent' })).toBeNull();
+  });
 });

@@ -18,6 +18,13 @@ jest.mock('@/src/sync/friends', () => ({
   block: jest.fn().mockResolvedValue(undefined),
   refreshFriends: jest.fn().mockResolvedValue(undefined),
 }));
+// The calls are src/sync/sends.ts's (tested in sync-sends.test.ts); here only what the tab asks of them (S7-05).
+jest.mock('@/src/sync/sends', () => ({
+  ...jest.requireActual('@/src/sync/sends'),
+  saveSend: jest.fn(),
+  dismissSend: jest.fn().mockResolvedValue(undefined),
+  loadAndApplySends: jest.fn().mockResolvedValue(undefined),
+}));
 // The seen mark's SQL is inbox-store.test.ts's (real SQLite); jest.setup's shared db can't run queries.
 jest.mock('@/src/db/sync', () => ({
   ...jest.requireActual('@/src/db/sync'),
@@ -31,6 +38,8 @@ import { getSyncState, setSyncState } from '@/src/db/sync';
 import { SIGNED_OUT, useAuthStore, type AuthSnapshot } from '@/src/stores/auth-store';
 import { selectUnseenCount, useInboxStore, type InboxItem } from '@/src/stores/inbox-store';
 import { block, refreshFriends, respond } from '@/src/sync/friends';
+import { dismissSend, loadAndApplySends, saveSend } from '@/src/sync/sends';
+import type { FrozenSpot, SendPayload } from '@/src/utils/send-payload';
 
 const ME = 'user-me';
 const RIDER: AuthSnapshot = {
@@ -111,6 +120,9 @@ beforeEach(() => {
   jest.mocked(respond).mockReset().mockResolvedValue(undefined);
   jest.mocked(block).mockReset().mockResolvedValue(undefined);
   jest.mocked(refreshFriends).mockReset().mockResolvedValue(undefined);
+  jest.mocked(saveSend).mockReset().mockResolvedValue({ status: 'saved', saved: 3, failedPhotos: 0 });
+  jest.mocked(dismissSend).mockReset().mockResolvedValue(undefined);
+  jest.mocked(loadAndApplySends).mockReset().mockResolvedValue(undefined);
   jest.mocked(getSyncState).mockReset().mockResolvedValue(undefined);
   jest.mocked(setSyncState).mockReset().mockResolvedValue(undefined);
 });
@@ -349,5 +361,247 @@ describe('Inbox tab: seen', () => {
 
     await act(async () => appStateListeners.forEach((l) => l('active')));
     expect(setSyncState).toHaveBeenCalledWith(db, `inbox_seen_at:${ME}`, NEWEST);
+  });
+});
+
+describe('Inbox tab: spots sent to you (S7-05)', () => {
+  const SEND_ID = '11111111-1111-4111-8111-111111111111';
+  const frozen = (id: string, name: string | null, town: string | null, photos: FrozenSpot['photos'] = []): FrozenSpot => ({
+    id,
+    name,
+    generated_name: town,
+    lat: 47.6,
+    lng: -122.3,
+    feature_types: [],
+    stopped: false,
+    natural_speed: null,
+    notes: null,
+    photos,
+  });
+  const PHOTO = { media_id: '22222222-2222-4222-8222-222222222222', captured_at: null };
+  const PAYLOAD: SendPayload = {
+    v: 1,
+    sender: { username: 'ana', display_name: 'Ana B' },
+    spots: [
+      frozen('s-1', 'Pier 57', 'Capitol Hill', [{ ...PHOTO, path: `sends/${SEND_ID}/${PHOTO.media_id}.jpg` }]),
+      frozen('s-2', null, 'Fremont'),
+      frozen('s-3', 'Red ledge', null),
+    ],
+  };
+  const sendItem = (payload: SendPayload = PAYLOAD, id = SEND_ID): InboxItem => ({
+    kind: 'send',
+    id,
+    sendId: id,
+    created_at: '2026-10-23T09:00:00.000Z',
+    from: payload.sender,
+    payload,
+  });
+  const SEND = sendItem();
+
+  const press = async (name: string) => {
+    await act(async () => {
+      fireEvent.press(screen.getByRole('button', { name }));
+    });
+  };
+
+  it("renders '@ana sent you 3 spots' under 'Spots sent to you', the first spot and its thumbnail, and the four buttons", async () => {
+    signIn([SEND]);
+    await renderTab();
+
+    expect(screen.getByRole('header', { name: 'Spots sent to you' })).toBeOnTheScreen();
+    expect(screen.getByText('@ana sent you 3 spots')).toBeOnTheScreen();
+    expect(screen.getByText('Pier 57 · Capitol Hill')).toBeOnTheScreen();
+    expect(mockFake!.storage.from('photos').createSignedUrl).toHaveBeenCalledWith(PAYLOAD.spots[0].photos[0].path, 600);
+    expect(screen.getByTestId('send-thumbnail').props.source).toEqual({
+      uri: `https://storage.test/photos/${PAYLOAD.spots[0].photos[0].path}?expires=600`,
+    });
+    for (const name of ['Save all', 'Save into a new hit list', 'Pick spots', 'Dismiss']) {
+      expect(screen.getByRole('button', { name })).toBeOnTheScreen();
+    }
+  });
+
+  it("one spot reads 'sent you a spot'; a send without photos shows no thumbnail", async () => {
+    signIn([sendItem({ ...PAYLOAD, spots: [frozen('s-2', null, 'Fremont')] })]);
+    await renderTab();
+
+    expect(screen.getByText('@ana sent you a spot')).toBeOnTheScreen();
+    expect(screen.getByText('Untitled · Fremont')).toBeOnTheScreen();
+    expect(screen.queryByTestId('send-thumbnail')).toBeNull();
+    expect(mockFake!.storage.from('photos').createSignedUrl).not.toHaveBeenCalled();
+  });
+
+  it("Save all calls saveSend with the item; the item leaves and 'Saved 3 spots' shows", async () => {
+    signIn([SEND, ANA]);
+    jest.mocked(saveSend).mockImplementation(async (_db, _client, uid, item) => {
+      useInboxStore.getState().removeItem(uid, 'send', item.id);
+      return { status: 'saved', saved: 3, failedPhotos: 0 };
+    });
+    await renderTab();
+
+    await press('Save all');
+
+    expect(saveSend).toHaveBeenCalledTimes(1);
+    expect(saveSend).toHaveBeenCalledWith(db, mockFake, ME, SEND, {});
+    expect(screen.queryByText('@ana sent you 3 spots')).toBeNull();
+    expect(screen.getByText('Saved 3 spots')).toBeOnTheScreen();
+  });
+
+  it("a result with failedPhotos reads 'Saved 3 spots · 1 photo couldn't be downloaded'", async () => {
+    signIn([SEND]);
+    jest.mocked(saveSend).mockResolvedValue({ status: 'saved', saved: 3, failedPhotos: 1 });
+    await renderTab();
+
+    await press('Save all');
+
+    expect(screen.getByText("Saved 3 spots · 1 photo couldn't be downloaded")).toBeOnTheScreen();
+  });
+
+  it("'Save into a new hit list' calls saveSend with newList and reads 'Saved 3 spots into From @ana'", async () => {
+    signIn([SEND]);
+    jest.mocked(saveSend).mockResolvedValue({ status: 'saved', saved: 3, failedPhotos: 2, listId: 'list-1' });
+    await renderTab();
+
+    await press('Save into a new hit list');
+
+    expect(saveSend).toHaveBeenCalledWith(db, mockFake, ME, SEND, { newList: true });
+    expect(screen.getByText("Saved 3 spots into From @ana · 2 photos couldn't be downloaded")).toBeOnTheScreen();
+  });
+
+  it('a double tap on Save all saves once, and the other buttons wait while it runs', async () => {
+    signIn([SEND]);
+    let finish: () => void = () => {};
+    jest.mocked(saveSend).mockImplementation(
+      () => new Promise((resolve) => (finish = () => resolve({ status: 'saved', saved: 3, failedPhotos: 0 }))),
+    );
+    await renderTab();
+
+    const saveAll = screen.getByRole('button', { name: 'Save all' });
+    await act(async () => {
+      fireEvent.press(saveAll);
+      fireEvent.press(saveAll);
+    });
+    expect(screen.queryByRole('button', { name: 'Dismiss' })).toBeNull();
+    expect(screen.getByLabelText('Saving these spots')).toBeOnTheScreen();
+    await act(async () => finish());
+
+    expect(saveSend).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    [{ status: 'taken_back' } as const, '@ana took these spots back.'],
+    [{ status: 'already_saved' } as const, 'Already saved'],
+    [{ status: 'failed' } as const, "Couldn't save these spots. Try again."],
+    [null, "Couldn't save these spots. Try again."],
+  ])('a save that answers %p shows %p', async (result, line) => {
+    signIn([SEND]);
+    jest.mocked(saveSend).mockResolvedValue(result);
+    await renderTab();
+
+    await press('Save all');
+
+    expect(screen.getByText(line)).toBeOnTheScreen();
+  });
+
+  it("a save that throws warns and reads \"Couldn't save these spots. Try again.\"; the buttons come back", async () => {
+    signIn([SEND]);
+    jest.mocked(saveSend).mockRejectedValue(new Error('disk full'));
+    await renderTab();
+
+    await press('Save all');
+
+    expect(screen.getByText("Couldn't save these spots. Try again.")).toBeOnTheScreen();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('[Inbox]'), 'disk full');
+    expect(screen.getByRole('button', { name: 'Save all' })).toBeOnTheScreen();
+  });
+
+  it("'Pick spots' lists the three frozen spots checked; unchecking one saves the other two with 'Save (2)'", async () => {
+    signIn([SEND]);
+    await renderTab();
+
+    await press('Pick spots');
+    expect(screen.getByRole('header', { name: 'Pick spots' })).toBeOnTheScreen();
+    const boxes = screen.getAllByRole('checkbox');
+    expect(boxes.map((b) => b.props.accessibilityLabel)).toEqual(['Pier 57, Capitol Hill', 'Untitled, Fremont', 'Red ledge']);
+    expect(boxes.every((b) => b.props.accessibilityState.checked)).toBe(true);
+    expect(screen.getByRole('button', { name: 'Save (3)' })).toBeOnTheScreen();
+
+    fireEvent.press(screen.getByRole('checkbox', { name: 'Untitled, Fremont' }));
+    await press('Save (2)');
+
+    expect(saveSend).toHaveBeenCalledWith(db, mockFake, ME, SEND, { spotIds: ['s-1', 's-3'] });
+    expect(screen.queryByRole('header', { name: 'Pick spots' })).toBeNull();
+    expect(screen.getByText('Saved 3 spots')).toBeOnTheScreen();
+  });
+
+  it("the picker's Save is disabled with nothing checked, and Cancel closes it without saving", async () => {
+    signIn([SEND]);
+    await renderTab();
+
+    await press('Pick spots');
+    for (const name of ['Pier 57, Capitol Hill', 'Untitled, Fremont', 'Red ledge']) {
+      fireEvent.press(screen.getByRole('checkbox', { name }));
+    }
+    const save = screen.getByRole('button', { name: 'Save (0)' });
+    expect(save.props.accessibilityState).toMatchObject({ disabled: true });
+    await press('Save (0)');
+    expect(saveSend).not.toHaveBeenCalled();
+
+    await press('Cancel');
+    expect(screen.queryByRole('header', { name: 'Pick spots' })).toBeNull();
+    expect(saveSend).not.toHaveBeenCalled();
+  });
+
+  it("Dismiss asks 'Dismiss these spots?' (@ana won't be told) and Dismiss calls dismissSend once", async () => {
+    signIn([SEND]);
+    await renderTab();
+
+    await press('Dismiss');
+    expect(lastAlert()).toMatchObject({ title: 'Dismiss these spots?', message: "@ana won't be told." });
+    expect(lastAlert().buttons.map((b) => b.text)).toEqual(['Cancel', 'Dismiss']);
+    const confirm = lastAlert().buttons.find((b) => b.text === 'Dismiss')!;
+    await act(async () => {
+      confirm.onPress?.();
+      confirm.onPress?.();
+    });
+
+    expect(dismissSend).toHaveBeenCalledTimes(1);
+    expect(dismissSend).toHaveBeenCalledWith(mockFake, ME, SEND_ID);
+  });
+
+  it("Cancel on the Dismiss confirm does nothing; a failed dismiss alerts \"Couldn't reach the server\"", async () => {
+    signIn([SEND]);
+    jest.mocked(dismissSend).mockRejectedValue(new Error('offline'));
+    await renderTab();
+
+    await press('Dismiss');
+    await pressAlertButton('Cancel');
+    expect(dismissSend).not.toHaveBeenCalled();
+
+    await press('Dismiss');
+    await pressAlertButton('Dismiss');
+    expect(alert).toHaveBeenLastCalledWith("Couldn't reach the server", 'Try again.');
+    expect(screen.getByText('@ana sent you 3 spots')).toBeOnTheScreen();
+  });
+
+  it('loads the sends with the friends when focused and on pull to refresh', async () => {
+    signIn([SEND]);
+    await renderTab();
+    expect(loadAndApplySends).toHaveBeenCalledWith(db, mockFake, ME);
+    jest.mocked(loadAndApplySends).mockClear();
+
+    await act(async () => {
+      screen.UNSAFE_getByType(RefreshControl).props.onRefresh();
+    });
+
+    expect(loadAndApplySends).toHaveBeenCalledWith(db, mockFake, ME);
+  });
+
+  it('marks a new send seen while focused (the badge counts sends too)', async () => {
+    signIn([SEND]);
+    expect(selectUnseenCount(useInboxStore.getState())).toBe(1);
+    await renderTab();
+
+    expect(setSyncState).toHaveBeenCalledWith(db, `inbox_seen_at:${ME}`, SEND.created_at);
+    expect(selectUnseenCount(useInboxStore.getState())).toBe(0);
   });
 });

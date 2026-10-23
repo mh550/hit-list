@@ -342,6 +342,17 @@ describe('Spot detail: Send (S7-04)', () => {
     header.unmount();
   });
 
+  it("a saved copy ('From @ana', owned by the rider) is a normal spot: Edit and Send are there (S7-05)", async () => {
+    useAuthStore.setState({ status: 'signed_in', userId: 'user-me', username: 'me' });
+    await renderDetail({ name: 'Pier 57', owner_id: 'user-me', from_username: 'ana', copied_from_send: 'send-1' });
+
+    expect(screen.getByText('From @ana')).toBeOnTheScreen();
+    const header = render(headerRight()());
+    expect(header.getByText('Edit')).toBeTruthy();
+    expect(header.getByRole('button', { name: 'Send this spot' })).toBeTruthy();
+    header.unmount();
+  });
+
   it("another rider's spot has no Send", async () => {
     useAuthStore.setState({ status: 'signed_in', userId: 'user-me', username: 'me' });
     await renderDetail({ name: 'Their rail', owner_id: 'user-other' });

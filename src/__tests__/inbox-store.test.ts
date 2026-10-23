@@ -49,6 +49,12 @@ describe('selectUnseenCount', () => {
     expect(selectUnseenCount(state({ userId: ME, items, seenAt: T3 }))).toBe(0);
   });
 
+  it('counts unseen sends with the friend requests (S7-05)', () => {
+    const send = { ...request('s', T3), kind: 'send', sendId: 's' } as unknown as InboxItem;
+    expect(selectUnseenCount(state({ userId: ME, items: [request('a', T1), send], seenAt: T2 }))).toBe(1);
+    expect(selectUnseenCount(state({ userId: ME, items: [request('a', T1), send], seenAt: null }))).toBe(2);
+  });
+
   it('is 0 with no items', () => {
     expect(selectUnseenCount(state({ userId: ME, items: [], seenAt: null }))).toBe(0);
   });

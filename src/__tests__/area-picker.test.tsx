@@ -18,6 +18,7 @@ import {
   type HitListUpdate,
   type NewHitList,
 } from '@/src/types';
+import { showToast, useToastStore } from '@/src/stores/toast-store';
 import { circleRegion } from '@/src/utils/area';
 import { NO_LOCATION } from '@/src/utils/geo';
 import { initialRegion } from '@/src/utils/map-region';
@@ -848,6 +849,13 @@ describe("Area picker: 'Send these N spots' (S7-04)", () => {
     mockSendSheet.mockClear();
     act(() => props.onClose());
     expect(mockSendSheet).not.toHaveBeenCalled();
+  });
+
+  it('draws the toast itself: the picker is a native full-screen modal above the root toast line', () => {
+    renderPicker();
+    act(() => showToast('Sent to @ana'));
+    expect(screen.getByText('Sent to @ana')).toBeTruthy();
+    act(() => useToastStore.setState({ text: null }));
   });
 
   it("reads 'Send this spot' for one and is hidden at none", () => {

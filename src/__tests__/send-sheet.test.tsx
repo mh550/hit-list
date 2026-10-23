@@ -1,6 +1,6 @@
 import { readFileSync } from 'fs';
 import { join } from 'path';
-import { ActivityIndicator, Image } from 'react-native';
+import { ActivityIndicator, Image, Modal } from 'react-native';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useRouter } from 'expo-router';
 import { useSQLiteContext as sharedDb } from 'expo-sqlite';
@@ -346,6 +346,59 @@ describe('SendSheet signed in', () => {
     await renderSheet(ids);
     expect(screen.getByText("That's 101 spots. Send up to 100 at a time.")).toBeOnTheScreen();
     expect(screen.queryByRole('button', { name: 'Send' })).toBeNull();
+  });
+});
+
+describe('SendSheet review fixes (S7-04)', () => {
+  it('while sending, Cancel is disabled and a swipe-down does not close; the finish closes once', async () => {
+    signIn();
+    let finish!: (r: SendResult) => void;
+    jest.mocked(createSend).mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    await renderSheet();
+    fireEvent.press(friend('@ana'));
+    await pressSend();
+
+    const cancel = screen.getByRole('button', { name: 'Cancel' });
+    expect(cancel.props.accessibilityState).toMatchObject({ disabled: true });
+    fireEvent.press(cancel);
+    act(() => screen.UNSAFE_getByType(Modal).props.onRequestClose());
+    expect(onClose).not.toHaveBeenCalled();
+
+    await act(async () => finish({ sentTo: [ANA] }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(useToastStore.getState().text).toBe('Sent to @ana');
+  });
+
+  it('a swipe-down closes when nothing is sending', async () => {
+    signIn();
+    await renderSheet();
+    act(() => screen.UNSAFE_getByType(Modal).props.onRequestClose());
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('a checked friend who leaves the friends list (removed, blocked) is not sent to', async () => {
+    signIn();
+    jest.mocked(createSend).mockResolvedValue({ sentTo: [BEN] });
+    await renderSheet();
+    fireEvent.press(friend('@ana'));
+    act(() => useFriendsStore.getState().applyFriends('user-me', { ...EMPTY_FRIENDS, friends: [BEN].map(friendRow) }));
+    expect(sendButton().props.accessibilityState).toMatchObject({ disabled: true });
+
+    fireEvent.press(friend('@ben'));
+    await pressSend();
+    expect(jest.mocked(createSend).mock.calls[0][3].recipientIds).toEqual(['id-ben']);
+  });
+
+  it("a failed first friends load offers 'Try again', which loads again", async () => {
+    mockFake?.setSession(fakeSession({ userId: 'user-me' }));
+    useAuthStore.setState(RIDER);
+    useFriendsStore.getState().setLoadError('user-me', 'offline');
+    await renderSheet();
+    expect(screen.getByText("Couldn't load your friends.")).toBeOnTheScreen();
+    expect(refreshFriends).toHaveBeenCalledTimes(1);
+
+    fireEvent.press(screen.getByRole('button', { name: 'Try again' }));
+    expect(refreshFriends).toHaveBeenCalledTimes(2);
   });
 });
 

@@ -1,4 +1,5 @@
 import { act, render, screen } from '@testing-library/react-native';
+import { AccessibilityInfo } from 'react-native';
 import { createElement } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
@@ -31,6 +32,17 @@ describe('toast store (S7-04)', () => {
     expect(useToastStore.getState().text).toBeNull();
   });
 
+  it('showToast announces the line once for VoiceOver, however many hosts draw it', () => {
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    const host = () => createElement(SafeAreaProvider, { initialMetrics: METRICS }, createElement(ToastHost), createElement(ToastHost));
+    render(host());
+    act(() => showToast('Sent to @ana'));
+    expect(screen.getAllByText('Sent to @ana')).toHaveLength(2);
+    expect(announce).toHaveBeenCalledTimes(1);
+    expect(announce).toHaveBeenCalledWith('Sent to @ana');
+    announce.mockRestore();
+  });
+
   it('a second toast replaces the first and gets its own 3 s', () => {
     showToast('Sent to @ana');
     jest.advanceTimersByTime(2000);
@@ -57,6 +69,8 @@ describe('ToastHost (S7-04)', () => {
     const line = screen.getByText('Sent to 3 friends');
     expect(line).toBeOnTheScreen();
     expect(screen.getByRole('alert')).toBeOnTheScreen();
+    // showToast announces it; a live region as well would read it twice on Android.
+    expect(screen.getByRole('alert').props.accessibilityLiveRegion).toBeUndefined();
 
     act(() => jest.advanceTimersByTime(3000));
     expect(screen.queryByText('Sent to 3 friends')).toBeNull();

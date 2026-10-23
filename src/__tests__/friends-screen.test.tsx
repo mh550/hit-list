@@ -303,10 +303,13 @@ describe('Friends screen signed in', () => {
   it('a sent row is not one grouped element, so VoiceOver can reach its Cancel', async () => {
     await renderScreen();
     const cancel = screen.getByRole('button', { name: 'Cancel request to @cal' });
+    // Every host view above the button's own (one grouped element would swallow it).
     let node = cancel.parent;
     while (node) {
-      expect(node.props.accessible).not.toBe(true);
-      expect(node.props.onLongPress).toBeUndefined();
+      if (typeof node.type === 'string') {
+        expect(node.props.accessible).not.toBe(true);
+        expect(node.props.onLongPress).toBeUndefined();
+      }
       node = node.parent;
     }
   });

@@ -147,9 +147,10 @@ function FriendsBody({ client, uid }: { client: SupabaseClient; uid: string }) {
       console.warn('[Friends] the action failed:', errorMessage(err));
       setLine({ text: NETWORK, tone: 'error' });
     }
-    await refreshFriends(db, client, uid);
+    // Free the row now: the load waits its turn on the sync queue, behind a backup that may take minutes.
     busyKeys.current.delete(key);
     setBusy(new Set(busyKeys.current));
+    void refreshFriends(db, client, uid);
   };
 
   const submit = async () => {
@@ -164,11 +165,10 @@ function FriendsBody({ client, uid }: { client: SupabaseClient; uid: string }) {
     setLine(null);
     try {
       const result = await addFriend(client, db, uid, typed);
-      if (result) {
-        setLine(addLine(result, name));
-        if (result.status === 'sent' || result.status === 'accepted') setTyped('');
-        await refreshFriends(db, client, uid);
-      }
+      // null: the session ended while the screen was open (it turns to Sign in once the account store catches up)
+      setLine(result ? addLine(result, name) : { text: NETWORK, tone: 'error' });
+      if (result?.status === 'sent' || result?.status === 'accepted') setTyped('');
+      if (result) void refreshFriends(db, client, uid);
     } catch (err) {
       console.warn('[Friends] Add failed:', errorMessage(err));
       setLine({ text: NETWORK, tone: 'error' });
@@ -196,14 +196,14 @@ function FriendsBody({ client, uid }: { client: SupabaseClient; uid: string }) {
     ]);
   };
 
-  const friendMenu = (row: Row) => {
+  const remove = (row: Row) => {
     const friendshipId = row.friendshipId;
-    if (!friendshipId) return;
+    if (friendshipId) void runAction(row.key, () => removeFriend(client, uid, friendshipId));
+  };
+
+  const friendMenu = (row: Row) => {
     Alert.alert(handleOf(row.profile, UNKNOWN.friend), undefined, [
-      {
-        text: 'Remove friend',
-        onPress: () => void runAction(row.key, () => removeFriend(client, uid, friendshipId)),
-      },
+      { text: 'Remove friend', onPress: () => remove(row) },
       { text: `Block ${handleOf(row.profile, 'this rider')}`, style: 'destructive', onPress: () => confirmBlock(row) },
       { text: 'Cancel', style: 'cancel' },
     ]);
@@ -219,10 +219,7 @@ function FriendsBody({ client, uid }: { client: SupabaseClient; uid: string }) {
           variant="secondary"
           size="sm"
           accessibilityLabel={`Cancel request to ${handleOf(item.profile, 'a rider you asked')}`}
-          onPress={() => {
-            const friendshipId = item.friendshipId;
-            if (friendshipId) void runAction(item.key, () => removeFriend(client, uid, friendshipId));
-          }}
+          onPress={() => remove(item)}
         />
       ) : item.kind === 'blocked' ? (
         <Button
@@ -233,16 +230,41 @@ function FriendsBody({ client, uid }: { client: SupabaseClient; uid: string }) {
           onPress={() => void runAction(item.key, () => unblock(client, uid, item.profile.id))}
         />
       ) : null;
+    const label = (
+      <Text style={styles.rowText} numberOfLines={1}>
+        {text}
+      </Text>
+    );
+    const busyMark = isBusy ? <ActivityIndicator color={palette.gray[500]} /> : null;
+    // Sent and blocked rows are plain Views: a Pressable would group the row into one VoiceOver element and hide
+    // its Cancel / Unblock button.
+    if (item.kind !== 'friend') {
+      return (
+        <View style={styles.row}>
+          {label}
+          {busyMark ?? action}
+        </View>
+      );
+    }
+    // A friend row: long press, or VoiceOver's actions rotor, for Remove / Block.
     return (
       <Pressable
-        style={({ pressed }) => [styles.row, pressed && item.kind === 'friend' && styles.rowPressed]}
-        onLongPress={item.kind === 'friend' ? () => friendMenu(item) : undefined}
-        disabled={item.kind !== 'friend' || isBusy}
-        accessibilityHint={item.kind === 'friend' ? 'Long press to remove or block' : undefined}>
-        <Text style={styles.rowText} numberOfLines={1}>
-          {text}
-        </Text>
-        {isBusy ? <ActivityIndicator color={palette.gray[500]} /> : action}
+        style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+        onLongPress={() => friendMenu(item)}
+        disabled={isBusy}
+        accessibilityRole="button"
+        accessibilityLabel={text}
+        accessibilityHint="Long press to remove or block"
+        accessibilityActions={[
+          { name: 'remove', label: 'Remove friend' },
+          { name: 'block', label: `Block ${handleOf(item.profile, 'this rider')}` },
+        ]}
+        onAccessibilityAction={(event) => {
+          if (event.nativeEvent.actionName === 'remove') remove(item);
+          else if (event.nativeEvent.actionName === 'block') confirmBlock(item);
+        }}>
+        {label}
+        {busyMark}
       </Pressable>
     );
   };

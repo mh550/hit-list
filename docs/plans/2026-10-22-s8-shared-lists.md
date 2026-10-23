@@ -574,6 +574,45 @@ grants, count = `can_read_spot`).
 | 5 | Minor | area owner rule looser than the plan (phone-only rows during the adoption window) | left for S8-09: strict rule would hide kept spots in a list made signed out after Keep |
 | 6 | Minor | a download running across a cache delete recreated the file | fixed: generation counter (RED) |
 
+## As built (S8-04)
+
+- **`src/components/ShareListSheet.tsx`** `{ listId, mode: 'share' | 'invite', onClose }` as planned: unconfigured /
+  signed-out lines, 'This list is gone', friends with checkboxes (already in the list: 'In the list' / 'Invited', no
+  checkbox), `SegmentedControl` of `ROLE_LABELS` (new in `src/constants/labels.ts`), the D34 sentence, the count line
+  (share mode, from `selectListSpots`), the area line, `syncNow` → `shareList` / `invite`, Cancel works during the
+  backup only, single-flight ref, D85 / 42501 / "Couldn't share" lines (a `false` result = the session ended: the same
+  line), toasts 'Shared Downtown with @ana' / 'with 2 friends' / 'Invited @ana'.
+- **List screen:** `ShareListSlot` is gone. The action row holds Send (own spots, D87) and the owner's 'Share list' /
+  'Invite' (+ 'live: they'll see new spots too', `person.2.fill`, mapped to `group`), so an owner whose list holds only
+  others' spots still shares. `MemberStrip` (owner + joined initials, max 5 + '+N', `person.2.fill`, `memberCount`,
+  '+ Invite' owner only, press → `/list/<id>/members`). A member: no Rename, no bottom bar (Delete list, Edit area), no
+  Share; long press 'Remove from list' on their own spots with role 'add' only; the owner on any spot. Deleting a shared
+  list: 'Spots stay in your library. Members lose access to all 12 spots now.'
+- **`app/list/[id]/members.tsx`** (Stack title 'Members') as planned, plus 'Invite' for the owner (opens the sheet in
+  invite mode). Choosing a member's current role calls nothing. Errors: Alert with fixed copy ("Couldn't change the
+  role. Try again." / "Couldn't remove @ben. Try again." / "Couldn't withdraw the invitation. Try again." / "Couldn't
+  stop sharing. Try again." / "Couldn't leave the list. Try again."; 42501 → the not-allowed copy). Leave →
+  `router.dismissAll()` + `router.navigate('/(tabs)/lists')` + toast 'Left Downtown'. Signed out: "Sign in to see
+  who's in this list" + Sign in.
+- `getHitLists` reads `owner_username` from the profiles mirror (never stored); `src/utils/members.ts`
+  (`joinedMembers`, `memberCount` (D84), `initialOf`, `handleOf`). The rider's own name comes from the auth store (the
+  mirror holds others' only, review #1).
+- **Not built:** 'Add friend' on a member row (§3.5; `addFriend` takes a username, so it needs the row's username and
+  a friends-store check) — left for S8-09 (review #2). A `needs_username` rider sees the sign-in line in the sheet,
+  as in SendSheet; the tabs redirect to the username screen while `needs_username`, so it is not reachable (review #5).
+- Tests 1808 → 1862 (`share-list-sheet` 19, `list-members` 18, `list-screen` +12, `members` 5, `db-hit-lists` +1);
+  RED first (counts in the commit messages).
+
+### S8-04 review (Opus, diff 61e84c8..HEAD)
+
+| # | Severity | Finding | Outcome |
+|---|---|---|---|
+| 1 | Important | the rider's own member row / strip circle read 'A rider' / '?' (the profiles mirror never holds the rider) | fixed: auth username for the rider's own rows; fixtures no longer give it a mirrored name (RED: 3 cases) |
+| 2 | Important (plan gap) | 'Add friend' on a non-friend member row missing | left for S8-09 (above) |
+| 3 | Minor | rows already in the list read only '@ana' to VoiceOver | fixed: '@ana, In the list' (RED) |
+| 4 | Minor | the double-tap test never reached the ref (second press hit a disabled button) | fixed: two presses before a re-render; fails with the ref removed (checked) |
+| 5 | Minor | `needs_username` sees the sign-in line | left: same as SendSheet, unreachable behind the tabs' redirect |
+
 ## Unresolved questions
 
 - D83–D91 are defaults (§9 Q44–Q52). Q11 (blocking inside a shared list) stays as D50: nothing changes in lists you

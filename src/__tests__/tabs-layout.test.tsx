@@ -45,12 +45,13 @@ describe('TabLayout', () => {
 describe('TabLayout: onboarding', () => {
   const redirects = () => screen.UNSAFE_root.findAll((n) => (n.type as unknown) === 'Redirect');
 
-  it("redirects to /auth/username instead of showing the tabs while the account is 'needs_username'", () => {
+  it("redirects to /auth/username while the account is 'needs_username', keeping the tabs mounted", () => {
     useAuthStore.setState({ ...SIGNED_OUT, status: 'needs_username', userId: 'user-ana' });
     render(<TabLayout />);
 
     expect(redirects().map((n) => n.props.href)).toEqual(['/auth/username']);
-    expect(tabScreens()).toEqual([]);
+    // Unmounting the Tabs would throw away the tabs under the sign-in sheet (their scroll, the map).
+    expect(tabScreens().map((t) => t.name)).toEqual(['index', 'lists', 'profile']);
   });
 
   it.each<AuthStatus>(['signed_in', 'signed_out', 'unconfigured'])('shows the tabs, no redirect, when %s', (status) => {

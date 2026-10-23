@@ -227,6 +227,36 @@ describe('useAuthInit', () => {
     expect(useAuthStore.getState().status).toBe('signed_out');
   });
 
+  it('keeps a username saved during onboarding when an older profile fetch (no username yet) lands after it', async () => {
+    mockFake!.setSession(ana);
+    mockFake!.profiles.set('user-ana', { username: null, display_name: null });
+    mockFake!.queryDelayMs = 200;
+    useAuthStore.setState({ ...SIGNED_OUT, status: 'needs_username', userId: 'user-ana', email: 'ana@example.com' });
+    renderHook(() => useAuthInit());
+    await waitFor(() => expect(mockFake!.from).toHaveBeenCalled());
+
+    // The username screen saves while the launch's fetch (which reads the row as it was, no username) is in flight.
+    act(() => useAuthStore.getState().setProfile('ana', 'Ana B'));
+    expect(useAuthStore.getState().status).toBe('signed_in');
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    });
+
+    expect(useAuthStore.getState()).toMatchObject({ status: 'signed_in', userId: 'user-ana', username: 'ana' });
+  });
+
+  it("still shows 'needs_username' for a different account signing in", async () => {
+    useAuthStore.setState({ ...SIGNED_OUT, status: 'signed_in', userId: 'user-bo', username: 'bo' });
+    mockFake!.profiles.set('user-ana', { username: null, display_name: null });
+    renderHook(() => useAuthInit());
+    await waitFor(() => expect(mockFake!.auth.getSession).toHaveBeenCalled());
+
+    act(() => mockFake!.emit('SIGNED_IN', ana));
+
+    await waitFor(() => expect(useAuthStore.getState().status).toBe('needs_username'));
+    expect(useAuthStore.getState().userId).toBe('user-ana');
+  });
+
   it('ignores TOKEN_REFRESHED for the account it already shows (no profile refetch)', async () => {
     mockFake!.setSession(ana);
     mockFake!.profiles.set('user-ana', { username: 'ana', display_name: null });

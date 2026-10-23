@@ -669,7 +669,7 @@
         "The engine's pull (S5) also calls loadFriends when signed in and refreshes the friends store (sync-engine test gains one case).",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S6-03",

@@ -20,6 +20,15 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 06:40 · S6-02 · passes
+
+- Added migration 6 (local `profiles` mirror, D72) and `src/db/profiles.ts`. Added `src/sync/friends.ts` (`loadFriends`/`addFriend`/`respond`/`removeFriend`/`block`/`unblock`/`refreshFriends`/`loadAndApplyFriends`), `src/stores/friends-store.ts` (emptied on every auth `userId` change) and `src/sync/queue.ts` (`runExclusive` moved here, so engine ↔ friends has no import cycle). The engine loads friends after each sync. adopt/Remove/release empty the mirror. The fake client gains `rpc`/`rpcs`/`rpcHandlers`/`readableProfiles`, and profiles selects are now logged and filtered. Tests: 1332 → 1399.
+- Verified: RED commit 03349dd (5 migrate cases + 6 suites unresolved), then green. Mutation checks: the ticket, `maySync` and apply-time `signedInAs` guards each turn a test red when removed. `check.sh` green, 1399 tests, 0 `console.error`.
+- Opus review: 0 Critical, 0 Important. Minor fixes applied: a rider blocked between the two reads shows as blocked only; blocked sorted by name; the friends load runs after the backup bookkeeping; two more guard tests. Left open: `addFriend` reports 'accepted'/'sent' from a select made before the send (a race with the other rider can mislabel it; S6-07 may re-read by the returned id).
+- Next session (S6-03/04): the mutations only call the server and take `(client, uid, …)`. The screen must call `refreshFriends(db, client, uid)` afterwards (never from inside a `runExclusive` task). `addFriend` returns `null` when not signed in as `uid`. `applyFriends` does **not** fill the inbox store yet: S6-04 adds that, plus `loadSeen`, in the friends store or in `loadAndApplyFriends`.
+- Proposed changes: S6-02 step 2's rpc args are `{ p_username }`, `{ p_id, p_action }`, `{ p_user }` (as S6-01 noted); the mutations take `uid`, and the caller runs the refresh (plan said each ends with `refreshFriends`).
+- Questions for Michael: none new (D72–D75, §9 Q33–Q36 still open).
+
 ### 2026-10-23 05:10 · S6-01 · passes
 
 - Wrote `docs/plans/2026-10-22-s6-friends.md`: Data (`src/sync/friends.ts` loadFriends/addFriend/respond/removeFriend/block/unblock/refreshFriends + friends store), Local cache (migration 6 `profiles` mirror, D72), Screens (Friends, Inbox tab with a kind-tagged item model for S7/S8, badge = unseen after `inbox_seen_at:<uid>`), Copy table, Tab bar (D49), integration design, Test list per feature. No server migration needed: S3's functions and RLS cover S6.

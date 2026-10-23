@@ -286,6 +286,12 @@ interface PendingSave {
 const pendingSaves = new Map<string, PendingSave>();
 
 /**
+ * Whether `uid`'s save of `sendId` is running or waits for its retry. A retry repeats the first choice (all, picked,
+ * into a new list), so the Inbox offers only Try again then.
+ */
+export const hasPendingSave = (uid: string, sendId: string) => pendingSaves.has(`${uid}:${sendId}`);
+
+/**
  * Saves a received send as the rider's own spots (all of them, or `spotIds`; picking finishes the send, D81), with
  * `newList` also into a new hit list 'From @ana'. Order: download every photo into photos/<newSpot>/<newMedia>.jpg (a
  * failed one is left out and counted), then, on the sync queue, mark_send_saved and the inserts through src/db (owned
@@ -422,7 +428,11 @@ async function saveOnce(
   });
 
   if (result.status === 'saved') await reloadStoresQuietly(db);
-  if (result.status !== 'failed') useInboxStore.getState().removeItem(uid, 'send', item.id);
+  if (result.status !== 'failed') {
+    // a load started while this save ran read the server before the mark
+    takeTicket(uid);
+    useInboxStore.getState().removeItem(uid, 'send', item.id);
+  }
   return result;
 }
 
@@ -452,6 +462,8 @@ export async function dismissSend(client: SupabaseClient, uid: string, sendId: s
   takeTicket(uid);
   const { error } = await client.rpc('dismiss_send', { p_id: sendId });
   if (error && !(error.code === '42501' && (await signedInAs(client, uid)))) throw serverError(error);
+  // and one started while the rpc ran
+  takeTicket(uid);
   useInboxStore.getState().removeItem(uid, 'send', sendId);
 }
 

@@ -610,6 +610,8 @@ describe('Inbox tab: spots sent to you (S7-05)', () => {
   it('the saved line is announced to VoiceOver once', async () => {
     signIn([SEND]);
     const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    // react-native's jest mock makes it a jest.fn already: earlier tests' calls are on it
+    announce.mockClear();
     await renderTab();
 
     await press('Save all spots from @ana');

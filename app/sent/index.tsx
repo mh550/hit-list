@@ -42,10 +42,12 @@ function SentBody({ client, uid }: { client: SupabaseClient; uid: string }) {
     setBusy(new Set(busyIds.current));
     try {
       const result = await withdrawSend(client, uid, send);
-      if (result === null) throw new Error('not signed in');
-      setSettled((prev) => ({ ...prev, [send.id]: result }));
-      if (result === 'saved') Alert.alert('They already saved these.');
-      void refresh();
+      // null: the session ended meanwhile, and the screen turns to its Sign in line
+      if (result !== null) {
+        setSettled((prev) => ({ ...prev, [send.id]: result }));
+        if (result === 'saved') Alert.alert('They already saved these.');
+        void refresh({ quiet: true });
+      }
     } catch (err) {
       console.warn('[Sent] withdrawing failed:', errorMessage(err));
       Alert.alert("Couldn't reach the server", 'Try again.');

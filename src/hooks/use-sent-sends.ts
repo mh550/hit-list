@@ -36,14 +36,15 @@ function apply(prev: Loaded, read: Read): Loaded {
 
 /**
  * The Sent screen's data (S7, docs/plans/2026-10-22-s7-send.md "Sent"): what the signed-in rider sent, read with
- * listSent when the screen mounts and on `refresh` (pull to refresh, after a Withdraw). `sends` is null until the
- * first read for this rider went through; `error` is set when the last read failed (what was there stays).
+ * listSent when the screen mounts and on `refresh` (pull to refresh; `{ quiet: true }` after a Withdraw, without the
+ * pull-to-refresh spinner). `sends` is null until the first read for this rider went through; `error` is set when the
+ * last read failed (what was there stays).
  */
 export function useSentSends(): {
   sends: SentSend[] | null;
   error: boolean;
   refreshing: boolean;
-  refresh: () => Promise<void>;
+  refresh: (opts?: { quiet?: boolean }) => Promise<void>;
 } {
   const db = useSQLiteContext();
   const userId = useAuthStore((s) => (s.status === 'signed_in' ? s.userId : null));
@@ -64,18 +65,21 @@ export function useSentSends(): {
     };
   }, [db, userId]);
 
-  const refresh = useCallback(async () => {
-    if (!userId) return;
-    newestRead.current += 1;
-    const read = newestRead.current;
-    setRefreshing(true);
-    try {
-      const result = await readSent(db, userId);
-      if (read === newestRead.current) setLoaded((prev) => apply(prev, result));
-    } finally {
-      setRefreshing(false);
-    }
-  }, [db, userId]);
+  const refresh = useCallback(
+    async ({ quiet = false }: { quiet?: boolean } = {}) => {
+      if (!userId) return;
+      newestRead.current += 1;
+      const read = newestRead.current;
+      if (!quiet) setRefreshing(true);
+      try {
+        const result = await readSent(db, userId);
+        if (read === newestRead.current) setLoaded((prev) => apply(prev, result));
+      } finally {
+        if (!quiet) setRefreshing(false);
+      }
+    },
+    [db, userId],
+  );
 
   // another rider's list never shows, even for the moment before the new one is read
   const mine = userId !== null && loaded.uid === userId;

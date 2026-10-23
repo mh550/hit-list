@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Image } from 'expo-image';
 import {
+  AccessibilityInfo,
   ActivityIndicator,
   Alert,
   AppState,
@@ -31,7 +32,7 @@ import { getSupabase } from '@/src/sync/client';
 import { errorMessage } from '@/src/sync/errors';
 import { block, refreshFriends, respond } from '@/src/sync/friends';
 import { PHOTOS_BUCKET } from '@/src/sync/photos';
-import { dismissSend, loadAndApplySends, saveSend, type SaveResult } from '@/src/sync/sends';
+import { dismissSend, hasPendingSave, loadAndApplySends, saveSend, type SaveResult } from '@/src/sync/sends';
 import { frozenSpotTitle } from '@/src/utils/send-payload';
 import { spotCountLabel } from '@/src/utils/spot-name';
 
@@ -51,6 +52,7 @@ const SECTION_TITLES: Record<InboxKind, string> = {
   invite: 'Invitations',
 };
 
+const ANSWERING = 'Sending your answer';
 const SAVE_FAILED = "Couldn't save these spots. Try again.";
 /** How long a send's thumbnail URL stays valid, in seconds. */
 const THUMBNAIL_TTL = 600;
@@ -79,7 +81,9 @@ function SendThumbnail({ client, path }: { client: SupabaseClient; path: string 
         if (error) throw new Error(error.message);
         if (live) setSigned({ path, uri: data.signedUrl });
       })
-      .catch((err: unknown) => console.warn('[Inbox] signing a thumbnail failed:', errorMessage(err)));
+      .catch((err: unknown) => {
+        if (live) console.warn('[Inbox] signing a thumbnail failed:', errorMessage(err));
+      });
     return () => {
       live = false;
     };
@@ -118,14 +122,18 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
   const isFocused = useIsFocused();
   const appActive = useAppActive();
 
-  const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
+  /** The rows with an action running, each with what its spinner reads. */
+  const [busy, setBusy] = useState<ReadonlyMap<string, string>>(new Map());
   const [refreshing, setRefreshing] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [picking, setPicking] = useState<SendItem | null>(null);
   // A second tap can land before the busy state renders: checked synchronously.
-  const busyKeys = useRef(new Set<string>());
+  const busyKeys = useRef(new Map<string, string>());
+  // a save that ends after the tab lost focus leaves no line for the next visit
+  const focused = useRef(isFocused);
 
   useEffect(() => {
+    focused.current = isFocused;
     if (!isFocused) return;
     void refreshFriends(db, client, uid);
     void loadAndApplySends(db, client, uid);
@@ -151,23 +159,23 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
     [items],
   );
 
-  /** Marks `item` busy; false when it already is (a second tap). */
-  const claim = (item: InboxItem): boolean => {
+  /** Marks `item` busy, its spinner reading `label`; false when it already is (a second tap). */
+  const claim = (item: InboxItem, label: string): boolean => {
     const key = keyOf(item);
     if (busyKeys.current.has(key)) return false;
-    busyKeys.current.add(key);
-    setBusy(new Set(busyKeys.current));
+    busyKeys.current.set(key, label);
+    setBusy(new Map(busyKeys.current));
     setNotice(null);
     return true;
   };
   const release = (item: InboxItem) => {
     busyKeys.current.delete(keyOf(item));
-    setBusy(new Set(busyKeys.current));
+    setBusy(new Map(busyKeys.current));
   };
 
   /** Answers, blocks or dismisses `item`; once that went through, the row leaves at once (no second answer to it). */
-  const runAction = async (item: InboxItem, action: () => Promise<void>) => {
-    if (!claim(item)) return;
+  const runAction = async (item: InboxItem, label: string, action: () => Promise<void>) => {
+    if (!claim(item, label)) return;
     try {
       await action();
       useInboxStore.getState().removeItem(uid, item.kind, item.id);
@@ -182,7 +190,7 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
 
   /** Saves `item` (all, into a new list, or the picked spots); saveSend takes it off the Inbox unless it failed. */
   const runSave = async (item: SendItem, opts: { spotIds?: string[]; newList?: boolean }) => {
-    if (!claim(item)) return;
+    if (!claim(item, 'Saving these spots')) return;
     let line: string;
     try {
       line = savedLine(await saveSend(db, client, uid, item, opts), item.from.username);
@@ -191,7 +199,9 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
       line = SAVE_FAILED;
     }
     release(item);
+    if (!focused.current) return;
     setNotice(line);
+    AccessibilityInfo.announceForAccessibility(line);
   };
 
   const onRefresh = async () => {
@@ -201,7 +211,7 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
   };
 
   const askBlock = (item: FriendRequestItem, handle: string) =>
-    confirmBlock(handle, () => void runAction(item, () => block(client, uid, item.from.id)));
+    confirmBlock(handle, () => void runAction(item, ANSWERING, () => block(client, uid, item.from.id)));
 
   const renderRequest = (item: FriendRequestItem) => {
     const handle = item.from.username ? `@${item.from.username}` : 'this rider';
@@ -235,21 +245,21 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
           ) : null}
         </Pressable>
         {isBusy ? (
-          <ActivityIndicator color={palette.gray[500]} accessibilityLabel="Sending your answer" />
+          <ActivityIndicator color={palette.gray[500]} accessibilityLabel={ANSWERING} />
         ) : (
           <View style={styles.actions}>
             <Button
               title="Accept"
               size="sm"
               accessibilityLabel={`Accept friend request from ${handle}`}
-              onPress={() => void runAction(item, () => respond(client, uid, item.friendshipId, 'accept'))}
+              onPress={() => void runAction(item, ANSWERING, () => respond(client, uid, item.friendshipId, 'accept'))}
             />
             <Button
               title="Decline"
               variant="secondary"
               size="sm"
               accessibilityLabel={`Decline friend request from ${handle}`}
-              onPress={() => void runAction(item, () => respond(client, uid, item.friendshipId, 'decline'))}
+              onPress={() => void runAction(item, ANSWERING, () => respond(client, uid, item.friendshipId, 'decline'))}
             />
           </View>
         )}
@@ -263,7 +273,7 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
       {
         text: 'Dismiss',
         style: 'destructive',
-        onPress: () => void runAction(item, () => dismissSend(client, uid, item.sendId)),
+        onPress: () => void runAction(item, 'Dismissing', () => dismissSend(client, uid, item.sendId)),
       },
     ]);
 
@@ -273,6 +283,8 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
     const first = spots[0];
     const firstLine = first ? [frozenSpotTitle(first), first.generated_name].filter(Boolean).join(' · ') : null;
     const photo = first?.photos[0];
+    const from = `@${item.from.username}`;
+    const busyLabel = busy.get(keyOf(item));
     return (
       <View style={styles.sendRow}>
         <View style={styles.sendHeader}>
@@ -288,23 +300,47 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
             ) : null}
           </View>
         </View>
-        {busy.has(keyOf(item)) ? (
-          <ActivityIndicator
-            style={styles.sendBusy}
-            color={palette.gray[500]}
-            accessibilityLabel="Saving these spots"
-          />
+        {busyLabel ? (
+          <ActivityIndicator style={styles.sendBusy} color={palette.gray[500]} accessibilityLabel={busyLabel} />
+        ) : hasPendingSave(uid, item.sendId) ? (
+          // the server may have marked it: a retry repeats the first choice, so nothing else is offered
+          <View style={styles.sendActions}>
+            <Button
+              title="Try again"
+              size="sm"
+              accessibilityLabel={`Try saving the spots from ${from} again`}
+              onPress={() => void runSave(item, {})}
+            />
+          </View>
         ) : (
           <View style={styles.sendActions}>
-            <Button title="Save all" size="sm" onPress={() => void runSave(item, {})} />
+            <Button
+              title="Save all"
+              size="sm"
+              accessibilityLabel={`Save all spots from ${from}`}
+              onPress={() => void runSave(item, {})}
+            />
             <Button
               title="Save into a new hit list"
               variant="secondary"
               size="sm"
+              accessibilityLabel={`Save the spots from ${from} into a new hit list`}
               onPress={() => void runSave(item, { newList: true })}
             />
-            <Button title="Pick spots" variant="secondary" size="sm" onPress={() => setPicking(item)} />
-            <Button title="Dismiss" variant="secondary" size="sm" onPress={() => askDismiss(item)} />
+            <Button
+              title="Pick spots"
+              variant="secondary"
+              size="sm"
+              accessibilityLabel={`Pick spots from ${from}`}
+              onPress={() => setPicking(item)}
+            />
+            <Button
+              title="Dismiss"
+              variant="secondary"
+              size="sm"
+              accessibilityLabel={`Dismiss the spots from ${from}`}
+              onPress={() => askDismiss(item)}
+            />
           </View>
         )}
       </View>
@@ -340,9 +376,8 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
         )}
         ListHeaderComponent={
           notice ? (
-            <Text style={styles.notice} accessibilityRole="alert" accessibilityLiveRegion="polite">
-              {notice}
-            </Text>
+            // announced when set (VoiceOver has no live regions); no live region, so Android says it once
+            <Text style={styles.notice}>{notice}</Text>
           ) : null
         }
         ListEmptyComponent={

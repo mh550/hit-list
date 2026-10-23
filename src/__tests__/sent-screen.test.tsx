@@ -81,7 +81,12 @@ beforeEach(() => {
   jest.mocked(withdrawSend).mockReset().mockResolvedValue('withdrawn');
 });
 
-afterEach(() => {
+afterEach(async () => {
+  // FlatList renders its cells on a 50 ms batch timer after a data change; let it fire inside act (a loaded machine
+  // reaches it before the cleanup unmounts the list)
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 60));
+  });
   jest.restoreAllMocks();
 });
 

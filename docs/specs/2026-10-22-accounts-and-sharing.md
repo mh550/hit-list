@@ -102,6 +102,10 @@ it can **Save a copy** (it becomes their own private spot, with "From @name" on 
 | D50 | **Blocking** | Blocking someone removes the friendship, hides their pending sends/invites, and stops them sending to you or inviting you; they aren't told. Shared lists you're both in stay as they are (§9 Q11). | Minimum safety for a social feature |
 | D51 | **Account deletion** | Profile → Delete account: deletes the account's spots, photos, lists, sends and links on the server (sends already saved by others stay theirs), signs out, and asks Keep / Remove on this phone (D38). | App Store requires in-app deletion once accounts exist |
 | D52 | **One set of filters, search, sort and List \| Map for every view** *default* | The Spots tab, each hit list's screen and the list picker read and write the same `useSpotsStore` fields; only the set of spots differs. A filter set on a list is still on back on the Spots tab (the Filter count shows it). | S1 plan (`docs/plans/2026-10-22-s1-hit-lists.md`): simplest, no per-list state (§9 Q13) |
+| D53 | **An area list ignores spots with no location** *default* | Spots stored at `NO_LOCATION` (0, 0) are never inside any circle; the area picker's count leaves them out | S2 plan (`docs/plans/2026-10-22-s2-area.md`): they have no place to be in (§9 Q14) |
+| D54 | **An area's place name is the rider's search text or 'my location'** *default* | 'Area · 2 mi of Capitol Hill' uses the trimmed search text as typed, or 'my location' after "Use my location"; no reverse geocoding; dragging the centre more than a quarter of the radius away drops the place ('Area · 2 mi') | S2 plan: simplest, no extra network call (§9 Q15) |
+| D55 | **The area picker uses the shared filters (D52)** *default* | 'Keep it updated' saves the current filters as the area list's `area_filters`; 'Edit area' loads them back into the shared filters; the Spots tab's text search is never applied in the picker or saved | S2 plan: one filter set, as D52 (§9 Q16) |
+| D56 | **Area radius: default 2 mi / 2 km; a saved radius is never resized** *default* | Stored in whole metres, one of the chip steps of the unit it was picked in; after a units switch the label converts it ('Area · 3.2 km') and no chip is selected until one is tapped | S2 plan (§9 Q17) |
 
 ---
 
@@ -339,6 +343,14 @@ it stops at a milestone boundary; S9 (links) is last among the features because 
 12. **Spot notes by others.** Not built: members commenting or adding photos to someone else's spot. Next run?
 13. **Filters across lists (D52).** Default: the Spots tab and every hit list share one set of filters, search and sort
     (set "Rail" on a list and the Spots tab shows rails too until you reset). Or should each list remember its own?
+14. **Area lists and spots with no location (D53).** Default: a spot saved without a location never shows in an area
+    list. OK?
+15. **The place name of an area (D54).** Default: your search text ('Capitol Hill') or 'my location', dropped when you
+    drag the map away. Want the town looked up instead (sends the coordinates to Apple, like the town backfill)?
+16. **Area list filters (D55).** Default: the picker uses the Spots tab's filters, and 'Edit area' loads the list's
+    filters into them. Or should each area keep its own filters, separate from the Spots tab?
+17. **Area radius (D56).** Default 2 mi / 2 km; switching units later keeps a saved area's size (shown converted,
+    e.g. 3.2 km). OK?
 
 ---
 

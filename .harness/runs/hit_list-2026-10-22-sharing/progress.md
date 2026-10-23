@@ -20,6 +20,15 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-22 23:40 · S2-01 · passes
+
+- New `docs/plans/2026-10-22-s2-area.md`. It covers: Geometry (`src/utils/area.ts`), Area lists (computed, never stored; one `selectAreaSpots` serves the picker count, the store, detail and the sheet), Picker screen (`app/area/index.tsx`, edit mode via `?listId`), Mock (`Circle`, `animateToRegion`, `geocodeAsync`), Lists tab and list screen, Add-to-list sheet and detail, Copy, a Test list per feature, Risks, and the review base `2488824`. It adds no migration and no dependency. Tests stay at 814 (only docs changed).
+- Spec §2 gains D53–D56 *default*, and §9 gains Q14–17. 'Send these N spots' joins the picker in S7.
+- Verified: `check.sh` green, 814 tests; the plan has every section that step 1 names.
+- Next session (S2-02): `selectSpotLists`'s first parameter becomes the spot (detail is the only caller). `HitListUpdate` gains the area fields (`area_place: null` clears it). `spotCountLabel` moves to `src/utils/spot-name.ts`.
+- Questions for Michael: D53, are spots with no location left out of area lists? D54, should the place be your search text / 'my location', or a reverse-geocoded town? D55, should the picker share the Spots tab's filters, with Edit area loading the list's filters? D56, default 2 mi / 2 km, and a saved radius never resized on a units switch?
+- Proposed changes: S2-03 step 1 cites `node_modules/react-native-maps/lib/index.d.ts`, but the package has no `lib/`. The types are in `dist/src/index.d.ts` (+ `MapCircle.d.ts`, `MapView.d.ts`), so the mock comment will cite those. S2-04's Lists-tab step replaces S1-05's assertion that 'New area list' is absent.
+
 ### 2026-10-23 verify S1
 
 | Feature | Step | What you ran or read | What you saw | Holds |

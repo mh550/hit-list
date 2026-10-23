@@ -4,7 +4,7 @@ import { createElement } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { ToastHost } from '@/src/components/ToastHost';
-import { showToast, TOAST_MS, useToastStore } from '@/src/stores/toast-store';
+import { clearToast, showToast, TOAST_MS, useToastStore } from '@/src/stores/toast-store';
 
 const METRICS = {
   frame: { x: 0, y: 0, width: 390, height: 844 },
@@ -13,7 +13,7 @@ const METRICS = {
 
 beforeEach(() => {
   jest.useFakeTimers();
-  useToastStore.setState({ text: null });
+  clearToast();
 });
 
 afterEach(() => {
@@ -33,14 +33,24 @@ describe('toast store (S7-04)', () => {
   });
 
   it('showToast announces the line once for VoiceOver, however many hosts draw it', () => {
+    // React Native's jest setup already mocks it, so the spy is that mock: clear the earlier tests' calls.
     const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
-    const host = () => createElement(SafeAreaProvider, { initialMetrics: METRICS }, createElement(ToastHost), createElement(ToastHost));
+    announce.mockClear();
+    const host = () =>
+      createElement(SafeAreaProvider, { initialMetrics: METRICS }, createElement(ToastHost), createElement(ToastHost));
     render(host());
     act(() => showToast('Sent to @ana'));
     expect(screen.getAllByText('Sent to @ana')).toHaveLength(2);
     expect(announce).toHaveBeenCalledTimes(1);
     expect(announce).toHaveBeenCalledWith('Sent to @ana');
     announce.mockRestore();
+  });
+
+  it('clearToast takes the line down at once and its timer with it', () => {
+    showToast('Sent to @ana');
+    clearToast();
+    expect(useToastStore.getState().text).toBeNull();
+    expect(jest.getTimerCount()).toBe(0);
   });
 
   it('a second toast replaces the first and gets its own 3 s', () => {

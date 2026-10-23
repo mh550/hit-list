@@ -31,7 +31,7 @@ import { Button } from './Button';
 
 const NOT_BACKED_UP = "Some of these spots aren't backed up yet. Try again when you're online.";
 const FAILED = "Couldn't send. Try again.";
-const LOAD_FAILED = "Couldn't load your friends. Try again later.";
+const LOAD_FAILED = "Couldn't load your friends.";
 const THUMBNAILS = 3;
 
 const handleOf = (p: FriendProfile) => (p.username ? `@${p.username}` : 'A rider');
@@ -61,6 +61,11 @@ export function SendSheet({ spotIds, onClose }: Props) {
   const status = useAuthStore((s) => s.status);
   const userId = useAuthStore((s) => s.userId);
   const client = getSupabase();
+  // Lifted from the body: while a send runs the sheet can't be closed, so its finish never closes what opened next.
+  const [sending, setSending] = useState(false);
+  const close = () => {
+    if (!sending) onClose();
+  };
   const title = spotIds.length === 1 ? 'Send this spot' : `Send ${spotIds.length} spots`;
 
   let body: ReactNode;
@@ -81,18 +86,34 @@ export function SendSheet({ spotIds, onClose }: Props) {
     );
   } else {
     // A new account starts fresh: nobody checked, no line from the one before.
-    body = <SendBody key={userId} client={client} uid={userId} spotIds={spotIds} onClose={onClose} />;
+    body = (
+      <SendBody
+        key={userId}
+        client={client}
+        uid={userId}
+        spotIds={spotIds}
+        onClose={onClose}
+        sending={sending}
+        setSending={setSending}
+      />
+    );
   }
 
   return (
-    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+    <Modal visible animationType="slide" presentationStyle="pageSheet" onRequestClose={close}>
       <View style={styles.container}>
         <View style={styles.header}>
           <Text style={styles.title} accessibilityRole="header">
             {title}
           </Text>
-          <Pressable onPress={onClose} hitSlop={8} accessibilityRole="button" accessibilityLabel="Cancel">
-            <Text style={styles.cancel}>Cancel</Text>
+          <Pressable
+            onPress={close}
+            disabled={sending}
+            hitSlop={8}
+            accessibilityRole="button"
+            accessibilityLabel="Cancel"
+            accessibilityState={{ disabled: sending }}>
+            <Text style={[styles.cancel, sending && styles.cancelDisabled]}>Cancel</Text>
           </Pressable>
         </View>
         {body}
@@ -106,7 +127,9 @@ function SendBody({
   uid,
   spotIds,
   onClose,
-}: Props & { client: SupabaseClient; uid: string }) {
+  sending,
+  setSending,
+}: Props & { client: SupabaseClient; uid: string; sending: boolean; setSending: (sending: boolean) => void }) {
   const db = useSQLiteContext();
   const router = useRouter();
   const username = useAuthStore((s) => s.username);
@@ -117,7 +140,6 @@ function SendBody({
   const spots = useSpotsStore((s) => s.spots);
   const mediaBySpot = useMediaStore((s) => s.mediaBySpot);
   const [checked, setChecked] = useState<string[]>([]);
-  const [sending, setSending] = useState(false);
   const [line, setLine] = useState<string | null>(null);
   // Checked synchronously: a second tap before the re-render must not send twice.
   const busy = useRef(false);
@@ -129,6 +151,8 @@ function SendBody({
   }, [loaded, db, client, uid]);
 
   const friends = useMemo(() => friendRows.map((f) => f.profile), [friendRows]);
+  // A friend a sync removed (or the rider blocked) since they were checked is no longer sent to.
+  const recipientIds = useMemo(() => checked.filter((id) => friends.some((f) => f.id === id)), [checked, friends]);
   const thumbnails = useMemo(() => {
     const byId = new Map(spots.map((s) => [s.id, s]));
     const uris: string[] = [];
@@ -145,7 +169,7 @@ function SendBody({
     setChecked((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
   const send = async () => {
-    if (busy.current || checked.length === 0 || !username) return;
+    if (busy.current || recipientIds.length === 0 || !username) return;
     busy.current = true;
     setSending(true);
     setLine(null);
@@ -154,7 +178,7 @@ function SendBody({
       await syncNow(db);
       const result = await createSend(db, client, uid, {
         spotIds,
-        recipientIds: checked,
+        recipientIds,
         sender: { username, display_name: displayName },
       });
       if (result && !result.failed) {
@@ -194,7 +218,12 @@ function SendBody({
   let recipients: ReactNode;
   if (!loaded) {
     recipients = loadError ? (
-      <Text style={styles.lineError}>{LOAD_FAILED}</Text>
+      <View style={styles.noFriends}>
+        <Text style={styles.lineError}>{LOAD_FAILED}</Text>
+        <Pressable onPress={() => void refreshFriends(db, client, uid)} hitSlop={8} accessibilityRole="button">
+          <Text style={styles.link}>Try again</Text>
+        </Pressable>
+      </View>
     ) : (
       <ActivityIndicator style={styles.spinner} color={palette.blue[500]} />
     );
@@ -243,7 +272,7 @@ function SendBody({
     });
   }
 
-  const canSend = checked.length > 0 && !sending;
+  const canSend = recipientIds.length > 0 && !sending;
   return (
     <ScrollView contentContainerStyle={styles.content}>
       <View style={styles.spots}>
@@ -301,6 +330,9 @@ const styles = StyleSheet.create({
   cancel: {
     fontSize: 17,
     color: palette.blue[500],
+  },
+  cancelDisabled: {
+    color: palette.gray[300],
   },
   centered: {
     alignItems: 'center',

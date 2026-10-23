@@ -25,7 +25,7 @@ import { SendSheet } from '@/src/components/SendSheet';
 import { useMediaStore, useSpotsStore } from '@/src/stores';
 import { SIGNED_OUT, useAuthStore, type AuthSnapshot } from '@/src/stores/auth-store';
 import { EMPTY_FRIENDS, useFriendsStore } from '@/src/stores/friends-store';
-import { useToastStore } from '@/src/stores/toast-store';
+import { clearToast, useToastStore } from '@/src/stores/toast-store';
 import { syncNow } from '@/src/sync/engine';
 import { refreshFriends, type FriendsData } from '@/src/sync/friends';
 import { createSend, NotBackedUpError, type SendResult } from '@/src/sync/sends';
@@ -97,7 +97,7 @@ beforeEach(() => {
   mockFake = createFakeSupabase();
   useAuthStore.setState(SIGNED_OUT);
   useFriendsStore.getState().clearFriends();
-  useToastStore.setState({ text: null });
+  clearToast();
   useSpotsStore.setState({ spots: [spotA, spotB, spotC, spotD] });
   useMediaStore.setState({ mediaBySpot: {} });
   useMediaStore.getState().setAll(['a', 'b', 'c', 'd'].map(photo));
@@ -111,6 +111,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  clearToast();
   warn.mockRestore();
 });
 

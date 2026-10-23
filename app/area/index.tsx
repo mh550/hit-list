@@ -23,6 +23,7 @@ import {
   HeaderTextButton,
   NameListCard,
   SendSheet,
+  ToastHost,
   useGuardedSubmit,
 } from '@/src/components';
 import { FilterSheet } from '@/src/components/FilterSheet';
@@ -372,6 +373,8 @@ function AreaPickerBody({ editList }: { editList?: AreaList }) {
         onSave={saveNewList}
       />
       {sendIds ? <SendSheet spotIds={sendIds} onClose={() => setSendIds(null)} /> : null}
+      {/* A native full-screen modal covers the root's toast line: 'Sent to @ana' draws here. */}
+      <ToastHost />
     </View>
   );
 }

@@ -41,7 +41,7 @@ import { createFakeSupabase, type FakeSupabase } from './helpers/fake-supabase';
 import { useAuthStore, SIGNED_OUT } from '@/src/stores/auth-store';
 
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { showToast, useToastStore } from '@/src/stores/toast-store';
+import { clearToast, showToast } from '@/src/stores/toast-store';
 
 import RootLayout from '@/app/_layout';
 
@@ -81,7 +81,7 @@ describe('RootLayout: toast (S7-04)', () => {
 
     act(() => showToast('Sent to @ana'));
     expect(screen.getByText('Sent to @ana')).toBeOnTheScreen();
-    act(() => useToastStore.setState({ text: null }));
+    act(() => clearToast());
   });
 });
 

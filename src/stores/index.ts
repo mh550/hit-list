@@ -8,3 +8,10 @@ export {
 export { useSettingsStore } from './settings-store';
 export { useLocationStore } from './location-store';
 export { useMediaStore } from './media-store';
+export {
+  useHitListsStore,
+  selectListSpots,
+  selectSpotLists,
+  selectListCounts,
+  selectListsByName,
+} from './hit-lists-store';

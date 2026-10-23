@@ -1,0 +1,241 @@
+import { renderHook, act } from '@testing-library/react-native';
+import type { SQLiteDatabase } from 'expo-sqlite';
+
+import { getHitLists, getListMemberships, insertHitList, insertSpot } from '@/src/db';
+import { useHitListActions } from '@/src/hooks/use-hit-list-actions';
+import { useHitListsStore } from '@/src/stores';
+import { createTestHitList, createTestSpot } from './factories';
+import { createMigratedTestDb } from './helpers/node-sqlite-db';
+
+let mockDb: SQLiteDatabase;
+jest.mock('expo-sqlite', () => ({
+  ...jest.requireActual('expo-sqlite'),
+  useSQLiteContext: () => mockDb,
+}));
+
+const initial = useHitListsStore.getState();
+const store = () => useHitListsStore.getState();
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/** A list already saved in both the DB and the store, as useDbInit leaves it. */
+async function seedList(overrides = {}) {
+  const list = createTestHitList(overrides);
+  await insertHitList(mockDb, list);
+  store().addList(list);
+  return list;
+}
+
+function failNextWrite(method: 'runAsync' | 'withTransactionAsync' = 'runAsync') {
+  const err = new Error('disk full');
+  jest.spyOn(mockDb, method).mockRejectedValueOnce(err);
+  const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  return { err, consoleSpy };
+}
+
+describe('useHitListActions', () => {
+  beforeEach(async () => {
+    useHitListsStore.setState(initial, true);
+    mockDb = await createMigratedTestDb();
+    await insertSpot(mockDb, createTestSpot({ id: 'a' }));
+    await insertSpot(mockDb, createTestSpot({ id: 'b' }));
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  it('createList adds a manual, unshared list to the store and the DB and returns it', async () => {
+    const { result } = renderHook(() => useHitListActions());
+    let created!: Awaited<ReturnType<typeof result.current.createList>>;
+    await act(async () => {
+      created = await result.current.createList('  Downtown ');
+    });
+
+    expect(created).toEqual(
+      expect.objectContaining({ name: 'Downtown', kind: 'manual', shared: false, updated_at: created.created_at }),
+    );
+    expect(created.id).toMatch(UUID);
+    expect(Number.isNaN(Date.parse(created.created_at))).toBe(false);
+    expect(store().lists).toEqual([created]);
+    expect(await getHitLists(mockDb)).toEqual([created]);
+  });
+
+  it('createList puts the list in the store before the DB write resolves', async () => {
+    const { result } = renderHook(() => useHitListActions());
+    let pending!: Promise<unknown>;
+    act(() => {
+      pending = result.current.createList('Night');
+    });
+    expect(store().lists.map((l) => l.name)).toEqual(['Night']);
+    await act(async () => {
+      await pending;
+    });
+  });
+
+  it('createList: a failed insert takes the list back out and rejects', async () => {
+    const { err, consoleSpy } = failNextWrite();
+    const { result } = renderHook(() => useHitListActions());
+    await act(async () => {
+      await expect(result.current.createList('Downtown')).rejects.toBe(err);
+    });
+    expect(store().lists).toEqual([]);
+    expect(await getHitLists(mockDb)).toEqual([]);
+    expect(consoleSpy).toHaveBeenCalledWith('[useHitListActions] createList failed:', err);
+  });
+
+  it('renameList renames in the store first, then the DB, with one updated_at', async () => {
+    const list = await seedList();
+    const { result } = renderHook(() => useHitListActions());
+    let pending!: Promise<void>;
+    act(() => {
+      pending = result.current.renameList(list.id, 'Night mission');
+    });
+    expect(store().lists[0].name).toBe('Night mission');
+    await act(async () => {
+      await pending;
+    });
+
+    const [saved] = await getHitLists(mockDb);
+    expect(saved.name).toBe('Night mission');
+    expect(saved.updated_at > list.updated_at).toBe(true);
+    expect(store().lists[0]).toEqual(saved);
+  });
+
+  it('renameList: a failed write restores the name and updated_at and rejects', async () => {
+    const list = await seedList();
+    const { err, consoleSpy } = failNextWrite();
+    const { result } = renderHook(() => useHitListActions());
+    await act(async () => {
+      await expect(result.current.renameList(list.id, 'Night mission')).rejects.toBe(err);
+    });
+    expect(store().lists).toEqual([list]);
+    expect(consoleSpy).toHaveBeenCalledWith('[useHitListActions] renameList failed:', err);
+  });
+
+  it('deleteList soft-deletes: gone from the store and getHitLists, spots untouched', async () => {
+    const list = await seedList();
+    store().setActiveListId(list.id);
+    const { result } = renderHook(() => useHitListActions());
+    let pending!: Promise<void>;
+    act(() => {
+      pending = result.current.deleteList(list.id);
+    });
+    expect(store().lists).toEqual([]);
+    expect(store().activeListId).toBeNull();
+    await act(async () => {
+      await pending;
+    });
+
+    expect(await getHitLists(mockDb)).toEqual([]);
+    const row = await mockDb.getFirstAsync<{ deleted_at: string | null }>(
+      'SELECT deleted_at FROM hit_lists WHERE id = ?',
+      list.id,
+    );
+    expect(row?.deleted_at).toEqual(expect.any(String));
+    expect(await mockDb.getAllAsync('SELECT id FROM spots')).toHaveLength(2);
+  });
+
+  it('deleteList: a failed write puts the list back, re-selects it, and rejects', async () => {
+    const list = await seedList();
+    store().setActiveListId(list.id);
+    const { err, consoleSpy } = failNextWrite();
+    const { result } = renderHook(() => useHitListActions());
+    await act(async () => {
+      await expect(result.current.deleteList(list.id)).rejects.toBe(err);
+    });
+    expect(store().lists).toEqual([list]);
+    expect(store().activeListId).toBe(list.id);
+    expect(consoleSpy).toHaveBeenCalledWith('[useHitListActions] deleteList failed:', err);
+  });
+
+  it('deleteList: a failed write keeps a list the user picked while it was pending', async () => {
+    const list = await seedList();
+    const other = await seedList({ name: 'Night' });
+    store().setActiveListId(list.id);
+    const { err } = failNextWrite();
+    const { result } = renderHook(() => useHitListActions());
+    let pending!: Promise<void>;
+    act(() => {
+      pending = result.current.deleteList(list.id);
+    });
+    act(() => store().setActiveListId(other.id));
+    await act(async () => {
+      await expect(pending).rejects.toBe(err);
+    });
+    expect(store().lists.map((l) => l.id).sort()).toEqual([list.id, other.id].sort());
+    expect(store().activeListId).toBe(other.id);
+  });
+
+  it('addSpotsToList adds memberships in the store first, then the DB', async () => {
+    const list = await seedList();
+    const { result } = renderHook(() => useHitListActions());
+    let pending!: Promise<void>;
+    act(() => {
+      pending = result.current.addSpotsToList(list.id, ['a', 'b']);
+    });
+    expect(store().membershipBySpot).toEqual({ a: [list.id], b: [list.id] });
+    await act(async () => {
+      await pending;
+    });
+    expect(await getListMemberships(mockDb)).toEqual({ a: [list.id], b: [list.id] });
+  });
+
+  it('addSpotsToList: a failed write removes only the spots that were not already in the list', async () => {
+    const list = await seedList();
+    const { result } = renderHook(() => useHitListActions());
+    await act(async () => {
+      await result.current.addSpotsToList(list.id, ['a']);
+    });
+
+    const { err, consoleSpy } = failNextWrite('withTransactionAsync');
+    await act(async () => {
+      await expect(result.current.addSpotsToList(list.id, ['a', 'b'])).rejects.toBe(err);
+    });
+    expect(store().membershipBySpot).toEqual({ a: [list.id] });
+    expect(await getListMemberships(mockDb)).toEqual({ a: [list.id] });
+    expect(consoleSpy).toHaveBeenCalledWith('[useHitListActions] addSpotsToList failed:', err);
+  });
+
+  it('removeSpotFromList removes the membership in the store first, then the DB', async () => {
+    const list = await seedList();
+    const { result } = renderHook(() => useHitListActions());
+    await act(async () => {
+      await result.current.addSpotsToList(list.id, ['a', 'b']);
+    });
+    let pending!: Promise<void>;
+    act(() => {
+      pending = result.current.removeSpotFromList(list.id, 'a');
+    });
+    expect(store().membershipBySpot).toEqual({ b: [list.id] });
+    await act(async () => {
+      await pending;
+    });
+    expect(await getListMemberships(mockDb)).toEqual({ b: [list.id] });
+  });
+
+  it('removeSpotFromList: a failed write puts the membership back and rejects', async () => {
+    const list = await seedList();
+    const { result } = renderHook(() => useHitListActions());
+    await act(async () => {
+      await result.current.addSpotsToList(list.id, ['a']);
+    });
+    const { err, consoleSpy } = failNextWrite();
+    await act(async () => {
+      await expect(result.current.removeSpotFromList(list.id, 'a')).rejects.toBe(err);
+    });
+    expect(store().membershipBySpot).toEqual({ a: [list.id] });
+    expect(await getListMemberships(mockDb)).toEqual({ a: [list.id] });
+    expect(consoleSpy).toHaveBeenCalledWith('[useHitListActions] removeSpotFromList failed:', err);
+  });
+
+  it('removeSpotFromList: a failed write for a spot that was not in the list adds nothing', async () => {
+    const list = await seedList();
+    const { err, consoleSpy } = failNextWrite();
+    const { result } = renderHook(() => useHitListActions());
+    await act(async () => {
+      await expect(result.current.removeSpotFromList(list.id, 'a')).rejects.toBe(err);
+    });
+    expect(store().membershipBySpot).toEqual({});
+    consoleSpy.mockRestore();
+  });
+});

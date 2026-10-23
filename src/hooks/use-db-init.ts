@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useSQLiteContext } from 'expo-sqlite';
 
-import { migrateDb, getSpots, getAllMedia, getUserSettings } from '@/src/db';
+import { migrateDb, getSpots, getAllMedia, getUserSettings, getHitLists, getListMemberships } from '@/src/db';
 import { useSpotActions } from '@/src/hooks/use-spot-actions';
 import { useSpotsStore } from '@/src/stores';
 import { useSettingsStore } from '@/src/stores/settings-store';
 import { useMediaStore } from '@/src/stores/media-store';
+import { useHitListsStore } from '@/src/stores/hit-lists-store';
 import type { Spot } from '@/src/types';
 import { backfillTowns } from '@/src/utils/reverse-geocode';
 
@@ -15,6 +16,8 @@ export function useDbInit(): { isReady: boolean; upgradeFailed: boolean } {
   const { updateSpot } = useSpotActions();
   const loadSettings = useSettingsStore((s) => s.loadSettings);
   const setAllMedia = useMediaStore((s) => s.setAll);
+  const setLists = useHitListsStore((s) => s.setLists);
+  const setMemberships = useHitListsStore((s) => s.setMemberships);
   const [isReady, setIsReady] = useState(false);
   const [upgradeFailed, setUpgradeFailed] = useState(false);
 
@@ -42,6 +45,16 @@ export function useDbInit(): { isReady: boolean; upgradeFailed: boolean } {
         console.error('[useDbInit] Failed to initialize database (media):', err);
       }
       try {
+        setLists(await getHitLists(db));
+      } catch (err) {
+        console.error('[useDbInit] Failed to initialize database (hit lists):', err);
+      }
+      try {
+        setMemberships(await getListMemberships(db));
+      } catch (err) {
+        console.error('[useDbInit] Failed to initialize database (memberships):', err);
+      }
+      try {
         const settings = await getUserSettings(db);
         if (settings) {
           loadSettings(settings);
@@ -53,7 +66,8 @@ export function useDbInit(): { isReady: boolean; upgradeFailed: boolean } {
       // In the background, after the app is usable: towns for untitled spots (D4).
       void backfillTowns(spots, updateSpot);
     })();
-  }, [db, setSpots, updateSpot, setAllMedia, loadSettings]); // all stable, so this still runs once
+    // All stable, so this still runs once.
+  }, [db, setSpots, updateSpot, setAllMedia, setLists, setMemberships, loadSettings]);
 
   return { isReady, upgradeFailed };
 }

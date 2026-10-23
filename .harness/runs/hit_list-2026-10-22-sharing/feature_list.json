@@ -44,7 +44,7 @@
         "src/hooks/use-db-init.ts loads getHitLists and getListMemberships into the store after spots and media, each in its own try/catch so a failure logs and the app still starts; src/__tests__/db-init.test.ts asserts lists load and that a throwing getHitLists leaves isReady true.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S1-04",

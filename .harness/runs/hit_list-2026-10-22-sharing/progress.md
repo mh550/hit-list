@@ -20,6 +20,14 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-22 21:10 · S1-03 · passes
+
+- New `src/stores/hit-lists-store.ts` (lists, membershipBySpot, activeListId + the plan's 8 actions; pure selectors `selectListSpots(list, spots, m)`, `selectSpotLists(spotId, lists, m)` (name order), `selectListCounts`, `selectListsByName` (case-insensitive)), exported from `src/stores/index.ts`. New `src/hooks/use-hit-list-actions.ts` (createList/renameList/deleteList/addSpotsToList/removeSpotFromList: store first, DB after, on rejection `console.error('[useHitListActions] <fn> failed:')`, revert, rethrow). `useDbInit` loads `getHitLists` then `getListMemberships` after media, before settings, each in its own try/catch.
+- Tests 680 → 706: `hit-lists-store.test.ts` (10), `use-hit-list-actions.test.ts` (13, real node:sqlite via a `useSQLiteContext` override, failures via `jest.spyOn(db, 'runAsync'|'withTransactionAsync').mockRejectedValueOnce`), `db-init.test.ts` +3 (its `@/src/db` mock gained the two getters). Watched RED (missing modules, then 3 db-init failures), then GREEN; `check.sh` green (706 tests, 0 console.error), target suites stable over 3 reruns.
+- Opus review: no high-severity bugs. Fixed: a failed deleteList no longer overwrites a list picked while it was pending (test watched failing first). Left for S1's review feature (overlapping writes only): (1) two pending addSpotsToList of the same spot, first fails/second succeeds → store drops a spot the DB has; (2) two overlapping renames that both fail, or share a millisecond stamp, can leave store ≠ DB; (3) a rename during a pending delete that then fails restores the stale name. Fix idea: revert by re-reading the row/memberships from the DB.
+- Next (S1-04): store state the screens read is `useHitListsStore((s) => s.lists)` / `s.membershipBySpot` + `useMemo` the selectors; `deleteList` keeps the deleted list's ids in `membershipBySpot` (selectors skip absent lists) so a revert is clean.
+- Questions for Michael: none new. Proposed changes: none.
+
 ### 2026-10-22 20:40 · S1-02 · passes
 
 - Migration 4 (`src/db/schema.ts`, `IF NOT EXISTS`): `hit_lists` (13 columns, area + owner reserved) and `hit_list_spots` (PK list_id+spot_id, both FKs `ON DELETE CASCADE`) + `idx_hit_lists_deleted_at`, `idx_hit_list_spots_spot_id`. Only the `MIGRATIONS` array line changed; migrations 1–3 untouched.

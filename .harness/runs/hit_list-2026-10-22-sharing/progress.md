@@ -20,6 +20,27 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 · verify S10
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| S10-01 | 1 | `git cat-file -t 4aa5326`; `wc -l reviews/run*.diff`; read sweep doc 'Final review'; `git log` of the RED/GREEN commits | run.diff 48 118 lines, split run-data 10 068 / run-ui 8 294; table has id, severity, file:line, fix commit for D1,U1,U2,U3 (+ left items); each RED commit precedes its GREEN (45693e3<20431b0 ancestor, 2bc234c→5c9db25, bcb6093→2b118e8, b95bd2c→7acab3a) | yes |
+| S10-01 | 2 | Read sweep 'five anti-goals'; `ls supabase/tests`; sum of `select plan(n)`; sweep's Sign in grep list | All five answered with named tests; 12 pgTAP files, plan total 640 = the 640 recorded; 010-schema asserts RLS on the ten tables; Sign in occurrences listed with screens | yes |
+| S10-01 | 3 | `npx expo export --platform ios` (scratch dir); `npx expo-doctor`; the stale grep | export exit 0, 5.4 MB; doctor 21/21; grep prints only src/__tests__/db-migrate.test.ts:736-745 (the test proving migration drops sync_queue, D65), no app code: literal 'prints nothing' not met, intent (no stale app use) met, sweep flags it | yes (test-only hit) |
+| S10-01 | 4 | Did NOT start the stack (harness policy build-only: no containers). Read sweep Checks table; `docker ps --format '{{.Names}}'`; static pgTAP plan sum | Counts recorded: pgTAP 640, integration 79, jest 2088 (check.sh re-confirmed 2088 green); docker ps shows only dj-*/n8n-*, no supabase_* left. Stack runs themselves not re-executed by me | yes (counts read, not re-run) |
+| S10-01 | 5 | `/home/mh550/projects/agent-harness/lib/check.sh` | check: green, 2088 tests (lint+tsc+jest --silent) | yes |
+| S10-02 | 1 | Read APP_SPECIFICATIONS.md lines 3-93, 581-583, 655-690 | '## Accounts and sharing (2026-10-22)' at line 45 right after Simplified model; vocabulary table (7 terms), two verbs, ownership, server model with ten tables + RLS rule, sync D48, links D44/D45, spec pointer; three [FUTURE] headings retitled [SUPERSEDED] with pointer, text kept; 'Built as (2026-10-22)' under Sync Strategy | yes |
+| S10-02 | 2 | Read README.md Status | Dated 2026-10-22; bullets for hit lists, area lists, accounts (email code), friends/Inbox, Send, Share, links; run needs: local stack, .env.local over Tailscale, nothing deployed | yes |
+| S10-02 | 3 | grep of CLAUDE.md for each required term | All present: optional accounts + local Docker stack, supabase-js/2.121.0/secure-store/async-storage/image-manipulator/clipboard, all db:* and test:integration commands + Docker rule, listed screens/dirs, Send/Share rule, owner_id, Paths.cache, .env, append-only, pgTAP/seed.sql/jest.integration/fake-supabase | yes |
+| S10-02 | 4 | grep docs/RUNNING-ON-PHONE.md | '## With accounts (local stack over Tailscale)' line 93 with db:start, .env.local, Mailpit :54324, Studio :54323, db:stop; line 21 now 'git switch main', no 'overnight' | yes |
+| S10-02 | 5 | check.sh | green, 2088 tests | yes |
+| S10-03 | 1 | Read docs/plans/2026-10-22-sharing-what-michael-will-see.md headings + links | Sections 0-8 in required order (hit/area list, sign in+Backed up, friends, send/save, share/join/add/leave, link+revoke, sign-out prompt, Delete account) + 'If something is off' with stack, Mailpit, 'N changes not backed up', pull to refresh; links to all 8 existing per-milestone files (S3 has none) | yes |
+| S10-03 | 2 | Read live-checklist.md (317 lines) headings, checkboxes, grep of commands | §10 items as checkboxes; link --project-ref, db push (dry run first), functions deploy share-preview account-delete, EXPO_PUBLIC_* incl. SHARE_BASE_URL, custom SMTP, meta tag hitlist-functions-url hosting; 'Cloud rollout, in order' steps 1-8 each with check and undo; 'Later, with a dev build' item 8 present | yes |
+| S10-03 | 3 | Compared spec §2 D52-D96 (rows) with §9 text (loop D52..D96 grep) and progress.md S10-03 entry | No D number 52-96 missing in §9; D97+ none; progress S10-03 entry lists D52-D96, one line each | yes |
+| S10-03 | 4 | check.sh | green, 2088 tests | yes |
+
+14 hold, 0 fail. Note: S10-01 step 3's literal grep matches one test file; wording should exclude `src/__tests__`.
+
 ### 2026-10-23 · S10-03 · passes
 Docs only. New `docs/plans/2026-10-22-sharing-what-michael-will-see.md` (the 8-step two-rider walk, 'If something is off', links to S1/S2/S4–S9 files). `docs/plans/2026-10-22-live-checklist.md` gains 'Cloud rollout, in order' (create project, link, push dry run, functions, auth/SMTP, env values, hosting, each with check and undo; 'Later' items kept). Spec §2/§9 checked: every D52–D96 appears in both. Verified: check.sh green, 2088 tests (unchanged). No questions beyond §9.
 Defaults the run added for Michael to overrule (spec §2/§9), one line each:

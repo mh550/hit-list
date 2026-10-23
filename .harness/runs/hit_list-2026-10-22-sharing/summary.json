@@ -3,7 +3,7 @@
   "project": "hit_list",
   "branch": "harness/hit_list-2026-10-22-sharing",
   "started": "2026-10-22T23:28:07.000Z",
-  "ended_at": "2026-10-23T17:02:12.000Z",
+  "ended_at": "2026-10-23T17:02:39.000Z",
   "end_reason": "done",
   "continuations": 0,
   "features": {
@@ -89,7 +89,7 @@
     "end": 2088
   },
   "cost": {
-    "total": 332.02,
+    "total": 332.21,
     "per_passing_feature": 4.37,
     "by_role": {
       "init": 11.53,
@@ -98,18 +98,19 @@
       "check": 4.22,
       "review": 70.29,
       "verify": 4.81,
-      "docs": 0.86
+      "docs": 0.86,
+      "retro": 0.18
     },
     "by_model": {
       "claude-fable-5-1": 11.53,
       "claude-opus-5-5": 310.57,
-      "claude-sonnet-5-5": 9.89
+      "claude-sonnet-5-5": 10.07
     },
     "manager": 0
   },
   "time": {
-    "wall_h": 17.57,
-    "sessions_h": 17.41,
+    "wall_h": 17.58,
+    "sessions_h": 17.42,
     "driver_h": 0.16,
     "by_role_h": {
       "init": 0.43,
@@ -118,12 +119,13 @@
       "check": 0.45,
       "review": 2.66,
       "verify": 0.33,
-      "docs": 0.06
+      "docs": 0.06,
+      "retro": 0.01
     }
   },
   "sessions": {
-    "total": 87,
-    "real": 87,
+    "total": 88,
+    "real": 88,
     "environmental": 0
   },
   "guards": {

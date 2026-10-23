@@ -13,13 +13,17 @@ const mockAddSpotsToList = jest.fn((listId: string, spotIds: string[]): Promise<
   void spotIds;
   return Promise.resolve();
 });
+// Unticking a list in the sheet takes the spot out of the store, as the real hook does.
+const mockRemoveSpotFromList = jest.fn(async (listId: string, spotId: string): Promise<void> => {
+  useHitListsStore.getState().removeMemberships(listId, [spotId]);
+});
 jest.mock('@/src/hooks/use-hit-list-actions', () => ({
   useHitListActions: () => ({
     createList: jest.fn(),
     renameList: jest.fn(),
     deleteList: jest.fn(),
     addSpotsToList: mockAddSpotsToList,
-    removeSpotFromList: jest.fn(),
+    removeSpotFromList: mockRemoveSpotFromList,
   }),
 }));
 
@@ -77,6 +81,7 @@ const row = (name: RegExp) => screen.getByLabelText(name);
 beforeEach(() => {
   mockPush.mockClear();
   mockAddSpotsToList.mockClear();
+  mockRemoveSpotFromList.mockClear();
   jest.mocked(useRouter).mockReturnValue({ push: mockPush, back: jest.fn(), replace: jest.fn() } as never);
   useSpotsStore.setState({
     spots: [a, b, c],
@@ -302,6 +307,20 @@ describe('Spots tab multi-select', () => {
     expect(row(/Alley rail/).props.accessibilityState).toEqual({ checked: false });
     expect(row(/Bank to wall/).props.accessibilityState).toEqual({ checked: true });
     expect(headerOptions().headerTitle).toBe('1 selected');
+  });
+
+  it('unticking the active list in the open sheet keeps its spots in the sheet, so a re-tick puts them back', async () => {
+    useHitListsStore.setState({ membershipBySpot: { b: [downtown.id] }, activeListId: downtown.id });
+    render(<SpotsScreen />);
+    fireEvent(row(/Bank to wall/), 'longPress');
+    fireEvent.press(screen.getByLabelText('Add to list (1)'));
+
+    await act(async () => fireEvent.press(screen.getByLabelText('Downtown')));
+    expect(mockRemoveSpotFromList).toHaveBeenCalledWith(downtown.id, 'b');
+
+    expect(screen.UNSAFE_getByType(AddToListSheet).props).toMatchObject({ visible: true, spotIds: ['b'] });
+    await act(async () => fireEvent.press(screen.getByLabelText('Downtown')));
+    expect(mockAddSpotsToList).toHaveBeenLastCalledWith(downtown.id, ['b']);
   });
 
   it('switching to an empty list ends select mode', () => {

@@ -35,7 +35,9 @@ export default function SpotsScreen() {
 
   // Select mode: null = off; otherwise the chosen ids in tap order (the sheet files them in that order).
   const [selected, setSelected] = useState<string[] | null>(null);
-  const [sheetVisible, setSheetVisible] = useState(false);
+  // The ids the open sheet files, fixed when it opens: unticking the active list there takes the spots out of scope
+  // (and so out of `selected`), and a re-tick must still put them back. null = sheet closed.
+  const [sheetIds, setSheetIds] = useState<string[] | null>(null);
   // Selecting is a List view thing: switching to Map, or the last spot in scope going, ends it (adjusting state
   // while rendering, not in an effect).
   if (selected !== null && (viewMode !== 'list' || spots.length === 0)) setSelected(null);
@@ -50,7 +52,7 @@ export default function SpotsScreen() {
   const toggle = (id: string) =>
     setSelected((prev) => (prev?.includes(id) ? prev.filter((x) => x !== id) : [...(prev ?? []), id]));
   const endSelecting = () => {
-    setSheetVisible(false);
+    setSheetIds(null);
     setSelected(null);
   };
 
@@ -105,7 +107,7 @@ export default function SpotsScreen() {
       {selecting ? (
         <View testID="select-bar" style={styles.selectBar}>
           <Pressable
-            onPress={() => setSheetVisible(true)}
+            onPress={() => setSheetIds(chosen)}
             disabled={count === 0}
             style={({ pressed }) => [
               styles.selectButton,
@@ -119,7 +121,7 @@ export default function SpotsScreen() {
           </Pressable>
         </View>
       ) : null}
-      <AddToListSheet visible={sheetVisible} spotIds={chosen} onClose={endSelecting} />
+      <AddToListSheet visible={sheetIds !== null} spotIds={sheetIds ?? []} onClose={endSelecting} />
       {/* The floating actions would cover the select bar; nothing to add while choosing spots. */}
       {selecting ? null : (
         <View style={styles.fabColumn}>

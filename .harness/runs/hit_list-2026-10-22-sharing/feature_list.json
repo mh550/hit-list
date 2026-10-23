@@ -888,7 +888,7 @@
         "The hit-lists store exposes selectSharedWithMe(lists, uid) (owner_id set and ≠ uid, status 'member') and selectInvitations (status 'invited') and the inbox store gets kind 'invite' items from the pull; tests in hit-lists-store.test.ts and inbox-store.test.ts.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S8-03",

@@ -512,6 +512,24 @@ and the re-read after `stop_sharing` pass RLS and `guard_member_update`; `downlo
   delete the removed spots' cache folders. Sign-out Keep removing others' rows is still S8-03.
 - Tests: 1684 → 1756 (`check.sh` green); RED-first counts are in each commit message.
 
+### S8-02 review (Opus, diff 5792dba..29015e0)
+
+The reviewer checked every hard delete of `hit_list_spots`/`spots`/`hit_lists` against the migration 8 triggers (none
+echoes), no `removeLocally` from inside a queue task, and `list_invitations`/`share_list` (definer, search_path,
+grants, count = `can_read_spot`).
+
+| # | Severity | Finding | Outcome |
+|---|---|---|---|
+| 1 | Important | media `in('spot_id', 100 ids)` reads unpaged: past 1000 rows the photo check deletes real photos, the fill misses some | fixed: paged `order('id').range()`, nothing removed after a cut-off page (RED test) |
+| 2 | Important | a deleted shared list keeps its member rows: fill fetched it back every pull, reconcileLists deleted it again | fixed: the fill skips deleted rows (RED test: the third pull reports no change) |
+| 3 | Minor | the fill re-asks and warns every pull for memberships whose spot is unreadable | fixed: skipped quietly (RED test) |
+| 4 | Minor | invitation ticket taken after awaits: an answered invitation could reappear until the next load | fixed: ticket right after the server call, `isNewest` re-checked before `setItems` |
+| 5 | Minor | a Join (or invite/setRole) landing mid-pull is undone by that pull's stale members read until the next sync | left for S8-09: converges on the follow-up sync; fix = run the post-call mirror writes on `runExclusive` |
+| 6 | Minor | `invite` wrote 'invited' over a known row the server ignored (ignoreDuplicates) | fixed: known rows left as they are (RED test) |
+| 7 | Minor | an account switch keeps the new rider's rows with `cache/` paths: `downloadMissingPhotos` never moves them | left for S8-03 (D86 sign-out/switch work): re-path `cache/` media of the kept rider to `photos/` |
+| 8 | Minor | `removeLocally` uses `withTransactionAsync` during normal use (CLAUDE.md exception is for adopt) | left for S8-09: the plan asks for one transaction (Global constraints); either document the exception or split into idempotent single statements |
+| 9 | Minor | pgTAP 110 covers only invitee-blocks-owner | left for S8-07 (stack run): add an owner-blocks-invitee case |
+
 ## Unresolved questions
 
 - D83–D91 are defaults (§9 Q44–Q52). Q11 (blocking inside a shared list) stays as D50: nothing changes in lists you

@@ -1,11 +1,16 @@
-import { Tabs } from 'expo-router';
+import { Redirect, Tabs } from 'expo-router';
 import React from 'react';
 
 import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
+import { useAuthStore } from '@/src/stores/auth-store';
 
 export default function TabLayout() {
+  const status = useAuthStore((s) => s.status);
+  // Signed in without an @username yet: onboarding first, whichever way the rider got back to the tabs.
+  if (status === 'needs_username') return <Redirect href="/auth/username" />;
+
   return (
     <Tabs
       screenOptions={{

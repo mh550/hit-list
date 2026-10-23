@@ -61,6 +61,10 @@ export default function RootLayout() {
                 />
                 <Stack.Screen name="auth/sign-in" options={{ presentation: 'modal', title: 'Sign in' }} />
                 <Stack.Screen name="auth/code" options={{ title: 'Enter code' }} />
+                <Stack.Screen
+                  name="auth/username"
+                  options={{ title: 'Your username', headerBackVisible: false, gestureEnabled: false }}
+                />
               </Stack>
             </DBInitializer>
           </SQLiteProvider>

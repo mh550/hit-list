@@ -48,7 +48,8 @@ describe('UsernameScreen', () => {
   it('asks for an @username and an optional display name', () => {
     render(<UsernameScreen />);
     expect(screen.getByText('Pick your @username')).toBeTruthy();
-    expect(screen.getByText('@')).toBeTruthy();
+    // A visual prefix; VoiceOver reads the field's label instead.
+    expect(screen.getByText('@', { includeHiddenElements: true })).toBeTruthy();
     expect(usernameField().props.autoCapitalize).toBe('none');
     expect(usernameField().props.autoCorrect).toBe(false);
     expect(displayNameField().props.maxLength).toBe(50);

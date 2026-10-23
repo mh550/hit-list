@@ -20,6 +20,7 @@ jest.mock('expo-router', () => ({
   useIsFocused: jest.fn(() => true),
   usePathname: () => '/',
   Link: 'Link',
+  Redirect: 'Redirect',
   Tabs: {
     Screen: 'Tabs.Screen',
   },

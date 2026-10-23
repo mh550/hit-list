@@ -47,6 +47,10 @@ export default function RootLayout() {
                 <Stack.Screen name="import/index" options={{ title: 'Import Photos' }} />
                 <Stack.Screen name="import/review" options={{ title: 'Review Import' }} />
                 <Stack.Screen name="list/[id]/index" options={{ title: 'Hit list' }} />
+                <Stack.Screen
+                  name="area/index"
+                  options={{ presentation: 'fullScreenModal', title: 'Pick an area' }}
+                />
               </Stack>
             </DBInitializer>
           </SQLiteProvider>

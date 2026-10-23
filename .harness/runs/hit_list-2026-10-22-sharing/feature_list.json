@@ -208,7 +208,7 @@
         "The bottom bar shows 'Save as hit list' only (no Send yet); pressing it shows two options 'Just these 23 spots' with hint 'A normal hit list of the spots inside the circle right now' and 'Keep it updated' with hint 'An area list: your spots inside this circle, now and later'; no action is wired yet (S2-04) beyond closing the chooser.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S2-04",

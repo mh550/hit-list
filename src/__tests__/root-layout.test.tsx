@@ -51,6 +51,15 @@ describe('RootLayout: photo viewer', () => {
   });
 });
 
+describe('RootLayout: area picker', () => {
+  it("registers area/index as a full-screen modal titled 'Pick an area'", () => {
+    render(<RootLayout />);
+
+    const picker = screen.UNSAFE_getAllByProps({ name: 'area/index' })[0];
+    expect(picker.props.options).toEqual({ presentation: 'fullScreenModal', title: 'Pick an area' });
+  });
+});
+
 describe("gesture-handler's jest setup", () => {
   it('lets a test drive a gesture through jest-utils', () => {
     const onEnd = jest.fn();

@@ -10,9 +10,10 @@ interface ChipProps {
   onPress?: () => void;
   /**
    * 'checkbox' (default) for toggles in a set; 'button' for one-of choices such as the sort chips; 'tab' for a row
-   * that switches what the screen shows (the list picker). 'button' and 'tab' report `selected`, 'checkbox' `checked`.
+   * that switches what the screen shows (the list picker); 'radio' for one value of a setting (the area radius).
+   * 'button' and 'tab' report `selected`, 'checkbox' and 'radio' `checked`.
    */
-  role?: 'checkbox' | 'button' | 'tab';
+  role?: 'checkbox' | 'button' | 'tab' | 'radio';
   disabled?: boolean;
   accessibilityLabel?: string;
   accessibilityHint?: string;
@@ -35,7 +36,9 @@ export function Chip({
       accessibilityRole={role}
       accessibilityLabel={accessibilityLabel}
       accessibilityHint={accessibilityHint}
-      accessibilityState={role === 'checkbox' ? { checked: selected, disabled } : { selected, disabled }}>
+      accessibilityState={
+        role === 'checkbox' || role === 'radio' ? { checked: selected, disabled } : { selected, disabled }
+      }>
       <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
         {label}
       </Text>

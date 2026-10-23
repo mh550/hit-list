@@ -20,6 +20,15 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 00:40 · S2-03 · passes
+
+- New `app/area/index.tsx` (the 'Pick an area' screen; `app/_layout.tsx` registers it as a `fullScreenModal`). It has a MapView with a fixed centre pin (`area-center-pin`), a `Circle`, a pin per spot inside, `radio` radius chips (`Chip` gains the role), and 'Search a place' (`geocodeAsync` on submit; a request counter drops stale answers; `[]` or a rejection shows 'No place found' silently). It also has 'Use my location' (disabled with no fix), Cancel / Filter in the header (the shared `FilterSheet`), and a live count from `selectAreaSpots`. 'Save as hit list' opens a chooser ('Just these N spots', hidden at 0, and 'Keep it updated', each with its hint, plus Cancel). Every option only closes it.
+- The maps mock gains `Circle` (`map-circle`) and `mockMapMethods.animateToRegion`. Its header cites `dist/src/*.d.ts` and says how to fire `onRegionChangeComplete`. `jest.setup.ts` mocks `geocodeAsync`. `spotCountLabel` moved to `src/utils/spot-name.ts`.
+- Tests 841 → 873: new `area-picker.test.tsx` (30), +1 in `root-layout`, +1 in `spot-name`. All were RED first (the module was missing). Mutation checks: removing the request counter fails 1 test, and following the live fix fails 3.
+- Verified: `check.sh` green with 873 tests, `npx jest --ci` has 0 console.error, and `npx expo export --platform ios` exits 0 (4.2 MB hbc). An Opus review found nothing Critical. Its one Important finding (`initialRegion` was recomputed with the live radius, which could snap the camera back while the map loads) is fixed and has a RED test first.
+- Next (S2-04): the place state already exists (`place` = `{ name, center }`, 'my location' when opened on a fix, dropped by `keepsPlace` on a drag), so `area_place` is `place?.name`. The chooser's options call `onClose` in `SaveChooser`; wire them to `NameListSheet` there. Edit mode (`?listId`) is not built yet.
+- Questions for Michael: none new (D53–D56 still open in spec §9).
+
 ### 2026-10-22 23:59 · S2-02 · passes
 
 - New `src/utils/area.ts`: `RADIUS_STEPS_M`, `DEFAULT_AREA_RADIUS_M`, `spotsInCircle`, `nearestStep`, `radiusLabel`, `areaLabel`, `circleRegion`, `keepsPlace`. The store gains `selectAreaSpots`, the one rule for "in the area". `selectListSpots`, `selectListCounts` and `selectSpotLists` compute an area list's spots from its circle and `area_filters`, with no memberships. `selectSpotLists` now takes the spot instead of the id; detail's `InLists` takes `spot`. `updateList`: `area_place: null` clears the place. `HitListUpdate` gains the area fields, and `updateHitList` (DB) writes them.

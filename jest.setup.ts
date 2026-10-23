@@ -98,6 +98,7 @@ jest.mock('expo-location', () => ({
     throw new Error('location unavailable in tests');
   }),
   reverseGeocodeAsync: jest.fn(async () => []),
+  geocodeAsync: jest.fn(async () => []),
   Accuracy: { Lowest: 1, Low: 2, Balanced: 3, High: 4, Highest: 5, BestForNavigation: 6 },
 }));
 

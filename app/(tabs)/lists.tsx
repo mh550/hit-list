@@ -8,8 +8,7 @@ import { palette, spacing } from '@/src/constants/theme';
 import { useHitListActions } from '@/src/hooks/use-hit-list-actions';
 import { selectListCounts, selectListsByName, useHitListsStore, useSpotsStore } from '@/src/stores';
 import type { HitList } from '@/src/types';
-
-const spotCountLabel = (n: number) => (n === 1 ? '1 spot' : `${n} spots`);
+import { spotCountLabel } from '@/src/utils/spot-name';
 
 export default function ListsScreen() {
   const router = useRouter();

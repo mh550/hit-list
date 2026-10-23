@@ -213,6 +213,17 @@ describe('invite, setRole, removeMember', () => {
     expect(await getMembers(db, 'list-1')).toEqual([{ list_id: 'list-1', user_id: CAL, role: 'view', status: 'invited' }]);
   });
 
+  it('invite leaves a friend the mirror already holds as they are (the server ignored the duplicate, review #6)', async () => {
+    await upsertMembers(db, [member({ user_id: BEN, role: 'view', status: 'member' })]);
+
+    await invite(db, client(), ME, 'list-1', [BEN, CAL], 'add');
+
+    expect((await getMembers(db, 'list-1')).map(({ user_id, role, status }) => [user_id, role, status])).toEqual([
+      [BEN, 'view', 'member'],
+      [CAL, 'add', 'invited'],
+    ]);
+  });
+
   it('setRole updates the member row and the mirror', async () => {
     await upsertMembers(db, [member()]);
     fake.tables.hit_list_members = [{ list_id: 'list-1', user_id: ANA, role: 'add', status: 'member' }];

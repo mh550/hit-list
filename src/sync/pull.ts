@@ -489,7 +489,8 @@ async function fillSharedLists(
       break;
     }
     for (const row of (data ?? []) as ServerRow[]) {
-      if (text(row.owner_id) === uid) continue;
+      // a list its owner deleted keeps its member rows on the server: fetching it back would loop with reconcileLists
+      if (text(row.owner_id) === uid || (row.deleted_at !== null && row.deleted_at !== undefined)) continue;
       try {
         changed = (await applyOwned(db, 'hit_lists', row, listValues(row))) || changed;
       } catch (err) {
@@ -546,10 +547,15 @@ async function fillSharedLists(
   const missingSpots = [...wanted].filter((id) => !held.has(id)).sort();
   for (const chunk of chunks(missingSpots, IDS_PER_QUERY)) {
     const spots = await client.from('spots').select('*').in('id', chunk);
-    const media = spots.error ? null : await client.from('media').select('*').in('spot_id', chunk);
-    const error = spots.error ?? media?.error;
-    if (error || !media) {
-      console.warn('[sync] pull: could not read the shared spots:', error?.message);
+    // 100 spots can hold more photos than one response (1000 rows): paged
+    const media = spots.error
+      ? null
+      : await readAll(
+          (from, to) => client.from('media').select('*').in('spot_id', chunk).order('id').range(from, to),
+          'the shared photos',
+        );
+    if (spots.error || !media) {
+      if (spots.error) console.warn('[sync] pull: could not read the shared spots:', spots.error.message);
       failed = true;
       break;
     }
@@ -560,7 +566,7 @@ async function fillSharedLists(
         warnRow(`spot ${text(row.id)}`, err);
       }
     }
-    for (const row of (media.data ?? []) as ServerRow[]) {
+    for (const row of media) {
       try {
         changed = (await applyRow(db, 'media', row, uid)) || changed;
       } catch (err) {
@@ -569,6 +575,8 @@ async function fillSharedLists(
     }
   }
   for (const row of memberships) {
+    // a row whose spot the server won't return (deleted, or a stray row) waits quietly: nothing to hold
+    if ((await db.getFirstAsync('SELECT 1 FROM spots WHERE id = ?', text(row.spot_id))) === null) continue;
     try {
       changed = (await applyMembership(db, row)) || changed;
     } catch (err) {
@@ -726,13 +734,16 @@ async function reconcileForeignPhotos(db: SQLiteDatabase, client: SupabaseClient
     uid,
   );
   if (local.length === 0) return [];
-  const found = await readable(
-    (chunk) => client.from('media').select('id').in('spot_id', chunk),
-    'id',
-    [...new Set(local.map((m) => m.spot_id))].sort(),
-    'shared photos',
-  );
-  if (found === null) return [];
+  // paged per chunk: a short answer under the 1000-row cap would read as photos deleted
+  const found = new Set<string>();
+  for (const chunk of chunks([...new Set(local.map((m) => m.spot_id))].sort(), IDS_PER_QUERY)) {
+    const rows = await readAll(
+      (from, to) => client.from('media').select('id').in('spot_id', chunk).order('id').range(from, to),
+      'the shared photos, nothing removed',
+    );
+    if (rows === null) return [];
+    for (const row of rows) found.add(String(row.id));
+  }
   const gone = local.filter((m) => !found.has(m.id));
   if (gone.length === 0 || !(await signedInAs(client, uid))) return [];
 

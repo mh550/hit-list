@@ -896,6 +896,16 @@ describe('pull: shared lists (S8, members mirror, others’ rows, fill, reconcil
       expect(await ids('spots')).toEqual(['ana-1']);
     });
 
+    it('a membership whose spot the server will not return is skipped without a warning (review #3)', async () => {
+      await heldForeignList();
+      fake.tables.hit_list_spots = [serverMembership({ list_id: 'their-list', spot_id: 'deleted', added_by: ANA, rev: 33 })];
+
+      await pull(db, asClient(fake), ME);
+
+      expect(await memberships()).toEqual([]);
+      expect(warn).not.toHaveBeenCalledWith(expect.stringContaining('membership'), expect.anything());
+    });
+
     it('a list whose read was cut off is neither filled nor reconciled', async () => {
       await heldForeignList();
       await heldForeignSpot('ana-1');
@@ -976,6 +986,34 @@ describe('pull: shared lists (S8, members mirror, others’ rows, fill, reconcil
 
       expect(await ids('hit_lists')).toEqual(['their-list']);
       expect(await ids('spots')).toEqual(['ana-1', 'ana-2', 'mine']);
+    });
+
+    it('the photo check pages its reads (1000-row cap) and removes nothing after a cut-off page (review #1)', async () => {
+      fake.tables.media = [{ id: 'ana-1-photo', spot_id: 'ana-1' }, { id: 'ana-2-photo', spot_id: 'ana-2' }];
+      fake.failSelect((s) => s.table === 'media' && s.columns === 'id', { message: 'offline' });
+
+      await pull(db, asClient(fake), ME);
+
+      expect(await ids('media')).toEqual(['ana-1-photo', 'ana-2-photo']);
+      await pull(db, asClient(fake), ME);
+      expect(fake.selects.filter((s) => s.table === 'media' && s.columns === 'id').at(-1)).toMatchObject({
+        order: ['id'],
+        range: [0, 999],
+      });
+    });
+
+    it('a list its owner deleted is not fetched back by the fill on the next pull (review #2)', async () => {
+      await db.runAsync("UPDATE hit_lists SET deleted_at = ? WHERE id = 'their-list'", T2);
+      fake.tables.hit_lists = [theirList({ deleted_at: T2, rev: null })];
+
+      await pull(db, asClient(fake), ME);
+      expect(await ids('hit_lists')).toEqual([]);
+
+      // the next pull puts back only the member row the forget took (the server keeps it); then nothing moves
+      await pull(db, asClient(fake), ME);
+      expect(await ids('hit_lists')).toEqual([]);
+      expect((await pull(db, asClient(fake), ME)).changed).toBe(false);
+      expect(await ids('hit_lists')).toEqual([]);
     });
 
     it('a friend’s photo deleted on the server goes with its row; a primary naming it is cleared', async () => {

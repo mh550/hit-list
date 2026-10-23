@@ -1,7 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import { deleteMember, upsertMembers } from '@/src/db/hit-lists';
+import { deleteMember, getMembers, upsertMembers } from '@/src/db/hit-lists';
 import { upsertProfiles } from '@/src/db/profiles';
 import { useInboxStore, type InviteItem } from '@/src/stores/inbox-store';
 import type { FriendProfile, HitListKind, MemberRole } from '@/src/types';
@@ -116,7 +116,12 @@ export async function invite(
     .from('hit_list_members')
     .upsert(rows, { onConflict: 'list_id,user_id', ignoreDuplicates: true });
   if (error) throw serverError(error);
-  await upsertMembers(db, rows.map(({ list_id, user_id }) => ({ list_id, user_id, role, status: 'invited' })));
+  // ignoreDuplicates left a known row as it was on the server: so does the mirror (the next pull corrects any other)
+  const known = new Set((await getMembers(db, listId)).map((m) => m.user_id));
+  await upsertMembers(
+    db,
+    rows.filter((r) => !known.has(r.user_id)).map(({ list_id, user_id }) => ({ list_id, user_id, role, status: 'invited' })),
+  );
   await reload(db);
   return true;
 }
@@ -222,6 +227,7 @@ export async function respondInvite(
       .eq('user_id', uid)
       .select('*');
     if (error) throw fail(error);
+    loads.take(uid);
     const rows = (data ?? []) as Row[];
     removeItem();
     if (rows.length === 0) {
@@ -232,10 +238,10 @@ export async function respondInvite(
   } else {
     const { error } = await client.from('hit_list_members').delete().eq('list_id', listId).eq('user_id', uid);
     if (error) throw fail(error);
+    loads.take(uid);
     removeItem();
     await deleteMember(db, listId, uid);
   }
-  loads.take(uid);
   await reload(db);
   return true;
 }
@@ -296,7 +302,8 @@ export async function loadAndApplyInvites(
     if (!items || !loads.isNewest(uid, ticket) || !(await maySync(db, client, uid))) return;
     const owners: FriendProfile[] = items.map((i) => i.from).filter((p) => p.username !== null);
     await upsertProfiles(db, owners);
-    useInboxStore.getState().setItems(uid, 'invite', items);
+    // an answer that started during the awaits above takes a newer ticket
+    if (loads.isNewest(uid, ticket)) useInboxStore.getState().setItems(uid, 'invite', items);
   } catch (err) {
     console.warn('[lists] loading invitations failed:', errorMessage(err));
   }

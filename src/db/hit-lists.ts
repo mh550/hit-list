@@ -115,7 +115,11 @@ export async function softDeleteHitList(
   await db.runAsync('UPDATE hit_lists SET deleted_at = ?, updated_at = ? WHERE id = ?', at, at, id);
 }
 
-/** Adds the spots in one transaction; a spot already in the list keeps its first added_at. */
+/**
+ * Adds the spots in one statement, so it is all or nothing without a BEGIN: expo-sqlite's withTransactionAsync is a
+ * plain BEGIN/COMMIT on the one shared connection, so a second write arriving mid-transaction would fail to BEGIN or
+ * be committed/rolled back with it. A spot already in the list keeps its first added_at.
+ */
 export async function addSpotsToList(
   db: SQLiteDatabase,
   listId: string,
@@ -123,16 +127,13 @@ export async function addSpotsToList(
   addedAt: string = new Date().toISOString(),
 ): Promise<void> {
   if (spotIds.length === 0) return;
-  await db.withTransactionAsync(async () => {
-    for (const spotId of spotIds) {
-      await db.runAsync(
-        'INSERT OR IGNORE INTO hit_list_spots (list_id, spot_id, added_at) VALUES (?, ?, ?)',
-        listId,
-        spotId,
-        addedAt,
-      );
-    }
-  });
+  await db.runAsync(
+    `INSERT OR IGNORE INTO hit_list_spots (list_id, spot_id, added_at)
+     SELECT ?, value, ? FROM json_each(?)`,
+    listId,
+    addedAt,
+    JSON.stringify(spotIds),
+  );
 }
 
 export async function removeSpotFromList(db: SQLiteDatabase, listId: string, spotId: string): Promise<void> {

@@ -101,6 +101,34 @@ describe('hit lists in SQLite (src/db/hit-lists.ts)', () => {
     expect(rows.every((r) => r.added_at === '2026-10-05T00:00:00.000Z')).toBe(true);
   });
 
+  it('two addSpotsToList calls at once both land (no shared BEGIN on the one connection)', async () => {
+    const bridges = createTestHitList({ name: 'Bridges' });
+    await insertHitList(db, bridges);
+
+    await Promise.all([
+      addSpotsToList(db, list.id, [a.id, b.id], '2026-10-05T00:00:00.000Z'),
+      addSpotsToList(db, bridges.id, [a.id, b.id], '2026-10-05T00:00:00.000Z'),
+    ]);
+
+    expect(await memberRows(db)).toHaveLength(4);
+  });
+
+  it('a remove running during an add is not undone by it', async () => {
+    await addSpotsToList(db, list.id, [a.id]);
+    const bridges = createTestHitList({ name: 'Bridges' });
+    await insertHitList(db, bridges);
+
+    await Promise.all([addSpotsToList(db, bridges.id, [a.id, b.id]), removeSpotFromList(db, list.id, a.id)]);
+
+    expect(await getListMemberships(db)).toEqual({ [a.id]: [bridges.id], [b.id]: [bridges.id] });
+  });
+
+  it('addSpotsToList is all or nothing: an unknown spot id writes no rows', async () => {
+    await expect(addSpotsToList(db, list.id, [a.id, 'no-such-spot'])).rejects.toThrow();
+
+    expect(await memberRows(db)).toEqual([]);
+  });
+
   it('addSpotsToList with no ids writes nothing', async () => {
     await addSpotsToList(db, list.id, []);
 

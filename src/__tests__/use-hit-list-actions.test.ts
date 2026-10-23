@@ -25,9 +25,9 @@ async function seedList(overrides = {}) {
   return list;
 }
 
-function failNextWrite(method: 'runAsync' | 'withTransactionAsync' = 'runAsync') {
+function failNextWrite() {
   const err = new Error('disk full');
-  jest.spyOn(mockDb, method).mockRejectedValueOnce(err);
+  jest.spyOn(mockDb, 'runAsync').mockRejectedValueOnce(err);
   const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
   return { err, consoleSpy };
 }
@@ -187,7 +187,7 @@ describe('useHitListActions', () => {
       await result.current.addSpotsToList(list.id, ['a']);
     });
 
-    const { err, consoleSpy } = failNextWrite('withTransactionAsync');
+    const { err, consoleSpy } = failNextWrite();
     await act(async () => {
       await expect(result.current.addSpotsToList(list.id, ['a', 'b'])).rejects.toBe(err);
     });

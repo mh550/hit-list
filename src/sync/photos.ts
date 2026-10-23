@@ -153,7 +153,7 @@ const cacheDownloads = new Map<string, Promise<string>>();
 export function cachedPhotoUri(
   client: SupabaseClient | null,
   media: Pick<Media, 'id' | 'spot_id' | 'file_path' | 'owner_id'>,
-  io: PhotoIO = defaultPhotoIO,
+  io: Pick<PhotoIO, 'exists' | 'write'> = defaultPhotoIO,
 ): Promise<string> {
   const uri = resolvePhotoUri(media.file_path);
   if (!media.file_path.startsWith('cache/') || io.exists(media.file_path)) return Promise.resolve(uri);

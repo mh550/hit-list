@@ -1048,7 +1048,7 @@ describe('Inbox tab: Paste a link (S9-03)', () => {
     await pasteAndOpen(`  ${LINK}  `);
 
     expect(redeemInvite).toHaveBeenCalledTimes(1);
-    expect(redeemInvite).toHaveBeenCalledWith(db, mockFake, ME, `  ${LINK}  `);
+    expect(redeemInvite).toHaveBeenCalledWith(db, mockFake, ME, TOKEN);
     expect(previewLink).not.toHaveBeenCalled();
     expect(screen.getByText('Joined Downtown')).toBeOnTheScreen();
     expect(announce).toHaveBeenCalledWith('Joined Downtown');

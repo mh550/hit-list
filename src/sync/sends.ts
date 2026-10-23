@@ -22,7 +22,7 @@ import { createSendLink, listMyLinks, revokeLink, type LinkExpiry } from './link
 import { blobBytes, defaultPhotoIO, PHOTOS_BUCKET, storagePath, type PhotoIO } from './photos';
 import { runExclusive } from './queue';
 import { reloadStoresQuietly } from './reload';
-import { toIso } from './time';
+import { serverTime } from './time';
 
 /*
  * Send (S7, docs/plans/2026-10-22-s7-send.md "Photo copy", "Inbox", "Sent"): a one-time frozen copy of spots to
@@ -259,7 +259,6 @@ async function readSends(
   }
 }
 
-const serverTime = (value: string) => toIso(value) ?? value;
 const newestFirst = (a: { created_at: string }, b: { created_at: string }) => b.created_at.localeCompare(a.created_at);
 
 /**

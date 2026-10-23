@@ -105,15 +105,12 @@ export default function MembersScreen() {
     });
   }, [readLinks]);
   useEffect(() => {
-    const ticket = ++loadTicket.current;
-    void readLinks().then((next) => {
-      if (next && ticket === loadTicket.current) setLinks(next);
-    });
+    void loadLinks();
     // Leaving (or a new list) drops any load still on its way.
     return () => {
       loadTicket.current += 1;
     };
-  }, [readLinks]);
+  }, [loadLinks]);
 
   const listSpots = useMemo(
     () => (list ? selectListSpots(list, spots, membershipBySpot) : []),

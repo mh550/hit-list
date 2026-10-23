@@ -46,3 +46,6 @@ function offsetMinutes(zone: string | undefined): number {
   const digits = zone.slice(1).replace(':', '');
   return sign * (Number(digits.slice(0, 2)) * 60 + Number(digits.slice(2) || 0));
 }
+
+/** A server timestamp as the app's ISO string, or the value unchanged if it can't be read. */
+export const serverTime = (value: string): string => toIso(value) ?? value;

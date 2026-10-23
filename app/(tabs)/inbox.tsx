@@ -258,7 +258,7 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
   };
 
   /** What a pasted link leads to: a joined list's line, or null once a send link's page opened. */
-  const followLink = async (text: string, token: string): Promise<Notice | null> => {
+  const followLink = async (token: string): Promise<Notice | null> => {
     const liveList = (id: string) => useHitListsStore.getState().lists.find((l) => l.id === id && l.deleted_at === undefined);
     const before = new Map(useHitListsStore.getState().lists.map((l) => [l.id, l]));
     // null: no join possible right now (the phone isn't this rider's yet); a send link still opens
@@ -266,7 +266,7 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
     let inviteGone = false;
     try {
       // awaits the sync that brings the list
-      listId = await redeemInvite(db, client, uid, text);
+      listId = await redeemInvite(db, client, uid, token);
     } catch (err) {
       if (!(err instanceof LinkGoneError)) throw err;
       inviteGone = true;
@@ -303,8 +303,7 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
   const openPasted = async () => {
     if (openingLink.current) return;
     setNotice(null);
-    const text = pasted;
-    const token = parseToken(text);
+    const token = parseToken(pasted);
     if (token === null) {
       showNotice({ text: NOT_A_LINK });
       return;
@@ -313,7 +312,7 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
     setOpening(true);
     let next: Notice | null;
     try {
-      next = await followLink(text, token);
+      next = await followLink(token);
     } catch (err) {
       console.warn('[Inbox] opening a pasted link failed:', errorMessage(err));
       next = { text: OPEN_FAILED };

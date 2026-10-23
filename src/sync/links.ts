@@ -5,7 +5,7 @@ import { linkUrl, newToken, tokenHash } from '@/src/utils/link-token';
 import { signedInAs } from './account';
 import { serverError, type ServerError } from './errors';
 import { NotAllowedError } from './lists';
-import { toIso } from './time';
+import { serverTime } from './time';
 
 /*
  * Links (S9, docs/plans/2026-10-22-s9-links.md "Client", D44/D45): a send link anyone holding it can look at in a
@@ -122,7 +122,6 @@ function statusOf(row: LinkRow, expiresAt: string | null, now: number): LinkStat
 }
 
 /** A server timestamp as the app's ISO (Hermes' Date.parse rejects Postgres' shapes). */
-const serverTime = (value: string) => toIso(value) ?? value;
 
 /** The rider's links of `kind`, newest first. Null without a session; throws when the server can't be read. */
 export async function listMyLinks(client: SupabaseClient, uid: string, kind: LinkKind): Promise<MyLink[] | null> {

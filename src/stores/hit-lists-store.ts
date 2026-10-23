@@ -32,7 +32,12 @@ export const useHitListsStore = create<HitListsState>((set) => ({
   membershipBySpot: {},
   activeListId: null,
 
-  setLists: (lists) => set({ lists }),
+  // A list that left through a reload (Leave, removed, Stop sharing, deleted elsewhere) no longer scopes the picker.
+  setLists: (lists) =>
+    set((s) => ({
+      lists,
+      activeListId: lists.some((l) => l.id === s.activeListId && l.deleted_at === undefined) ? s.activeListId : null,
+    })),
   setMemberships: (membershipBySpot) => set({ membershipBySpot }),
 
   addList: (list) => set((s) => ({ lists: [...s.lists, list] })),

@@ -20,6 +20,53 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 · verify S8
+
+Ran check.sh (green, 1937 tests); re-ran the S8 test files (`npx jest --ci --verbose` on 20 files: 275 + 319 passed, 0 failed). Did not start Docker (build-only policy): S8-07 step 1 is judged by reading the test plus the plan's recorded run (test:db 630, integration 54).
+Noted deviations that keep the behaviour: `shareList` uses the `share_list` rpc (plan-documented) instead of `update`+`insert`; the dead `getMyMemberships` was removed by the S8 refactor commit.
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| S8-01 | 1 | Read `docs/plans/2026-10-22-s8-shared-lists.md` headings | Has Migration 8, Data, Pull, Read-only others (D47), Photos, Share screens, Markers, First-add, Shared area lists, Inbox invitations, Copy table, Test list per feature (l.345) | yes |
+| S8-01 | 2 | Spec §2 rows D83–D91 | D83 (invitee sees name/count, no spots) and D84 (members + owner) present as *default*, asked as Q44–Q52 | yes |
+| S8-01 | 3 | `check.sh` | green, 1937 tests | yes |
+| S8-02 | 1 | `db-migrate.test.ts:1063` `MIGRATIONS` length 8; db-hit-lists tests (upsertMembers, getMembers, getHitLists attaches members); `grep getMyMemberships` | length 8, v7→v8 cases pass, members tests pass; `getMyMemberships` absent (removed as dead code in refactor ea65325) | yes |
+| S8-02 | 2 | `sync-lists.test.ts` (verbose) | share/invite/setRole/removeMember/leave (cache + rows, one transaction)/stopSharing/join/decline all pass; shareList goes via `share_list` rpc rather than update+insert | yes |
+| S8-02 | 3 | `hit-lists-store.test.ts` selectSharedWithMe, selectInvitations; `inbox-store.test.ts` invite kind | pass | yes |
+| S8-02 | 4 | check.sh | green, no console.error | yes |
+| S8-03 | 1 | `stores.test.ts` selectMySpots; `spots-view-mode.test.tsx:186` ana's spot | selectMySpots drops foreign; foreign absent under My spots, present under shared chip | yes |
+| S8-03 | 2 | `spot-detail.test.tsx` foreign cases; `sync-copy` saveCopy tests | '@ana's spot', no Edit/Send, 'Save a copy' → confirm → copy opened; copy keeps fields, photos into document | yes |
+| S8-03 | 3 | `use-spot-actions.test.ts` | updateSpot, setTown, removeSpot reject 'not your spot' | yes |
+| S8-03 | 4 | `components.test.tsx` owner badge; `spot-map.test.tsx` | badge '@ana'; callout ends ' · @ana' | yes |
+| S8-03 | 5 | `sync-photos.test.ts`, `photo-storage.test.ts` | cachedPhotoUri downloads then caches, 403/404 reject, owned media unchanged | yes |
+| S8-03 | 6 | check.sh | green | yes |
+| S8-04 | 1 | `share-list-sheet.test.tsx` | sign-in line, checkboxes, roles, D34 sentence, count line, Share disabled, shareList(…,'add'), no 'Send', area line: all pass | yes |
+| S8-04 | 2 | `list-screen.test.tsx:527-628` | Share list + Send row together, strip with count and '+ Invite', press pushes `/list/<id>/members` | yes |
+| S8-04 | 3 | `list-members.test.tsx`; file exists | owner role menu/Remove/Invited/Stop sharing alert; member Leave alert 'Your 5 spots…', none at 0 | yes |
+| S8-04 | 4 | `grep -n Send` ShareListSheet.tsx, members.tsx; tests 'source never says Send' | grep prints nothing; tests pass | yes |
+| S8-04 | 5 | check.sh | green | yes |
+| S8-05 | 1 | `lists-tab.test.tsx` | Shared with me '@ana · 2 spots' with icon+count; private has none | yes |
+| S8-05 | 2 | list-picker-chips, spot-detail, add-to-list-sheet tests | `icon-person.2.fill` in shared chip/row, absent in private | yes |
+| S8-05 | 3 | `add-to-list-sheet.test.tsx` | enabled owner/add, 'View only' disabled, area disabled, first-add alert + `confirmed_list` flag, other list asks again | yes |
+| S8-05 | 4 | `hit-lists-store.test.ts`, `list-screen.test.tsx` | ana's area list holds only her spots; 'Area · 2 mi of Capitol Hill', no Edit area for a member | yes |
+| S8-05 | 5 | check.sh | green | yes |
+| S8-06 | 1 | `inbox-tab.test.tsx`, `inbox-store.test.ts` | '@ana invited you to Downtown (12 spots)', Join → respondInvite+syncNow, 'Joined Downtown'+Open, Decline, badge counts invites | yes |
+| S8-06 | 2 | `lists-tab.test.tsx` | Join chip inline, respondInvite then syncNow | yes |
+| S8-06 | 3 | check.sh | green | yes |
+| S8-07 | 1 | Read `shared-list.test.ts` (describes at l.150, 350) not run (needs Docker) | Covers share, join, cached photo, 6th spot, B add, C refused, B leave, A/C pulls, stopSharing; plan records 54 passing | yes |
+| S8-07 | 2 | `docker ps --format '{{.Names}}'` | no supabase_* container; only dj-*/n8n; plan records test:db 630 / integration 54 | yes |
+| S8-07 | 3 | check.sh | green | yes |
+| S8-08 | 1 | Read `s8-what-michael-will-see.md` | Sections for Share sheet (exact D34), list screen, members (alert copy), Lists tab, Add-to-list, first-add, foreign spot, Inbox; temporary renders | yes |
+| S8-08 | 2 | Same file, 'What to tap' l.124 | Two-rider walk: share, join, roles, leave, stop sharing, pull results | yes |
+| S8-08 | 3 | Same file, Verification record l.155 | jest 1924 / 0 console.error, integration 54, expo export exit 0 5.4 MB | yes |
+| S8-08 | 4 | check.sh | green | yes |
+| S8-09 | 1 | `reviews/s8.diff` (11290 lines) and plan 'Review (S8-09)' + per-feature review tables | Findings with severity and fix; Important ones marked fixed with RED tests | yes |
+| S8-09 | 2 | Plan Review (S8-09) answers 1–7 + anti-goal; tests above (not your spot, leave one-transaction, confirmed_list, no-Send tests) | All seven answered with proving tests; those tests pass | yes |
+| S8-09 | 3 | `git log --grep refactor` | ea65325 'refactor: S8 simplification pass' | yes |
+| S8-09 | 4 | grep CLAUDE.md, README.md, live checklist | Layout names ShareListSheet, members.tsx, lists.ts, copy.ts, cache rule, D47; README 'Shared hit lists (S8)'; checklist 'Two phones (S8-09)' l.227 | yes |
+| S8-09 | 5 | check.sh | green | yes |
+
+
 ### 2026-10-23 22:40 · S8-09 · passes
 
 - Two Opus reviewers read `reviews/s8.diff` (11290 lines, `d9c1201..HEAD`). No Critical. One Important was fixed: every sync's cache removal (often of nothing) bumped one global counter, so a friend's photo downloading at that moment went grey and Save a copy dropped it. Downloads are now invalidated per spot. Also fixed RED first: A5 (local failure after Leave/Stop/Remove only warns), A6 (`removeSpotFromList` follows D42), A7 (half-saved copy), B1 (phone account read before the app is ready), B2 (edit route of another rider's spot shows no editor; failed Delete alerts), B3/B4 (no navigation after the screen was left), B6 (strip uses `isShared`). Left A2/A3/A4/B5/B7 with reasons. Table, the seven written answers and the anti-goal answer are under 'Review (S8-09)' in the S8 plan.

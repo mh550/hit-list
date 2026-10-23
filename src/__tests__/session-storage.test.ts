@@ -142,6 +142,18 @@ describe('sessionStorage', () => {
     expect(await sessionStorage.getItem(KEY)).toBe(second);
   });
 
+  it('a read during a large write waits for it instead of wiping the session', async () => {
+    await sessionStorage.setItem(KEY, 'l'.repeat(5000));
+    const next = 'm'.repeat(5000);
+
+    const write = sessionStorage.setItem(KEY, next);
+    const read = sessionStorage.getItem(KEY);
+    await write;
+
+    expect(await read).toBe(next);
+    expect(await sessionStorage.getItem(KEY)).toBe(next);
+  });
+
   it('keeps the session when AsyncStorage fails to read for a moment', async () => {
     const value = 'k'.repeat(5000);
     await sessionStorage.setItem(KEY, value);

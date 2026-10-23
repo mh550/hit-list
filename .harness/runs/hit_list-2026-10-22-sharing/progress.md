@@ -20,6 +20,14 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 00:45 · S4-02 · passes
+
+- New: `src/sync/client.ts` (`getSupabase`/`isConfigured`, one client, AppState start/stopAutoRefresh), `src/sync/session-storage.ts` (D61 LargeSecureStore on expo-crypto AES-GCM, per-key op queue, read errors never wipe or throw), `src/sync/auth.ts` (`resolveAuthState`), `src/stores/auth-store.ts`, `src/hooks/use-auth-init.ts`, `<AuthInit />` in `app/_layout.tsx` inside DBInitializer; fake `src/__tests__/helpers/fake-supabase.ts` for S4-03..05; jest.setup mocks SecureStore (real key check), AsyncStorage (package mock), expo-crypto AES (Node aes-256-gcm). Tests 924 → 964.
+- RED commits 9a51c11 and 1 review-fix RED (5 fail), GREEN after each; `check.sh` green, full non-silent `npx jest --ci` 0 console.error; `npx expo export --platform ios` exit 0, 4.99 MB hbc (was 4.4 MB: supabase-js now bundled). Mutation check: dropping the ticket check fails "keeps the latest event".
+- Opus review: 1 Important fixed (offline launch/resume with an expired token showed signed out: `getSession` returns `{session:null, error: AuthRetryableFetchError}` while the session stays stored; now the store is left alone and `TOKEN_REFRESHED` for an unknown user resolves it); Minors fixed: overlapping writes/reads queued, transient read errors, wrong deadlock comment, mock fidelity, missing-row test.
+- For S4-08 (not fixed, recorded in the plan): a session ≤ 2048 B sits in the keychain unencrypted and survives delete + reinstall (signed back in), a large one reads as signed out; launch with a valid stored session fetches the profile twice (auth-js emits SIGNED_IN from `_recoverAndRefresh`; the ticket makes it harmless). Offline launch with an expired token shows Profile signed out until the phone is online.
+- Next session (S4-03): mock `@/src/sync/client` with `createFakeSupabase()`; `fake.verifyOtp` emits SIGNED_IN and sets the session; `failNext(method, error)`; `queryDelayMs` for races. No new questions for Michael.
+
 ### 2026-10-23 · S4-01 · passes
 
 - Deps via `npx expo install`: `@supabase/supabase-js` ^2.118.0, `expo-secure-store` ~57.0.4 (+ its app.json plugin), `@react-native-async-storage/async-storage` 2.2.0; own commit `803a4fa chore:`; no dedupe needed. **No url-polyfill** (README 2.118 doesn't ask; Expo's winter runtime installs a WHATWG URL) and **no aes-js**: expo-crypto 57 has native AES-GCM, which D61 uses.

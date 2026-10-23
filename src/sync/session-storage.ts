@@ -12,11 +12,11 @@ const KEY_PREFIX = 'aes256gcm:';
 // Readable after the first unlock, so a background token refresh can read it.
 const SECURE_OPTIONS: SecureStore.SecureStoreOptions = { keychainAccessible: SecureStore.AFTER_FIRST_UNLOCK };
 
-async function removeItem(key: string): Promise<void> {
+async function deleteItem(key: string): Promise<void> {
   await Promise.all([SecureStore.deleteItemAsync(key, SECURE_OPTIONS), AsyncStorage.removeItem(key)]);
 }
 
-async function setItem(key: string, value: string): Promise<void> {
+async function writeItem(key: string, value: string): Promise<void> {
   const bytes = new TextEncoder().encode(value);
   if (bytes.length <= SECURE_STORE_LIMIT) {
     await SecureStore.setItemAsync(key, value, SECURE_OPTIONS);
@@ -29,22 +29,42 @@ async function setItem(key: string, value: string): Promise<void> {
   await SecureStore.setItemAsync(key, KEY_PREFIX + (await aesKey.encoded('base64')), SECURE_OPTIONS);
 }
 
+// Every operation on a key waits for the one before it: overlapping large writes could otherwise leave one
+// write's key next to the other's ciphertext, and a read between a write's two steps would see the same,
+// both of which read as signed out.
+const queues = new Map<string, Promise<unknown>>();
+function queued<T>(key: string, op: () => Promise<T>): Promise<T> {
+  const next = (queues.get(key) ?? Promise.resolve()).catch(() => {}).then(op);
+  queues.set(key, next);
+  return next;
+}
+
 // A missing ciphertext (after a reinstall the keychain survives, AsyncStorage does not) or one that
-// fails to decrypt reads as signed out: both entries are dropped and null comes back, never a throw.
-async function getItem(key: string): Promise<string | null> {
-  const stored = await SecureStore.getItemAsync(key, SECURE_OPTIONS);
-  if (stored === null) return null;
-  if (!stored.startsWith(KEY_PREFIX)) return stored;
+// fails to decrypt reads as signed out: both entries are dropped. A store that fails to read only
+// reads as no session this time. getItem never throws.
+async function readItem(key: string): Promise<string | null> {
+  let stored: string | null;
+  let combined: string | null = null;
   try {
-    const combined = await AsyncStorage.getItem(key);
+    stored = await SecureStore.getItemAsync(key, SECURE_OPTIONS);
+    if (stored === null || !stored.startsWith(KEY_PREFIX)) return stored;
+    combined = await AsyncStorage.getItem(key);
+  } catch {
+    return null;
+  }
+  try {
     if (combined === null) throw new Error('session ciphertext missing');
     const aesKey = await AESEncryptionKey.import(stored.slice(KEY_PREFIX.length), 'base64');
     const plain = await aesDecryptAsync(AESSealedData.fromCombined(combined), aesKey);
     return new TextDecoder().decode(plain);
   } catch {
-    await removeItem(key);
+    await deleteItem(key).catch(() => {});
     return null;
   }
 }
 
-export const sessionStorage = { getItem, setItem, removeItem };
+export const sessionStorage = {
+  getItem: (key: string) => queued(key, () => readItem(key)),
+  setItem: (key: string, value: string) => queued(key, () => writeItem(key, value)),
+  removeItem: (key: string) => queued(key, () => deleteItem(key)),
+};

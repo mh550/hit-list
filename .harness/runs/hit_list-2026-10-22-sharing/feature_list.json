@@ -409,7 +409,7 @@
         "app/_layout.tsx mounts useAuthInit inside DBInitializer (after the DB is ready); src/__tests__/root-layout.test.tsx still passes with the fake client.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S4-03",

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Text, View } from 'react-native';
-import { render, screen } from '@testing-library/react-native';
+import { render, screen, waitFor } from '@testing-library/react-native';
 import { Gesture, GestureDetector, GestureHandlerRootView } from 'react-native-gesture-handler';
 import { fireGestureHandler, getByGestureTestId } from 'react-native-gesture-handler/jest-utils';
 
@@ -27,13 +27,18 @@ let mockDbReady = true;
 jest.mock('@/src/components/DBInitializer', () => ({
   DBInitializer: ({ children }: { children: React.ReactNode }) => (mockDbReady ? children : null),
 }));
-// Accounts are off in this build: no Supabase client.
-jest.mock('@/src/sync/client', () => ({ getSupabase: () => null, isConfigured: () => false }));
-jest.mock('@/src/hooks/use-auth-init', () => ({ useAuthInit: jest.fn() }));
+// The hand-written fake client (helpers/fake-supabase.ts) stands in for Supabase.
+let mockFake: FakeSupabase;
+jest.mock('@/src/sync/client', () => ({ getSupabase: () => mockFake, isConfigured: () => true }));
 
-import { useAuthInit } from '@/src/hooks/use-auth-init';
+import { createFakeSupabase, type FakeSupabase } from './helpers/fake-supabase';
+import { useAuthStore, SIGNED_OUT } from '@/src/stores/auth-store';
 
 import RootLayout from '@/app/_layout';
+
+beforeEach(() => {
+  mockFake = createFakeSupabase();
+});
 
 describe('RootLayout', () => {
   it('wraps the whole tree in a flex-1 GestureHandlerRootView', () => {
@@ -98,14 +103,16 @@ describe('RootLayout: hit list screen', () => {
 
 describe('RootLayout: auth', () => {
   beforeEach(() => {
-    jest.mocked(useAuthInit).mockClear();
     mockDbReady = true;
+    useAuthStore.setState({ ...SIGNED_OUT, status: 'unconfigured' });
   });
 
-  it('mounts useAuthInit once the DB is ready', () => {
+  it('starts auth (useAuthInit) once the DB is ready', async () => {
     render(<RootLayout />);
 
-    expect(useAuthInit).toHaveBeenCalled();
+    await waitFor(() => expect(useAuthStore.getState().status).toBe('signed_out'));
+    expect(mockFake.auth.getSession).toHaveBeenCalledTimes(1);
+    expect(mockFake.auth.onAuthStateChange).toHaveBeenCalledTimes(1);
   });
 
   it('does not start auth before DBInitializer lets its children render', () => {
@@ -113,6 +120,7 @@ describe('RootLayout: auth', () => {
 
     render(<RootLayout />);
 
-    expect(useAuthInit).not.toHaveBeenCalled();
+    expect(mockFake.auth.getSession).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().status).toBe('unconfigured');
   });
 });

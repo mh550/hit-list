@@ -208,6 +208,56 @@ describe('hit lists in SQLite (src/db/hit-lists.ts)', () => {
     });
   });
 
+  describe('area lists', () => {
+    let areaList: HitList;
+
+    beforeEach(async () => {
+      areaList = createTestHitList({
+        name: 'Weekend',
+        kind: 'area',
+        area_center: CITIES.seattle,
+        area_radius_m: 3219,
+        area_place: 'Capitol Hill',
+        area_filters: { types: [FeatureType.Rail] },
+        created_at: '2026-10-04T00:00:00.000Z',
+      });
+      await insertHitList(db, areaList);
+    });
+
+    const readArea = async () => (await getHitLists(db)).find((l) => l.id === areaList.id);
+
+    it('an area list round-trips its center, radius, place and filters, and holds no hit_list_spots rows', async () => {
+      expect(await readArea()).toEqual(areaList);
+      expect(await memberRows(db)).toEqual([]);
+    });
+
+    it('updateHitList changes the center, radius, place and filters', async () => {
+      const updates = {
+        area_center: CITIES.portland,
+        area_radius_m: 8047,
+        area_place: 'Pearl District',
+        area_filters: { types: [FeatureType.Ledge], stopped: true },
+        updated_at: '2026-10-09T00:00:00.000Z',
+      };
+      await updateHitList(db, areaList.id, updates);
+
+      expect(await readArea()).toEqual({ ...areaList, ...updates });
+    });
+
+    it('updateHitList with area_place: null clears the place and nothing else', async () => {
+      await updateHitList(db, areaList.id, { area_place: null, updated_at: '2026-10-09T00:00:00.000Z' });
+
+      const { area_place: _dropped, ...rest } = areaList;
+      expect(await readArea()).toEqual({ ...rest, updated_at: '2026-10-09T00:00:00.000Z' });
+    });
+
+    it('a name-only update leaves the area columns', async () => {
+      await updateHitList(db, areaList.id, { name: 'Sunday', updated_at: '2026-10-09T00:00:00.000Z' });
+
+      expect(await readArea()).toEqual({ ...areaList, name: 'Sunday', updated_at: '2026-10-09T00:00:00.000Z' });
+    });
+  });
+
   it('updateHitList leaves a deleted list alone', async () => {
     await softDeleteHitList(db, list.id, '2026-10-07T00:00:00.000Z');
 

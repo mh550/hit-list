@@ -1,5 +1,7 @@
 import { create } from 'zustand';
-import type { HitList, HitListUpdate, Spot } from '@/src/types';
+import { DEFAULT_FILTERS, type GeoPoint, type HitList, type HitListUpdate, type Spot, type SpotFilters } from '@/src/types';
+import { spotsInCircle } from '@/src/utils/area';
+import { selectFilteredSpots } from './spots-store';
 
 interface HitListsState {
   /** Live lists, in the order loaded (getHitLists: oldest first) then created. */
@@ -32,11 +34,19 @@ export const useHitListsStore = create<HitListsState>((set) => ({
 
   addList: (list) => set((s) => ({ lists: [...s.lists, list] })),
 
-  updateList: (id, updates) =>
+  updateList: (id, { area_place, ...rest }) =>
     set((s) => {
-      // An undefined key keeps the stored value, as updateHitList in src/db does.
-      const defined = Object.fromEntries(Object.entries(updates).filter(([, v]) => v !== undefined));
-      return { lists: s.lists.map((l) => (l.id === id ? { ...l, ...defined } : l)) };
+      // An undefined key keeps the stored value, as updateHitList in src/db does; area_place: null clears the place.
+      const defined = Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined));
+      return {
+        lists: s.lists.map((l) => {
+          if (l.id !== id) return l;
+          const next: HitList = { ...l, ...defined };
+          if (area_place === null) delete next.area_place;
+          else if (area_place !== undefined) next.area_place = area_place;
+          return next;
+        }),
+      };
     }),
 
   removeList: (id) =>
@@ -75,12 +85,27 @@ export const useHitListsStore = create<HitListsState>((set) => ({
 // Pure: screens select the raw state and useMemo these. A selector that builds a new array inside the store hook
 // would hand zustand 5 a fresh value on every render and loop.
 
-/** The list's live spots, in `spots` order. */
+/**
+ * The one rule for "in the area" (picker count, area lists, detail, sheet): live, located, inside the circle (the
+ * boundary counts), passing the filters; in `spots` order.
+ */
+export function selectAreaSpots(spots: Spot[], center: GeoPoint, radiusM: number, filters: SpotFilters): Spot[] {
+  return selectFilteredSpots(spotsInCircle(spots.filter((s) => s.deleted_at === undefined), center, radiusM), filters);
+}
+
+/**
+ * The list's live spots, in `spots` order. A manual list's come from its memberships; an area list's are computed from
+ * its circle and filters (never stored), and an area list missing its centre or radius holds none.
+ */
 export function selectListSpots(
   list: HitList,
   spots: Spot[],
   membershipBySpot: Record<string, string[]>,
 ): Spot[] {
+  if (list.kind === 'area') {
+    if (list.area_center === undefined || list.area_radius_m === undefined) return [];
+    return selectAreaSpots(spots, list.area_center, list.area_radius_m, list.area_filters ?? DEFAULT_FILTERS);
+  }
   return spots.filter((s) => s.deleted_at === undefined && membershipBySpot[s.id]?.includes(list.id));
 }
 
@@ -92,14 +117,15 @@ export function selectListsByName(lists: HitList[]): HitList[] {
   );
 }
 
-/** The live lists the spot is in, by name. */
+/** The live lists the spot is in, by name: the manual lists it was added to and the area lists whose circle holds it. */
 export function selectSpotLists(
-  spotId: string,
+  spot: Spot,
   lists: HitList[],
   membershipBySpot: Record<string, string[]>,
 ): HitList[] {
-  const ids = membershipBySpot[spotId] ?? [];
-  return selectListsByName(lists.filter((l) => l.deleted_at === undefined && ids.includes(l.id)));
+  return selectListsByName(
+    lists.filter((l) => l.deleted_at === undefined && selectListSpots(l, [spot], membershipBySpot).length > 0),
+  );
 }
 
 /** `{ [listId]: live spots in it }` for every list given, 0 for an empty one. */
@@ -108,11 +134,20 @@ export function selectListCounts(
   spots: Spot[],
   membershipBySpot: Record<string, string[]>,
 ): Record<string, number> {
-  const counts: Record<string, number> = Object.fromEntries(lists.map((l) => [l.id, 0]));
+  const counts: Record<string, number> = {};
+  const manualIds = new Set<string>();
+  for (const list of lists) {
+    if (list.kind === 'area') counts[list.id] = selectListSpots(list, spots, membershipBySpot).length;
+    else {
+      counts[list.id] = 0;
+      manualIds.add(list.id);
+    }
+  }
+  // Manual lists: one pass over the spots.
   for (const spot of spots) {
     if (spot.deleted_at !== undefined) continue;
     for (const listId of membershipBySpot[spot.id] ?? []) {
-      if (Object.hasOwn(counts, listId)) counts[listId] += 1;
+      if (manualIds.has(listId)) counts[listId] += 1;
     }
   }
   return counts;

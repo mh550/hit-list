@@ -3,6 +3,7 @@ import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { StyleSheet, ScrollView, View, Text, Pressable } from 'react-native';
 
+import type { Spot } from '@/src/types';
 import { getSpotLegacy, type SpotLegacy } from '@/src/db';
 import { useSpotsStore, useMediaStore, useSettingsStore, useHitListsStore, selectSpotLists } from '@/src/stores';
 import { AddPhotosTile, AddToListSheet, Chip, ChipGroup, PhotoGrid, SpeedScale, Tag } from '@/src/components';
@@ -64,12 +65,12 @@ function OlderDetails({ spotId }: { spotId: string }) {
 }
 
 /** 'In lists': a chip per list the spot is in (opens it), then '+ Add to hit list', which files it from here. */
-function InLists({ spotId }: { spotId: string }) {
+function InLists({ spot }: { spot: Spot }) {
   const router = useRouter();
   const lists = useHitListsStore((s) => s.lists);
   const membershipBySpot = useHitListsStore((s) => s.membershipBySpot);
-  const inLists = useMemo(() => selectSpotLists(spotId, lists, membershipBySpot), [spotId, lists, membershipBySpot]);
-  const spotIds = useMemo(() => [spotId], [spotId]);
+  const inLists = useMemo(() => selectSpotLists(spot, lists, membershipBySpot), [spot, lists, membershipBySpot]);
+  const spotIds = useMemo(() => [spot.id], [spot.id]);
   const [adding, setAdding] = useState(false);
 
   return (
@@ -151,7 +152,7 @@ export default function SpotDetailScreen() {
           </ChipGroup>
         ) : null}
 
-        <InLists spotId={spot.id} />
+        <InLists spot={spot} />
 
         <SpeedScale readonly value={spot.natural_speed} />
 

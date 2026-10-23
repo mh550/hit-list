@@ -20,6 +20,14 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-22 23:59 · S2-02 · passes
+
+- New `src/utils/area.ts`: `RADIUS_STEPS_M`, `DEFAULT_AREA_RADIUS_M`, `spotsInCircle`, `nearestStep`, `radiusLabel`, `areaLabel`, `circleRegion`, `keepsPlace`. The store gains `selectAreaSpots`, the one rule for "in the area". `selectListSpots`, `selectListCounts` and `selectSpotLists` compute an area list's spots from its circle and `area_filters`, with no memberships. `selectSpotLists` now takes the spot instead of the id; detail's `InLists` takes `spot`. `updateList`: `area_place: null` clears the place. `HitListUpdate` gains the area fields, and `updateHitList` (DB) writes them.
+- Tests 814 → 841: new `area.test.ts` (14), +9 in `hit-lists-store.test.ts`, +4 in `db-hit-lists.test.ts`. All were RED first: the module was missing, and 11 store/DB tests failed.
+- Verified: `check.sh` green with 841 tests, `npx jest --ci` has 0 console.error, and tsc is clean.
+- Next (S2-03): `spotCountLabel` still lives in `app/(tabs)/lists.tsx`. Move it to `src/utils/spot-name.ts` when the picker needs '23 spots'. The `createList(name, NewHitList)` and `updateHitList` hook work is S2-04's, as the plan says.
+- Questions for Michael: none new (D53–D56 still open in spec §9).
+
 ### 2026-10-22 23:40 · S2-01 · passes
 
 - New `docs/plans/2026-10-22-s2-area.md`. It covers: Geometry (`src/utils/area.ts`), Area lists (computed, never stored; one `selectAreaSpots` serves the picker count, the store, detail and the sheet), Picker screen (`app/area/index.tsx`, edit mode via `?listId`), Mock (`Circle`, `animateToRegion`, `geocodeAsync`), Lists tab and list screen, Add-to-list sheet and detail, Copy, a Test list per feature, Risks, and the review base `2488824`. It adds no migration and no dependency. Tests stay at 814 (only docs changed).

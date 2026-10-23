@@ -1,11 +1,15 @@
 import {
   useHitListsStore,
+  useSpotsStore,
+  selectAreaSpots,
   selectListSpots,
   selectSpotLists,
   selectListCounts,
   selectListsByName,
 } from '@/src/stores';
-import { createTestHitList, createTestSpot } from './factories';
+import { DEFAULT_FILTERS, FeatureType, type GeoPoint } from '@/src/types';
+import { NO_LOCATION } from '@/src/utils/geo';
+import { CITIES, createTestHitList, createTestSpot } from './factories';
 
 const initial = useHitListsStore.getState();
 
@@ -94,11 +98,11 @@ describe('hit-lists selectors', () => {
 
   it('selectSpotLists: the live lists a spot is in, by name, skipping lists not in the store', () => {
     const lists = [L1, L2, L3];
-    expect(selectSpotLists('a', lists, membership)).toEqual([L2, L1]);
-    expect(selectSpotLists('c', lists, membership)).toEqual([L2]);
-    expect(selectSpotLists('nowhere', lists, membership)).toEqual([]);
+    expect(selectSpotLists(a, lists, membership)).toEqual([L2, L1]);
+    expect(selectSpotLists(c, lists, membership)).toEqual([L2]);
+    expect(selectSpotLists(createTestSpot({ id: 'nowhere' }), lists, membership)).toEqual([]);
     const softDeleted = { ...L1, deleted_at: '2026-10-03T00:00:00.000Z' };
-    expect(selectSpotLists('b', [softDeleted, L2], membership)).toEqual([]);
+    expect(selectSpotLists(b, [softDeleted, L2], membership)).toEqual([]);
   });
 
   it('selectListCounts: live spots per list, 0 for an empty list', () => {
@@ -109,5 +113,100 @@ describe('hit-lists selectors', () => {
     const lists = [L1, L3, L2];
     expect(selectListsByName(lists).map((l) => l.name)).toEqual(['Bridges', 'downtown', 'Empty']);
     expect(lists.map((l) => l.id)).toEqual(['L1', 'L3', 'L2']);
+  });
+});
+
+describe('area lists (computed from the circle and its filters, never stored)', () => {
+  const initialSpots = useSpotsStore.getState();
+  /** A point `meters` due north of `p` (haversine's Earth: 6371 km). */
+  const north = (p: GeoPoint, meters: number): GeoPoint => ({
+    latitude: p.latitude + (meters / 6_371_000) * (180 / Math.PI),
+    longitude: p.longitude,
+  });
+  const center = CITIES.seattle;
+  const rail = createTestSpot({ id: 'rail', location: north(center, 500), feature_types: [FeatureType.Rail] });
+  const ledge = createTestSpot({ id: 'ledge', location: north(center, 800), feature_types: [FeatureType.Ledge] });
+  const far = createTestSpot({ id: 'far', location: north(center, 2000), feature_types: [FeatureType.Rail] });
+  const nowhere = createTestSpot({ id: 'nowhere', location: NO_LOCATION, feature_types: [FeatureType.Rail] });
+  const gone = createTestSpot({
+    id: 'gone',
+    location: north(center, 100),
+    feature_types: [FeatureType.Rail],
+    deleted_at: '2026-10-02T00:00:00.000Z',
+  });
+  const spots = [ledge, far, nowhere, gone, rail];
+  const area = createTestHitList({ id: 'AREA', name: 'Area', kind: 'area', area_center: center, area_radius_m: 1609 });
+  const railsOnly = { ...area, id: 'RAILS', area_filters: { types: [FeatureType.Rail] } };
+
+  beforeEach(() => {
+    useSpotsStore.setState(initialSpots, true);
+    useHitListsStore.setState(initial, true);
+  });
+
+  it('selectAreaSpots: live, located spots inside the circle that pass the filters, in spots order', () => {
+    expect(selectAreaSpots(spots, center, 1609, DEFAULT_FILTERS).map((s) => s.id)).toEqual(['ledge', 'rail']);
+    expect(selectAreaSpots(spots, center, 1609, { types: [FeatureType.Rail] }).map((s) => s.id)).toEqual(['rail']);
+    expect(selectAreaSpots(spots, NO_LOCATION, 50_000, DEFAULT_FILTERS)).toEqual([]);
+  });
+
+  it('selectListSpots: an area list holds the live spots inside its circle, with no memberships', () => {
+    expect(selectListSpots(area, spots, {}).map((s) => s.id)).toEqual(['ledge', 'rail']);
+  });
+
+  it('selectListSpots: area_filters apply (types rail drops a ledge inside the circle)', () => {
+    expect(selectListSpots(railsOnly, spots, {}).map((s) => s.id)).toEqual(['rail']);
+  });
+
+  it('selectListSpots: memberships never add a spot to an area list', () => {
+    expect(selectListSpots(area, spots, { far: ['AREA'] }).map((s) => s.id)).toEqual(['ledge', 'rail']);
+  });
+
+  it('selectListSpots: an area list missing its centre or radius holds nothing', () => {
+    expect(selectListSpots({ ...area, area_center: undefined }, spots, {})).toEqual([]);
+    expect(selectListSpots({ ...area, area_radius_m: undefined }, spots, {})).toEqual([]);
+  });
+
+  it('a spot added to the spots store inside the circle is in the next selectListSpots call', () => {
+    useSpotsStore.getState().setSpots([rail]);
+    expect(selectListSpots(area, useSpotsStore.getState().spots, {}).map((s) => s.id)).toEqual(['rail']);
+
+    useSpotsStore.getState().addSpot(createTestSpot({ id: 'new', location: north(center, 1000) }));
+
+    const ids = selectListSpots(area, useSpotsStore.getState().spots, {}).map((s) => s.id);
+    expect(ids).toHaveLength(2);
+    expect(ids).toEqual(expect.arrayContaining(['rail', 'new']));
+  });
+
+  it('selectListCounts counts area lists the same way, next to manual ones', () => {
+    const manual = createTestHitList({ id: 'M' });
+    expect(selectListCounts([manual, area, railsOnly], spots, { far: ['M'], rail: ['M'] })).toEqual({
+      M: 2,
+      AREA: 2,
+      RAILS: 1,
+    });
+  });
+
+  it('selectSpotLists includes an area list for a spot inside its circle and not for one outside', () => {
+    const manual = createTestHitList({ id: 'M', name: 'Zoo' });
+    const lists = [manual, area, railsOnly];
+    expect(selectSpotLists(rail, lists, { rail: ['M'] }).map((l) => l.id)).toEqual(['AREA', 'RAILS', 'M']);
+    expect(selectSpotLists(ledge, lists, {}).map((l) => l.id)).toEqual(['AREA']);
+    expect(selectSpotLists(far, lists, {})).toEqual([]);
+    expect(selectSpotLists(nowhere, lists, {})).toEqual([]);
+  });
+
+  it('updateList sets the area fields, and area_place: null clears the place', () => {
+    const list = { ...area, area_place: 'Capitol Hill' };
+    useHitListsStore.setState({ lists: [list] });
+    const moved = north(center, 300);
+
+    useHitListsStore.getState().updateList('AREA', { area_center: moved, area_radius_m: 8047 });
+    expect(useHitListsStore.getState().lists[0]).toEqual({ ...list, area_center: moved, area_radius_m: 8047 });
+
+    useHitListsStore.getState().updateList('AREA', { area_place: null });
+    const cleared = useHitListsStore.getState().lists[0];
+    expect(cleared.area_place).toBeUndefined();
+    expect('area_place' in cleared).toBe(false);
+    expect(cleared.area_radius_m).toBe(8047);
   });
 });

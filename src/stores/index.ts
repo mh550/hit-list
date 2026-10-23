@@ -10,6 +10,7 @@ export { useLocationStore } from './location-store';
 export { useMediaStore } from './media-store';
 export {
   useHitListsStore,
+  selectAreaSpots,
   selectListSpots,
   selectSpotLists,
   selectListCounts,

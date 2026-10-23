@@ -192,7 +192,7 @@
         "src/db/hit-lists.ts round-trips the area columns (db-hit-lists test: insert an area list with center, radius 3219, place 'Capitol Hill', filters { types: ['rail'] } and read it back equal; updateHitList can change center/radius/place).",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S2-03",

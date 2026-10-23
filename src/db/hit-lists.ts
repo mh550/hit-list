@@ -81,10 +81,10 @@ export async function getHitLists(db: SQLiteDatabase): Promise<HitList[]> {
   return rows.map(rowToHitList);
 }
 
-/** Writes only the keys given; a deleted list is left alone. */
+/** Writes only the keys given (`area_place: null` clears the place); a deleted list is left alone. */
 export async function updateHitList(db: SQLiteDatabase, id: string, updates: HitListUpdate): Promise<void> {
   const setClauses: string[] = [];
-  const values: (string | number)[] = [];
+  const values: (string | number | null)[] = [];
 
   if (updates.name !== undefined) {
     setClauses.push('name = ?');
@@ -93,6 +93,22 @@ export async function updateHitList(db: SQLiteDatabase, id: string, updates: Hit
   if (updates.shared !== undefined) {
     setClauses.push('shared = ?');
     values.push(updates.shared ? 1 : 0);
+  }
+  if (updates.area_center !== undefined) {
+    setClauses.push('area_center_lat = ?', 'area_center_lng = ?');
+    values.push(updates.area_center.latitude, updates.area_center.longitude);
+  }
+  if (updates.area_radius_m !== undefined) {
+    setClauses.push('area_radius_m = ?');
+    values.push(updates.area_radius_m);
+  }
+  if (updates.area_filters !== undefined) {
+    setClauses.push('area_filters_json = ?');
+    values.push(JSON.stringify(updates.area_filters));
+  }
+  if (updates.area_place !== undefined) {
+    setClauses.push('area_place = ?');
+    values.push(updates.area_place); // null clears it
   }
 
   // The caller's stamp wins so the store and DB agree.

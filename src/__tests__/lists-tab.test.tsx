@@ -26,7 +26,25 @@ jest.mock('@/src/hooks/use-hit-list-actions', () => ({
   }),
 }));
 
+let mockFake: FakeSupabase | null = null;
+jest.mock('@/src/sync/client', () => ({
+  getSupabase: () => mockFake,
+  isConfigured: () => mockFake !== null,
+}));
+// The calls are src/sync/lists.ts's (sync-lists.test.ts); here only what the tab asks of them (S8-06).
+jest.mock('@/src/sync/lists', () => ({
+  ...jest.requireActual('@/src/sync/lists'),
+  respondInvite: jest.fn().mockResolvedValue(true),
+}));
+jest.mock('@/src/sync/engine', () => ({ syncNow: jest.fn().mockResolvedValue(undefined) }));
+
 import ListsScreen from '@/app/(tabs)/lists';
+import { useSQLiteContext as sharedDb } from 'expo-sqlite';
+import { useInboxStore, type InboxItem } from '@/src/stores/inbox-store';
+import { clearToast, useToastStore } from '@/src/stores/toast-store';
+import { syncNow } from '@/src/sync/engine';
+import { NotAllowedError, respondInvite } from '@/src/sync/lists';
+import { createFakeSupabase, fakeSession, type FakeSupabase } from './helpers/fake-supabase';
 
 const mockPush = jest.fn();
 
@@ -202,6 +220,129 @@ describe('Lists tab', () => {
 
       expect(screen.queryByText('Shared with me')).toBeNull();
       expect(screen.queryByText('Waterfront')).toBeNull();
+    });
+  });
+
+  describe('invitations (S8-06)', () => {
+    const ME = 'u-me';
+    const db = sharedDb();
+    const INVITE: InboxItem = {
+      kind: 'invite',
+      id: 'L-anas',
+      created_at: '2026-10-23T09:00:00.000Z',
+      listId: 'L-anas',
+      listName: 'Waterfront',
+      listKind: 'manual',
+      from: { id: 'u-ana', username: 'ana', display_name: null },
+      role: 'add',
+      spotCount: 12,
+    };
+    let alert: jest.SpyInstance;
+
+    const signIn = () => {
+      mockFake = createFakeSupabase();
+      mockFake.setSession(fakeSession({ userId: ME }));
+      useAuthStore.setState({ status: 'signed_in', userId: ME, username: 'me' });
+      useInboxStore.setState({ userId: ME, items: [INVITE], seenAt: null });
+    };
+
+    beforeEach(() => {
+      alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+      jest.mocked(respondInvite).mockReset().mockResolvedValue(true);
+      jest.mocked(syncNow).mockReset().mockResolvedValue(undefined);
+    });
+    afterEach(() => {
+      act(() => {
+        useAuthStore.setState(SIGNED_OUT);
+        useInboxStore.getState().clearInbox();
+        clearToast();
+      });
+      mockFake = null;
+    });
+
+    it("shows an invitation under 'Shared with me' with '@ana invited you · 12 spots' and a Join chip", () => {
+      signIn();
+      seedTwoLists();
+      render(<ListsScreen />);
+
+      const headers = screen.getAllByRole('header').map((h) => h.props.children);
+      expect(headers).toEqual(['My hit lists', 'Shared with me']);
+      const row = screen.getByLabelText('Waterfront, @ana invited you · 12 spots');
+      expect(within(row).getByText('Waterfront')).toBeTruthy();
+      expect(screen.getByRole('button', { name: 'Join Waterfront' })).toBeTruthy();
+    });
+
+    it("an invitation alone still shows: the 'Shared with me' section, no empty state", () => {
+      signIn();
+      render(<ListsScreen />);
+
+      expect(screen.getByText('Shared with me')).toBeTruthy();
+      expect(screen.queryByText('No hit lists yet')).toBeNull();
+    });
+
+    it("Join calls respondInvite then syncNow, toasts 'Joined Waterfront' and the row leaves", async () => {
+      signIn();
+      render(<ListsScreen />);
+
+      await act(async () => {
+        fireEvent.press(screen.getByRole('button', { name: 'Join Waterfront' }));
+      });
+
+      expect(respondInvite).toHaveBeenCalledWith(db, mockFake, ME, 'L-anas', 'join');
+      expect(syncNow).toHaveBeenCalledWith(db);
+      expect(jest.mocked(respondInvite).mock.invocationCallOrder[0]).toBeLessThan(
+        jest.mocked(syncNow).mock.invocationCallOrder[0],
+      );
+      expect(useToastStore.getState().text).toBe('Joined Waterfront');
+      expect(screen.queryByLabelText('Waterfront, @ana invited you · 12 spots')).toBeNull();
+    });
+
+    it('a double tap on Join joins once, with a spinner meanwhile', async () => {
+      signIn();
+      let finish: (v: boolean) => void = () => {};
+      jest.mocked(respondInvite).mockImplementation(() => new Promise((resolve) => (finish = resolve)));
+      render(<ListsScreen />);
+
+      const join = screen.getByRole('button', { name: 'Join Waterfront' });
+      await act(async () => {
+        fireEvent.press(join);
+        fireEvent.press(join);
+      });
+      expect(screen.getByLabelText('Joining')).toBeTruthy();
+      await act(async () => finish(true));
+
+      expect(respondInvite).toHaveBeenCalledTimes(1);
+    });
+
+    it("a withdrawn invitation toasts 'This invitation was withdrawn.'; a failed one alerts and keeps the row", async () => {
+      signIn();
+      const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+      jest.mocked(respondInvite).mockRejectedValueOnce(new Error('offline'));
+      render(<ListsScreen />);
+
+      await act(async () => {
+        fireEvent.press(screen.getByRole('button', { name: 'Join Waterfront' }));
+      });
+      expect(alert).toHaveBeenLastCalledWith("Couldn't reach the server", 'Try again.');
+      expect(warn).toHaveBeenCalled();
+      expect(screen.getByRole('button', { name: 'Join Waterfront' })).toBeTruthy();
+
+      jest.mocked(respondInvite).mockRejectedValueOnce(new NotAllowedError('This invitation was withdrawn.'));
+      await act(async () => {
+        fireEvent.press(screen.getByRole('button', { name: 'Join Waterfront' }));
+      });
+      expect(useToastStore.getState().text).toBe('This invitation was withdrawn.');
+      expect(screen.queryByRole('button', { name: 'Join Waterfront' })).toBeNull();
+      expect(syncNow).not.toHaveBeenCalled();
+    });
+
+    it('signed out, no invitation row shows', () => {
+      useInboxStore.setState({ userId: ME, items: [INVITE], seenAt: null });
+      seedTwoLists();
+      render(<ListsScreen />);
+
+      expect(screen.queryByText('Shared with me')).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Join Waterfront' })).toBeNull();
     });
   });
 

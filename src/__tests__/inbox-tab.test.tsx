@@ -26,6 +26,13 @@ jest.mock('@/src/sync/sends', () => ({
   dismissSend: jest.fn().mockResolvedValue(undefined),
   loadAndApplySends: jest.fn().mockResolvedValue(undefined),
 }));
+// The calls are src/sync/lists.ts's (tested in sync-lists.test.ts); here only what the tab asks of them (S8-06).
+jest.mock('@/src/sync/lists', () => ({
+  ...jest.requireActual('@/src/sync/lists'),
+  respondInvite: jest.fn().mockResolvedValue(true),
+  loadAndApplyInvites: jest.fn().mockResolvedValue(undefined),
+}));
+jest.mock('@/src/sync/engine', () => ({ syncNow: jest.fn().mockResolvedValue(undefined) }));
 // The seen mark's SQL is inbox-store.test.ts's (real SQLite); jest.setup's shared db can't run queries.
 jest.mock('@/src/db/sync', () => ({
   ...jest.requireActual('@/src/db/sync'),
@@ -39,6 +46,10 @@ import { getSyncState, setSyncState } from '@/src/db/sync';
 import { SIGNED_OUT, useAuthStore, type AuthSnapshot } from '@/src/stores/auth-store';
 import { selectUnseenCount, useInboxStore, type InboxItem } from '@/src/stores/inbox-store';
 import { block, refreshFriends, respond } from '@/src/sync/friends';
+import { syncNow } from '@/src/sync/engine';
+import { loadAndApplyInvites, NotAllowedError, respondInvite } from '@/src/sync/lists';
+import { useHitListsStore } from '@/src/stores/hit-lists-store';
+import { createTestHitList } from './factories';
 import { dismissSend, hasPendingSave, loadAndApplySends, saveSend } from '@/src/sync/sends';
 import type { FrozenSpot, SendPayload } from '@/src/utils/send-payload';
 
@@ -127,6 +138,10 @@ beforeEach(() => {
   jest.mocked(loadAndApplySends).mockReset().mockResolvedValue(undefined);
   jest.mocked(getSyncState).mockReset().mockResolvedValue(undefined);
   jest.mocked(setSyncState).mockReset().mockResolvedValue(undefined);
+  jest.mocked(respondInvite).mockReset().mockResolvedValue(true);
+  jest.mocked(loadAndApplyInvites).mockReset().mockResolvedValue(undefined);
+  jest.mocked(syncNow).mockReset().mockResolvedValue(undefined);
+  useHitListsStore.setState({ lists: [], membershipBySpot: {} });
 });
 
 afterEach(() => {
@@ -692,6 +707,191 @@ describe('Inbox tab: spots sent to you (S7-05)', () => {
     await renderTab();
 
     expect(setSyncState).toHaveBeenCalledWith(db, `inbox_seen_at:${ME}`, SEND.created_at);
+    expect(selectUnseenCount(useInboxStore.getState())).toBe(0);
+  });
+});
+
+describe('Inbox tab: invitations (S8-06)', () => {
+  const invite = (spotCount: number, listId = 'L-downtown', listName = 'Downtown'): InboxItem => ({
+    kind: 'invite',
+    id: listId,
+    created_at: '2026-10-23T09:00:00.000Z',
+    listId,
+    listName,
+    listKind: 'manual',
+    from: { id: 'u-ana', username: 'ana', display_name: null },
+    role: 'add',
+    spotCount,
+  });
+  const DOWNTOWN = invite(12);
+
+  const press = async (name: string) => {
+    await act(async () => {
+      fireEvent.press(screen.getByRole('button', { name }));
+    });
+  };
+
+  it("renders '@ana invited you to Downtown (12 spots)' under 'Invitations' with Join and Decline", async () => {
+    signIn([DOWNTOWN, invite(1, 'L-one', 'Bridges'), invite(0, 'L-new', 'Ledges')]);
+    await renderTab();
+
+    expect(screen.getByRole('header', { name: 'Invitations' })).toBeOnTheScreen();
+    expect(screen.getByText('@ana invited you to Downtown (12 spots)')).toBeOnTheScreen();
+    expect(screen.getByText('@ana invited you to Bridges (1 spot)')).toBeOnTheScreen();
+    expect(screen.getByText('@ana invited you to Ledges (no spots yet)')).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: 'Join Downtown' })).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: 'Decline the invitation to Downtown' })).toBeOnTheScreen();
+  });
+
+  it("Join calls respondInvite then syncNow; the row leaves and 'Joined Downtown' shows, with Open once the list is here", async () => {
+    signIn([DOWNTOWN]);
+    // the sync is still running: the list isn't on the phone yet
+    jest.mocked(syncNow).mockImplementation(() => new Promise(() => {}));
+    await renderTab();
+
+    await press('Join Downtown');
+
+    expect(respondInvite).toHaveBeenCalledWith(db, mockFake, ME, 'L-downtown', 'join');
+    expect(syncNow).toHaveBeenCalledWith(db);
+    expect(jest.mocked(respondInvite).mock.invocationCallOrder[0]).toBeLessThan(
+      jest.mocked(syncNow).mock.invocationCallOrder[0],
+    );
+    expect(screen.queryByText('@ana invited you to Downtown (12 spots)')).toBeNull();
+    expect(screen.getByText('Joined Downtown')).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: 'Open Downtown' })).toBeNull();
+
+    await act(async () => {
+      useHitListsStore.setState({ lists: [createTestHitList({ id: 'L-downtown', name: 'Downtown', owner_id: 'u-ana' })] });
+    });
+    await press('Open Downtown');
+
+    expect(router.push).toHaveBeenCalledWith('/list/L-downtown');
+  });
+
+  it("the 'Joined' line is announced to VoiceOver once", async () => {
+    signIn([DOWNTOWN]);
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    announce.mockClear();
+    await renderTab();
+
+    await press('Join Downtown');
+
+    expect(announce).toHaveBeenCalledTimes(1);
+    expect(announce).toHaveBeenCalledWith('Joined Downtown');
+  });
+
+  it('a double tap on Join joins once', async () => {
+    signIn([DOWNTOWN]);
+    let finish: (v: boolean) => void = () => {};
+    jest.mocked(respondInvite).mockImplementation(() => new Promise((resolve) => (finish = resolve)));
+    await renderTab();
+
+    const join = screen.getByRole('button', { name: 'Join Downtown' });
+    await act(async () => {
+      fireEvent.press(join);
+      fireEvent.press(join);
+    });
+    expect(screen.getByLabelText('Joining')).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: 'Decline the invitation to Downtown' })).toBeNull();
+    await act(async () => finish(true));
+
+    expect(respondInvite).toHaveBeenCalledTimes(1);
+    expect(syncNow).toHaveBeenCalledTimes(1);
+  });
+
+  it("an invitation withdrawn meanwhile reads 'This invitation was withdrawn.' and syncs nothing", async () => {
+    signIn([DOWNTOWN]);
+    jest.mocked(respondInvite).mockRejectedValue(new NotAllowedError('This invitation was withdrawn.'));
+    await renderTab();
+
+    await press('Join Downtown');
+
+    expect(screen.getByText('This invitation was withdrawn.')).toBeOnTheScreen();
+    expect(screen.queryByText('@ana invited you to Downtown (12 spots)')).toBeNull();
+    expect(syncNow).not.toHaveBeenCalled();
+    expect(alert).not.toHaveBeenCalled();
+  });
+
+  it("a failed Join alerts \"Couldn't reach the server\" and keeps the row", async () => {
+    signIn([DOWNTOWN]);
+    jest.mocked(respondInvite).mockRejectedValue(new Error('offline'));
+    await renderTab();
+
+    await press('Join Downtown');
+
+    expect(alert).toHaveBeenLastCalledWith("Couldn't reach the server", 'Try again.');
+    expect(warn).toHaveBeenCalled();
+    expect(screen.getByText('@ana invited you to Downtown (12 spots)')).toBeOnTheScreen();
+    expect(screen.queryByText('Joined Downtown')).toBeNull();
+    expect(syncNow).not.toHaveBeenCalled();
+  });
+
+  it('a Join the phone may not make yet (respondInvite false) alerts and keeps the row', async () => {
+    signIn([DOWNTOWN]);
+    jest.mocked(respondInvite).mockResolvedValue(false);
+    await renderTab();
+
+    await press('Join Downtown');
+
+    expect(alert).toHaveBeenLastCalledWith("Couldn't reach the server", 'Try again.');
+    expect(screen.getByText('@ana invited you to Downtown (12 spots)')).toBeOnTheScreen();
+    expect(syncNow).not.toHaveBeenCalled();
+  });
+
+  it("Decline asks 'Decline the invitation to Downtown?'; Cancel does nothing, Decline calls respondInvite and the row leaves", async () => {
+    signIn([DOWNTOWN]);
+    await renderTab();
+
+    await press('Decline the invitation to Downtown');
+    expect(lastAlert().title).toBe('Decline the invitation to Downtown?');
+    expect(lastAlert().message).toBeUndefined();
+    expect(lastAlert().buttons.map((b) => b.text)).toEqual(['Cancel', 'Decline']);
+    await pressAlertButton('Cancel');
+    expect(respondInvite).not.toHaveBeenCalled();
+
+    await press('Decline the invitation to Downtown');
+    await pressAlertButton('Decline');
+
+    expect(respondInvite).toHaveBeenCalledWith(db, mockFake, ME, 'L-downtown', 'decline');
+    expect(screen.queryByText('@ana invited you to Downtown (12 spots)')).toBeNull();
+    expect(syncNow).not.toHaveBeenCalled();
+  });
+
+  it("long press on an invitation offers 'Block @ana' with the confirm, and Block calls block", async () => {
+    signIn([DOWNTOWN]);
+    await renderTab();
+
+    await act(async () => {
+      fireEvent(screen.getByLabelText('@ana invited you to Downtown (12 spots)'), 'longPress');
+    });
+    await pressAlertButton('Block @ana');
+    expect(lastAlert().title).toBe('Block @ana?');
+    expect(lastAlert().message).toBe(BLOCK_MESSAGE);
+    await pressAlertButton('Block');
+
+    expect(block).toHaveBeenCalledWith(mockFake, ME, 'u-ana');
+    expect(screen.queryByText('@ana invited you to Downtown (12 spots)')).toBeNull();
+  });
+
+  it('loads the invitations with the rest when focused and on pull to refresh', async () => {
+    signIn([DOWNTOWN]);
+    await renderTab();
+    expect(loadAndApplyInvites).toHaveBeenCalledWith(db, mockFake, ME);
+    jest.mocked(loadAndApplyInvites).mockClear();
+
+    await act(async () => {
+      screen.UNSAFE_getByType(RefreshControl).props.onRefresh();
+    });
+
+    expect(loadAndApplyInvites).toHaveBeenCalledWith(db, mockFake, ME);
+  });
+
+  it('marks a new invitation seen while focused (the badge counts invitations too)', async () => {
+    signIn([DOWNTOWN]);
+    expect(selectUnseenCount(useInboxStore.getState())).toBe(1);
+    await renderTab();
+
+    expect(setSyncState).toHaveBeenCalledWith(db, `inbox_seen_at:${ME}`, DOWNTOWN.created_at);
     expect(selectUnseenCount(useInboxStore.getState())).toBe(0);
   });
 });

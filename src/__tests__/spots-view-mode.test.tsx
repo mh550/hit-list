@@ -135,6 +135,22 @@ describe('Spots tab list picker', () => {
     expect(screen.queryByText('Add Spot')).toBeNull();
   });
 
+  it("an empty active area list reads the area copy, not 'select spots' (its spots are computed)", () => {
+    const empty = createTestHitList({
+      id: 'L-area',
+      name: 'Far away',
+      kind: 'area',
+      area_center: { latitude: 46.2, longitude: -119.1 }, // no fixture spot near
+      area_radius_m: 402,
+    });
+    useHitListsStore.setState({ lists: [downtown, bridges, empty], activeListId: empty.id });
+    render(<SpotsScreen />);
+
+    expect(screen.getByText('No spots in this area yet')).toBeTruthy();
+    expect(screen.getByText('Spots you save inside the circle show up here')).toBeTruthy();
+    expect(screen.queryByText('No spots in this list yet')).toBeNull();
+  });
+
   it('a deleted spot in the active list does not show', () => {
     useSpotsStore.setState({ spots: [pier, { ...bank, deleted_at: '2026-10-02T12:00:00.000Z' }, library] });
     useHitListsStore.setState({ activeListId: downtown.id });

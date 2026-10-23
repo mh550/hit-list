@@ -521,6 +521,17 @@ describe("Area picker: 'Save as hit list'", () => {
     expect(mockCreateList).not.toHaveBeenCalled();
   });
 
+  it("reads 'Just this 1 spot' for one spot inside", () => {
+    useSpotsStore.setState({ spots: [inside[0]] });
+    useLocationStore.setState({ currentLocation: CITIES.seattle });
+    renderPicker();
+
+    fireEvent.press(screen.getByRole('button', { name: 'Save as hit list' }));
+
+    expect(screen.getByRole('button', { name: 'Just this 1 spot' })).toBeTruthy();
+    expect(screen.queryByText(/^Just these/)).toBeNull();
+  });
+
   it("hides 'Just these 0 spots' when the circle is empty", () => {
     renderPicker();
 
@@ -703,6 +714,20 @@ describe('Area picker: editing an area list (S2-04)', () => {
       expect.objectContaining({ checked: true }),
     );
     expect(useSpotsStore.getState().filters).toEqual({ types: [FeatureType.Rail] });
+  });
+
+  it.each(['Cancel', 'Save area'])("puts the rider's own filters back when it closes (%s)", async (how) => {
+    const { unmount } = renderPicker();
+    expect(useSpotsStore.getState().filters).toEqual({ types: [FeatureType.Rail] });
+
+    if (how === 'Cancel') pressHeader('headerLeft', 'Cancel');
+    else
+      await act(async () => {
+        fireEvent.press(screen.getByRole('button', { name: 'Save area' }));
+      });
+    unmount(); // the navigator unmounts the modal after back()
+
+    expect(useSpotsStore.getState().filters).toEqual({ types: [], stopped: true });
   });
 
   it("has the single bottom action 'Save area', which writes the circle, place and filters, then goes back", async () => {

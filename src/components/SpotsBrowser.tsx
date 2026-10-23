@@ -61,6 +61,12 @@ export const EMPTY_LIST_COPY = {
   emptyMessage: "Add from a spot's page or select spots on the Spots tab",
 } as const;
 
+/** The empty state of an area list: its spots arrive by being saved inside the circle. */
+export const EMPTY_AREA_COPY = {
+  emptyTitle: 'No spots in this area yet',
+  emptyMessage: 'Spots you save inside the circle show up here',
+} as const;
+
 /**
  * The List | Map body of the Spots tab, reusable for any set of spots: mode toggle, search, sort chips, the list or
  * the map, the empty states, and the header Filter button with its sheet. Reads and writes the one spots store.

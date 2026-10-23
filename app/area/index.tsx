@@ -132,14 +132,19 @@ function AreaPickerBody({ editList }: { editList?: AreaList }) {
   const activeFilterCount = selectActiveFilterCount(filters);
 
   // D55: editing an area list loads its filters into the shared ones (the Filter badge shows them); once per list,
-  // before the first paint so the count doesn't open on the Spots tab's filters.
+  // before the first paint so the count doesn't open on the Spots tab's filters. Closing the picker (Save or
+  // Cancel) puts the rider's own filters back: editing an area doesn't change what the Spots tab shows.
   const editListId = editList?.id;
   useLayoutEffect(() => {
     const list = useHitListsStore.getState().lists.find((l) => l.id === editListId);
     if (!list) return;
-    const { resetFilters, setFilters } = useSpotsStore.getState();
+    const { filters: own, resetFilters, setFilters } = useSpotsStore.getState();
     resetFilters();
     if (list.area_filters) setFilters(list.area_filters);
+    return () => {
+      useSpotsStore.getState().resetFilters();
+      useSpotsStore.getState().setFilters(own);
+    };
   }, [editListId]);
 
   const reportSaveFailure = () => Alert.alert("Couldn't save the list", 'Please try again.');
@@ -402,7 +407,7 @@ function SaveChooserContent({ count, onClose, onSave }: Omit<ChooserProps, 'visi
             </Text>
             {count > 0 ? (
               <ChooserOption
-                title={`Just these ${spotCountLabel(count)}`}
+                title={count === 1 ? 'Just this 1 spot' : `Just these ${spotCountLabel(count)}`}
                 hint="A normal hit list of the spots inside the circle right now"
                 onPress={() => setKind('manual')}
               />

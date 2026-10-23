@@ -5,7 +5,7 @@ import { StyleSheet, View, Pressable, Text } from 'react-native';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 
 import { selectListSpots, useHitListsStore, useSpotsStore } from '@/src/stores';
-import { EMPTY_LIST_COPY, SpotsBrowser } from '@/src/components/SpotsBrowser';
+import { EMPTY_AREA_COPY, EMPTY_LIST_COPY, SpotsBrowser } from '@/src/components/SpotsBrowser';
 import { HeaderTextButton } from '@/src/components/HeaderTextButton';
 import { AddToListSheet } from '@/src/components/AddToListSheet';
 import { ListPickerChips } from '@/src/components/ListPickerChips';
@@ -75,7 +75,9 @@ export default function SpotsScreen() {
       <SpotsBrowser
         spots={spots}
         {...(activeList
-          ? EMPTY_LIST_COPY
+          ? activeList.kind === 'area'
+            ? EMPTY_AREA_COPY
+            : EMPTY_LIST_COPY
           : {
               emptyTitle: 'No Spots Yet',
               emptyMessage: 'Tap the + button to add your first spot, or import from your photos',

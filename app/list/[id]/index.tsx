@@ -4,19 +4,13 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, EmptyState, HeaderTextButton, NameListSheet, SpotsBrowser } from '@/src/components';
-import { EMPTY_LIST_COPY } from '@/src/components/SpotsBrowser';
+import { EMPTY_AREA_COPY, EMPTY_LIST_COPY } from '@/src/components/SpotsBrowser';
 import { palette, spacing } from '@/src/constants/theme';
 import { useHitListActions } from '@/src/hooks/use-hit-list-actions';
 import { selectListSpots, useHitListsStore, useSpotsStore } from '@/src/stores';
 import { useSettingsStore } from '@/src/stores/settings-store';
 import { areaLabel } from '@/src/utils/area';
 import { getSpotDisplayName } from '@/src/utils/spot-name';
-
-/** The area empty state: its spots arrive by being saved inside the circle. */
-const EMPTY_AREA_COPY = {
-  emptyTitle: 'No spots in this area yet',
-  emptyMessage: 'Spots you save inside the circle show up here',
-} as const;
 
 /**
  * One hit list: the Spots tab's List | Map body scoped to the list's spots, plus Rename and Delete list. An area list's

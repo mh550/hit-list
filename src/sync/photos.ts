@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { File } from 'expo-file-system';
+import { Directory, File, Paths } from 'expo-file-system';
+import type { SQLiteDatabase } from 'expo-sqlite';
 import { ImageManipulator, SaveFormat, type ImageRef } from 'expo-image-manipulator';
 import type { Media } from '@/src/types';
 import { resolvePhotoUri } from '@/src/utils/photo-storage';
@@ -17,6 +18,8 @@ export interface PhotoIO {
   exists(filePath: string): boolean;
   /** The upload copy (see preparePhoto); `cleanup` deletes it. */
   prepare(filePath: string): Promise<{ uri: string; bytes: Uint8Array; cleanup(): void }>;
+  /** Writes a downloaded photo to a relative `photos/<spot>/<media>.jpg` path, making its folder. */
+  write(filePath: string, bytes: Uint8Array): void;
 }
 
 /** Where a photo lives in the bucket; always derived, local media has no storage_path column. */
@@ -68,6 +71,13 @@ export const defaultPhotoIO: PhotoIO = {
       cleanup: () => deleteCopy(prepared.uri),
     };
   },
+  write(filePath, bytes) {
+    new Directory(Paths.document, filePath.slice(0, filePath.lastIndexOf('/'))).create({
+      intermediates: true,
+      idempotent: true,
+    });
+    new File(resolvePhotoUri(filePath)).write(bytes);
+  },
 };
 
 /** Uploads to photos/<owner>/<spot>/<media>.jpg (upsert: a retry after a failed row write re-uploads harmlessly). */
@@ -83,4 +93,52 @@ export async function uploadPhoto(
     .upload(path, bytes, { contentType: 'image/jpeg', upsert: true });
   if (error) throw new Error(error.message);
   return path;
+}
+
+/** A downloaded Blob's bytes. React Native's Blob has no arrayBuffer(); its FileReader reads one (Node's Blob has it). */
+function blobBytes(blob: Blob): Promise<Uint8Array> {
+  if (typeof blob.arrayBuffer === 'function') return blob.arrayBuffer().then((buffer) => new Uint8Array(buffer));
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(new Uint8Array(reader.result as ArrayBuffer));
+    reader.onerror = () => reject(reader.error ?? new Error('could not read the download'));
+    reader.readAsArrayBuffer(blob);
+  });
+}
+
+/**
+ * The rider's own live photos that reached the server (`rev` set: pulled, or this phone's push came back) but whose
+ * file is not on this phone: a second phone, or a reinstall. Up to `limit` downloads per sync, one at a time, newest
+ * first; a failure warns and the photo is tried again next sync. Others' photos (S8) go to the cache lazily, not here.
+ * Returns how many files were written.
+ */
+export async function downloadMissingPhotos(
+  db: SQLiteDatabase,
+  client: SupabaseClient,
+  uid: string,
+  io: PhotoIO = defaultPhotoIO,
+  limit = 20,
+): Promise<number> {
+  const rows = await db.getAllAsync<Pick<Media, 'id' | 'spot_id' | 'file_path'>>(
+    `SELECT id, spot_id, file_path FROM media
+     WHERE owner_id = ? AND deleted_at IS NULL AND rev IS NOT NULL AND file_path LIKE 'photos/%'
+     ORDER BY created_at DESC, id`,
+    uid,
+  );
+  let tried = 0;
+  let written = 0;
+  for (const media of rows) {
+    if (tried >= limit) break;
+    if (io.exists(media.file_path)) continue;
+    tried += 1;
+    try {
+      const { data, error } = await client.storage.from(PHOTOS_BUCKET).download(storagePath(uid, media));
+      if (error) throw new Error(error.message);
+      io.write(media.file_path, await blobBytes(data));
+      written += 1;
+    } catch (err) {
+      console.warn(`[sync] could not download photo ${media.id}:`, err instanceof Error ? err.message : err);
+    }
+  }
+  return written;
 }

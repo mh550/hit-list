@@ -26,7 +26,6 @@ const OTHER = 'rider-other';
 const T0 = '2026-10-20T10:00:00.000Z';
 const T1 = '2026-10-21T11:00:00.000Z';
 const T2 = '2026-10-22T12:00:00.000Z';
-const T3 = '2026-10-23T13:00:00.000Z';
 /** The server's spelling of T1 (µs, +00:00). */
 const T1_SERVER = '2026-10-21T11:00:00.000000+00:00';
 
@@ -328,7 +327,11 @@ describe('pull: bring the server rows down (real SQLite, fake client)', () => {
       await insertHitList(db, createTestHitList({ id: 'list-1', owner_id: ME }));
       await addSpotsToList(db, 'list-1', ['spot-1'], T1);
       await clearOutbox(db);
-      serve({ spots: [serverSpot({ updated_at: '2026-10-22T12:00:00+00:00', deleted_at: '2026-10-22T12:00:00+00:00' })] });
+      serve({
+        spots: [serverSpot({ updated_at: '2026-10-22T12:00:00+00:00', deleted_at: '2026-10-22T12:00:00+00:00' })],
+        // the membership was pushed: the server has it too
+        hit_list_spots: [serverMembership()],
+      });
 
       expect(await pull(db, asClient(fake), ME)).toEqual({ changed: true });
 
@@ -490,7 +493,10 @@ describe('pull: bring the server rows down (real SQLite, fake client)', () => {
       await clearOutbox(db);
       // the server still lets the rider read foreign-1 only (not even listing 'mine': it must stay anyway); the row
       // has no rev, so only the id check sees it
-      serve({ spots: [{ id: 'foreign-1', rev: null }] });
+      serve({
+        spots: [{ id: 'foreign-1', rev: null }],
+        hit_list_spots: [serverMembership({ spot_id: 'mine', rev: null })],
+      });
     }
 
     it('asks which of the local foreign spots are still readable and removes the rest, with their photos and memberships', async () => {
@@ -588,6 +594,37 @@ describe('downloadMissingPhotos: own photos pulled from another phone', () => {
     expect(await downloadMissingPhotos(db, asClient(fake), ME, io)).toBe(1);
     expect(warn).toHaveBeenCalled();
     expect(await downloadMissingPhotos(db, asClient(fake), ME, io)).toBe(1);
+  });
+
+  it('reads a React Native Blob (no arrayBuffer) through FileReader', async () => {
+    const realFileReader = globalThis.FileReader;
+    // RN's FileReader: readAsArrayBuffer decodes the native blob, then onload
+    class NativeFileReader {
+      result: ArrayBuffer | null = null;
+      error: Error | null = null;
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      readAsArrayBuffer(blob: { bytes: Uint8Array }) {
+        void Promise.resolve().then(() => {
+          this.result = blob.bytes.slice().buffer;
+          this.onload?.();
+        });
+      }
+    }
+    globalThis.FileReader = NativeFileReader as unknown as typeof FileReader;
+    const rnBlob = { bytes: BYTES, size: BYTES.length, type: 'image/jpeg' };
+    const realFrom = fake.storage.from.getMockImplementation()!;
+    fake.storage.from.mockImplementation((bucket: string) => ({
+      ...realFrom(bucket),
+      download: jest.fn(async (_path: string) => ({ data: rnBlob as unknown as Blob, error: null })),
+    }));
+    try {
+      const files: Record<string, Uint8Array> = { 'photos/spot-1/media-2.jpg': BYTES };
+      expect(await downloadMissingPhotos(db, asClient(fake), ME, memoryIO(files))).toBe(1);
+      expect(files['photos/spot-1/media-1.jpg']).toEqual(BYTES);
+    } finally {
+      globalThis.FileReader = realFileReader;
+    }
   });
 
   it('stops after `limit` downloads', async () => {

@@ -3,13 +3,13 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import {
   BACKOFF_AFTER_ATTEMPTS,
   FAILED_AFTER_ATTEMPTS,
-  getSyncState,
   markDone,
   markFailed,
   parkRow,
   peekOutbox,
   type OutboxRow,
 } from '@/src/db/sync';
+import { maySync, signedInAs } from './account';
 import { defaultPhotoIO, storagePath, uploadPhoto, type PhotoIO } from './photos';
 import { toIso } from './time';
 
@@ -68,7 +68,7 @@ export async function push(
   io: PhotoIO = defaultPhotoIO,
 ): Promise<PushResult> {
   const result: PushResult = { pushed: 0, failed: 0 };
-  if (!(await mayPush(db, client, uid))) return result;
+  if (!(await maySync(db, client, uid))) return result;
 
   const tally = (outcome: Outcome) => {
     if (outcome === 'done') result.pushed += 1;
@@ -104,19 +104,6 @@ export async function push(
     }
   }
   return result;
-}
-
-/**
- * Only a session for `uid`, on a phone whose rows are `uid`'s (sync_state.user_id): anything else would send one
- * account's rows under another and park them all as RLS refusals.
- */
-async function mayPush(db: SQLiteDatabase, client: SupabaseClient, uid: string): Promise<boolean> {
-  return (await signedInAs(client, uid)) && (await getSyncState(db, 'user_id')) === uid;
-}
-
-async function signedInAs(client: SupabaseClient, uid: string): Promise<boolean> {
-  const { data, error } = await client.auth.getSession();
-  return !error && data.session?.user.id === uid;
 }
 
 /** An earlier row for this spot or list still waits (not parked): it must reach the server first. */

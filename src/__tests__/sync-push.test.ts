@@ -36,6 +36,7 @@ function memoryIO(files: Record<string, Uint8Array>) {
         cleaned.push(path);
       },
     })),
+    write: jest.fn(),
   };
   return { io, cleaned };
 }

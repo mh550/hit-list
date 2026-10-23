@@ -130,6 +130,11 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   `profiles.ts` (migration 6, S6-02): `upsertProfiles`/`getProfiles`, the local mirror of friend names (D72).
   Migration 7 (S7-02): `spots.copied_from_send`/`from_username` (a saved send's copy, 'From @ana' under the detail title),
   written only by `insertSpot`, never by `updateSpot`. Push/pull carry both (pull only when the server row has the key).
+  Migration 8 (S8-02): `hit_list_members` (the members mirror, no FK, never pushed; `upsertMembers`/`replaceMembers`/
+  `getMembers`/`getMyMemberships` in `hit-lists.ts`, `getHitLists` attaches `members`) and the membership triggers
+  recreated: an add queues when the spot is the rider's and the list has an owner (a member's add), a delete when the
+  list is the rider's and the spot has an owner, or the spot is the rider's and the list has an owner. So **every
+  local membership DELETE that isn't the rider's own change sets `rev = -1` first** (pull, `src/sync/shared-rows.ts`).
   `hit-lists.ts` (migration 4): `insertHitList`, `getHitLists` (live only), `updateHitList`, `softDeleteHitList`,
   `addSpotsToList` (one `INSERT OR IGNORE … FROM json_each(?)`, idempotent; no `withTransactionAsync` for app writes: it is a
   plain BEGIN/COMMIT on the shared connection, so two writes at once collide), `removeSpotFromList`, `getListMemberships` (`{ spotId: listId[] }`, live lists).
@@ -147,6 +152,11 @@ the server may have marked stays pending in memory and its retry sends the **sam
 rows; no photo arrived = nothing marked, and each try downloads the failed ones again; a sends load keeps an item whose
 save waits for Try again); `dismissSend`, `withdrawSend`, `listSent`; hook `src/hooks/use-sent-sends.ts`), `reload.ts`
 (`reloadStores(Quietly)`, re-exported by engine), `PhotoIO.remove`,
+`lists.ts` (S8-02: `shareList` (D85 refusal, `share_list` rpc) / `invite` / `setRole` / `removeMember` / `leave` /
+`stopSharing` / `respondInvite` / `loadAndApplyInvites` (engine, after sends; Inbox kind `invite`), `(db, client, uid,
+…)`, false without `maySync`; local removals in `shared-rows.ts` on `runExclusive` + one transaction, cache folders
+after the commit), pull's S8 steps (members full read, others' lists only once joined, others' photos at
+`cache/photos/<spot>/<media>.jpg`, the per-list fill, list/photo reconciliation, `removedSpotIds`/`removedPhotoPaths`),
 `errors.ts` (`errorMessage`, `serverError` keeps a supabase-js error's `code`), `tickets.ts` (`createTickets()`: per rider, the newest load wins; friends and sends loads each have one); push marks a row done only while the rider's session lasts (an anon DELETE answers 204
 for 0 rows); a pull keeps the local row on an `updated_at` tie while a change of it waits in the outbox; media
 `addMany` skips ids already in the store (a reload may have read them first); accounts (S4) are `client.ts`, `auth.ts`, `session-storage.ts`.

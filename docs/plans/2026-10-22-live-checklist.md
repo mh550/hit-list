@@ -207,3 +207,17 @@ Works from S7-05 on (the server migration lands in S7-03). Same setup as S6: sta
       is empty and `withdrawn_at` is set.
 - [ ] **Stop:** `npm run db:stop`. **Undo:** delete B's copies on the phone like any spot; `npm run db:reset` wipes
       the server side.
+
+## S8 — Shared hit lists (local stack over Tailscale)
+
+The server migration lands in S8-02 (`20261025010000_shared_lists_s8.sql`: `list_invitations()`, `share_list`); the
+screens come in S8-03…S8-06 and the two-phone check with S8-08. Plan: `docs/plans/2026-10-22-s8-shared-lists.md`.
+
+- [ ] **Server side first:** `npm run db:reset && npm run test:db`. Check: `110-shared-lists-s8.test.sql .. ok` and
+      `Result: PASS` (S8-02 ran Files=11, Tests=628).
+- [ ] **Deploy order (cloud, later):** `npx supabase db push --dry-run` lists only the S8 file after the S7 ones;
+      then `npx supabase db push`, **before** installing a build with S8 (an older server answers the Inbox's
+      `list_invitations` and Share's `share_list` with 404: invitations don't show, Share fails with "Couldn't share").
+      Check in the SQL editor: `select * from public.list_invitations()` as anon is refused (permission denied).
+      Undo: the migration only adds two functions; `drop function public.list_invitations(); drop function
+      public.share_list(uuid);` puts the server back.

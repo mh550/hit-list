@@ -481,6 +481,37 @@ Checked by the reviewer and holding: the members insert with `invited_by`, `setR
 and the re-read after `stop_sharing` pass RLS and `guard_member_update`; `downloadMissingPhotos` skips foreign rows
 (`photos.ts:131-132`); push parks 42501 (`push.ts:33`); the new trigger rule fits adoption's `enqueueMemberships`.
 
+## As built (S8-02)
+
+- **Migration 8** as planned (table + index, the two membership triggers recreated with the member rule; literal SQL
+  in `schema.ts` `migration8`). `addSpotsToList(db, listId, spotIds, addedAt, addedBy)`; `useHitListActions` passes
+  `currentOwnerId()`. `src/db/hit-lists.ts`: `upsertMembers`, `replaceMembers` (→ changed?), `getMembers`,
+  `getMyMemberships`, `deleteMembers`, `deleteMember`; `getHitLists` attaches `members` (joined first, usernames from
+  `profiles`), `HitList.members?: HitListMember[]`; types `ListMember`, `MemberRole`, `MemberStatus`.
+- **Server** `20261025010000_shared_lists_s8.sql` (`list_invitations()`, `share_list(p_list)`; execute revoked from
+  public/anon, granted to authenticated) and pgTAP `110-shared-lists-s8` (24 cases). RED: `test:db` failed 110 with
+  "function public.list_invitations() does not exist"; GREEN: Files=11, Tests=628, PASS; stack stopped, no
+  `supabase_*` container left.
+- **`src/sync/lists.ts`** as the Data table, every call `(db, client, uid, …)` resolving `false` without `maySync`.
+  Errors: `NotAllowedError` (42501), `ListNotBackedUpError` (D85: not the rider's, phone-only, or an outbox row).
+  `respondInvite('join')` with 0 rows also drops the mirror row (the invitation is gone). Local multi-row removals go
+  through `src/sync/shared-rows.ts` (`forgetList` also drops the list's membership outbox rows: the server took the
+  rider's spots out with them, D43; `unshareLocally`, `removeMemberLocally`, `removeUnheldForeignSpots` = others'
+  spots no live list and no shared area list of their owner shows) inside `runExclusive` + one transaction; cache
+  folders after the commit (`deleteCachedPhotos`, `deleteCachedFiles` in `photos.ts`; `cachedPhotoPath`).
+- **Pull** steps 1–7 as planned, with one refinement of step 2: a membership whose list/spot isn't held, or someone
+  else's photo whose spot isn't, is **skipped only when every earlier table was read to its end**; while one stopped
+  or failed it still stops (else a row could be skipped past for good). `PullResult` gains `removedSpotIds` and
+  `removedPhotoPaths`; the engine deletes their cache files and runs `loadAndApplyInvites` after the sends load.
+  `memberFromServer` and `applyListRow` are exported for `lists.ts`.
+- **Stores:** `selectSharedWithMe(lists, uid)`; `selectInvitations(items)` reads the **Inbox items** (kind
+  `invite`) rather than a copy in the hit-lists store (one source, emptied on every rider change already). Inbox
+  `InviteItem` + `inviteLine` ('@ana invited you to Downtown (12 spots)' / '(1 spot)' / '(no spots yet)'); the tab
+  renders it as that line only until S8-06 adds Join / Decline.
+- **Done early from S8-03 (D86 part):** an account switch, Remove and Keep-after-Delete empty `hit_list_members` and
+  delete the removed spots' cache folders. Sign-out Keep removing others' rows is still S8-03.
+- Tests: 1684 → 1756 (`check.sh` green); RED-first counts are in each commit message.
+
 ## Unresolved questions
 
 - D83–D91 are defaults (§9 Q44–Q52). Q11 (blocking inside a shared list) stays as D50: nothing changes in lists you

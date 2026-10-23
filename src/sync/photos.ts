@@ -107,8 +107,8 @@ function blobBytes(blob: Blob): Promise<Uint8Array> {
 }
 
 /**
- * The rider's own live photos that reached the server (`rev` set: pulled, or this phone's push came back) but whose
- * file is not on this phone: a second phone, or a reinstall. Up to `limit` downloads per sync, one at a time, newest
+ * The rider's own live photos of live spots that reached the server (`rev` set: pulled, or this phone's push came
+ * back) but whose file is not on this phone: a second phone, or a reinstall. Up to `limit` downloads per sync, one at a time, newest
  * first; a failure warns and the photo is tried again next sync. Others' photos (S8) go to the cache lazily, not here.
  * Returns how many files were written.
  */
@@ -120,9 +120,10 @@ export async function downloadMissingPhotos(
   limit = 20,
 ): Promise<number> {
   const rows = await db.getAllAsync<Pick<Media, 'id' | 'spot_id' | 'file_path'>>(
-    `SELECT id, spot_id, file_path FROM media
-     WHERE owner_id = ? AND deleted_at IS NULL AND rev IS NOT NULL AND file_path LIKE 'photos/%'
-     ORDER BY created_at DESC, id`,
+    `SELECT m.id, m.spot_id, m.file_path FROM media m JOIN spots s ON s.id = m.spot_id
+     WHERE m.owner_id = ? AND m.deleted_at IS NULL AND s.deleted_at IS NULL AND m.rev IS NOT NULL
+       AND m.file_path LIKE 'photos/%'
+     ORDER BY m.created_at DESC, m.id`,
     uid,
   );
   let tried = 0;

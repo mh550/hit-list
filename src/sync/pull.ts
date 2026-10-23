@@ -19,6 +19,8 @@ export const PULL_PAGE = 500;
 /**
  * The server's `bump_rev` takes `nextval` inside the writer's transaction, so rev 100 can commit after rev 101 was
  * pulled. Each pull re-reads this many revs below the cursor; a row applied twice is a no-op (`rev` guard).
+ * `sync_rev` is one sequence for every table and every rider, so this is a window of revs handed out anywhere, not
+ * of this rider's rows: a transaction that stays open while more than 200 others commit can still be missed.
  */
 export const REV_OVERLAP = 200;
 /** Ids per `in.(…)` filter: keeps the request URL short. */
@@ -160,8 +162,10 @@ function isOlder(incoming: SQLiteBindValue, local: SQLiteBindValue): boolean {
 
 /**
  * Inserts a row this phone doesn't have, or updates one when the server's rev is newer than the stored one and its
- * updated_at is not older (equal applies: the echo of this phone's own push only stores the rev). Never `INSERT OR
- * REPLACE`: replacing a spot would cascade-delete its photos and memberships.
+ * updated_at is not older (equal applies: the echo of this phone's own push only stores the rev). Both guards sit in
+ * the UPDATE itself, so an edit the rider saves while the pull awaits is never overwritten (julianday reads `…Z` and
+ * SQLite's `YYYY-MM-DD HH:MM:SS`). Never `INSERT OR REPLACE`: replacing a spot would cascade-delete its photos and
+ * memberships.
  */
 async function applyOwned(
   db: SQLiteDatabase,
@@ -185,14 +189,17 @@ async function applyOwned(
   }
   if (typeof local.rev === 'number' && local.rev >= rev) return false;
   if (isOlder(values.updated_at, local.updated_at)) return false;
-  await db.runAsync(
-    `UPDATE ${table} SET ${columns.map((c) => `${c} = ?`).join(', ')}, rev = ? WHERE id = ? AND (rev IS NULL OR rev < ?)`,
+  const { changes } = await db.runAsync(
+    `UPDATE ${table} SET ${columns.map((c) => `${c} = ?`).join(', ')}, rev = ?
+     WHERE id = ? AND (rev IS NULL OR rev < ?)
+       AND (julianday(updated_at) IS NULL OR julianday(updated_at) <= julianday(?))`,
     ...Object.values(values),
     rev,
     id,
     rev,
+    values.updated_at,
   );
-  return columns.some((c) => local[c] !== values[c]);
+  return changes > 0 && columns.some((c) => local[c] !== values[c]);
 }
 
 /**

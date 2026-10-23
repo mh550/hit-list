@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { AccessibilityInfo, ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
@@ -16,24 +17,39 @@ import { syncNow } from '@/src/sync/engine';
 import { refreshProfile } from '@/src/sync/auth';
 import { errorMessage } from '@/src/sync/errors';
 import { refreshFriends, type FriendProfile } from '@/src/sync/friends';
-import { createSend, NotBackedUpError } from '@/src/sync/sends';
+import type { LinkExpiry } from '@/src/sync/links';
+import { createSend, makeSendLink, NotBackedUpError } from '@/src/sync/sends';
 import { resolvePhotoUri } from '@/src/utils/photo-storage';
 import { MAX_SEND_SPOTS } from '@/src/utils/send-payload';
 import { spotCountLabel } from '@/src/utils/spot-name';
 import { primaryPhoto } from '@/src/utils/spot-photos';
 import { ACCOUNTS_NOT_SET_UP } from './AuthScreen';
 import { Button } from './Button';
+import { Chip, ChipGroup } from './Chip';
 
 /*
  * Send (S7-04, docs/plans/2026-10-22-s7-send.md "Send sheet"): a one-time copy of `spotIds` to the friends the rider
  * checks (D40). The word is always Send, and the sentence under the friends says what it is (D34). Mounted per open,
  * so every open starts with nobody checked.
+ *
+ * Copy link instead (S9-03, docs/plans/2026-10-22-s9-links.md "UI (S9-03)"): the same spots as one send nobody is named
+ * on, behind a link anyone can open until it expires (D44). Still a frozen copy, so still the word Send, never the live
+ * word (a test reads this file).
  */
 
 const NOT_BACKED_UP = "Some of these spots aren't backed up yet. Try again when you're online.";
 const FAILED = "Couldn't send. Try again.";
 const PROFILE_FAILED = "Couldn't load your profile. Try again.";
 const LOAD_FAILED = "Couldn't load your friends.";
+const LINK_FAILED = "Couldn't make the link. Try again.";
+/** D44, verbatim. */
+const LINK_SENTENCE = 'Anyone with the link can see these spots until it expires. No account needed to look.';
+const EXPIRIES: { value: LinkExpiry; label: string }[] = [
+  { value: '1d', label: '1 day' },
+  { value: '7d', label: '7 days' },
+  { value: '30d', label: '30 days' },
+  { value: 'never', label: 'Never' },
+];
 const THUMBNAILS = 3;
 
 const handleOf = (p: FriendProfile) => (p.username ? `@${p.username}` : 'A rider');
@@ -157,6 +173,8 @@ function SendBody({
   const spots = useSpotsStore((s) => s.spots);
   const mediaBySpot = useMediaStore((s) => s.mediaBySpot);
   const [checked, setChecked] = useState<string[]>([]);
+  const [mode, setMode] = useState<'friends' | 'link'>('friends');
+  const [expiry, setExpiry] = useState<LinkExpiry>('30d');
   const [line, setShownLine] = useState<string | null>(null);
   // A live region is Android only: VoiceOver hears a line when it is set.
   const setLine = (text: string | null) => {
@@ -238,6 +256,51 @@ function SendBody({
     }
   };
 
+  const copyLink = async () => {
+    if (busy.current) return;
+    if (!username) {
+      setLine(PROFILE_FAILED);
+      await refreshProfile(client, uid);
+      return;
+    }
+    busy.current = true;
+    cancelledRef.current = false;
+    setPhase('backing_up');
+    setLine(null);
+    try {
+      await syncNow(db);
+      if (cancelledRef.current) return;
+      setPhase('sending');
+      const url = await makeSendLink(db, client, uid, {
+        spotIds,
+        sender: { username, display_name: displayName },
+        expiry,
+      });
+      if (url) {
+        await Clipboard.setStringAsync(url);
+        showToast('Link copied');
+        onClose();
+        return;
+      }
+      setLine(LINK_FAILED);
+    } catch (err) {
+      if (err instanceof NotBackedUpError) {
+        setLine(NOT_BACKED_UP);
+      } else {
+        console.warn('[send sheet] link failed:', errorMessage(err));
+        setLine(LINK_FAILED);
+      }
+    } finally {
+      busy.current = false;
+      setPhase(null);
+    }
+  };
+
+  const switchTo = (next: 'friends' | 'link') => {
+    setMode(next);
+    setLine(null);
+  };
+
   if (spotIds.length > MAX_SEND_SPOTS) {
     return (
       <Text style={styles.centeredText}>
@@ -303,25 +366,78 @@ function SendBody({
     });
   }
 
-  const canSend = recipientIds.length > 0 && phase === null;
+  const idle = phase === null;
+  const canSend = recipientIds.length > 0 && idle;
+  const errorLine = line ? (
+    <Text style={styles.lineError} accessibilityRole="alert" accessibilityLiveRegion="polite">
+      {line}
+    </Text>
+  ) : null;
+  const spotsRow = (
+    <View style={styles.spots}>
+      {thumbnails.map((uri) => (
+        <Image key={uri} source={{ uri }} style={styles.thumbnail} contentFit="cover" accessible={false} />
+      ))}
+      <Text style={styles.count}>{spotCountLabel(spotIds.length)}</Text>
+    </View>
+  );
+  const toggleRow = (label: string, next: 'friends' | 'link') => (
+    <Pressable
+      onPress={() => switchTo(next)}
+      disabled={!idle}
+      style={styles.toggle}
+      hitSlop={8}
+      accessibilityRole="button"
+      accessibilityLabel={label}
+      accessibilityState={{ disabled: !idle }}>
+      <Text style={[styles.link, !idle && styles.linkDisabled]}>{label}</Text>
+    </Pressable>
+  );
+
+  if (mode === 'link') {
+    return (
+      <ScrollView contentContainerStyle={styles.content}>
+        {spotsRow}
+        <View style={styles.chips}>
+          <ChipGroup>
+            {EXPIRIES.map((e) => (
+              <Chip
+                key={e.value}
+                label={e.label}
+                role="button"
+                selected={expiry === e.value}
+                disabled={!idle}
+                onPress={() => setExpiry(e.value)}
+              />
+            ))}
+          </ChipGroup>
+        </View>
+        <Text style={styles.sentence}>{LINK_SENTENCE}</Text>
+        {errorLine}
+        <Pressable
+          onPress={copyLink}
+          disabled={!idle}
+          style={({ pressed }) => [styles.send, !idle && styles.sendDisabled, pressed && styles.sendPressed]}
+          accessibilityRole="button"
+          accessibilityLabel="Copy link"
+          accessibilityState={{ disabled: !idle, busy: !idle }}>
+          <Text style={styles.sendText}>{idle ? 'Copy link' : 'Making link…'}</Text>
+        </Pressable>
+        {toggleRow('Send to friends instead', 'friends')}
+      </ScrollView>
+    );
+  }
+
   return (
     <ScrollView contentContainerStyle={styles.content}>
-      <View style={styles.spots}>
-        {thumbnails.map((uri) => (
-          <Image key={uri} source={{ uri }} style={styles.thumbnail} contentFit="cover" accessible={false} />
-        ))}
-        <Text style={styles.count}>{spotCountLabel(spotIds.length)}</Text>
-      </View>
+      {spotsRow}
 
       <Text style={styles.sectionHeader}>Friends</Text>
       {recipients}
+      {toggleRow('Copy link instead', 'link')}
 
       <Text style={styles.sentence}>{copySentence(spotIds.length)}</Text>
-      {line ? (
-        <Text style={styles.lineError} accessibilityRole="alert" accessibilityLiveRegion="polite">
-          {line}
-        </Text>
-      ) : null}
+      {errorLine}
       {loaded && friends.length > 0 ? (
         <Pressable
           onPress={send}
@@ -329,9 +445,9 @@ function SendBody({
           style={({ pressed }) => [styles.send, !canSend && styles.sendDisabled, pressed && styles.sendPressed]}
           accessibilityRole="button"
           accessibilityLabel="Send"
-          accessibilityState={{ disabled: !canSend, busy: phase !== null }}>
+          accessibilityState={{ disabled: !canSend, busy: !idle }}>
           <IconSymbol name="paperplane.fill" size={18} color={palette.white} />
-          <Text style={styles.sendText}>{phase !== null ? 'Sending…' : 'Send'}</Text>
+          <Text style={styles.sendText}>{idle ? 'Send' : 'Sending…'}</Text>
         </Pressable>
       ) : null}
     </ScrollView>
@@ -418,6 +534,18 @@ const styles = StyleSheet.create({
   link: {
     ...typography.subheadline,
     color: palette.blue[500],
+  },
+  linkDisabled: {
+    color: palette.gray[300],
+  },
+  toggle: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+  },
+  chips: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
   },
   row: {
     flexDirection: 'row',

@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 
@@ -11,17 +12,19 @@ import { useAuthStore } from '@/src/stores/auth-store';
 import { showToast } from '@/src/stores/toast-store';
 import { getSupabase } from '@/src/sync/client';
 import { errorMessage } from '@/src/sync/errors';
+import { createInviteLink, listMyLinks, revokeLink, type MyLink } from '@/src/sync/links';
 import { leave, NotAllowedError, removeMember, setRole, stopSharing } from '@/src/sync/lists';
 import type { HitListMember, MemberRole } from '@/src/types';
 import { handleOf } from '@/src/utils/members';
 import { isForeign } from '@/src/utils/ownership';
-import { spotCountLabel } from '@/src/utils/spot-name';
+import { formatSpotDate, spotCountLabel } from '@/src/utils/spot-name';
 
 /*
  * A shared list's members (S8-04, docs/plans/2026-10-22-s8-shared-lists.md "Share screens"): the owner, everyone who
  * joined with their role, and the invitations. The owner changes a role, removes a member or withdraws an invitation
  * from a row's menu, invites more and can stop sharing; a member can only leave. Every consequence is said before it
- * happens, and a server error reads as one fixed line.
+ * happens, and a server error reads as one fixed line. The owner also makes invite links (S9-03, one use, 7 days,
+ * copied to the clipboard) and sees this list's links with a Revoke on the live ones; a member sees none of it.
  */
 
 const ROLE_CHOICES: MemberRole[] = ['add', 'view'];
@@ -30,6 +33,23 @@ const ROLE_CHOICES: MemberRole[] = ['add', 'view'];
 function rowText(m: HitListMember, owner: boolean): string {
   if (m.status === 'invited' && !owner) return handleOf(m.username, 'Invited rider');
   return `${handleOf(m.username)} · ${ROLE_LABELS[m.role]}`;
+}
+
+/** 'Invite link · Can add spots · Active until Oct 30' · '… · Used by @ben' · '… · Expired' · '… · Revoked'. */
+function linkText(link: MyLink): string {
+  const state =
+    link.status === 'active'
+      ? link.expiresAt
+        ? `Active until ${formatSpotDate(link.expiresAt)}`
+        : 'Active'
+      : link.status === 'used'
+        ? link.usedBy?.username
+          ? `Used by ${handleOf(link.usedBy.username)}`
+          : 'Used'
+        : link.status === 'expired'
+          ? 'Expired'
+          : 'Revoked';
+  return ['Invite link', link.role ? ROLE_LABELS[link.role] : undefined, state].filter(Boolean).join(' · ');
 }
 
 /** 'Their 5 spots in Downtown will leave it too.' · none at 0 (the alert then has no message). */
@@ -61,6 +81,39 @@ export default function MembersScreen() {
       mountedRef.current = false;
     };
   }, []);
+
+  // The owner's invite links of this list (S9-03); only the newest load lands.
+  const canLink = !!client && status === 'signed_in' && !!uid && !!list && list.shared && !isForeign(list, uid);
+  const listId = list?.id;
+  const [links, setLinks] = useState<MyLink[]>([]);
+  const loadTicket = useRef(0);
+  /** This list's links, or null (no session, or the read failed: the rows stay as they were). */
+  const readLinks = useCallback(async (): Promise<MyLink[] | null> => {
+    if (!canLink || !client || !uid) return null;
+    try {
+      const mine = await listMyLinks(client, uid, 'invite');
+      return mine ? mine.filter((l) => l.listId === listId) : null;
+    } catch (err) {
+      console.warn('[members] the invite links could not be loaded:', errorMessage(err));
+      return null;
+    }
+  }, [canLink, client, uid, listId]);
+  const loadLinks = useCallback(() => {
+    const ticket = ++loadTicket.current;
+    return readLinks().then((next) => {
+      if (next && ticket === loadTicket.current) setLinks(next);
+    });
+  }, [readLinks]);
+  useEffect(() => {
+    const ticket = ++loadTicket.current;
+    void readLinks().then((next) => {
+      if (next && ticket === loadTicket.current) setLinks(next);
+    });
+    // Leaving (or a new list) drops any load still on its way.
+    return () => {
+      loadTicket.current += 1;
+    };
+  }, [readLinks]);
 
   const listSpots = useMemo(
     () => (list ? selectListSpots(list, spots, membershipBySpot) : []),
@@ -186,6 +239,57 @@ export default function MembersScreen() {
     ]);
   };
 
+  const makeLink = (role: MemberRole) =>
+    run(async () => {
+      const url = await createInviteLink(client, uid, list.id, role);
+      if (!url) return false;
+      await Clipboard.setStringAsync(url);
+      showToast('Link copied · works once, 7 days');
+      void loadLinks();
+      return true;
+    }, "Couldn't make the link. Try again.");
+
+  const chooseLinkRole = () => {
+    Alert.alert('Invite link', 'What can they do?', [
+      ...ROLE_CHOICES.map((role) => ({
+        text: ROLE_LABELS[role],
+        onPress: () => makeLink(role),
+      })),
+      { text: 'Cancel', style: 'cancel' as const },
+    ]);
+  };
+
+  const confirmRevoke = (link: MyLink) => {
+    Alert.alert('Revoke this invite link?', 'Nobody can join with it now.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Revoke',
+        style: 'destructive',
+        onPress: async () => {
+          if (
+            await run(
+              async () => (await revokeLink(client, uid, link.id)) === true,
+              "Couldn't revoke the link. Try again.",
+            )
+          ) {
+            await loadLinks();
+          }
+        },
+      },
+    ]);
+  };
+
+  const linkRows = canLink
+    ? links.map((link) => (
+        <View key={link.id} style={styles.row}>
+          <Text style={styles.linkText}>{linkText(link)}</Text>
+          {link.status === 'active' ? (
+            <Button title="Revoke" size="sm" variant="secondary" onPress={() => confirmRevoke(link)} />
+          ) : null}
+        </View>
+      ))
+    : null;
+
   const rows = (list.members ?? []).map(withName).map((m) => {
     const text = rowText(m, owner);
     const invited = m.status === 'invited';
@@ -223,6 +327,16 @@ export default function MembersScreen() {
           <Text style={styles.rowText} numberOfLines={1}>{`${handleOf(ownerName)} (owner)`}</Text>
         </View>
         {rows}
+        {canLink ? (
+          <Pressable
+            onPress={chooseLinkRole}
+            style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+            accessibilityRole="button"
+            accessibilityLabel="Invite link">
+            <Text style={styles.linkAction}>Invite link</Text>
+          </Pressable>
+        ) : null}
+        {linkRows}
         <View style={styles.actions}>
           {owner ? (
             <>
@@ -273,6 +387,15 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     fontSize: 17,
     color: palette.gray[900],
+  },
+  linkText: {
+    flexShrink: 1,
+    fontSize: 15,
+    color: palette.gray[700],
+  },
+  linkAction: {
+    fontSize: 17,
+    color: palette.blue[500],
   },
   tag: {
     fontSize: 13,

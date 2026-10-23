@@ -4,51 +4,72 @@ import { useSQLiteContext, type SQLiteDatabase } from 'expo-sqlite';
 import { useAuthStore } from '@/src/stores/auth-store';
 import { getSupabase } from '@/src/sync/client';
 import { errorMessage } from '@/src/sync/errors';
-import { listSent, type SentSend } from '@/src/sync/sends';
+import { listSent, listSentLinks, type SentLink, type SentSend } from '@/src/sync/sends';
 
 interface Loaded {
   uid: string | null;
   sends: SentSend[] | null;
+  links: SentLink[] | null;
   error: boolean;
 }
 
-type Read = { uid: string; sends: SentSend[] } | { uid: string; error: true } | null;
+/** A part that could not be read. */
+const FAILED = Symbol('failed');
+type Part<T> = T[] | typeof FAILED;
 
-/** listSent for `uid`; never rejects (an error warns and reads as `error`). Null without a client or a session. */
-async function readSent(db: SQLiteDatabase, uid: string): Promise<Read> {
-  const client = getSupabase();
-  if (!client) return null;
+type Read = { uid: string; sends: Part<SentSend>; links: Part<SentLink> } | null;
+
+/** One part's read; never rejects (an error warns and reads as FAILED). Null without a session. */
+async function readPart<T>(what: string, read: () => Promise<T[] | null>): Promise<Part<T> | null> {
   try {
-    const sends = await listSent(db, client, uid);
-    return sends && { uid, sends };
+    return await read();
   } catch (err) {
-    console.warn('[sends] loading what you sent failed:', errorMessage(err));
-    return { uid, error: true };
+    console.warn(`[sends] loading ${what} failed:`, errorMessage(err));
+    return FAILED;
   }
 }
 
-/** A failed read keeps what this rider's list showed. */
+/** listSent and listSentLinks for `uid`, side by side; never rejects. Null without a client or a session. */
+async function readSent(db: SQLiteDatabase, uid: string): Promise<Read> {
+  const client = getSupabase();
+  if (!client) return null;
+  const [sends, links] = await Promise.all([
+    readPart('what you sent', () => listSent(db, client, uid)),
+    readPart('your send links', () => listSentLinks(client, uid)),
+  ]);
+  return sends && links && { uid, sends, links };
+}
+
+/** A part that failed keeps what this rider's screen showed of it. */
 function apply(prev: Loaded, read: Read): Loaded {
   if (!read) return prev;
-  if ('sends' in read) return { uid: read.uid, sends: read.sends, error: false };
-  return prev.uid === read.uid ? { ...prev, error: true } : { uid: read.uid, sends: null, error: true };
+  const same = prev.uid === read.uid;
+  const keep = <T>(part: Part<T>, before: T[] | null): T[] | null => (part !== FAILED ? part : same ? before : null);
+  return {
+    uid: read.uid,
+    sends: keep(read.sends, prev.sends),
+    links: keep(read.links, prev.links),
+    error: read.sends === FAILED || read.links === FAILED,
+  };
 }
 
 /**
- * The Sent screen's data (S7, docs/plans/2026-10-22-s7-send.md "Sent"): what the signed-in rider sent, read with
- * listSent when the screen mounts and on `refresh` (pull to refresh; `{ quiet: true }` after a Withdraw, without the
- * pull-to-refresh spinner). `sends` is null until the first read for this rider went through; `error` is set when the
- * last read failed (what was there stays).
+ * The Sent screen's data (S7, docs/plans/2026-10-22-s7-send.md "Sent"; S9-03 links): what the signed-in rider sent
+ * to friends (listSent) and as links (listSentLinks), read together when the screen mounts and on `refresh` (pull to
+ * refresh; `{ quiet: true }` after a Withdraw or a Revoke, without the pull-to-refresh spinner). `sends` and `links`
+ * are null until a read of them for this rider went through; `error` is set when the last read of either failed
+ * (what was there stays).
  */
 export function useSentSends(): {
   sends: SentSend[] | null;
+  links: SentLink[] | null;
   error: boolean;
   refreshing: boolean;
   refresh: (opts?: { quiet?: boolean }) => Promise<void>;
 } {
   const db = useSQLiteContext();
   const userId = useAuthStore((s) => (s.status === 'signed_in' ? s.userId : null));
-  const [loaded, setLoaded] = useState<Loaded>({ uid: null, sends: null, error: false });
+  const [loaded, setLoaded] = useState<Loaded>({ uid: null, sends: null, links: null, error: false });
   const [refreshing, setRefreshing] = useState(false);
   // only the newest read lands: an older one (a refresh before a Withdraw, another rider's) that ends later is dropped
   const newestRead = useRef(0);
@@ -83,5 +104,11 @@ export function useSentSends(): {
 
   // another rider's list never shows, even for the moment before the new one is read
   const mine = userId !== null && loaded.uid === userId;
-  return { sends: mine ? loaded.sends : null, error: mine && loaded.error, refreshing, refresh };
+  return {
+    sends: mine ? loaded.sends : null,
+    links: mine ? loaded.links : null,
+    error: mine && loaded.error,
+    refreshing,
+    refresh,
+  };
 }

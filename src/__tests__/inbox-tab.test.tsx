@@ -1,5 +1,13 @@
 import React from 'react';
-import { AccessibilityInfo, Alert, AppState, RefreshControl, type AlertButton, type AppStateStatus } from 'react-native';
+import {
+  AccessibilityInfo,
+  Alert,
+  AppState,
+  Linking,
+  RefreshControl,
+  type AlertButton,
+  type AppStateStatus,
+} from 'react-native';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useIsFocused, useRouter } from 'expo-router';
 import { useSQLiteContext as sharedDb } from 'expo-sqlite';
@@ -33,6 +41,16 @@ jest.mock('@/src/sync/lists', () => ({
   loadAndApplyInvites: jest.fn().mockResolvedValue(undefined),
 }));
 jest.mock('@/src/sync/engine', () => ({ syncNow: jest.fn().mockResolvedValue(undefined) }));
+// redeemInvite is join.ts's (tested in sync-links.test.ts); joinList stays real (S9-03).
+jest.mock('@/src/sync/join', () => ({
+  ...jest.requireActual('@/src/sync/join'),
+  redeemInvite: jest.fn(),
+}));
+// previewLink is links.ts's (tested in sync-links.test.ts); LinkGoneError and shareBaseUrl stay real (S9-03).
+jest.mock('@/src/sync/links', () => ({
+  ...jest.requireActual('@/src/sync/links'),
+  previewLink: jest.fn(),
+}));
 // The seen mark's SQL is inbox-store.test.ts's (real SQLite); jest.setup's shared db can't run queries.
 jest.mock('@/src/db/sync', () => ({
   ...jest.requireActual('@/src/db/sync'),
@@ -49,7 +67,8 @@ import { block, refreshFriends, respond } from '@/src/sync/friends';
 import { syncNow } from '@/src/sync/engine';
 import { loadAndApplyInvites, NotAllowedError, respondInvite } from '@/src/sync/lists';
 import { useHitListsStore } from '@/src/stores/hit-lists-store';
-import { joinList } from '@/src/sync/join';
+import { joinList, redeemInvite } from '@/src/sync/join';
+import { LinkGoneError, previewLink, shareBaseUrl } from '@/src/sync/links';
 import { createTestHitList } from './factories';
 import { dismissSend, hasPendingSave, loadAndApplySends, saveSend } from '@/src/sync/sends';
 import type { FrozenSpot, SendPayload } from '@/src/utils/send-payload';
@@ -142,6 +161,8 @@ beforeEach(() => {
   jest.mocked(respondInvite).mockReset().mockResolvedValue(true);
   jest.mocked(loadAndApplyInvites).mockReset().mockResolvedValue(undefined);
   jest.mocked(syncNow).mockReset().mockResolvedValue(undefined);
+  jest.mocked(redeemInvite).mockReset().mockRejectedValue(new LinkGoneError());
+  jest.mocked(previewLink).mockReset().mockRejectedValue(new LinkGoneError());
   useHitListsStore.setState({ lists: [], membershipBySpot: {} });
 });
 
@@ -970,5 +991,168 @@ describe('Inbox tab: invitations (S8-06)', () => {
 
     expect(setSyncState).toHaveBeenCalledWith(db, `inbox_seen_at:${ME}`, DOWNTOWN.created_at);
     expect(selectUnseenCount(useInboxStore.getState())).toBe(0);
+  });
+});
+
+describe('Inbox tab: Paste a link (S9-03)', () => {
+  const TOKEN = 'AbCdEfGhIjKlMnOpQrStUv';
+  const LINK = `${shareBaseUrl()}#t=${TOKEN}`;
+  const DOWNTOWN_LIST = createTestHitList({ id: 'L-downtown', name: 'Downtown', owner_id: 'u-ana' });
+
+  const press = async (name: string) => {
+    await act(async () => {
+      fireEvent.press(screen.getByRole('button', { name }));
+    });
+  };
+
+  /** Opens the Paste row, types `text` and taps Open. */
+  async function pasteAndOpen(text: string) {
+    await press('Paste a link');
+    fireEvent.changeText(screen.getByPlaceholderText('Paste a HitList link'), text);
+    await press('Open the link');
+  }
+
+  it("signed in, a 'Paste a link' row reveals the field (no autocorrect, no capitals) and Open", async () => {
+    signIn([]);
+    await renderTab();
+
+    expect(screen.queryByPlaceholderText('Paste a HitList link')).toBeNull();
+    await press('Paste a link');
+
+    const field = screen.getByPlaceholderText('Paste a HitList link');
+    expect(field.props.autoCorrect).toBe(false);
+    expect(field.props.autoCapitalize).toBe('none');
+    expect(screen.getByRole('button', { name: 'Open the link' })).toBeOnTheScreen();
+    expect(screen.getByText('Open')).toBeOnTheScreen();
+  });
+
+  it('signed out there is no Paste row, only the Sign in line', async () => {
+    await renderTab();
+
+    expect(screen.queryByText('Paste a link')).toBeNull();
+    expect(screen.getByText('Sign in to get spots from friends')).toBeOnTheScreen();
+  });
+
+  it("a pasted invite link redeems the text and reads 'Joined Downtown' (announced), with Open to the list", async () => {
+    signIn([]);
+    jest.mocked(redeemInvite).mockImplementation(async () => {
+      // redeemInvite awaits the sync that brings the list
+      useHitListsStore.setState({ lists: [DOWNTOWN_LIST] });
+      return 'L-downtown';
+    });
+    const announce = jest.spyOn(AccessibilityInfo, 'announceForAccessibility').mockImplementation(() => {});
+    announce.mockClear();
+    await renderTab();
+
+    await pasteAndOpen(`  ${LINK}  `);
+
+    expect(redeemInvite).toHaveBeenCalledTimes(1);
+    expect(redeemInvite).toHaveBeenCalledWith(db, mockFake, ME, `  ${LINK}  `);
+    expect(previewLink).not.toHaveBeenCalled();
+    expect(screen.getByText('Joined Downtown')).toBeOnTheScreen();
+    expect(announce).toHaveBeenCalledWith('Joined Downtown');
+    await press('Open Downtown');
+    expect(router.push).toHaveBeenCalledWith('/list/L-downtown');
+  });
+
+  it("a list that was already on the phone reads 'Downtown is already in your lists' + Open", async () => {
+    signIn([]);
+    useHitListsStore.setState({ lists: [DOWNTOWN_LIST] });
+    jest.mocked(redeemInvite).mockResolvedValue('L-downtown');
+    await renderTab();
+
+    await pasteAndOpen(LINK);
+
+    expect(screen.getByText('Downtown is already in your lists')).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: 'Open Downtown' })).toBeOnTheScreen();
+  });
+
+  it("a joined list whose name isn't on the phone yet reads 'Joined the list'", async () => {
+    signIn([]);
+    jest.mocked(redeemInvite).mockResolvedValue('L-downtown');
+    await renderTab();
+
+    await pasteAndOpen(LINK);
+
+    expect(screen.getByText('Joined the list')).toBeOnTheScreen();
+  });
+
+  it("a gone invite whose preview is gone too reads \"That link doesn't work any more\"", async () => {
+    signIn([]);
+    await renderTab();
+
+    await pasteAndOpen(LINK);
+
+    expect(previewLink).toHaveBeenCalledWith(mockFake, TOKEN);
+    expect(jest.mocked(redeemInvite).mock.invocationCallOrder[0]).toBeLessThan(
+      jest.mocked(previewLink).mock.invocationCallOrder[0],
+    );
+    expect(screen.getByText("That link doesn't work any more")).toBeOnTheScreen();
+  });
+
+  it("a send link opens its page (shareBaseUrl()#t=<token>) and clears the field", async () => {
+    signIn([]);
+    jest.mocked(previewLink).mockResolvedValue({ kind: 'send', count: 3, sender: 'ana' });
+    const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+    await renderTab();
+
+    await pasteAndOpen(LINK);
+
+    expect(open).toHaveBeenCalledWith(`http://localhost:8080/share/#t=${TOKEN}`);
+    expect(screen.getByPlaceholderText('Paste a HitList link').props.value).toBe('');
+  });
+
+  it("text that isn't a link reads \"That isn't a HitList link\" and calls nothing", async () => {
+    signIn([]);
+    await renderTab();
+
+    await pasteAndOpen('meet at the rail');
+
+    expect(screen.getByText("That isn't a HitList link")).toBeOnTheScreen();
+    expect(redeemInvite).not.toHaveBeenCalled();
+    expect(previewLink).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['the redeem fails', () => jest.mocked(redeemInvite).mockRejectedValue(new Error('offline'))],
+    ['the redeem has no session', () => jest.mocked(redeemInvite).mockResolvedValue(null)],
+    ['the preview fails', () => jest.mocked(previewLink).mockRejectedValue(new Error('offline'))],
+    [
+      'the page does not open',
+      () => {
+        jest.mocked(previewLink).mockResolvedValue({ kind: 'send', count: 1, sender: null });
+        jest.spyOn(Linking, 'openURL').mockRejectedValue(new Error('no handler'));
+      },
+    ],
+  ])("when %s it reads \"Couldn't open the link. Try again.\"", async (_name, setUp) => {
+    signIn([]);
+    setUp();
+    await renderTab();
+
+    await pasteAndOpen(LINK);
+
+    expect(screen.getByText("Couldn't open the link. Try again.")).toBeOnTheScreen();
+  });
+
+  it('a double tap on Open redeems once; Open is disabled while it runs', async () => {
+    signIn([]);
+    let finish: (v: string) => void = () => {};
+    jest.mocked(redeemInvite).mockImplementation(() => new Promise((resolve) => (finish = resolve)));
+    await renderTab();
+    await press('Paste a link');
+    fireEvent.changeText(screen.getByPlaceholderText('Paste a HitList link'), LINK);
+
+    const open = screen.getByRole('button', { name: 'Open the link' });
+    await act(async () => {
+      fireEvent.press(open);
+      fireEvent.press(open);
+    });
+    expect(screen.getByRole('button', { name: 'Open the link' }).props.accessibilityState).toMatchObject({
+      disabled: true,
+    });
+    await act(async () => finish('L-downtown'));
+
+    expect(redeemInvite).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Joined the list')).toBeOnTheScreen();
   });
 });

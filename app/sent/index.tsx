@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, RefreshControl, SectionList, StyleSheet, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
@@ -9,13 +9,15 @@ import { useSentSends } from '@/src/hooks/use-sent-sends';
 import { useAuthStore } from '@/src/stores/auth-store';
 import { getSupabase } from '@/src/sync/client';
 import { errorMessage } from '@/src/sync/errors';
-import { withdrawSend, type SentSend, type SentStatus } from '@/src/sync/sends';
-import { spotCountLabel } from '@/src/utils/spot-name';
+import { revokeSentLink, withdrawSend, type SentLink, type SentSend, type SentStatus } from '@/src/sync/sends';
+import { formatSpotDate, spotCountLabel } from '@/src/utils/spot-name';
 
 /*
  * Profile → Sent (S7-05, docs/plans/2026-10-22-s7-send.md "Sent"): every send the rider made to a friend, newest
  * first, with its status. A waiting one can be withdrawn (D40: until it is saved); a saved one is theirs now. A
  * dismissed send still reads Waiting (D82). Withdraw is single-flight per row.
+ * Below them the send links (S9-03, docs/plans/2026-10-22-s9-links.md "UI"), newest first: an active one can be
+ * revoked (D93), also single-flight per row.
  */
 
 const STATUS_LABELS: Record<SentStatus, string> = {
@@ -28,10 +30,24 @@ const LOAD_FAILED = "Couldn't reach the server. Pull to try again.";
 
 const handleOf = (send: SentSend) => (send.to.username ? `@${send.to.username}` : 'a rider');
 
+type LinkStatus = SentLink['status'];
+
+/** 'Link · 3 spots · Active until Nov 21' (never expires: '… · Active'), '… · Expired', '… · Revoked'. */
+function linkLabel(link: SentLink, status: LinkStatus): string {
+  const until = link.expiresAt ? formatSpotDate(link.expiresAt) : '';
+  const state =
+    status === 'expired' ? 'Expired' : status === 'revoked' ? 'Revoked' : until ? `Active until ${until}` : 'Active';
+  return `Link · ${spotCountLabel(link.count)} · ${state}`;
+}
+
+type Row = { kind: 'send'; send: SentSend } | { kind: 'link'; link: SentLink };
+
 function SentBody({ client, uid }: { client: SupabaseClient; uid: string }) {
-  const { sends, error, refreshing, refresh } = useSentSends();
+  const { sends, links, error, refreshing, refresh } = useSentSends();
   // what a Withdraw learned, until (and after) the next read says the same: both outcomes are final
   const [settled, setSettled] = useState<Readonly<Record<string, SentStatus>>>({});
+  // the links a Revoke went through for (final too)
+  const [revoked, setRevoked] = useState<ReadonlySet<string>>(new Set());
   const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
   // A second tap can land before the busy state renders: checked synchronously.
   const busyIds = useRef(new Set<string>());
@@ -66,7 +82,59 @@ function SentBody({ client, uid }: { client: SupabaseClient; uid: string }) {
       },
     ]);
 
-  const renderItem = ({ item }: { item: SentSend }) => {
+  const revoke = async (link: SentLink) => {
+    if (busyIds.current.has(link.id)) return;
+    busyIds.current.add(link.id);
+    setBusy(new Set(busyIds.current));
+    try {
+      // null: the session ended meanwhile, and the screen turns to its Sign in line
+      if ((await revokeSentLink(client, uid, link)) !== null) {
+        setRevoked((prev) => new Set(prev).add(link.id));
+        void refresh({ quiet: true });
+      }
+    } catch (err) {
+      console.warn('[Sent] revoking a link failed:', errorMessage(err));
+      Alert.alert("Couldn't reach the server", 'Try again.');
+    }
+    busyIds.current.delete(link.id);
+    setBusy(new Set(busyIds.current));
+  };
+
+  const askRevoke = (link: SentLink) =>
+    Alert.alert('Revoke this link?', 'The link stops working now.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Revoke',
+        style: 'destructive',
+        onPress: () => void revoke(link),
+      },
+    ]);
+
+  const renderLink = (link: SentLink) => {
+    const status: LinkStatus = revoked.has(link.id) ? 'revoked' : link.status;
+    return (
+      <View style={styles.row}>
+        <View style={styles.rowText}>
+          <Text style={styles.title} numberOfLines={2}>
+            {linkLabel(link, status)}
+          </Text>
+        </View>
+        {status !== 'active' ? null : busy.has(link.id) ? (
+          <ActivityIndicator color={palette.gray[500]} accessibilityLabel="Revoking" />
+        ) : (
+          <Button
+            title="Revoke"
+            variant="secondary"
+            size="sm"
+            accessibilityLabel={`Revoke the link to ${spotCountLabel(link.count)}`}
+            onPress={() => askRevoke(link)}
+          />
+        )}
+      </View>
+    );
+  };
+
+  const renderSend = (item: SentSend) => {
     const status = settled[item.id] ?? item.status;
     const handle = handleOf(item);
     return (
@@ -92,18 +160,33 @@ function SentBody({ client, uid }: { client: SupabaseClient; uid: string }) {
     );
   };
 
+  // with nothing to show: still loading, a failed read (nothing known), or both lists read and empty
   let empty;
-  if (sends === null && !error) empty = <ActivityIndicator style={styles.spinner} color={palette.gray[500]} />;
-  else if (sends === null) empty = <Text style={styles.emptyText}>{LOAD_FAILED}</Text>;
+  if (error) empty = <Text style={styles.emptyText}>{LOAD_FAILED}</Text>;
+  else if (sends === null || links === null)
+    empty = <ActivityIndicator style={styles.spinner} color={palette.gray[500]} />;
   else empty = <Text style={styles.emptyText}>Nothing sent yet</Text>;
 
+  const sections = [
+    { key: 'sends', title: null, data: (sends ?? []).map((send): Row => ({ kind: 'send', send })) },
+    { key: 'links', title: 'Links', data: (links ?? []).map((link): Row => ({ kind: 'link', link })) },
+  ].filter((section) => section.data.length > 0);
+
   return (
-    <FlatList
+    <SectionList
       style={styles.container}
-      data={sends ?? []}
-      keyExtractor={(send) => send.id}
-      renderItem={renderItem}
-      ListHeaderComponent={error && sends ? <Text style={styles.error}>{LOAD_FAILED}</Text> : null}
+      sections={sections}
+      keyExtractor={(row) => (row.kind === 'send' ? `send:${row.send.id}` : `link:${row.link.id}`)}
+      renderItem={({ item }) => (item.kind === 'send' ? renderSend(item.send) : renderLink(item.link))}
+      renderSectionHeader={({ section }) =>
+        section.title ? (
+          <Text style={styles.sectionHeader} accessibilityRole="header">
+            {section.title}
+          </Text>
+        ) : null
+      }
+      stickySectionHeadersEnabled={false}
+      ListHeaderComponent={error && sections.length > 0 ? <Text style={styles.error}>{LOAD_FAILED}</Text> : null}
       ListEmptyComponent={<View style={styles.empty}>{empty}</View>}
       ItemSeparatorComponent={Separator}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refresh()} />}
@@ -154,6 +237,14 @@ const styles = StyleSheet.create({
   rowText: {
     flex: 1,
     gap: spacing.xs,
+  },
+  sectionHeader: {
+    ...typography.footnote,
+    color: palette.gray[500],
+    textTransform: 'uppercase',
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xl,
+    paddingBottom: spacing.sm,
   },
   title: {
     ...typography.body,

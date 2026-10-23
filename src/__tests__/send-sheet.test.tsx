@@ -2,6 +2,7 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { AccessibilityInfo, ActivityIndicator, Image, Modal } from 'react-native';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import * as Clipboard from 'expo-clipboard';
 import { useRouter } from 'expo-router';
 import { useSQLiteContext as sharedDb } from 'expo-sqlite';
 
@@ -13,7 +14,11 @@ jest.mock('@/src/sync/client', () => ({
   isConfigured: () => mockFake !== null,
 }));
 // The send itself is src/sync/sends.ts's (sync-sends.test.ts); here only what the sheet asks of it.
-jest.mock('@/src/sync/sends', () => ({ ...jest.requireActual('@/src/sync/sends'), createSend: jest.fn() }));
+jest.mock('@/src/sync/sends', () => ({
+  ...jest.requireActual('@/src/sync/sends'),
+  createSend: jest.fn(),
+  makeSendLink: jest.fn(),
+}));
 jest.mock('@/src/sync/engine', () => ({ syncNow: jest.fn().mockResolvedValue(undefined) }));
 jest.mock('@/src/sync/friends', () => ({
   ...jest.requireActual('@/src/sync/friends'),
@@ -28,7 +33,7 @@ import { EMPTY_FRIENDS, useFriendsStore } from '@/src/stores/friends-store';
 import { clearToast, useToastStore } from '@/src/stores/toast-store';
 import { syncNow } from '@/src/sync/engine';
 import { refreshFriends, type FriendsData } from '@/src/sync/friends';
-import { createSend, NotBackedUpError, type SendResult } from '@/src/sync/sends';
+import { createSend, makeSendLink, NotBackedUpError, type SendResult } from '@/src/sync/sends';
 import { resolvePhotoUri } from '@/src/utils/photo-storage';
 import { createTestMedia, createTestSpot } from './factories';
 
@@ -87,6 +92,12 @@ const allText = () =>
     .map((t) => [t.props.children].flat().join(''))
     .join('\n');
 
+async function pressCopyLink() {
+  await act(async () => {
+    fireEvent.press(screen.getByRole('button', { name: 'Copy link' }));
+  });
+}
+
 async function pressSend() {
   await act(async () => {
     fireEvent.press(sendButton());
@@ -106,6 +117,8 @@ beforeEach(() => {
   onClose = jest.fn();
   warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
   jest.mocked(createSend).mockReset();
+  jest.mocked(makeSendLink).mockReset();
+  jest.mocked(Clipboard.setStringAsync).mockClear();
   jest.mocked(syncNow).mockReset().mockResolvedValue(undefined);
   jest.mocked(refreshFriends).mockReset().mockResolvedValue(undefined);
 });
@@ -505,10 +518,229 @@ describe('SendSheet copy (D34: Send is a copy, never the live word)', () => {
     fireEvent.press(friend('@ben'));
     await pressSend();
     expect(allText()).not.toMatch(WRONG);
+    screen.unmount();
+
+    signIn();
+    jest.mocked(makeSendLink).mockRejectedValue(new Error('x'));
+    await renderSheet();
+    fireEvent.press(screen.getByRole('button', { name: 'Copy link instead' }));
+    expect(allText()).not.toMatch(WRONG);
+    await pressCopyLink();
+    expect(allText()).not.toMatch(WRONG);
   });
 
   it('the source file never says Share (any case)', () => {
     const source = readFileSync(join(__dirname, '../components/SendSheet.tsx'), 'utf8');
     expect(source).not.toMatch(/share/i);
+  });
+});
+
+describe('SendSheet Copy link instead (S9-03)', () => {
+  const D44 = 'Anyone with the link can see these spots until it expires. No account needed to look.';
+  const LINK_FAILED = "Couldn't make the link. Try again.";
+  const PROFILE_FAILED = "Couldn't load your profile. Try again.";
+  const URL = 'https://hitlist.example/s/#t=abcdefghijklmnopqrstuv';
+  const toLink = () => fireEvent.press(screen.getByRole('button', { name: 'Copy link instead' }));
+  const chip = (label: string) => screen.getByRole('button', { name: label });
+
+  it("'Copy link instead' hides the friends and shows the expiry chips (30 days selected), the D44 line and Copy link", async () => {
+    signIn();
+    await renderSheet();
+    toLink();
+
+    expect(screen.queryByRole('checkbox', { name: '@ana' })).toBeNull();
+    expect(screen.queryByText('Friends')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Send' })).toBeNull();
+    expect(screen.queryByText(D34_MANY(3))).toBeNull();
+    expect(screen.getByText(D44)).toBeOnTheScreen();
+    for (const label of ['1 day', '7 days', 'Never']) {
+      expect(chip(label).props.accessibilityState).toMatchObject({ selected: false });
+    }
+    expect(chip('30 days').props.accessibilityState).toMatchObject({ selected: true });
+    expect(screen.getByRole('button', { name: 'Copy link' }).props.accessibilityState).toMatchObject({
+      disabled: false,
+    });
+
+    fireEvent.press(chip('7 days'));
+    expect(chip('7 days').props.accessibilityState).toMatchObject({ selected: true });
+    expect(chip('30 days').props.accessibilityState).toMatchObject({ selected: false });
+  });
+
+  it('Copy link backs up, makes a 30-day link, copies its URL, toasts Link copied and closes', async () => {
+    signIn();
+    jest.mocked(makeSendLink).mockResolvedValue(URL);
+    await renderSheet();
+    toLink();
+    await pressCopyLink();
+
+    expect(syncNow).toHaveBeenCalledWith(db);
+    expect(makeSendLink).toHaveBeenCalledTimes(1);
+    expect(makeSendLink).toHaveBeenCalledWith(db, mockFake, 'user-me', {
+      spotIds: ['a', 'b', 'c'],
+      sender: { username: 'me', display_name: 'Me Myself' },
+      expiry: '30d',
+    });
+    expect(createSend).not.toHaveBeenCalled();
+    expect(Clipboard.setStringAsync).toHaveBeenCalledWith(URL);
+    const order = [syncNow, makeSendLink, Clipboard.setStringAsync].map(
+      (fn) => jest.mocked(fn).mock.invocationCallOrder[0],
+    );
+    expect(order).toEqual([...order].sort((x, y) => x - y));
+    expect(useToastStore.getState().text).toBe('Link copied');
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['1 day', '1d'],
+    ['7 days', '7d'],
+    ['30 days', '30d'],
+    ['Never', 'never'],
+  ])("the chip '%s' makes a link with expiry %s", async (label, expiry) => {
+    signIn();
+    jest.mocked(makeSendLink).mockResolvedValue(URL);
+    await renderSheet();
+    toLink();
+    fireEvent.press(chip(label));
+    await pressCopyLink();
+    expect(jest.mocked(makeSendLink).mock.calls[0][3].expiry).toBe(expiry);
+  });
+
+  it("'Send to friends instead' brings the friends, the D34 line and Send back", async () => {
+    signIn();
+    await renderSheet();
+    toLink();
+    fireEvent.press(screen.getByRole('button', { name: 'Send to friends instead' }));
+
+    expect(friend('@ana')).toBeOnTheScreen();
+    expect(screen.getByText(D34_MANY(3))).toBeOnTheScreen();
+    expect(screen.queryByText(D44)).toBeNull();
+    expect(sendButton()).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: 'Copy link' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Copy link instead' })).toBeOnTheScreen();
+  });
+
+  it("a failure (or no link) says \"Couldn't make the link. Try again.\" and keeps the sheet open", async () => {
+    signIn();
+    jest.mocked(makeSendLink).mockRejectedValueOnce(new Error('network down'));
+    await renderSheet();
+    toLink();
+    await pressCopyLink();
+
+    expect(screen.getByText(LINK_FAILED)).toBeOnTheScreen();
+    expect(warn).toHaveBeenCalled();
+    expect(Clipboard.setStringAsync).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(useToastStore.getState().text).toBeNull();
+
+    jest.mocked(makeSendLink).mockResolvedValueOnce(null);
+    await pressCopyLink();
+    expect(screen.getByText(LINK_FAILED)).toBeOnTheScreen();
+    expect(makeSendLink).toHaveBeenCalledTimes(2);
+    expect(Clipboard.setStringAsync).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('a spot not backed up yet shows the D78 line', async () => {
+    signIn();
+    jest.mocked(makeSendLink).mockRejectedValue(new NotBackedUpError(1));
+    await renderSheet();
+    toLink();
+    await pressCopyLink();
+    expect(screen.getByText(NOT_BACKED_UP)).toBeOnTheScreen();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('no username: the profile line, the profile is read again, and the next tap makes the link', async () => {
+    signIn();
+    useAuthStore.setState({ username: null, displayName: null });
+    mockFake!.profiles.set('user-me', { username: 'me', display_name: 'Me Myself' });
+    jest.mocked(makeSendLink).mockResolvedValue(URL);
+    await renderSheet();
+    toLink();
+    await pressCopyLink();
+
+    expect(screen.getByText(PROFILE_FAILED)).toBeOnTheScreen();
+    expect(makeSendLink).not.toHaveBeenCalled();
+    expect(syncNow).not.toHaveBeenCalled();
+    expect(useAuthStore.getState().username).toBe('me');
+
+    await pressCopyLink();
+    expect(jest.mocked(makeSendLink).mock.calls[0][3].sender).toEqual({ username: 'me', display_name: 'Me Myself' });
+  });
+
+  it("reads 'Making link…' and locks the sheet while the link is made; a second tap makes one link", async () => {
+    signIn();
+    let finish!: (url: string | null) => void;
+    jest.mocked(makeSendLink).mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    await renderSheet();
+    toLink();
+
+    await act(async () => {
+      fireEvent.press(screen.getByRole('button', { name: 'Copy link' }));
+      fireEvent.press(screen.getByRole('button', { name: 'Copy link' }));
+    });
+    expect(screen.getByText('Making link…')).toBeOnTheScreen();
+    await act(async () => {
+      fireEvent.press(screen.getByText('Making link…'));
+    });
+    expect(syncNow).toHaveBeenCalledTimes(1);
+    expect(makeSendLink).toHaveBeenCalledTimes(1);
+
+    const cancel = screen.getByRole('button', { name: 'Cancel' });
+    expect(cancel.props.accessibilityState).toMatchObject({ disabled: true });
+    fireEvent.press(cancel);
+    act(() => screen.UNSAFE_getByType(Modal).props.onRequestClose());
+    expect(screen.getByRole('button', { name: 'Send to friends instead' }).props.accessibilityState).toMatchObject({
+      disabled: true,
+    });
+    expect(chip('7 days').props.accessibilityState).toMatchObject({ disabled: true });
+    expect(onClose).not.toHaveBeenCalled();
+
+    await act(async () => finish(URL));
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(useToastStore.getState().text).toBe('Link copied');
+  });
+
+  it('Cancel works while the backup before a link runs, and then no link is made', async () => {
+    signIn();
+    let backedUp!: () => void;
+    jest.mocked(syncNow).mockReturnValue(new Promise<void>((resolve) => (backedUp = resolve)));
+    await renderSheet();
+    toLink();
+    await pressCopyLink();
+
+    const cancel = screen.getByRole('button', { name: 'Cancel' });
+    expect(cancel.props.accessibilityState).toMatchObject({ disabled: false });
+    fireEvent.press(cancel);
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    await act(async () => backedUp());
+    expect(makeSendLink).not.toHaveBeenCalled();
+    expect(Clipboard.setStringAsync).not.toHaveBeenCalled();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("the row shows with no friends ('Add a friend first'), and a link needs none", async () => {
+    signIn(EMPTY_FRIENDS);
+    jest.mocked(makeSendLink).mockResolvedValue(URL);
+    await renderSheet();
+    expect(screen.getByText('Add a friend first')).toBeOnTheScreen();
+    toLink();
+    expect(screen.queryByText('Add a friend first')).toBeNull();
+    await pressCopyLink();
+    expect(Clipboard.setStringAsync).toHaveBeenCalledWith(URL);
+  });
+
+  it('the row shows after a failed friends load too', async () => {
+    mockFake?.setSession(fakeSession({ userId: 'user-me' }));
+    useAuthStore.setState(RIDER);
+    useFriendsStore.getState().setLoadError('user-me', 'offline');
+    jest.mocked(makeSendLink).mockResolvedValue(URL);
+    await renderSheet();
+    expect(screen.getByText("Couldn't load your friends.")).toBeOnTheScreen();
+    toLink();
+    expect(screen.queryByText("Couldn't load your friends.")).toBeNull();
+    await pressCopyLink();
+    expect(useToastStore.getState().text).toBe('Link copied');
   });
 });

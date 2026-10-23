@@ -5,11 +5,13 @@ import {
   ActivityIndicator,
   Alert,
   AppState,
+  Linking,
   Pressable,
   RefreshControl,
   SectionList,
   StyleSheet,
   Text,
+  TextInput,
   View,
   type AppStateStatus,
 } from 'react-native';
@@ -34,10 +36,12 @@ import {
 import { getSupabase } from '@/src/sync/client';
 import { errorMessage } from '@/src/sync/errors';
 import { block, refreshFriends, respond } from '@/src/sync/friends';
-import { isJoining, joinList } from '@/src/sync/join';
+import { isJoining, joinList, redeemInvite } from '@/src/sync/join';
+import { LinkGoneError, previewLink, shareBaseUrl } from '@/src/sync/links';
 import { INVITATION_WITHDRAWN, loadAndApplyInvites, respondInvite } from '@/src/sync/lists';
 import { PHOTOS_BUCKET } from '@/src/sync/photos';
 import { dismissSend, hasPendingSave, loadAndApplySends, saveSend, type SaveResult } from '@/src/sync/sends';
+import { linkUrl, parseToken } from '@/src/utils/link-token';
 import { handleOf } from '@/src/utils/members';
 import { frozenSpotTitle } from '@/src/utils/send-payload';
 import { spotCountLabel } from '@/src/utils/spot-name';
@@ -49,6 +53,9 @@ import { spotCountLabel } from '@/src/utils/spot-name';
  * Decline / Block, a send's Save all / Save into a new hit list / Pick spots / Dismiss
  * (docs/plans/2026-10-22-s7-send.md "Inbox") and an invitation's Join / Decline / Block (S8-06). A save's or a join's
  * outcome shows as one line at the top until the next action; a join's line offers Open once the list is on the phone.
+ * Above it all, Paste a link (S9-03, docs/plans/2026-10-22-s9-links.md "UI"): Expo Go can't open universal links, so
+ * an invite link is pasted here and redeemed first (D60: it answers for every dead invite, and for an owner or member);
+ * a link it calls gone is previewed, and a send link opens its page in the browser (D95 *default*).
  */
 
 const EMPTY_BODY = 'Spots friends send you, hit list invitations and friend requests show up here.';
@@ -63,6 +70,9 @@ const ANSWERING = 'Sending your answer';
 /** An invitation's spinner: a Share row never says Send (D34). */
 const ANSWERING_INVITE = 'Answering';
 const SAVE_FAILED = "Couldn't save these spots. Try again.";
+const NOT_A_LINK = "That isn't a HitList link";
+const LINK_GONE = "That link doesn't work any more";
+const OPEN_FAILED = "Couldn't open the link. Try again.";
 /** How long a send's thumbnail URL stays valid, in seconds. */
 const THUMBNAIL_TTL = 600;
 
@@ -144,6 +154,11 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
   const [refreshing, setRefreshing] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [picking, setPicking] = useState<SendItem | null>(null);
+  const [pasteShown, setPasteShown] = useState(false);
+  const [pasted, setPasted] = useState('');
+  const [opening, setOpening] = useState(false);
+  // a second tap on Open can land before `opening` renders: checked synchronously
+  const openingLink = useRef(false);
   // A second tap can land before the busy state renders: checked synchronously.
   const busyKeys = useRef(new Map<string, string>());
   // a save that ends after the tab lost focus leaves no line for the next visit
@@ -240,6 +255,61 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
     if (result === 'failed') Alert.alert("Couldn't reach the server", 'Try again.');
     else if (result === 'withdrawn') showNotice({ text: INVITATION_WITHDRAWN });
     else showNotice({ text: `Joined ${item.listName}`, list: { id: item.listId, name: item.listName } });
+  };
+
+  /** What a pasted link leads to: a joined list's line, or null once a send link's page opened. */
+  const followLink = async (text: string, token: string): Promise<Notice | null> => {
+    const liveList = (id: string) => useHitListsStore.getState().lists.find((l) => l.id === id && l.deleted_at === undefined);
+    const before = new Map(useHitListsStore.getState().lists.map((l) => [l.id, l]));
+    try {
+      // awaits the sync that brings the list
+      const listId = await redeemInvite(db, client, uid, text);
+      if (listId === null) return { text: OPEN_FAILED };
+      setPasted('');
+      const had = before.get(listId);
+      const name = liveList(listId)?.name ?? had?.name;
+      if (had && had.deleted_at === undefined) {
+        return { text: `${name} is already in your lists`, list: { id: listId, name: had.name } };
+      }
+      return { text: name ? `Joined ${name}` : 'Joined the list', list: { id: listId, name: name ?? 'the list' } };
+    } catch (err) {
+      if (!(err instanceof LinkGoneError)) throw err;
+    }
+    try {
+      const preview = await previewLink(client, token);
+      // a live invite the redeem calls gone is one this rider can't use
+      if (preview.kind !== 'send') return { text: LINK_GONE };
+    } catch (err) {
+      if (err instanceof LinkGoneError) return { text: LINK_GONE };
+      throw err;
+    }
+    await Linking.openURL(linkUrl(shareBaseUrl(), token));
+    setPasted('');
+    return null;
+  };
+
+  /** Opens the pasted link; single-flight. */
+  const openPasted = async () => {
+    if (openingLink.current) return;
+    setNotice(null);
+    const text = pasted;
+    const token = parseToken(text);
+    if (token === null) {
+      showNotice({ text: NOT_A_LINK });
+      return;
+    }
+    openingLink.current = true;
+    setOpening(true);
+    let next: Notice | null;
+    try {
+      next = await followLink(text, token);
+    } catch (err) {
+      console.warn('[Inbox] opening a pasted link failed:', errorMessage(err));
+      next = { text: OPEN_FAILED };
+    }
+    openingLink.current = false;
+    setOpening(false);
+    if (next) showNotice(next);
   };
 
   const onRefresh = async () => {
@@ -489,8 +559,40 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
           </Text>
         )}
         ListHeaderComponent={
-          notice ? (
-            <View style={styles.notice}>
+          <>
+            <Pressable
+              style={({ pressed }) => [styles.pasteRow, pressed && styles.rowPressed]}
+              onPress={() => setPasteShown((shown) => !shown)}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: pasteShown }}>
+              <Text style={styles.pasteTitle}>Paste a link</Text>
+            </Pressable>
+            {pasteShown ? (
+              <View style={styles.pasteField}>
+                <TextInput
+                  style={styles.input}
+                  value={pasted}
+                  onChangeText={setPasted}
+                  placeholder="Paste a HitList link"
+                  placeholderTextColor={palette.gray[400]}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoComplete="off"
+                  returnKeyType="go"
+                  onSubmitEditing={() => void openPasted()}
+                  accessibilityLabel="HitList link"
+                />
+                <Button
+                  title="Open"
+                  size="sm"
+                  disabled={opening}
+                  accessibilityLabel="Open the link"
+                  onPress={() => void openPasted()}
+                />
+              </View>
+            ) : null}
+            {notice ? (
+              <View style={styles.notice}>
               {/* announced when set (VoiceOver has no live regions); no live region, so Android says it once */}
               <Text style={styles.noticeText}>{notice.text}</Text>
               {notice.list && lists.some((l) => l.id === notice.list?.id && l.deleted_at === undefined) ? (
@@ -502,8 +604,9 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
                   onPress={() => router.push(`/list/${notice.list?.id}`)}
                 />
               ) : null}
-            </View>
-          ) : null
+              </View>
+            ) : null}
+          </>
         }
         ListEmptyComponent={
           <View style={styles.empty}>
@@ -620,6 +723,35 @@ const styles = StyleSheet.create({
   sendBusy: {
     alignSelf: 'flex-start',
     minHeight: 32,
+  },
+  pasteRow: {
+    minHeight: 44,
+    justifyContent: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+  },
+  pasteTitle: {
+    ...typography.body,
+    color: palette.blue[500],
+  },
+  pasteField: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
+  },
+  input: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: palette.gray[300],
+    borderRadius: radius.md,
+    borderCurve: 'continuous',
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    fontSize: 16,
+    color: palette.gray[900],
+    backgroundColor: palette.white,
   },
   notice: {
     flexDirection: 'row',

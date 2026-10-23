@@ -20,6 +20,15 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 08:10 · S6-03 · passes
+
+- Added `app/friends/index.tsx` (Add by exact @username + hint + result lines per the plan's copy table, sections Friends / Requests sent (Cancel) / Blocked (Unblock, D74), long press or VoiceOver actions → Remove friend / Block @ana → confirm, single-flight per row via a ref, pull to refresh, 'N friend requests in Inbox' line), registered as 'Friends' in `app/_layout.tsx`; Profile (signed in) gains a 'Friends · N' row → `/friends`. Tests: 1399 → 1436 (`friends-screen.test.tsx` 33, profile +3, root-layout +1).
+- Verified: RED commit 77f09bf (suite unresolved + 3 cases), green; mutation checks: removing either single-flight ref turns both double-tap tests red; the old grouped-row markup turns the VoiceOver test red. `check.sh` green, 1436 tests, 0 `console.error` in the touched suites.
+- Opus review: 3 Important (VoiceOver couldn't reach Cancel/Unblock inside a grouped Pressable; Remove/Block long-press only; row spinner waited for the whole sync queue) + Minor (Add with a lost session showed nothing, test gaps) — all fixed with RED tests first (commit 9b8d0e8).
+- Next session (S6-04): make the '1 friend request in Inbox' line on Friends a link to the Inbox tab (plain Text now, no route yet). A `needs_username` rider sees 'Sign in to add friends' (the tabs redirect them anyway; S6-07 may route to `/auth/username`). Screens call `refreshFriends` without awaiting it after a mutation.
+- Proposed changes: S6-03 step 1's 'Already friends' is 'Already friends with @dee' (plan copy); the sent row's Cancel has the accessibility label 'Cancel request to @cal'.
+- Questions for Michael: none new (D72–D75, §9 Q33–Q36 still open).
+
 ### 2026-10-23 06:40 · S6-02 · passes
 
 - Added migration 6 (local `profiles` mirror, D72) and `src/db/profiles.ts`. Added `src/sync/friends.ts` (`loadFriends`/`addFriend`/`respond`/`removeFriend`/`block`/`unblock`/`refreshFriends`/`loadAndApplyFriends`), `src/stores/friends-store.ts` (emptied on every auth `userId` change) and `src/sync/queue.ts` (`runExclusive` moved here, so engine ↔ friends has no import cycle). The engine loads friends after each sync. adopt/Remove/release empty the mirror. The fake client gains `rpc`/`rpcs`/`rpcHandlers`/`readableProfiles`, and profiles selects are now logged and filtered. Tests: 1332 → 1399.

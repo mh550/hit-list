@@ -682,7 +682,7 @@
         "The hint under the field reads 'Friends are added by exact username or by an invite link. There's no search by name.'",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S6-04",

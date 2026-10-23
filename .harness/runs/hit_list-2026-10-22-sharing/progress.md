@@ -20,6 +20,25 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 05:00 · S5-03 · passes
+
+- **What changed:** new `src/sync/push.ts`, `src/sync/photos.ts` (`preparePhoto`, `defaultPhotoIO`, `uploadPhoto`) and `src/sync/time.ts` (`toIso`). `peekOutbox` gained `afterId`. The fake client gained `upsert`, `delete`, storage `upload` and an ordered `fake.calls` log. The fake fs gained `bytes`, `write`, `delete`, `Paths.cache` and `__writes()`. Tests went 1122 → 1179 (new `sync-push`, `sync-photos`, `sync-time`, plus 1 db-sync case). Commits: RED `f1c7c33`, GREEN `cc248ad`, then the review RED/GREEN pair `f9a70c7`/`8fc3b8c`.
+- **Verified:** check.sh green, 1179 tests, 0 `console.error`. The step 2 outbox of 5 rows produces spots → upload → media → hit_lists → hit_list_spots → spots(deleted_at) in that order, and the outbox ends empty. natural_speed 0 goes up as 0. The image-manipulator mock cites `build/*.d.ts` and the original photo is never in `__writes()`.
+- **Opus review:** 1 Critical, 3 Important, 2 Minor. Five are fixed, each RED first.
+  - **Critical:** a photo or membership whose spot or list was still waiting got 42501 from the server (RLS runs before the FK check) and was parked for good. It now waits, untouched, behind that earlier row.
+  - A 42501 after the session ended mid-push now stops the push and leaves the rows as they were.
+  - `shared` is never pushed: a stale false would fire `t30_unshare` and drop every member.
+  - EXIF `captured_at` is read as phone-local time.
+  - The upload copy is deleted if reading its bytes fails.
+  - Left open: storage `statusCode` is dropped (#6, for S5-09). Details are in the plan under "As built (S5-03)".
+- **Next session (S5-04) must know:**
+  - Every timestamp from the server goes through `toIso`.
+  - `PhotoIO` still needs `write`/`remove` for `downloadMissingPhotos`.
+  - Pull must write the server's `rev` so its writes queue nothing.
+  - Parked rows are excluded from `countPending`. Membership reconciliation must not drop a local row that has a parked outbox row.
+- **Questions for Michael:** none new.
+- **Proposed changes:** in S5-03 step 2, "marked failed with last_error 'photo missing'" is built as `parkRow` (parked=1, last_error 'photo missing'), as the plan says. S5-09 should check `shared` stays out of every sync payload.
+
 ### 2026-10-23 03:10 · S5-02 · passes
 
 - **What changed:** migration 5 is appended to `src/db/schema.ts`. It adds `owner_id`/`rev` to the tables, `updated_at`/`deleted_at` to media, `sync_outbox` and `sync_state`, drops `sync_queue` (D65), adds owner indexes and 8 outbox triggers. New `src/db/sync.ts` holds the outbox, cursor and state helpers. `Spot`/`Media` carry `owner_id`, `deleteMedia` is now a soft delete, `SyncQueueItem` is deleted. Tests went 1069 → 1122; new `db-sync.test.ts` and `helpers/outbox.ts`, plus cases in db-migrate/spots/media/hit-lists. Commits: RED `4346111`, GREEN `10448c7`, then the review RED/GREEN pair.

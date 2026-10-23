@@ -86,6 +86,12 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   owned; a non-rider delete sets `rev = -1` first). `sync.ts`: `enqueue`, `peekOutbox`, `markDone`/`markFailed`/`parkRow`,
   `countPending`/`countFailed`, `resetFailed`, `clearOutbox`, `adoptableMemberships`/`enqueueMemberships`, cursors and
   `getSyncState`/`setSyncState`. `insertMedia` takes its spot's owner.
+  Push (S5-03): `src/sync/push.ts` `push(db, client, uid, io)` (only with a session for `uid` and `sync_state.user_id =
+  uid`; fresh pass stops at its first failure, backoff pass by id; a photo/membership waits behind an earlier row of its
+  spot/list; parks 42501 (unless the session ended: stop)/23514/'photo missing'; never sends `shared`),
+  `src/sync/photos.ts` (`preparePhoto` ≤ 2048 px JPEG 0.85 into the cache, `defaultPhotoIO`, `uploadPhoto` →
+  `photos/<owner>/<spot>/<media>.jpg`), `src/sync/time.ts` `toIso` (every timestamp crossing the server; `'local'`
+  for EXIF `captured_at`). Fake client: `fake.calls` logs upsert/delete/upload in order.
   `hit-lists.ts` (migration 4): `insertHitList`, `getHitLists` (live only), `updateHitList`, `softDeleteHitList`,
   `addSpotsToList` (one `INSERT OR IGNORE … FROM json_each(?)`, idempotent; no `withTransactionAsync` for app writes: it is a
   plain BEGIN/COMMIT on the shared connection, so two writes at once collide), `removeSpotFromList`, `getListMemberships` (`{ spotId: listId[] }`, live lists).

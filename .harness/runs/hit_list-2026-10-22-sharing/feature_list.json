@@ -546,7 +546,7 @@
         "natural_speed 0 pushes as 0, not null (explicit test).",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S5-04",

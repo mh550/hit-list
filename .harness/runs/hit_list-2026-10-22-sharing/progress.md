@@ -20,6 +20,16 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 19:10 · S8-07 · passes
+
+- New `src/__integration__/shared-list.test.ts` (10 cases, riders A/B/C, three node:sqlite phones). B and C get invites (5 spots) and join. B sees L in `selectSharedWithMe` with 5 foreign spots, and a cached photo has the fixture's bytes. A's 6th spot, and an old spot filed into L, reach B. B's add pushes. C's view-only add is parked ('not a member who can add to this list', 42501). B leaves: no L, none of A's spots, cache gone, download refused. D43 shows on A and C. Stop sharing clears C. Also covered: removeMember and an unfriended invitation. pgTAP 110 gains the owner-blocks-invitee case (S8-02 review #9).
+- Found and fixed a stale S7 expectation: `send.test.ts` case 4 expected 'taken_back'. Since S7-08 (b28ffb5), a save whose every photo is refused returns 'failed' without asking the server. Nobody had re-run the integration suite since then. The case now asserts that, and the server's 42501 directly.
+- Verified on the local stack: `test:db` Files=11 Tests=630 PASS. `test:integration` 5 suites, 54 passed (44 → 54), 0 console lines. `db:stop`; `docker ps` lists only the 7 dj-*/n8n-* containers. Jest stays at 1924 and `check.sh` is green.
+- Not RED first (S8-02…06 built it). Mutation runs instead (no list reconciliation / no foreign-spot removal / Leave without cache delete) failed 3 and 1 cases; sources restored.
+- Opus review: 4 Important and 6 Minor, all about test strength; #1–#9 fixed (table in the plan under 'S8-07 review'), #10 left.
+- Next (S8-08): integration counts are 5 suites / 54 tests. Possible S8-09 item: a stale withdrawn send item reads 'failed', not 'taken back', until the next sends load removes it.
+- No new D, no questions. Proposed change: step 1's `shareList(L, [B: 'add', C: 'view'])` is `shareList(…, [B], 'add')` + `invite(…, [C], 'view')` (one role per call, D88).
+
 ### 2026-10-23 17:30 · S8-06 · passes
 
 - Inbox 'Invitations' rows read '@ana invited you to Downtown (12 spots)' with Join, Decline (confirm) and long-press Block. Join calls `respondInvite` then `syncNow`. It then shows 'Joined Downtown' (announced), plus 'Open' once the list is on the phone. A withdrawn invitation reads 'This invitation was withdrawn.' The tab also loads invitations on focus and on pull-to-refresh.

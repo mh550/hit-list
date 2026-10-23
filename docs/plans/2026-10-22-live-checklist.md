@@ -214,7 +214,10 @@ The server migration lands in S8-02 (`20261025010000_shared_lists_s8.sql`: `list
 screens come in S8-03…S8-06 and the two-phone check with S8-08. Plan: `docs/plans/2026-10-22-s8-shared-lists.md`.
 
 - [ ] **Server side first:** `npm run db:reset && npm run test:db`. Check: `110-shared-lists-s8.test.sql .. ok` and
-      `Result: PASS` (S8-02 ran Files=11, Tests=628).
+      `Result: PASS` (S8-02 ran Files=11, Tests=628; S8-07 630).
+- [ ] **The sharing integration test:** `npm run test:integration` (stack up, after `db:reset`). Check: `PASS
+      src/__integration__/shared-list.test.ts` and `Test Suites: 5 passed`, `Tests: 54 passed` (S8-07). Then
+      `npm run db:stop`.
 - [ ] **Deploy order (cloud, later):** `npx supabase db push --dry-run` lists only the S8 file after the S7 ones;
       then `npx supabase db push`, **before** installing a build with S8 (an older server answers the Inbox's
       `list_invitations` and Share's `share_list` with 404: invitations don't show, Share fails with "Couldn't share").

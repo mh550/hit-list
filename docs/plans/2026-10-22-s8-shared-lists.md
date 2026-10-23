@@ -684,6 +684,56 @@ grants, count = `can_read_spot`).
 | 6 | Minor | Lists tab invite subtitle '@ana invited you · 12 spots' vs the copy table's '@ana · 12 spots' (joined lists) | kept: an invitation must read as one; copy table row added below |
 | 7 | Minor | test gaps | added: Decline failure/false, Block reload, Decline during Join, Open hidden for a deleted list, mirror failure; not added: account switch mid-join on the Lists tab (the toast names the list only; `joinList` and the Inbox key on the uid) |
 
+## As built (S8-07)
+
+`src/__integration__/shared-list.test.ts`, two describes, 10 cases, riders made with `createRider`, three node:sqlite
+phones (`phones.ts`), real sessions. **A shares L with B (add) and C (view):** (1) `shareList` + `invite` → B and C
+each get one `loadInvites` item (`spotCount` 5, their role, A's username) and hold neither L nor A's spots (D83);
+(2) both Join (`respondInvite` + `pullAll`; the app's `joinList` also syncs) → B: L in `selectSharedWithMe`, 5 of A's
+spots, memberships, media at `cache/photos/<spot>/<media>.jpg`; C's mirror row `view`/`member`; `cachedPhotoUri` with
+the app's own IO writes the fixture's bytes into `Paths.cache` (the expo-file-system fake); (3) A's new 6th spot
+reaches B, then an **old** spot of A's (pushed before sharing, its rev behind B's cursor) filed into L reaches B (the
+fill); (4) B files an own spot into L: outbox row, push succeeds, A pulls it; (5) C's push of the membership is parked
+with `'not a member who can add to this list'` (the server's `lock_adder_membership`, errcode 42501, re-checking the
+role under the lock; the BEFORE trigger refuses ahead of the policy's WITH CHECK), the server's L never holds it, and
+C's next pull drops the membership and the parked row; (6) B leaves → no L, no list mirror rows, none of A's spots or
+media, the cached photo and its folder gone; the server's L lost B's spot (D43); the next pull brings nothing back;
+C (still a member) downloads the same object, B's `cachedPhotoUri` rejects (storage refuses, nothing written); (7) C's and A's pulls
+drop B's spot from L and off both phones (D43); (8) A `stopSharing` → C's pull removes L, its mirror rows, A's spots
+and media (C's own spot stays), and C's direct `select` of A's spot returns nothing. **Second describe:** A
+`removeMember(B)` drops B's spot from L locally and on the server, B's pull drops L (B's spot stays B's); C, invited and
+not joined, loses the invitation when A removes the friendship (`withdraw_pair_invitations`), and Join then throws
+'This invitation was withdrawn.'.
+
+- **pgTAP:** `110-shared-lists-s8` gains the owner-blocks-invitee case (S8-02 review #9): plan 24 → 26.
+- **`send.test.ts`:** case 4's stale-item save expected `'taken_back'`, but S7-08 (b28ffb5) made `saveSend` ask the
+  server nothing when every photo download failed (a refusal and being offline look the same), so it reads `'failed'`
+  and keeps no pending save. The S7-08 session didn't re-run the integration suite, so this was found here. The case
+  now asserts that, that the save stopped at the download (warn lines), and the server's 42501 to `mark_send_saved`
+  for the withdrawn send directly. UX: a stale withdrawn item reads as a failure until the next sends load removes it
+  (S8-09 may want to look; left).
+- **Run record (local stack):** `db:start` → `db:reset` → `test:db` Files=11 Tests=630 PASS → `test:integration` 5
+  suites, 54 passed (44 → 54), 0 console.error/warn lines → `db:stop`; `docker ps` lists only the 7 dj-*/n8n-*
+  containers.
+- **Not RED first:** S8-02…06 built the behaviour. Mutation runs instead: no `reconcileLists` in pull + no
+  `removeUnheldForeignSpots` → cases 6, 8 and removeMember failed; Leave without `deleteCachedPhotos` → case 6 failed.
+  Sources restored each time.
+
+### S8-07 review (Opus, test diff): no Critical
+
+| # | Severity | Finding | Outcome |
+|---|---|---|---|
+| 1 | Important | B's refused download had no control and no matcher (a missing object would pass) | fixed: C downloads the same object first; B rejects matching `not found\|denied\|400\|403` |
+| 2 | Important | "B's spot left L (D43)" checked only after C lost the whole list | fixed: C pulls after the Leave and keeps A's 7 without B's spot |
+| 3 | Important | the cache check planted a file in the fake, not the photo actually downloaded | fixed: case 2 downloads with the app's IO into `Paths.cache`; Leave removes that file and folder |
+| 4 | Important | send.test lost the 42501 → `taken_back` path and 'failed' could be any fault | fixed: warn lines asserted, `mark_send_saved` on the withdrawn send → 42501 |
+| 5 | Minor | A's D43 case had no precondition / server check | fixed: precondition + the server's L after Leave |
+| 6 | Minor | C's join unchecked (the same refusal text for "not joined") | fixed: C's mirror row `view`/`member` |
+| 7 | Minor | "RLS" vs the trigger's refusal | fixed: comment names `lock_adder_membership` (42501) |
+| 8 | Minor | stop sharing: mirror rows / server read | fixed: both asserted |
+| 9 | Minor | shared module state across riders | fixed: header comment (keep calls sequential) |
+| 10 | Minor | node:sqlite handles not closed | left: the test harness's db has no `closeAsync` (as the other integration files) |
+
 ## Unresolved questions
 
 - D83–D91 are defaults (§9 Q44–Q52). Q11 (blocking inside a shared list) stays as D50: nothing changes in lists you

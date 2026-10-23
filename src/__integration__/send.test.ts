@@ -18,7 +18,7 @@ import type { SendItem } from '@/src/stores/inbox-store';
 import { addFriend, loadFriends, removeFriend, respond } from '@/src/sync/friends';
 import { storagePath, type PhotoIO } from '@/src/sync/photos';
 import { runExclusive } from '@/src/sync/queue';
-import { createSend, dismissSend, listSent, loadSends, saveSend, withdrawSend } from '@/src/sync/sends';
+import { createSend, dismissSend, hasPendingSave, listSent, loadSends, saveSend, withdrawSend } from '@/src/sync/sends';
 import { createMigratedTestDb } from '@/src/__tests__/helpers/node-sqlite-db';
 import { FeatureType, type Spot } from '@/src/types';
 import { newId } from '@/src/utils/id';
@@ -266,15 +266,24 @@ describe('send end to end', () => {
       'withdrawn',
     );
 
-    // a stale Inbox item saves nothing
+    // a stale Inbox item saves nothing: its photos are refused, and a save whose every photo failed asks the server
+    // nothing (S7-08: it can't tell a refusal from being offline), so it reads 'failed' and leaves no pending save
     const before = (await getSpots(ben.db)).length;
     const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
     try {
-      expect(await saveSend(ben.db, ben.client, ben.userId, second, {}, ben.io)).toEqual({ status: 'taken_back' });
+      expect(await saveSend(ben.db, ben.client, ben.userId, second, {}, ben.io)).toEqual({ status: 'failed' });
+      expect(hasPendingSave(ben.userId, second.sendId)).toBe(false);
+      // refused at the download, never sent to mark_send_saved
+      const warned = warn.mock.calls.map((call) => String(call[0]));
+      expect(warned.some((w) => w.startsWith('[sends] could not download photo'))).toBe(true);
+      expect(warned.some((w) => w.startsWith('[sends] saving a send failed'))).toBe(false);
     } finally {
       warn.mockRestore();
     }
     expect(await getSpots(ben.db)).toHaveLength(before);
+    // and had it asked, the server refuses to save a withdrawn send (what saveSend reads as 'taken_back')
+    const marked = await ben.client.rpc('mark_send_saved', { p_id: second.sendId, p_token: newId() });
+    expect(marked.error?.code).toBe('42501');
   });
 
   it('ana cannot withdraw the send ben saved', async () => {

@@ -2,7 +2,7 @@
 -- list's name, owner and spot count but no spots until Join). list_invitations() is the caller's open invitations of
 -- live, shared lists with the count a member would read; share_list(p_list) turns sharing on for the owner only.
 begin;
-select plan(24);
+select plan(26);
 
 -- People ----------------------------------------------------------------------------------------------------------
 select set_config('t.ana', tests.create_user('ana@test.local', 'ana')::text, true);
@@ -145,6 +145,19 @@ reset role;
 insert into public.blocks (blocker, blocked) values (current_setting('t.fay')::uuid, current_setting('t.ana')::uuid);
 select tests.authenticate_as(current_setting('t.fay')::uuid);
 select is_empty($$ select * from public.list_invitations() $$, 'a block between invitee and owner hides it');
+
+-- and the other way round: the owner blocks the invitee (S8-02 review #9)
+reset role;
+insert into public.hit_list_members (list_id, user_id, role, status, invited_by)
+values ('00000000-0000-0000-0000-0000000011f1', current_setting('t.dan')::uuid, 'view', 'invited',
+        current_setting('t.ana')::uuid);
+select tests.authenticate_as(current_setting('t.dan')::uuid);
+select results_eq($$ select name from public.list_invitations() $$, $$ values ('Downtown'::text) $$,
+                  'dan is invited to Downtown again');
+reset role;
+insert into public.blocks (blocker, blocked) values (current_setting('t.ana')::uuid, current_setting('t.dan')::uuid);
+select tests.authenticate_as(current_setting('t.dan')::uuid);
+select is_empty($$ select * from public.list_invitations() $$, 'a block by the owner hides it from the invitee');
 
 -- share_list -------------------------------------------------------------------------------------------------------
 reset role;

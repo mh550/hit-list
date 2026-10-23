@@ -7,12 +7,14 @@ import { ACCOUNTS_NOT_SET_UP, AuthError, Button } from '@/src/components';
 import { useSettingsStore } from '@/src/stores/settings-store';
 import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
 import { useSyncStore } from '@/src/stores/sync-store';
+import { useFriendsStore } from '@/src/stores/friends-store';
 import { countPending, resetFailed } from '@/src/db/sync';
 import { syncNow } from '@/src/sync/engine';
 import { deleteAccountAndRelease, removeLocalAccountData, removeReleasedRows, type ReleasedRows } from '@/src/sync/adopt';
 import { useSettingsActions } from '@/src/hooks/use-settings-actions';
 import { getSupabase } from '@/src/sync/client';
 import { deleteAccount, signOutOfAccount } from '@/src/sync/auth';
+import { IconSymbol } from '@/components/ui/icon-symbol';
 import { palette, spacing, radius } from '@/src/constants/theme';
 import { UnitSystem } from '@/src/types';
 import { radiusFromInput, radiusToDisplay, radiusUnitLabel } from '@/src/utils/units';
@@ -88,6 +90,21 @@ function BackupStatus({ userId }: { userId: string | null }) {
   );
 }
 
+/** Profile → Friends (S6-03): 'Friends · 2', or 'Friends' before any friends load. */
+function FriendsRow({ count, onPress }: { count: number; onPress: () => void }) {
+  const label = count > 0 ? `Friends · ${count}` : 'Friends';
+  return (
+    <Pressable
+      style={({ pressed }) => [styles.friendsRow, pressed && styles.friendsRowPressed]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}>
+      <Text style={styles.friendsRowText}>{label}</Text>
+      <IconSymbol name="chevron.right" size={18} color={palette.gray[400]} />
+    </Pressable>
+  );
+}
+
 // The account in its three states (§3.1, §5.6): a build without Supabase values, signed out, signed in. The tabs
 // redirect a 'needs_username' account to the username screen, so it shows here only for a moment, as signed in.
 // Sign out backs up once more, then asks Keep / Remove from this phone, or, with changes still waiting, offers only
@@ -101,6 +118,7 @@ function AccountSection() {
   const displayName = useAuthStore((s) => s.displayName);
   const userId = useAuthStore((s) => s.userId);
   const setAuth = useAuthStore((s) => s.setAuth);
+  const friendCount = useFriendsStore((s) => s.friends.length);
   const [busy, setBusy] = useState<'signing_out' | 'deleting' | null>(null);
   const [error, setError] = useState<string | null>(null);
   // An alert's button or a second tap can land before the disabled state renders.
@@ -226,6 +244,7 @@ function AccountSection() {
       {displayName ? <Text style={styles.accountBody}>{displayName}</Text> : null}
       {email ? <Text style={styles.fieldHint}>{email}</Text> : null}
       <BackupStatus userId={userId} />
+      <FriendsRow count={friendCount} onPress={() => router.push('/friends')} />
       <AuthError message={error} />
       <Button
         title={busy === 'signing_out' ? 'Signing out…' : 'Sign out'}
@@ -362,6 +381,23 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '500',
     color: palette.red[700],
+  },
+  friendsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    minHeight: 44,
+    paddingVertical: spacing.sm,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: palette.gray[200],
+  },
+  friendsRowPressed: {
+    backgroundColor: palette.gray[100],
+  },
+  friendsRowText: {
+    fontSize: 17,
+    color: palette.gray[900],
   },
   unitsRow: {
     flexDirection: 'row',

@@ -2,7 +2,7 @@ import React from 'react';
 import { Alert, RefreshControl, type AlertButton } from 'react-native';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { useRouter } from 'expo-router';
-import { useSQLiteContext } from 'expo-sqlite';
+import { useSQLiteContext as sharedDb } from 'expo-sqlite';
 
 import { createFakeSupabase, fakeSession, type FakeSupabase } from './helpers/fake-supabase';
 
@@ -57,7 +57,8 @@ const NETWORK = "Couldn't reach the server. Try again.";
 let router: { push: jest.Mock };
 let alert: jest.SpyInstance;
 let warn: jest.SpyInstance;
-const db = useSQLiteContext();
+// jest.setup's expo-sqlite mock hands every caller the same db object: the one the screen passes on.
+const db = sharedDb();
 
 function signIn(data: FriendsData = DATA) {
   mockFake?.setSession(fakeSession({ userId: 'user-me' }));
@@ -219,8 +220,11 @@ describe('Friends screen signed in', () => {
     await renderScreen();
     fireEvent.changeText(screen.getByPlaceholderText('Add by exact @username'), 'dee');
     const button = screen.getByRole('button', { name: 'Add' });
-    fireEvent.press(button);
-    fireEvent.press(button);
+    // Both taps inside one act: no re-render (disabled button) between them, as with two taps in one frame.
+    act(() => {
+      fireEvent.press(button);
+      fireEvent.press(button);
+    });
     await act(async () => finish({ found: false, status: 'not_found' }));
     expect(addFriend).toHaveBeenCalledTimes(1);
   });
@@ -259,8 +263,11 @@ describe('Friends screen signed in', () => {
     jest.mocked(removeFriend).mockReturnValue(new Promise<void>((resolve) => (finish = resolve)));
     await renderScreen();
     const cancel = screen.getByRole('button', { name: 'Cancel request to @cal' });
-    fireEvent.press(cancel);
-    fireEvent.press(cancel);
+    // Both taps inside one act: no re-render (spinner) between them, as with two taps in one frame.
+    act(() => {
+      fireEvent.press(cancel);
+      fireEvent.press(cancel);
+    });
     await act(async () => finish());
     expect(removeFriend).toHaveBeenCalledTimes(1);
     expect(removeFriend).toHaveBeenCalledWith(mockFake, 'user-me', 'f-cal');

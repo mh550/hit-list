@@ -1053,7 +1053,7 @@
         "web/share/README.md says how to serve it locally (python3 -m http.server 8080 from web/, with the meta tag pointing at the local stack) and that hosting is a live step.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S9-05",

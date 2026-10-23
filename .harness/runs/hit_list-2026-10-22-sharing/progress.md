@@ -20,6 +20,13 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 · S9-04 · passes
+
+- New: `web/share/index.html` (one `hitlist-functions-url` meta = `http://127.0.0.1:54321/functions/v1`, `no-referrer`, CSP meta, `share.js` deferred), `web/share/share.js` (fragment token, `?t=` fallback, `share-preview` fetch; send cards / invite line / gone / error; `textContent` only, http(s) URLs only, no map links at 0,0), `web/share/README.md` (serve with `cd web && python3 -m http.server 8080`; hosting is a live step). Test `src/__tests__/web-share.test.ts` (jsdom, 20 cases). Jest 2045 → 2065.
+- Verified: RED c1a08b7 (ENOENT index.html) → GREEN c85b643; Opus review 1 Important + 6 Minor, RED 8080ea5 (6 failing) → fixes; #1 was real: any 404 (a wrong functions URL, the gateway's 'Function not found') said "This link doesn't work any more." for a good link. `check.sh` green (2065), `npx jest --ci` 0 `console.error`. Table under "As built (S9-04)" in the plan.
+- Next sessions: S9-05 can load the page in jsdom the same way (`DOMParser` → `document.replaceChild`, `new Function(share.js)`, wait for `document.body.dataset.state`); jsdom 20 has no `fetch`, inject Node's. `share.js` copies the labels from `src/constants/labels.ts`.
+- Proposed changes: S9-04 step 1's invite line is `@ana invited you…` (the copy table's `@`); photos load eagerly, not `loading="lazy"` (600 s URLs). Review #7 (token in `?t=` reaches the gateway log) stays with S9-07. No new questions.
+
 ### 2026-10-23 · S9-03 · passes
 
 - New: `src/utils/link-token.ts`, `src/sync/links.ts`, `redeemInvite` in `src/sync/join.ts` (in join.ts to avoid an engine import cycle), `sends.ts` `createLinkSend`/`makeSendLink`/`listSentLinks`/`revokeSentLink`. UI: Send sheet 'Copy link instead' (chips, D44 line, clipboard, 'Link copied'), Sent 'Links' rows + Revoke, members 'Invite link' + rows (Used by @ben, Revoke), Inbox 'Paste a link'. Mocks: expo-clipboard, expo-crypto `digestStringAsync`; the fake gains `invokes`/`invokeHandlers`/`functionsHttpError`. `.env.example` gains `EXPO_PUBLIC_SHARE_BASE_URL`. Jest 1937 → 2045.

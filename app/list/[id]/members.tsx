@@ -9,9 +9,11 @@ import { ROLE_LABELS } from '@/src/constants/labels';
 import { palette, radius, spacing, typography } from '@/src/constants/theme';
 import { selectListSpots, useHitListsStore, useSpotsStore } from '@/src/stores';
 import { useAuthStore } from '@/src/stores/auth-store';
+import { useFriendsStore } from '@/src/stores/friends-store';
 import { showToast } from '@/src/stores/toast-store';
 import { getSupabase } from '@/src/sync/client';
 import { errorMessage } from '@/src/sync/errors';
+import { addFriend, refreshFriends, type AddResult } from '@/src/sync/friends';
 import { createInviteLink, listMyLinks, revokeLink, type MyLink } from '@/src/sync/links';
 import { leave, NotAllowedError, removeMember, setRole, stopSharing } from '@/src/sync/lists';
 import type { HitListMember, MemberRole } from '@/src/types';
@@ -68,6 +70,8 @@ export default function MembersScreen() {
   const membershipBySpot = useHitListsStore((s) => s.membershipBySpot);
   const spots = useSpotsStore((s) => s.spots);
   const client = getSupabase();
+  const friendsLoaded = useFriendsStore((s) => s.userId === uid && s.loadedAt !== null);
+  const friendsData = useFriendsStore();
   const [inviting, setInviting] = useState(false);
   // Set once Leave went through: the store drops the list before the screens close, so 'gone' would flash.
   const [left, setLeft] = useState(false);
@@ -139,6 +143,61 @@ export default function MembersScreen() {
   // The profiles mirror holds others' names only: the rider's own row takes theirs from the account.
   const withName = (m: HitListMember): HitListMember => (m.user_id === uid && username ? { ...m, username } : m);
   const spotsOf = (userId: string) => listSpots.filter((s) => s.owner_id === userId).length;
+
+  // Riders the rider is already linked with: friends, requests either way, blocks. Unknown until the friends load.
+  const linked = new Set([
+    ...[...friendsData.friends, ...friendsData.incoming, ...friendsData.outgoing].map((f) => f.profile.id),
+    ...friendsData.blocked.map((b) => b.id),
+  ]);
+  const canAddFriend = (userId: string | null | undefined, name: string | null | undefined): name is string =>
+    friendsLoaded && client !== null && !!userId && userId !== uid && !!name && !linked.has(userId);
+
+  const addLine = (result: AddResult | null, handle: string): string | null => {
+    if (!result || !('found' in result) || !result.found) return null;
+    switch (result.status) {
+      case 'sent':
+        return `Request sent to ${handle}`;
+      case 'accepted':
+        return `You're now friends with ${handle}`;
+      case 'already_friends':
+        return `Already friends with ${handle}`;
+      case 'already_sent':
+        return `Request already sent to ${handle}`;
+      default:
+        return null;
+    }
+  };
+
+  const askFriend = async (name: string) => {
+    if (!client || !uid || busy.current) return;
+    busy.current = true;
+    const handle = handleOf(name);
+    try {
+      const line = addLine(await addFriend(client, db, uid, name), handle);
+      if (line) {
+        showToast(line);
+        void refreshFriends(db, client, uid);
+      } else {
+        Alert.alert(`Couldn't add ${handle}. Try again.`);
+      }
+    } catch (err) {
+      console.warn('[members] a friend request failed:', errorMessage(err));
+      Alert.alert(`Couldn't add ${handle}. Try again.`);
+    } finally {
+      busy.current = false;
+    }
+  };
+
+  const addFriendButton = (userId: string | null | undefined, name: string | null | undefined) =>
+    canAddFriend(userId, name) ? (
+      <Button
+        title="Add friend"
+        size="sm"
+        variant="secondary"
+        accessibilityLabel={`Add ${handleOf(name)} as a friend`}
+        onPress={() => void askFriend(name)}
+      />
+    ) : null;
 
   /** Runs one server call; a refusal (42501) reads as its own line, anything else as `failed`. */
   const run = async (call: () => Promise<boolean>, failed: string): Promise<boolean> => {
@@ -318,22 +377,33 @@ export default function MembersScreen() {
         {invited ? <Text style={styles.tag}>Invited</Text> : null}
       </>
     );
+    const add = invited ? null : addFriendButton(m.user_id, m.username);
     if (!owner) {
       return (
         <View key={m.user_id} style={styles.row}>
           {content}
+          {add}
         </View>
       );
     }
-    return (
+    const menu = (
       <Pressable
         key={m.user_id}
         onPress={() => openMenu(m)}
-        style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
+        style={({ pressed }) => [styles.row, add && styles.rowGrow, pressed && styles.rowPressed]}
         accessibilityRole="button"
         accessibilityLabel={invited ? `${text}, Invited` : text}>
         {content}
       </Pressable>
+    );
+    // The button sits beside the menu row, not inside it, so VoiceOver reaches both.
+    return add ? (
+      <View key={m.user_id} style={styles.rowWithAction}>
+        {menu}
+        {add}
+      </View>
+    ) : (
+      menu
     );
   });
 
@@ -342,6 +412,7 @@ export default function MembersScreen() {
       <ScrollView contentInsetAdjustmentBehavior="automatic">
         <View style={styles.row}>
           <Text style={styles.rowText} numberOfLines={1}>{`${handleOf(ownerName)} (owner)`}</Text>
+          {owner ? null : addFriendButton(list.owner_id, list.owner_username)}
         </View>
         {rows}
         {canLink ? (
@@ -399,6 +470,17 @@ const styles = StyleSheet.create({
   },
   rowPressed: {
     backgroundColor: palette.gray[100],
+  },
+  rowGrow: {
+    flex: 1,
+    borderBottomWidth: 0,
+  },
+  rowWithAction: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingRight: spacing.lg,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: palette.gray[200],
   },
   rowText: {
     flexShrink: 1,

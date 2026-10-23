@@ -162,41 +162,67 @@ export function releaseAccountData(
   uid: string,
   io: Pick<PhotoIO, 'exists'> = defaultPhotoIO,
 ): Promise<ReleasedRows> {
+  return runExclusive(() => release(db, uid, io));
+}
+
+/**
+ * Delete account (S4-05) then Keep (D67) as one task on the sync queue: a sync already running finishes first, and
+ * none starts between the server delete and the release (a pull after the delete would see an empty account and
+ * reconcile the rider's list memberships away; after the release user_id is cleared, so no sync runs). `deleteServer`
+ * resolves whether the server deleted the account. A release that fails after the delete only warns: the account is
+ * gone either way.
+ */
+export function deleteAccountAndRelease(
+  db: SQLiteDatabase,
+  uid: string,
+  deleteServer: () => Promise<boolean>,
+  io: Pick<PhotoIO, 'exists'> = defaultPhotoIO,
+): Promise<{ deleted: false } | { deleted: true; released: ReleasedRows | null }> {
   return runExclusive(async () => {
-    useSyncStore.setState({ adoptedUserId: null });
-    let removed: string[] = [];
-    const released: ReleasedRows = { spotIds: [], listIds: [] };
-    await db.withTransactionAsync(async () => {
-      await setSyncState(db, 'user_id', null);
-      await setSyncState(db, `last_sync_at:${uid}`, null);
-      removed = await deleteAccountRows(db, uid);
-      const media = await db.getAllAsync<{ id: string; file_path: string }>(
-        'SELECT id, file_path FROM media WHERE owner_id = ?',
-        uid,
-      );
-      const missing = JSON.stringify(media.filter((m) => !io.exists(m.file_path)).map((m) => m.id));
-      await db.runAsync(
-        'UPDATE spots SET primary_photo_id = NULL WHERE primary_photo_id IN (SELECT value FROM json_each(?))',
-        missing,
-      );
-      await db.runAsync('DELETE FROM media WHERE id IN (SELECT value FROM json_each(?))', missing);
-      const ids = async (table: 'spots' | 'hit_lists') =>
-        (await db.getAllAsync<{ id: string }>(`SELECT id FROM ${table} WHERE owner_id = ? ORDER BY id`, uid)).map(
-          (r) => r.id,
-        );
-      released.spotIds = await ids('spots');
-      released.listIds = await ids('hit_lists');
-      await db.runAsync('UPDATE spots SET owner_id = NULL, rev = NULL WHERE owner_id = ?', uid);
-      await db.runAsync('UPDATE media SET owner_id = NULL, rev = NULL WHERE owner_id = ?', uid);
-      await db.runAsync('UPDATE hit_lists SET owner_id = NULL, rev = NULL WHERE owner_id = ?', uid);
-      await db.runAsync('UPDATE hit_list_spots SET rev = NULL WHERE rev IS NOT NULL');
-      await clearOutbox(db);
-      await resetCursors(db);
-    });
-    deleteSpotPhotos(removed);
-    await reloadAfterCommit(db);
-    return released;
+    if (!(await deleteServer())) return { deleted: false };
+    try {
+      return { deleted: true, released: await release(db, uid, io) };
+    } catch (err) {
+      console.warn('[sync] keeping the spots after Delete account failed:', err instanceof Error ? err.message : err);
+      return { deleted: true, released: null };
+    }
   });
+}
+
+async function release(db: SQLiteDatabase, uid: string, io: Pick<PhotoIO, 'exists'>): Promise<ReleasedRows> {
+  useSyncStore.setState({ adoptedUserId: null });
+  let removed: string[] = [];
+  const released: ReleasedRows = { spotIds: [], listIds: [] };
+  await db.withTransactionAsync(async () => {
+    await setSyncState(db, 'user_id', null);
+    await setSyncState(db, `last_sync_at:${uid}`, null);
+    removed = await deleteAccountRows(db, uid);
+    const media = await db.getAllAsync<{ id: string; file_path: string }>(
+      'SELECT id, file_path FROM media WHERE owner_id = ?',
+      uid,
+    );
+    const missing = JSON.stringify(media.filter((m) => !io.exists(m.file_path)).map((m) => m.id));
+    await db.runAsync(
+      'UPDATE spots SET primary_photo_id = NULL WHERE primary_photo_id IN (SELECT value FROM json_each(?))',
+      missing,
+    );
+    await db.runAsync('DELETE FROM media WHERE id IN (SELECT value FROM json_each(?))', missing);
+    const ids = async (table: 'spots' | 'hit_lists') =>
+      (await db.getAllAsync<{ id: string }>(`SELECT id FROM ${table} WHERE owner_id = ? ORDER BY id`, uid)).map(
+        (r) => r.id,
+      );
+    released.spotIds = await ids('spots');
+    released.listIds = await ids('hit_lists');
+    await db.runAsync('UPDATE spots SET owner_id = NULL, rev = NULL WHERE owner_id = ?', uid);
+    await db.runAsync('UPDATE media SET owner_id = NULL, rev = NULL WHERE owner_id = ?', uid);
+    await db.runAsync('UPDATE hit_lists SET owner_id = NULL, rev = NULL WHERE owner_id = ?', uid);
+    await db.runAsync('UPDATE hit_list_spots SET rev = NULL WHERE rev IS NOT NULL');
+    await clearOutbox(db);
+    await resetCursors(db);
+  });
+  deleteSpotPhotos(removed);
+  await reloadAfterCommit(db);
+  return released;
 }
 
 /**

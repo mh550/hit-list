@@ -180,6 +180,8 @@ function isOlder(incoming: SQLiteBindValue, local: SQLiteBindValue): boolean {
  * SQLite's `YYYY-MM-DD HH:MM:SS`). Never `INSERT OR REPLACE`: replacing a spot would cascade-delete its photos and
  * memberships.
  */
+const OUTBOX_ENTITY = { spots: 'spot', media: 'media', hit_lists: 'hit_list' } as const;
+
 async function applyOwned(
   db: SQLiteDatabase,
   table: 'spots' | 'media' | 'hit_lists',
@@ -202,15 +204,22 @@ async function applyOwned(
   }
   if (typeof local.rev === 'number' && local.rev >= rev) return false;
   if (isOlder(values.updated_at, local.updated_at)) return false;
+  // A tie goes to the server, unless a local change still waits to push: setTown keeps updated_at, so a town stored
+  // after the push ties with that push's echo and must survive it (the push then sends it at the same stamp).
   const { changes } = await db.runAsync(
     `UPDATE ${table} SET ${columns.map((c) => `${c} = ?`).join(', ')}, rev = ?
      WHERE id = ? AND (rev IS NULL OR rev < ?)
-       AND (julianday(updated_at) IS NULL OR julianday(updated_at) <= julianday(?))`,
+       AND (julianday(updated_at) IS NULL OR julianday(updated_at) < julianday(?)
+         OR (julianday(updated_at) = julianday(?) AND NOT EXISTS (
+           SELECT 1 FROM sync_outbox WHERE entity = ? AND entity_id = ? AND parked = 0)))`,
     ...Object.values(values),
     rev,
     id,
     rev,
     values.updated_at,
+    values.updated_at,
+    OUTBOX_ENTITY[table],
+    id,
   );
   return changes > 0 && columns.some((c) => local[c] !== values[c]);
 }

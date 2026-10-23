@@ -143,6 +143,9 @@ async function pushRow(
     }
   }
   if (sent === 'sent') {
+    // An answer without an error is a confirmation only from this rider's session: after a sign out an anon DELETE
+    // under RLS matches no row and still answers 204.
+    if (!(await signedInAs(client, uid))) return 'stop';
     await markDone(db, row.id);
     return 'done';
   }

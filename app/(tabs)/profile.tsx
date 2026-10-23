@@ -9,7 +9,7 @@ import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
 import { useSyncStore } from '@/src/stores/sync-store';
 import { countPending, resetFailed } from '@/src/db/sync';
 import { syncNow } from '@/src/sync/engine';
-import { releaseAccountData, removeLocalAccountData, removeReleasedRows, type ReleasedRows } from '@/src/sync/adopt';
+import { deleteAccountAndRelease, removeLocalAccountData, removeReleasedRows, type ReleasedRows } from '@/src/sync/adopt';
 import { useSettingsActions } from '@/src/hooks/use-settings-actions';
 import { getSupabase } from '@/src/sync/client';
 import { deleteAccount, signOutOfAccount } from '@/src/sync/auth';
@@ -182,21 +182,18 @@ function AccountSection() {
 
   const deleteNow = async () => {
     if (!begin('deleting')) return;
-    if (!(await deleteAccount(client))) {
+    // On the sync queue, with Keep applied before asking (D67): no sync pulls between the delete and the release, and
+    // an alert never answered (the app killed) must not leave rows that the next sign-in would remove as another
+    // account's.
+    const result = userId
+      ? await deleteAccountAndRelease(db, userId, () => deleteAccount(client))
+      : { deleted: await deleteAccount(client), released: null };
+    if (!result.deleted) {
       setError(DELETE_FAILED);
       end();
       return;
     }
-    // Keep is applied before asking (D67): an alert never answered (the app killed) must not leave rows that the
-    // next sign-in would remove as another account's.
-    let released: ReleasedRows | null = null;
-    if (userId) {
-      try {
-        released = await releaseAccountData(db, userId);
-      } catch (err) {
-        console.warn('[Profile] keeping the spots after Delete account failed:', err);
-      }
-    }
+    const released: ReleasedRows | null = result.released;
     await finishSignOut();
     if (!released) return;
     const toRemove = released;

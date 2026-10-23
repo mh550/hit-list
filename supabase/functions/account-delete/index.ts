@@ -1,8 +1,8 @@
 // account-delete (S4-05, D51): deletes the calling rider's account. The user comes only from the caller's JWT
 // (Authorization: Bearer <jwt>, resolved by auth.getUser); the request body is never read, so no request can name
-// another user. Order: the rider's Storage objects first (<uid>/… and sends/<id>/… of every send from or to them),
-// then the auth user, whose deletion cascades through profiles to every row they own (S3 schema, `on delete
-// cascade`). Storage goes first so a retry after a later failure still finds the files; the reverse would orphan
+// another user. Order: the rider's Storage objects first (<uid>/… and sends/<id>/… of every send from or to them, and
+// any photo they staged for a send that never got its row, S7), then the auth user, whose deletion cascades through
+// profiles to every row they own (S3 schema, `on delete cascade`). Storage goes first so a retry after a later failure still finds the files; the reverse would orphan
 // them, as nothing would point at them any more. A direct DELETE on storage.objects is blocked, so files go through
 // the Storage API. A photo uploaded between the listing and the user delete is left behind (S8 may sweep orphans).
 // Responses: 200 { ok: true }, 401 { error: 'unauthorized' }, 405 { error: 'method not allowed' },
@@ -70,6 +70,10 @@ async function deleteUserData(admin: SupabaseClient, uid: string): Promise<void>
     if (sends.length < PAGE) break;
   }
   const paths = await filesUnder(admin, prefixes);
+  // photos staged for a send that never got its row (S7, D77: the app stopped between the copy and create_send)
+  const { data: staged, error: stagedError } = await admin.rpc('staged_send_objects', { p_uid: uid });
+  if (stagedError) throw stagedError;
+  paths.push(...((staged ?? []) as string[]));
 
   for (let i = 0; i < paths.length; i += PAGE) {
     const { error } = await admin.storage.from(BUCKET).remove(paths.slice(i, i + PAGE));

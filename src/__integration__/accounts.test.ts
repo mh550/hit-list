@@ -152,11 +152,13 @@ describe('account-delete', () => {
     const spotId = randomUUID();
     const mediaId = randomUUID();
     const photoPath = () => `${two.userId}/${spotId}/${mediaId}.jpg`;
+    // a photo staged for a send that never got its row (S7, D77): Storage's copy, as createSend makes it
+    const stagedPath = `sends/${randomUUID()}/${mediaId}.jpg`;
     let result: { data: unknown; error: unknown };
 
     // A failed delete would leave the photo behind; deleting the user (the outer afterAll) never removes files.
     afterAll(async () => {
-      await adminClient().storage.from('photos').remove([photoPath()]);
+      await adminClient().storage.from('photos').remove([photoPath(), stagedPath]);
     });
 
     beforeAll(async () => {
@@ -174,6 +176,10 @@ describe('account-delete', () => {
       if (uploadError) throw uploadError;
       const listed = await adminClient().storage.from('photos').list(`${two.userId}/${spotId}`);
       expect(listed.data?.map((entry) => entry.name)).toEqual([`${mediaId}.jpg`]);
+      const { error: copyError } = await two.client.storage.from('photos').copy(photoPath(), stagedPath);
+      if (copyError) throw copyError;
+      const staged = await two.client.storage.from('photos').download(stagedPath);
+      expect(staged.error).toBeNull();
 
       result = await two.client.functions.invoke('account-delete', { body: { user_id: one.userId } });
     });
@@ -199,6 +205,13 @@ describe('account-delete', () => {
 
     it("removes rider two's photo from Storage", async () => {
       const { data, error } = await adminClient().storage.from('photos').list(`${two.userId}/${spotId}`);
+      expect(error).toBeNull();
+      expect(data).toEqual([]);
+    });
+
+    it('removes the photo rider two staged for a send that never got its row', async () => {
+      const folder = stagedPath.slice(0, stagedPath.lastIndexOf('/'));
+      const { data, error } = await adminClient().storage.from('photos').list(folder);
       expect(error).toBeNull();
       expect(data).toEqual([]);
     });

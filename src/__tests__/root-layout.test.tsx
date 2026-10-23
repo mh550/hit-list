@@ -72,6 +72,18 @@ describe('RootLayout: area picker', () => {
   });
 });
 
+describe('RootLayout: sign-in screens', () => {
+  it("registers auth/sign-in as a modal titled 'Sign in' and auth/code titled 'Enter code'", () => {
+    render(<RootLayout />);
+
+    expect(screen.UNSAFE_getAllByProps({ name: 'auth/sign-in' })[0].props.options).toEqual({
+      presentation: 'modal',
+      title: 'Sign in',
+    });
+    expect(screen.UNSAFE_getAllByProps({ name: 'auth/code' })[0].props.options).toEqual({ title: 'Enter code' });
+  });
+});
+
 describe("gesture-handler's jest setup", () => {
   it('lets a test drive a gesture through jest-utils', () => {
     const onEnd = jest.fn();

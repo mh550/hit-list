@@ -9,6 +9,7 @@ import {
   resetCursors,
   setSyncState,
 } from '@/src/db/sync';
+import { useSyncStore } from '@/src/stores/sync-store';
 import { deleteSpotPhotos } from '@/src/utils/photo-storage';
 import { reloadStores, runExclusive } from './engine';
 import { defaultPhotoIO, type PhotoIO } from './photos';
@@ -22,6 +23,27 @@ import { defaultPhotoIO, type PhotoIO } from './photos';
  */
 
 export type AdoptResult = 'done' | 'needs_confirm';
+
+/** The spots and lists Keep after Delete account made phone-only (what its Remove then takes away). */
+export interface ReleasedRows {
+  spotIds: string[];
+  listIds: string[];
+}
+
+/** Rows adoption takes: live phone-only spots, live photos of live spots, live lists (a deleted one never uploads). */
+const ADOPTABLE_SPOTS = 'owner_id IS NULL AND deleted_at IS NULL';
+const ADOPTABLE_MEDIA =
+  'owner_id IS NULL AND deleted_at IS NULL AND spot_id IN (SELECT id FROM spots WHERE deleted_at IS NULL)';
+const ADOPTABLE_LISTS = 'owner_id IS NULL AND deleted_at IS NULL';
+
+/** The commit already happened: a reload that fails only warns (the next pull that changes rows reloads again). */
+async function reloadAfterCommit(db: SQLiteDatabase): Promise<void> {
+  try {
+    await reloadStores(db);
+  } catch (err) {
+    console.warn('[sync] reloading the stores failed:', err instanceof Error ? err.message : err);
+  }
+}
 
 /**
  * Deletes every row that came with an account (owner_id set) except `keep`'s, memberships first, and returns the
@@ -47,12 +69,12 @@ async function deleteAccountRows(db: SQLiteDatabase, keep: string | null): Promi
   return spots.map((s) => s.id);
 }
 
-/** A row adoption would take: a phone-only spot, photo or live list. */
+/** A row adoption would take. */
 async function hasPhoneOnlyRows(db: SQLiteDatabase): Promise<boolean> {
   const row = await db.getFirstAsync<{ any: number }>(
-    `SELECT EXISTS (SELECT 1 FROM spots WHERE owner_id IS NULL)
-         OR EXISTS (SELECT 1 FROM media WHERE owner_id IS NULL)
-         OR EXISTS (SELECT 1 FROM hit_lists WHERE owner_id IS NULL AND deleted_at IS NULL) AS any`,
+    `SELECT EXISTS (SELECT 1 FROM spots WHERE ${ADOPTABLE_SPOTS})
+         OR EXISTS (SELECT 1 FROM media WHERE ${ADOPTABLE_MEDIA})
+         OR EXISTS (SELECT 1 FROM hit_lists WHERE ${ADOPTABLE_LISTS}) AS any`,
   );
   return row?.any === 1;
 }
@@ -61,7 +83,8 @@ async function hasPhoneOnlyRows(db: SQLiteDatabase): Promise<boolean> {
  * Makes the phone `uid`'s (sign-in, and launch when already signed in). When another account's rows are here, they
  * leave first with their photo files, outbox and cursors (D66); if any of their changes never reached the server it
  * returns 'needs_confirm' and changes nothing, unless `confirmSwitch` (the rider chose Remove and continue). Then every
- * phone-only spot, photo and live list gets `uid` as owner, the triggers queue their upserts (user_id is set first),
+ * live phone-only spot, photo and list gets `uid` as owner (one deleted before sign-in stays on the phone only, so its
+ * photos never upload), the triggers queue their upserts (user_id is set first),
  * and the memberships that just became fully owned are queued after them. Idempotent: with nothing phone-only and the
  * phone already `uid`'s it writes nothing. The caller syncs afterwards (never from inside: see runExclusive).
  */
@@ -80,19 +103,20 @@ export function adopt(
     await db.withTransactionAsync(async () => {
       if (switching) {
         await setSyncState(db, 'user_id', null);
+        if (prev !== undefined) await setSyncState(db, `last_sync_at:${prev}`, null);
         removed = await deleteAccountRows(db, uid);
         await clearOutbox(db);
         await resetCursors(db);
       }
       const memberships = await adoptableMemberships(db);
       await setSyncState(db, 'user_id', uid);
-      await db.runAsync('UPDATE spots SET owner_id = ? WHERE owner_id IS NULL', uid);
-      await db.runAsync('UPDATE media SET owner_id = ? WHERE owner_id IS NULL', uid);
-      await db.runAsync('UPDATE hit_lists SET owner_id = ? WHERE owner_id IS NULL AND deleted_at IS NULL', uid);
+      await db.runAsync(`UPDATE spots SET owner_id = ? WHERE ${ADOPTABLE_SPOTS}`, uid);
+      await db.runAsync(`UPDATE media SET owner_id = ? WHERE ${ADOPTABLE_MEDIA}`, uid);
+      await db.runAsync(`UPDATE hit_lists SET owner_id = ? WHERE ${ADOPTABLE_LISTS}`, uid);
       await enqueueMemberships(db, memberships);
     });
     deleteSpotPhotos(removed);
-    await reloadStores(db);
+    await reloadAfterCommit(db);
     return 'done';
   });
 }
@@ -109,6 +133,8 @@ export function removeLocalAccountData(
 ): Promise<boolean> {
   return runExclusive(async () => {
     if (!opts.discardPending && (await countPending(db)) > 0) return false;
+    // from now on a new spot is phone-only, also while the sign-out itself still runs
+    useSyncStore.setState({ adoptedUserId: null });
     let removed: string[] = [];
     await db.withTransactionAsync(async () => {
       await setSyncState(db, 'user_id', null);
@@ -118,24 +144,28 @@ export function removeLocalAccountData(
       await resetCursors(db);
     });
     deleteSpotPhotos(removed);
-    await reloadStores(db);
+    await reloadAfterCommit(db);
     return true;
   });
 }
 
 /**
- * Keep after Delete account (D67): `uid`'s spots, photos, lists and memberships become phone-only again (owner and
- * rev cleared), so a later sign-in adopts them like any other; photo rows whose file never reached this phone go
- * (there is nowhere left to download them from), rows of other accounts go, and the outbox, cursors and user_id are
- * cleared. Photo files on the phone stay.
+ * Keep after Delete account (D67), run as soon as the account is gone, before the rider answers Keep / Remove (an
+ * unanswered alert must not leave rows a later sign-in would remove as another account's): `uid`'s spots, photos,
+ * lists and memberships become phone-only again (owner and rev cleared), so a later sign-in adopts them like any
+ * other; photo rows whose file never reached this phone go (there is nowhere left to download them from), rows of
+ * other accounts go, and the outbox, cursors and user_id are cleared. Photo files on the phone stay. Resolves the
+ * spots and lists it released, for removeReleasedRows.
  */
 export function releaseAccountData(
   db: SQLiteDatabase,
   uid: string,
   io: Pick<PhotoIO, 'exists'> = defaultPhotoIO,
-): Promise<void> {
+): Promise<ReleasedRows> {
   return runExclusive(async () => {
+    useSyncStore.setState({ adoptedUserId: null });
     let removed: string[] = [];
+    const released: ReleasedRows = { spotIds: [], listIds: [] };
     await db.withTransactionAsync(async () => {
       await setSyncState(db, 'user_id', null);
       await setSyncState(db, `last_sync_at:${uid}`, null);
@@ -150,6 +180,12 @@ export function releaseAccountData(
         missing,
       );
       await db.runAsync('DELETE FROM media WHERE id IN (SELECT value FROM json_each(?))', missing);
+      const ids = async (table: 'spots' | 'hit_lists') =>
+        (await db.getAllAsync<{ id: string }>(`SELECT id FROM ${table} WHERE owner_id = ? ORDER BY id`, uid)).map(
+          (r) => r.id,
+        );
+      released.spotIds = await ids('spots');
+      released.listIds = await ids('hit_lists');
       await db.runAsync('UPDATE spots SET owner_id = NULL, rev = NULL WHERE owner_id = ?', uid);
       await db.runAsync('UPDATE media SET owner_id = NULL, rev = NULL WHERE owner_id = ?', uid);
       await db.runAsync('UPDATE hit_lists SET owner_id = NULL, rev = NULL WHERE owner_id = ?', uid);
@@ -158,6 +194,35 @@ export function releaseAccountData(
       await resetCursors(db);
     });
     deleteSpotPhotos(removed);
-    await reloadStores(db);
+    await reloadAfterCommit(db);
+    return released;
+  });
+}
+
+/**
+ * Remove after Delete account: the spots and lists releaseAccountData released, with their photos, memberships and
+ * photo files. Rows a sign-in adopted since are no longer phone-only and stay.
+ */
+export function removeReleasedRows(db: SQLiteDatabase, released: ReleasedRows): Promise<void> {
+  return runExclusive(async () => {
+    const spots = JSON.stringify(released.spotIds);
+    const lists = JSON.stringify(released.listIds);
+    const phoneOnlyIn = 'owner_id IS NULL AND id IN (SELECT value FROM json_each(?))';
+    let removed: string[] = [];
+    await db.withTransactionAsync(async () => {
+      removed = (await db.getAllAsync<{ id: string }>(`SELECT id FROM spots WHERE ${phoneOnlyIn}`, spots)).map((r) => r.id);
+      const gone = JSON.stringify(removed);
+      await db.runAsync(
+        `DELETE FROM hit_list_spots WHERE spot_id IN (SELECT value FROM json_each(?))
+           OR list_id IN (SELECT id FROM hit_lists WHERE ${phoneOnlyIn})`,
+        gone,
+        lists,
+      );
+      await db.runAsync('DELETE FROM media WHERE spot_id IN (SELECT value FROM json_each(?))', gone);
+      await db.runAsync('DELETE FROM spots WHERE id IN (SELECT value FROM json_each(?))', gone);
+      await db.runAsync(`DELETE FROM hit_lists WHERE ${phoneOnlyIn}`, lists);
+    });
+    deleteSpotPhotos(removed);
+    await reloadAfterCommit(db);
   });
 }

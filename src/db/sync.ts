@@ -52,7 +52,8 @@ export async function enqueue(
 }
 
 /**
- * `'list/spot'` of every membership of a live list whose list or spot has no owner yet: the ones adoption must queue
+ * `'list/spot'` of every membership of a live list and a live spot (adoption leaves deleted ones phone-only) whose
+ * list or spot has no owner yet: the ones adoption must queue
  * itself (the membership trigger only sees inserts). Read it before adoption sets the owners.
  */
 export async function adoptableMemberships(db: SQLiteDatabase): Promise<string[]> {
@@ -60,7 +61,7 @@ export async function adoptableMemberships(db: SQLiteDatabase): Promise<string[]
     `SELECT m.list_id || '/' || m.spot_id AS id FROM hit_list_spots m
      JOIN hit_lists l ON l.id = m.list_id
      JOIN spots s ON s.id = m.spot_id
-     WHERE l.deleted_at IS NULL AND (l.owner_id IS NULL OR s.owner_id IS NULL)
+     WHERE l.deleted_at IS NULL AND s.deleted_at IS NULL AND (l.owner_id IS NULL OR s.owner_id IS NULL)
      ORDER BY m.added_at, m.list_id, m.spot_id`,
   );
   return rows.map((r) => r.id);

@@ -9,7 +9,7 @@ import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
 import { useSyncStore } from '@/src/stores/sync-store';
 import { countPending, resetFailed } from '@/src/db/sync';
 import { syncNow } from '@/src/sync/engine';
-import { releaseAccountData, removeLocalAccountData } from '@/src/sync/adopt';
+import { releaseAccountData, removeLocalAccountData, removeReleasedRows, type ReleasedRows } from '@/src/sync/adopt';
 import { useSettingsActions } from '@/src/hooks/use-settings-actions';
 import { getSupabase } from '@/src/sync/client';
 import { deleteAccount, signOutOfAccount } from '@/src/sync/auth';
@@ -187,20 +187,28 @@ function AccountSection() {
       end();
       return;
     }
-    const deletedId = userId;
+    // Keep is applied before asking (D67): an alert never answered (the app killed) must not leave rows that the
+    // next sign-in would remove as another account's.
+    let released: ReleasedRows | null = null;
+    if (userId) {
+      try {
+        released = await releaseAccountData(db, userId);
+      } catch (err) {
+        console.warn('[Profile] keeping the spots after Delete account failed:', err);
+      }
+    }
     await finishSignOut();
-    if (!deletedId) return;
-    const warn = (what: string) => (err: unknown) => console.warn(`[Profile] ${what} after Delete account failed:`, err);
+    if (!released) return;
+    const toRemove = released;
     Alert.alert('Account deleted', 'Your account is deleted. Keep the spots on this phone?', [
-      {
-        text: 'Keep',
-        style: 'default',
-        onPress: () => void releaseAccountData(db, deletedId).catch(warn('Keep')),
-      },
+      { text: 'Keep', style: 'default' },
       {
         text: 'Remove from this phone',
         style: 'destructive',
-        onPress: () => void removeLocalAccountData(db, deletedId, { discardPending: true }).catch(warn('Remove')),
+        onPress: () =>
+          void removeReleasedRows(db, toRemove).catch((err: unknown) =>
+            console.warn('[Profile] Remove after Delete account failed:', err),
+          ),
       },
     ]);
   };

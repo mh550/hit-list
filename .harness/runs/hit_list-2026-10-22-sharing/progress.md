@@ -20,6 +20,35 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 09:20 · S5-05 · passes
+
+- **What changed:**
+  - New: `src/sync/engine.ts` (`syncNow`, `runExclusive`, `SYNC_INTERVAL_MS`), `src/stores/sync-store.ts`, `src/hooks/use-sync.ts` (mounted in `AuthInit` in `app/_layout.tsx`) and `src/utils/relative-time.ts`.
+  - The Spots tab has pull-to-refresh: `SpotsBrowser` gained a `refreshControl` prop, wired only when signed in.
+  - Profile shows `Backed up · 3 min ago` / `Not backed up yet`, and `N changes not backed up` + Retry.
+  - `pull` now reports `failed`; `db/sync.ts` gained `lastOutboxId` and `countPending(db, upToId)`.
+  - Tests 1209 → 1266. New: `sync-engine`, `use-sync`, `relative-time`. Added to: profile, spots-view-mode, root-layout, sync-pull, db-sync.
+  - Commits: RED `1bf68fa`/`4db7f3b`, GREEN `2986ed2`, review RED/GREEN `3e82aa5`/`22cfd30`.
+- **Verified:** check.sh green, 1266 tests, 0 `console.error`; `npx expo export --platform ios` exit 0. Each step has a test:
+  - Two concurrent `syncNow` → push called once.
+  - Fake timers: a sync at 300 000 ms, none in the background, 0 timers after sign-out and after unmount.
+  - `UNSAFE_getByType(RefreshControl)` is there signed in and absent signed out.
+  - Retry calls `resetFailed` before `syncNow`.
+- **Opus review:** 0 Critical, 3 Important, 3 Minor. All 3 Important and 1 Minor fixed, RED first.
+  - 'Backed up' showed after a sync that sent nothing (offline, or the session lost mid-sync).
+  - A store reload could overwrite an edit made during the sync.
+  - Retry could join a sync already past its push.
+  - Retry had no busy state or error handling (the Minor).
+  - Details are in the plan under "As built (S5-05)".
+- **Next session (S5-06) must know:**
+  - Run adopt and Remove inside `runExclusive`, and **never `await syncNow` inside it** (deadlock). Use `void syncNow(db)` there, or await it after the call resolves.
+  - Adopt must reload the stores itself.
+  - `last_sync_at:<uid>` is per rider, so the account switch needs no extra clear.
+- **Questions for Michael:** none new.
+- **Proposed changes:**
+  - S5-09 should surface parked rows on Profile. Today a parked change counts nowhere once parked.
+  - The plan's "reload when push changed ownership" clause is dropped (push writes no local row).
+
 ### 2026-10-23 07:10 · S5-04 · passes
 
 - **What changed:** new `src/sync/pull.ts` (`pull` → `{ changed }`, `PULL_PAGE` 500, `REV_OVERLAP` 200) and `src/sync/account.ts` (`maySync`/`signedInAs`, now shared with push). `photos.ts` gained `downloadMissingPhotos` and `PhotoIO.write`. The fake client now answers selects from `fake.tables` (gt/in/order/limit), logs them in `fake.selects`, has `failSelect(match)` and per-table `failNext`, and serves storage `download` from `fake.objects`. Tests went 1179 → 1209 (new `sync-pull.test.ts`, 30 cases). Commits: RED `5886e88`, GREEN `015140c`, then the review RED/GREEN pair `b1d6201`/`5407c17`.

@@ -576,7 +576,7 @@
         "Profile (signed in) shows 'Backed up · just now' or 'Backed up · 3 min ago' from lastSyncAt (src/utils/relative-time.ts, tested) and, when failedCount > 0, '3 changes not backed up' with a 'Retry' button that resets attempts to 0 for those rows (resetFailed in db/sync.ts) and calls syncNow; src/__tests__/profile.test.tsx covers both.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S5-06",

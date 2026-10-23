@@ -95,8 +95,16 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   Pull (S5-04): `src/sync/pull.ts` `pull(db, client, uid)` → `{ changed }` (same guard, `src/sync/account.ts` `maySync`;
   pages of 500 by `rev` with a 200-rev overlap, FK order; the LWW `updated_at` guard is inside the UPDATE; a table stops
   at its first failing row; reconciles memberships and others' unreadable spots by asking about local ids only, any
-  error or a lost session removes nothing); `downloadMissingPhotos` in photos.ts. Fake client: `fake.tables` answer
+  error or a lost session removes nothing; `failed` when a table could not be read); `downloadMissingPhotos` in photos.ts. Fake client: `fake.tables` answer
   selects (`gt`/`in`/`order`/`limit`), `fake.selects` logs them, `failSelect(match)`, `fake.objects` for downloads.
+  Engine (S5-05): `src/sync/engine.ts` `syncNow(db)` (push → pull → downloads on one queue with `runExclusive(task)`;
+  joins a sync not yet started, chains one follow-up behind a running one; **a runExclusive task must never await
+  syncNow**; reloads the stores only when the pull changed rows and re-reads if they changed meanwhile; 'Backed up'
+  (`lastSyncAt`, `sync_state` `last_sync_at:<uid>`) only when every row queued before it is gone and the session
+  lasted), `src/stores/sync-store.ts` (`userId`, `lastSyncAt`, `syncing`, `failedCount`, `lastError`; show only when
+  `userId` = the signed-in rider), `src/hooks/use-sync.ts` (in `AuthInit` in `app/_layout.tsx`: sign-in, `'active'`,
+  every 5 min in the foreground), Spots tab pull-to-refresh (`SpotsBrowser` `refreshControl`, signed in only),
+  Profile 'Backed up · 3 min ago' (`src/utils/relative-time.ts`) / 'N changes not backed up' + Retry.
   `hit-lists.ts` (migration 4): `insertHitList`, `getHitLists` (live only), `updateHitList`, `softDeleteHitList`,
   `addSpotsToList` (one `INSERT OR IGNORE … FROM json_each(?)`, idempotent; no `withTransactionAsync` for app writes: it is a
   plain BEGIN/COMMIT on the shared connection, so two writes at once collide), `removeSpotFromList`, `getListMemberships` (`{ spotId: listId[] }`, live lists).

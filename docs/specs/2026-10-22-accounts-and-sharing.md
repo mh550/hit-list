@@ -106,6 +106,7 @@ it can **Save a copy** (it becomes their own private spot, with "From @name" on 
 | D54 | **An area's place name is the rider's search text or 'my location'** *default* | 'Area · 2 mi of Capitol Hill' uses the trimmed search text as typed, or 'my location' after "Use my location"; no reverse geocoding; dragging the centre more than a quarter of the radius away drops the place ('Area · 2 mi'); an edit measures that from the saved centre, so small drags over several edits can carry the name further (accepted, S2 review) | S2 plan: simplest, no extra network call (§9 Q15) |
 | D55 | **The area picker uses the shared filters (D52)** *default* | 'Keep it updated' saves the current filters as the area list's `area_filters`; 'Edit area' loads them into the shared filters while the picker is open and puts the rider's own filters back when it closes (Save or Cancel, S2 review); the Spots tab's text search is never applied in the picker or saved | S2 plan: one filter set, as D52 (§9 Q16) |
 | D56 | **Area radius: default 2 mi / 2 km; a saved radius is never resized** *default* | Stored in whole metres, one of the chip steps of the unit it was picked in; after a units switch the label converts it ('Area · 3.2 km') and no chip is selected until one is tapped | S2 plan (§9 Q17) |
+| D57 | **A shared-list invitation is a member row with `status = 'invited'`** *default* | `hit_list_members.status` is `'invited'` \| `'member'`; Join flips it to `'member'` (sets `joined_at`), Decline deletes it. An invitee sees the list's name and owner only; only `'member'` reads its spots. | S3 plan (`docs/plans/2026-10-22-s3-backend.md`): §3.5's Join / Decline needs an invited state that §3.2 didn't have (§9 Q18) |
 
 ---
 
@@ -352,6 +353,9 @@ it stops at a milestone boundary; S9 (links) is last among the features because 
     filters, separate from the Spots tab?
 17. **Area radius (D56).** Default 2 mi / 2 km; switching units later keeps a saved area's size (shown converted,
     e.g. 3.2 km). OK?
+18. **Invitations to a shared list (D57).** Default: you're added as "invited" and see only the list's name and who
+    invited you until you tap Join; Decline removes the invitation. Or should a friend you invite be in the list
+    straight away (they could Leave)?
 
 ---
 

@@ -82,6 +82,16 @@ describe('RootLayout: sign-in screens', () => {
     });
     expect(screen.UNSAFE_getAllByProps({ name: 'auth/code' })[0].props.options).toEqual({ title: 'Enter code' });
   });
+
+  it("registers auth/username titled 'Your username' with no back button and no swipe to dismiss", () => {
+    render(<RootLayout />);
+
+    expect(screen.UNSAFE_getAllByProps({ name: 'auth/username' })[0].props.options).toEqual({
+      title: 'Your username',
+      headerBackVisible: false,
+      gestureEnabled: false,
+    });
+  });
 });
 
 describe("gesture-handler's jest setup", () => {

@@ -235,6 +235,8 @@ for 0 rows); a pull keeps the local row on an `updated_at` tie while a change of
 - expo-router 57 has no `@react-navigation/*` dependencies; import from `expo-router` /
   `expo-router/js-tabs`.
 - **Sync (S5)**: every owned write goes through the `src/db/` functions, so the trigger appends its outbox row in the same statement; never write `spots`/`media`/`hit_lists`/`hit_list_spots` rows from a screen or hook directly, and never write `rev` outside `src/sync/` (a pull write changes `rev`, so it queues no outbox row: no echo loop). `owner_id` NULL = phone-only, not adopted (never synced); a non-NULL owner other than `sync_state.user_id` is another account's row (never queued). New rows take `currentOwnerId()`. Server timestamps go through `toIso`.
+- **Send = copy, Share = live: never mix the words (D34)**; the sentences are asserted in `send-sheet.test.tsx` and
+  `share-list-sheet.test.tsx` (S8). No Send UI says 'Share' (a test reads `SendSheet.tsx`), and no Share UI says 'Send'.
 - **Accounts are optional**: every screen that needs a session checks `useAuthStore` status and shows a one-line
   Sign in prompt, never a disabled control; an unconfigured build (no `EXPO_PUBLIC_SUPABASE_*`) shows 'Accounts
   aren't set up in this build' and everything local still works.

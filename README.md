@@ -65,8 +65,14 @@ three-filter list (M5), the review screens (M6) and the import radius in your un
   @ben), lists your friends, the requests you sent (Cancel) and the riders you blocked (Unblock); long-press a friend
   for Remove friend or Block (they aren't told: to them you read like a name that doesn't exist). A fourth tab, Inbox
   (Spots · Lists · Inbox · Profile), shows friend requests with Accept / Decline and a badge with the number you
-  haven't seen; opening it clears the badge. Friends' names are kept on the phone so they show offline. Spots aren't
-  sent or shared yet (S7 on).
+  haven't seen; opening it clears the badge. Friends' names are kept on the phone so they show offline.
+- Send spots to friends (S7): a one-time copy, never a live link. Send from a spot's page (the paper-plane; not on
+  another rider's spot), from Select on the Spots tab ('Send (3)'), from a hit list ('Send these spots') or from the
+  area picker; tick friends, the sheet says "They get a copy of this spot as it is now. Changes you make later won't
+  reach them." The friend's Inbox shows '@ana sent you 3 spots' with a thumbnail: Save all, Save into a new hit list,
+  Pick spots or Dismiss (the sender isn't told). Saved copies are the friend's own spots ('From @ana' on detail) with
+  their photos, backed up like any other. Profile → Sent lists what you sent: Waiting (Withdraw), Saved, Withdrawn.
+  Live shared hit lists come later (S8).
 
 ## Run it
 

@@ -195,6 +195,13 @@ Works from S7-05 on (the server migration lands in S7-03). Same setup as S6: sta
       the Inbox. As A, Sent shows the saved one as 'Saved' with no Withdraw ('Saved copies are theirs').
 - [ ] **Offline:** Airplane mode, try Send. Check: "Couldn't send. Try again." (or the not-backed-up line) and
       nothing appears on B's side.
+- [ ] **Two phones (S7-08):** A signed in on phone 1, B on phone 2 (both on the tailnet, same Metro). As A, send
+      one spot with two photos to @B. Check on phone 2 within a pull-to-refresh of the Inbox: the badge, '@A sent you 1
+      spot' with the first photo as thumbnail. As A on phone 1, rename the spot and add a third photo. As B, Save all.
+      Check: B's copy has the **old** name, exactly **two** photos, 'From @A', and A's Sent row on phone 1 reads
+      'Saved' with no Withdraw after a pull. Edit B's copy (rename it). Check: A's spot on phone 1 keeps A's name (the
+      copy is B's, nothing flows back). If B also has a second phone signed in, its Spots tab gets the saved copy with
+      photos after a pull. Undo: delete B's copy like any spot.
 - [ ] **What to check in Studio** (`http://<tailnet-ip>:54323`): `sends` has one row per friend per send with
       `payload.sender.username` = A; Storage `photos/sends/<id>/` holds one file per photo; after Withdraw that folder
       is empty and `withdrawn_at` is set.

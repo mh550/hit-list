@@ -20,6 +20,13 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 13:10 · S5-08 · passes
+
+- **What changed:** new `docs/plans/2026-10-22-s5-what-michael-will-see.md` (Profile states, four alerts with every text, phone walkthrough + undo, recorded checks). No code changed.
+- **Verified:** text dumped from a scratch render of Profile (test file deleted). jest 85 suites / 1324 tests, 0 console.error; integration 29/29 against the local stack (stopped after, no supabase_* containers); `expo export` exit 0, 5.1 MB; check.sh green.
+- **Next:** S5 is complete; S6 is next.
+- **Questions for Michael:** none.
+
 ### 2026-10-23 12:40 · S5-07 · passes
 
 - **What changed:**

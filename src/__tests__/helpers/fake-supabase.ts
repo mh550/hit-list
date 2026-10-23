@@ -6,15 +6,19 @@
 //   node_modules/@supabase/postgrest-js/dist/index.d.mts (from(t).select(cols).eq(c, v).maybeSingle(),
 //     from(t).update(v).eq(c, v), optionally .select(cols) to get the updated rows back (else data null); a
 //     thenable { data, error }, PostgrestError has message/details/hint/code)
-//     from(t).upsert(values, { onConflict?, ignoreDuplicates? }), from(t).delete().eq(c, v)
+//     from(t).upsert(values, { onConflict?, ignoreDuplicates? }), from(t).delete().eq(c, v),
+//     from(t).select(cols).gt(c, v).in(c, values).order(c).limit(n))
 //   node_modules/@supabase/storage-js/dist/index.d.mts (storage.from(bucket).upload(path, fileBody, fileOptions?) →
-//     { data: { id, path, fullPath }, error: null } | { data: null, error: StorageError })
+//     { data: { id, path, fullPath }, error: null } | { data: null, error: StorageError };
+//     storage.from(bucket).download(path) → { data: Blob, error: null } | { data: null, error: StorageError })
 //   node_modules/@supabase/functions-js/dist/module/FunctionsClient.d.ts (functions.invoke(name, options?))
 // Every member is a jest.fn. Screens get it with
 //   jest.mock('@/src/sync/client', () => ({ getSupabase: () => mockFake, isConfigured: () => true }))
-// The fake keeps one session and a `profiles` table; `failNext(method, error)` makes the next call of
-// that method answer { data: null, error }; `queryDelayMs` slows every query down. Every upsert, delete and upload
-// is logged in `calls`, in the order the app awaited them (the push tests read the order there).
+// The fake keeps one session and a `profiles` table; `failNext(method, error, table?)` makes the next call of
+// that method (on that table) answer { data: null, error }; `queryDelayMs` slows every query down. Every upsert,
+// delete and upload is logged in `calls`, in the order the app awaited them (the push tests read the order there).
+// Other tables answer selects from `tables` (filters, order and limit applied; each select logged in `selects`);
+// storage downloads answer from `objects`.
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
 
 export type FakeError = { message: string; code?: string; status?: number };
@@ -29,6 +33,7 @@ type FailMethod =
   | 'upsert'
   | 'delete'
   | 'upload'
+  | 'download'
   | 'invoke';
 export type FakeCall =
   | { kind: 'upsert'; table: string; values: Record<string, unknown>; options?: UpsertOptions }
@@ -36,6 +41,16 @@ export type FakeCall =
   | { kind: 'upload'; bucket: string; path: string; body: unknown; options?: UploadOptions };
 type UpsertOptions = { onConflict?: string; ignoreDuplicates?: boolean };
 type UploadOptions = { contentType?: string; upsert?: boolean };
+type Row = Record<string, unknown>;
+type Filter = ['eq' | 'gt', string, unknown] | ['in', string, unknown[]];
+/** One awaited select on a table other than `profiles`: what pull asked the server. */
+export interface FakeSelect {
+  table: string;
+  columns?: string;
+  filters: Filter[];
+  order: string[];
+  limit?: number;
+}
 export interface FakeProfile {
   username: string | null;
   display_name: string | null;
@@ -62,14 +77,27 @@ export function fakeSession({ userId = 'user-ana', email = 'ana@example.com' } =
 export function createFakeSupabase(opts: { session?: Session | null; userId?: string } = {}) {
   let session: Session | null = opts.session ?? null;
   const listeners = new Set<Listener>();
-  const failures = new Map<FailMethod, FakeError>();
+  const failures = new Map<string, FakeError>();
   const profiles = new Map<string, FakeProfile>();
   const calls: FakeCall[] = [];
+  const selects: FakeSelect[] = [];
+  /** The server's rows per table (not `profiles`), as PostgREST returns them. */
+  const tables: Record<string, Row[]> = {};
+  /** Storage objects by `<bucket>/<path>`. */
+  const objects = new Map<string, Uint8Array>();
+  /** One-shot select failures picked by what the select asked for (see failSelect). */
+  const selectFailures: { match: (select: FakeSelect) => boolean; error: FakeError }[] = [];
 
-  const takeFailure = (method: FailMethod) => {
-    const error = failures.get(method);
-    failures.delete(method);
-    return error;
+  /** A failure set for this table first, then one for any table. */
+  const takeFailure = (method: FailMethod, table?: string) => {
+    for (const key of [`${method}:${table}`, method] as const) {
+      const error = failures.get(key);
+      if (error) {
+        failures.delete(key);
+        return error;
+      }
+    }
+    return undefined;
   };
   const emit = (event: AuthChangeEvent, next: Session | null) => {
     for (const listener of [...listeners]) listener(event, next);
@@ -82,7 +110,36 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
     upsert: jest.Mock<FakeQuery, [values: Record<string, unknown>, options?: UpsertOptions]>;
     delete: jest.Mock<FakeQuery, [options?: { count?: string }]>;
     eq: jest.Mock<FakeQuery, [column: string, value: unknown]>;
+    gt: jest.Mock<FakeQuery, [column: string, value: unknown]>;
+    in: jest.Mock<FakeQuery, [column: string, values: readonly unknown[]]>;
+    order: jest.Mock<FakeQuery, [column: string, options?: { ascending?: boolean }]>;
+    limit: jest.Mock<FakeQuery, [count: number]>;
     maybeSingle: jest.Mock<FakeQuery, []>;
+  }
+
+  const compare = (a: unknown, b: unknown) => ((a as number | string) < (b as number | string) ? -1 : a === b ? 0 : 1);
+
+  /** A select on `tables[table]`: filters, then order, then limit, columns picked from `columns`. */
+  function selectRows(table: string, columns: string | undefined, filters: Filter[], order: string[], limit?: number) {
+    let rows = (tables[table] ?? []).filter((row) =>
+      filters.every(([op, column, value]) => {
+        if (op === 'eq') return row[column] === value;
+        // SQL: NULL > x is not true
+        if (op === 'gt') return row[column] != null && compare(row[column], value) > 0;
+        return (value as unknown[]).includes(row[column]);
+      }),
+    );
+    rows = [...rows].sort((a, b) => {
+      for (const column of order) {
+        const c = compare(a[column], b[column]);
+        if (c !== 0) return c;
+      }
+      return 0;
+    });
+    if (limit !== undefined) rows = rows.slice(0, limit);
+    if (!columns || columns === '*') return rows.map((row) => ({ ...row }));
+    const picked = columns.split(',').map((c) => c.trim());
+    return rows.map((row) => Object.fromEntries(picked.map((c) => [c, row[c]])));
   }
 
   // A PostgREST builder: chainable, and awaiting it runs the query against `profiles`.
@@ -94,15 +151,28 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
     let one = false;
     // update(…).select(): answer the updated rows (only `id`: the app asks for nothing else).
     let returning = false;
+    let columns: string | undefined;
     const filters: [string, unknown][] = [];
+    const selectFilters: Filter[] = [];
+    const order: string[] = [];
+    let limit: number | undefined;
 
     const run = (): QueryResult => {
       if (op === 'upsert') calls.push({ kind: 'upsert', table, values: upserted, options: upsertOptions });
       if (op === 'delete') calls.push({ kind: 'delete', table, filters: [...filters] });
-      const error = takeFailure(op);
+      if (op === 'select' && table !== 'profiles') {
+        const select: FakeSelect = { table, columns, filters: [...selectFilters], order: [...order], limit };
+        selects.push(select);
+        const failure = selectFailures.findIndex(({ match }) => match(select));
+        if (failure >= 0) return { data: null, error: selectFailures.splice(failure, 1)[0].error };
+      }
+      const error = takeFailure(op, table);
       if (error) return { data: null, error };
       if (op === 'upsert' || op === 'delete') return { data: null, error: null };
-      if (table !== 'profiles') return { data: one ? null : [], error: null };
+      if (table !== 'profiles') {
+        const rows = selectRows(table, columns, selectFilters, order, limit);
+        return { data: one ? (rows[0] ?? null) : rows, error: null };
+      }
       const rows = [...profiles.entries()]
         .map(([id, row]) => ({ id, ...row }))
         .filter((row) => filters.every(([column, value]) => row[column as keyof typeof row] === value));
@@ -114,9 +184,12 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
     };
 
     const builder: FakeQuery = {
-      select: jest.fn((_columns?: string) => {
+      select: jest.fn((cols?: string) => {
         if (op === 'update') returning = true;
-        else op = 'select';
+        else {
+          op = 'select';
+          columns = cols;
+        }
         return builder;
       }),
       update: jest.fn((next: Partial<FakeProfile>) => {
@@ -136,6 +209,23 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
       }),
       eq: jest.fn((column: string, value: unknown) => {
         filters.push([column, value]);
+        selectFilters.push(['eq', column, value]);
+        return builder;
+      }),
+      gt: jest.fn((column: string, value: unknown) => {
+        selectFilters.push(['gt', column, value]);
+        return builder;
+      }),
+      in: jest.fn((column: string, values: readonly unknown[]) => {
+        selectFilters.push(['in', column, [...values]]);
+        return builder;
+      }),
+      order: jest.fn((column: string, _options?: { ascending?: boolean }) => {
+        order.push(column);
+        return builder;
+      }),
+      limit: jest.fn((count: number) => {
+        limit = count;
         return builder;
       }),
       maybeSingle: jest.fn(() => {
@@ -190,7 +280,15 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
           calls.push({ kind: 'upload', bucket, path, body, options });
           const error = takeFailure('upload');
           if (error) return { data: null, error };
+          objects.set(`${bucket}/${path}`, body as Uint8Array);
           return { data: { id: `object-${path}`, path, fullPath: `${bucket}/${path}` }, error: null };
+        }),
+        download: jest.fn(async (path: string) => {
+          const error = takeFailure('download');
+          if (error) return { data: null, error };
+          const bytes = objects.get(`${bucket}/${path}`);
+          if (!bytes) return { data: null, error: { message: 'Object not found', statusCode: '404' } };
+          return { data: new Blob([bytes as BlobPart], { type: 'image/jpeg' }), error: null };
         }),
       })),
     },
@@ -205,6 +303,9 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
     // Test hooks.
     profiles,
     calls,
+    selects,
+    tables,
+    objects,
     /** Makes every query answer after this many ms (an in-flight fetch racing an auth event). */
     queryDelayMs: 0,
     listenerCount: () => listeners.size,
@@ -215,8 +316,13 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
       session = next;
       emit(event, next);
     },
-    failNext(method: FailMethod, error: FakeError) {
-      failures.set(method, error);
+    /** The next `method` call answers `error`; with `table`, only the next one on that table. */
+    failNext(method: FailMethod, error: FakeError, table?: string) {
+      failures.set(table ? `${method}:${table}` : method, error);
+    },
+    /** The next select (not on `profiles`) that `match` picks answers `error`. */
+    failSelect(match: (select: FakeSelect) => boolean, error: FakeError) {
+      selectFailures.push({ match, error });
     },
   };
   return fake;

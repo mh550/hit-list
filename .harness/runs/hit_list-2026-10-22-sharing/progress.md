@@ -20,6 +20,13 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 20:00 · S7-07 · passes
+
+- New `docs/plans/2026-10-22-s7-what-michael-will-see.md`: from-scratch renders (temporary Jest tests, deleted; `git status` clean) of the Send sheet (signed out, unconfigured, no friends, two friends + 3 spots with the exact D34 sentence, 1 spot), the Inbox send row + Pick spots sheet, the Sent screen (three statuses, empty, signed out) and a saved copy's detail ('From @ana'); 'What to tap' with two riders (one spot, multi-select, a list, frozen copy after rename, withdraw before saving).
+- Verified: `npx jest --ci` 97 suites, 1676 tests, 0 `console.error`; `db:start` → `db:reset` → `test:integration` 4 suites 44 passed → `db:stop` (0 supabase containers left); `npx expo export --platform ios` exit 0, 5,289,652 bytes hbc; `check.sh` green.
+- No code changed. Next: S7 is complete; S8 starts the next milestone (S7 PR is the harness's/Michael's to open).
+- Questions for Michael: none. Proposed changes: none.
+
 ### 2026-10-23 19:00 · S7-06 · passes
 
 - New `src/__integration__/send.test.ts` (8 cases: D40 frozen copy after rename + delete, Save → owned copies with photos + backup + second phone, ana can't read them, withdraw before save (RLS refuses while the object exists, then removed), 55000 on a saved send, forged sender (D80), staged photo (D77), failed `create_send` leaves no copies). `src/__integration__/phones.ts` = helpers moved out of `sync.test.ts` unchanged. Jest stays at 1676 (integration is separate): `test:integration` 36 → 44.

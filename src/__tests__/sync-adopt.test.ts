@@ -617,6 +617,17 @@ describe("removeForeignRows: sign-out takes others' spots off the phone (S8, D86
     expect(useSpotsStore.getState().spots.map((s) => s.id).sort()).toEqual(['a-s1', 'a-s2']);
   });
 
+  it('removes nothing while a change still waits to be backed up (it may be a spot going into a friend\'s list)', async () => {
+    await seedShared();
+    await addSpotsToList(db, 'ana-l1', ['a-s2']);
+    expect(await countPending(db)).toBe(1);
+
+    await expect(removeForeignRows(db, A)).resolves.toBeNull();
+    expect(await count('spots')).toBe(3);
+    expect(await countPending(db)).toBe(1);
+    expect(fakeFs.__fileExists(anaCached)).toBe(true);
+  });
+
   it("the sync store follows the phone's account (sync_state.user_id): adopt sets it, Remove clears it", async () => {
     await adopt(db, B);
     expect(useSyncStore.getState().phoneUserId).toBe(B);

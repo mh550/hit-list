@@ -674,7 +674,7 @@ describe('Profile sign out and delete: Keep / Remove from this phone (S5-06, D38
     expect(useAuthStore.getState()).toMatchObject(SIGNED_OUT);
   });
 
-  it("Keep takes friends' spots off the phone first (S8, D86); a failure there still signs out", async () => {
+  it("Keep takes friends' spots off the phone once signed out (S8, D86: no sync can pull them back); a failure there still signs out", async () => {
     jest.mocked(removeForeignRows).mockClear();
     useAuthStore.setState(ANA);
     render(<ProfileScreen />);
@@ -682,7 +682,7 @@ describe('Profile sign out and delete: Keep / Remove from this phone (S5-06, D38
     await pressInAlert('Keep');
 
     expect(removeForeignRows).toHaveBeenCalledWith(expect.anything(), ANA.userId);
-    expect(jest.mocked(removeForeignRows).mock.invocationCallOrder[0]).toBeLessThan(
+    expect(jest.mocked(removeForeignRows).mock.invocationCallOrder[0]).toBeGreaterThan(
       mockFake!.auth.signOut.mock.invocationCallOrder[0],
     );
 
@@ -757,8 +757,11 @@ describe('Profile sign out and delete: Keep / Remove from this phone (S5-06, D38
       ['Sign out anyway', 'destructive'],
     ]);
 
+    jest.mocked(removeForeignRows).mockClear();
     await pressInAlert('Sign out anyway');
     expect(removeLocalAccountData).not.toHaveBeenCalled();
+    // a waiting change may be the rider's own spot going into a friend's list: their rows stay, read-only (S8)
+    expect(removeForeignRows).not.toHaveBeenCalled();
     expect(useAuthStore.getState()).toMatchObject(SIGNED_OUT);
   });
 

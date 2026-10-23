@@ -132,10 +132,13 @@ export function adopt(
  * other riders go with their memberships and members mirror (forgetList), others' spots with their photos and
  * memberships (in the rider's lists too), all without queuing a server delete; the whole photo cache goes after the
  * commit. The cursors restart, so the next sign-in reads the shared rows again. The rider's own rows, outbox and
- * user_id are untouched. Resolves the removed spots' ids.
+ * user_id are untouched. Resolves the removed spots' ids, or null (nothing removed) while a change waits to be backed
+ * up. Run it once signed out, so no sync pulls the rows back in between.
  */
-export function removeForeignRows(db: SQLiteDatabase, uid: string): Promise<string[]> {
+export function removeForeignRows(db: SQLiteDatabase, uid: string): Promise<string[] | null> {
   return runExclusive(async () => {
+    // a waiting change may be the rider's own spot going into (or out of) a friend's list: forgetList would drop it
+    if ((await countPending(db)) > 0) return null;
     const foreign = 'owner_id IS NOT NULL AND owner_id <> ?';
     let removed: string[] = [];
     await db.withTransactionAsync(async () => {

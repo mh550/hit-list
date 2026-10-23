@@ -163,15 +163,17 @@ function AccountSection() {
     end();
   };
 
-  // Keep (and Sign out anyway) keeps the rider's own rows; friends' spots from shared lists leave the phone (D86). A
-  // failure there only warns: the next sign-in of another account removes them anyway.
+  // Keep keeps the rider's own rows; friends' spots from shared lists leave the phone (D86), once signed out so no
+  // sync pulls them back. A failure there only warns: they stay read-only, and another account's sign-in removes them.
   const keepThenSignOut = async () => {
+    await signOutOfAccount(client);
     try {
       if (userId) await removeForeignRows(db, userId);
     } catch (err) {
       console.warn("[Profile] removing friends' spots at sign-out failed:", err);
     }
-    await finishSignOut();
+    setAuth(SIGNED_OUT);
+    end();
   };
 
   const removeThenSignOut = async () => {
@@ -210,7 +212,7 @@ function AccountSection() {
     }
     Alert.alert(waitingTitle(pending), "Sign out anyway and they'll back up next time you sign in to this account.", [
       { text: 'Cancel', style: 'cancel', onPress: end },
-      { text: 'Sign out anyway', style: 'destructive', onPress: () => void keepThenSignOut() },
+      { text: 'Sign out anyway', style: 'destructive', onPress: () => void finishSignOut() },
     ]);
   };
 

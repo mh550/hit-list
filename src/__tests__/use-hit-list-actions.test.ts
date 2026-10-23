@@ -395,6 +395,31 @@ describe('useHitListActions', () => {
       expect(store().membershipBySpot).toEqual({});
       expect(await getListMemberships(mockDb)).toEqual({});
     });
+
+    it("addSpotsToList (S8-05 review #7) takes my spot into ana's list only when I joined it with 'Can add spots'", async () => {
+      const member = (role: 'add' | 'view') => [{ user_id: 'u-me', role, status: 'member' as const }];
+      await seedList({ id: 'adds', owner_id: 'u-ana', shared: true, members: member('add') });
+      await seedList({ id: 'views', owner_id: 'u-ana', shared: true, members: member('view') });
+      await seedList({ id: 'stranger', owner_id: 'u-ana', shared: true });
+      useSpotsStore.setState({ spots: [createTestSpot({ id: 'a', owner_id: 'u-me' })] });
+      const { result } = renderHook(() => useHitListActions());
+
+      await expect(result.current.addSpotsToList('views', ['a'])).rejects.toThrow('not your list');
+      await expect(result.current.addSpotsToList('stranger', ['a'])).rejects.toThrow('not your list');
+      expect(store().membershipBySpot).toEqual({});
+      await act(async () => result.current.addSpotsToList('adds', ['a']));
+      expect(store().membershipBySpot).toEqual({ a: ['adds'] });
+    });
+
+    it("addSpotsToList rejects an area list: its spots are its circle's, never stored", async () => {
+      await seedList({ id: 'area', kind: 'area', area_center: { latitude: 47.6, longitude: -122.3 }, area_radius_m: 1609 });
+      useSpotsStore.setState({ spots: [createTestSpot({ id: 'a' })] });
+      const { result } = renderHook(() => useHitListActions());
+
+      await expect(result.current.addSpotsToList('area', ['a'])).rejects.toThrow('area list');
+      expect(store().membershipBySpot).toEqual({});
+      expect(await getListMemberships(mockDb)).toEqual({});
+    });
   });
 
   describe('owner of a new list (S5-06)', () => {

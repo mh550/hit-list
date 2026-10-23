@@ -268,8 +268,11 @@ describe('src/db/sync.ts: the outbox and sync state (real SQLite)', () => {
       await setSyncState(db, confirmedListKey('L1'), '1');
       await setSyncState(db, confirmedListKey('L2'), '1');
       await setSyncState(db, 'cursor:spots', '7');
+      // '_' is a LIKE wildcard: only the literal 'confirmed_list:' prefix goes
+      await setSyncState(db, 'confirmedXlist:L3', 'keep');
 
       await forgetAccount(db, 'u1');
+      expect(await getSyncState(db, 'confirmedXlist:L3')).toBe('keep');
 
       expect(await getSyncState(db, 'user_id')).toBeUndefined();
       expect(await getSyncState(db, confirmedListKey('L1'))).toBeUndefined();

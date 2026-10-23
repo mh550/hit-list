@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native';
 import type { SQLiteDatabase } from 'expo-sqlite';
-import { getSyncState } from '@/src/db/sync';
+import { getSyncState, setSyncState } from '@/src/db/sync';
 import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
 import type { AlertButton } from 'react-native';
 import { createMigratedTestDb } from './helpers/node-sqlite-db';
@@ -437,6 +437,101 @@ describe('AddToListSheet', () => {
 
       expect(mockRemoveSpotFromList).toHaveBeenCalledWith('L-mine', 'a');
       expect(alert).not.toHaveBeenCalled();
+    });
+
+    it('two taps while the answer is read ask once (S8-05 review #8)', async () => {
+      render(<AddToListSheet visible spotIds={['a']} onClose={jest.fn()} />);
+
+      fireEvent.press(row('Downtown, Shared with 4'));
+      fireEvent.press(row('Downtown, Shared with 4'));
+
+      await waitFor(() => expect(alert).toHaveBeenCalledTimes(1));
+      await act(async () => {});
+      expect(alert).toHaveBeenCalledTimes(1);
+    });
+
+    it('after Cancel the next tap asks again', async () => {
+      render(<AddToListSheet visible spotIds={['a']} onClose={jest.fn()} />);
+      fireEvent.press(row('Downtown, Shared with 4'));
+      await waitFor(() => expect(alert).toHaveBeenCalledTimes(1));
+      await act(async () => press('Cancel'));
+
+      fireEvent.press(row('Downtown, Shared with 4'));
+
+      await waitFor(() => expect(alert).toHaveBeenCalledTimes(2));
+      expect(alert.mock.lastCall?.[0]).toBe('Everyone in Downtown (4) will see this spot.');
+    });
+
+    it('after a failed Add the next tap asks again', async () => {
+      mockAddSpotsToList.mockRejectedValueOnce(new Error('disk full'));
+      render(<AddToListSheet visible spotIds={['a']} onClose={jest.fn()} />);
+      fireEvent.press(row('Downtown, Shared with 4'));
+      await waitFor(() => expect(alert).toHaveBeenCalledTimes(1));
+      await act(async () => press('Add'));
+      expect(alert).toHaveBeenCalledTimes(2); // "Couldn't update the list"
+
+      fireEvent.press(row('Downtown, Shared with 4'));
+
+      await waitFor(() => expect(alert).toHaveBeenCalledTimes(3));
+      expect(alert.mock.lastCall?.[0]).toBe('Everyone in Downtown (4) will see this spot.');
+    });
+
+    it('a tap while the confirmed add is still writing asks nothing (review #6)', async () => {
+      let finish: () => void = () => {};
+      mockAddSpotsToList.mockImplementationOnce(() => new Promise<void>((resolve) => (finish = resolve)));
+      render(<AddToListSheet visible spotIds={['a']} onClose={jest.fn()} />);
+      fireEvent.press(row('Downtown, Shared with 4'));
+      await waitFor(() => expect(alert).toHaveBeenCalledTimes(1));
+      let adding: unknown;
+      act(() => {
+        adding = press('Add');
+      });
+
+      fireEvent.press(row('Downtown, Shared with 4'));
+      await waitFor(() => expect(mockAddSpotsToList).toHaveBeenCalledTimes(2));
+      expect(alert).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        finish();
+        await adding;
+      });
+    });
+
+    it('an answer saved on this phone before the sheet opened asks nothing', async () => {
+      await setSyncState(mockDb, 'confirmed_list:L-mine', '1');
+      render(<AddToListSheet visible spotIds={['a']} onClose={jest.fn()} />);
+
+      fireEvent.press(row('Downtown, Shared with 4'));
+
+      await waitFor(() => expect(mockAddSpotsToList).toHaveBeenCalledWith('L-mine', ['a']));
+      expect(alert).not.toHaveBeenCalled();
+    });
+
+    it('counts only the spots not in the list yet (review #5)', async () => {
+      useHitListsStore.setState({ membershipBySpot: { a: ['L-mine'] } });
+      render(<AddToListSheet visible spotIds={['a', 'b', 'c']} onClose={jest.fn()} />);
+
+      fireEvent.press(row('Downtown, Shared with 4'));
+
+      await waitFor(() => expect(alert).toHaveBeenCalledTimes(1));
+      expect(alert.mock.lastCall?.[0]).toBe('Everyone in Downtown (4) will see these 2 spots.');
+    });
+
+    it("ana's list with no members row of mine is 'View only'", () => {
+      useHitListsStore.setState({ lists: [{ ...anasAdd, members: [] }] });
+      render(<AddToListSheet visible spotIds={['a']} onClose={jest.fn()} />);
+
+      expect(row('Waterfront, Shared with 1').props.accessibilityState).toEqual({ disabled: true, checked: false });
+      expect(row('Waterfront, Shared with 1').props.accessibilityHint).toBe('View only');
+    });
+
+    it("ana's joined list asks first even when its shared flag hasn't arrived (review #4)", async () => {
+      useHitListsStore.setState({ lists: [{ ...anasAdd, shared: false }] });
+      render(<AddToListSheet visible spotIds={['a']} onClose={jest.fn()} />);
+
+      fireEvent.press(row('Waterfront, Shared with 2'));
+
+      await waitFor(() => expect(alert).toHaveBeenCalledTimes(1));
+      expect(alert.mock.lastCall?.[0]).toBe('Everyone in Waterfront (2) will see this spot.');
     });
 
     it('a private list adds at once, without asking', () => {

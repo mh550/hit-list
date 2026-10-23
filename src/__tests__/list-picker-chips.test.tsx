@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/react-native';
-import { ScrollView } from 'react-native';
+import { ScrollView, StyleSheet } from 'react-native';
 import { useHitListsStore } from '@/src/stores';
 import { createTestHitList } from './factories';
 
@@ -112,5 +112,13 @@ describe('ListPickerChips', () => {
     expect(within(chip).getByText('3')).toBeTruthy();
     expect(within(screen.getByRole('tab', { name: 'Downtown' })).queryByTestId('icon-person.2.fill')).toBeNull();
     expect(screen.getAllByTestId('icon-person.2.fill')).toHaveLength(1);
+  });
+
+  it("a chip's label gives way to its badge (S8-05 review #1: a long name in a wrapping row)", () => {
+    const shared = createTestHitList({ id: 'L-shared', name: 'Waterfront', shared: true });
+    useHitListsStore.setState({ lists: [downtown, shared] });
+    render(<ListPickerChips />);
+
+    expect(StyleSheet.flatten(screen.getByText('Waterfront').props.style).flexShrink).toBe(1);
   });
 });

@@ -169,8 +169,7 @@ describe('ShareListSheet signed in', () => {
     await renderSheet();
     expect(screen.getByText('One spot will become visible to them')).toBeOnTheScreen();
 
-    setList(downtown, []);
-    await act(async () => {});
+    await act(async () => setList(downtown, []));
     expect(screen.queryByText(/will become visible/)).toBeNull();
   });
 

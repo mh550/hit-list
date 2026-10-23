@@ -421,6 +421,18 @@ describe('respondInvite', () => {
     expect(useInboxStore.getState().items).toEqual([]);
   });
 
+  it('a mirror write that fails after the server answered only warns: the answer stands (the next pull rewrites the mirror)', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    await db.execAsync('DROP TABLE hit_list_members');
+
+    await expect(respondInvite(db, client(), ME, 'list-1', 'join')).resolves.toBe(true);
+    await expect(respondInvite(db, client(), ME, 'list-1', 'decline')).resolves.toBe(true);
+
+    expect(useInboxStore.getState().items).toEqual([]);
+    expect(warn).toHaveBeenCalledWith('[lists] the answer is in; mirroring it failed:', expect.any(String));
+    warn.mockRestore();
+  });
+
   it('join of an invitation withdrawn meanwhile (0 rows) is NotAllowedError; it leaves the mirror and the Inbox', async () => {
     fake.tables.hit_list_members = [];
 

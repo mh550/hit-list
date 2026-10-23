@@ -49,6 +49,7 @@ import { block, refreshFriends, respond } from '@/src/sync/friends';
 import { syncNow } from '@/src/sync/engine';
 import { loadAndApplyInvites, NotAllowedError, respondInvite } from '@/src/sync/lists';
 import { useHitListsStore } from '@/src/stores/hit-lists-store';
+import { joinList } from '@/src/sync/join';
 import { createTestHitList } from './factories';
 import { dismissSend, hasPendingSave, loadAndApplySends, saveSend } from '@/src/sync/sends';
 import type { FrozenSpot, SendPayload } from '@/src/utils/send-payload';
@@ -871,6 +872,82 @@ describe('Inbox tab: invitations (S8-06)', () => {
 
     expect(block).toHaveBeenCalledWith(mockFake, ME, 'u-ana');
     expect(screen.queryByText('@ana invited you to Downtown (12 spots)')).toBeNull();
+  });
+
+  it("Decline and Block on an invitation read 'Answering' meanwhile, never 'Sending' (D34: no Send words on a Share row)", async () => {
+    signIn([DOWNTOWN]);
+    jest.mocked(respondInvite).mockImplementation(() => new Promise(() => {}));
+    await renderTab();
+
+    await press('Decline the invitation to Downtown');
+    await pressAlertButton('Decline');
+
+    expect(screen.getByLabelText('Answering')).toBeOnTheScreen();
+    expect(screen.queryByLabelText('Sending your answer')).toBeNull();
+  });
+
+  it('a failed Decline alerts and keeps the row; so does one the phone may not make yet', async () => {
+    signIn([DOWNTOWN]);
+    jest.mocked(respondInvite).mockRejectedValueOnce(new Error('offline')).mockResolvedValueOnce(false);
+    await renderTab();
+
+    for (let i = 0; i < 2; i++) {
+      await press('Decline the invitation to Downtown');
+      await pressAlertButton('Decline');
+      expect(alert).toHaveBeenLastCalledWith("Couldn't reach the server", 'Try again.');
+      expect(screen.getByText('@ana invited you to Downtown (12 spots)')).toBeOnTheScreen();
+    }
+  });
+
+  it('a block from an invitation reloads the invitations and the friends (a load already running loses)', async () => {
+    signIn([DOWNTOWN]);
+    await renderTab();
+    jest.mocked(loadAndApplyInvites).mockClear();
+    jest.mocked(refreshFriends).mockClear();
+
+    await act(async () => {
+      fireEvent(screen.getByLabelText('@ana invited you to Downtown (12 spots)'), 'longPress');
+    });
+    await pressAlertButton('Block @ana');
+    await pressAlertButton('Block');
+
+    expect(loadAndApplyInvites).toHaveBeenCalledWith(db, mockFake, ME);
+    expect(refreshFriends).toHaveBeenCalledWith(db, mockFake, ME);
+  });
+
+  it('Decline while a Join of the same list runs (from the Lists tab) does nothing: the join wins', async () => {
+    signIn([DOWNTOWN]);
+    let finish: (v: boolean) => void = () => {};
+    jest.mocked(respondInvite).mockImplementation(() => new Promise((resolve) => (finish = resolve)));
+    await renderTab();
+    let joined: Promise<unknown> = Promise.resolve();
+    await act(async () => {
+      joined = joinList(db, mockFake as never, ME, 'L-downtown');
+    });
+
+    await press('Decline the invitation to Downtown');
+    const decline = lastAlert().buttons.find((b) => b.text === 'Decline');
+    if (decline) await pressAlertButton('Decline');
+
+    expect(respondInvite).toHaveBeenCalledTimes(1);
+    expect(respondInvite).toHaveBeenLastCalledWith(db, mockFake, ME, 'L-downtown', 'join');
+    await act(async () => {
+      finish(true);
+      await joined;
+    });
+  });
+
+  it("'Open' stays hidden for a joined list that was deleted meanwhile", async () => {
+    signIn([DOWNTOWN]);
+    useHitListsStore.setState({
+      lists: [createTestHitList({ id: 'L-downtown', name: 'Downtown', deleted_at: '2026-10-23T10:00:00.000Z' })],
+    });
+    await renderTab();
+
+    await press('Join Downtown');
+
+    expect(screen.getByText('Joined Downtown')).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: 'Open Downtown' })).toBeNull();
   });
 
   it('loads the invitations with the rest when focused and on pull to refresh', async () => {

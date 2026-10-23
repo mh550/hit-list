@@ -871,16 +871,11 @@ describe('migrateDb (PRAGMA user_version)', () => {
         ({ name, type, pk }) => ({ name, type, pk }),
       );
 
-    it('is the last migration', () => {
-      expect(MIGRATIONS).toHaveLength(6);
-      expect(LATEST_SCHEMA_VERSION).toBe(6);
-    });
-
     it('adds profiles (id TEXT primary key, username, display_name) to a v5 DB', async () => {
       const db = await v5Db();
       expect(await tables(db)).not.toContain('profiles');
 
-      await migrateDb(db);
+      await migrateDb(db, MIGRATIONS.slice(0, 6));
 
       expect(await getSchemaVersion(db)).toBe(6);
       expect(await columns(db, 'profiles')).toEqual([
@@ -894,7 +889,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
       const db = await v5Db();
       const triggersBefore = await db.getAllAsync(`SELECT name FROM sqlite_master WHERE type = 'trigger'`);
 
-      await migrateDb(db);
+      await migrateDb(db, MIGRATIONS.slice(0, 6));
       await db.runAsync("INSERT INTO sync_state (key, value) VALUES ('user_id', 'u1')");
       await db.runAsync("INSERT INTO profiles (id, username) VALUES ('p1', 'ana')");
 
@@ -902,7 +897,82 @@ describe('migrateDb (PRAGMA user_version)', () => {
       expect(await db.getFirstAsync('SELECT COUNT(*) AS n FROM sync_outbox')).toEqual({ n: 0 });
     });
 
-    it('the v2 fixture rows migrate 2 → 6 with their spots and media intact', async () => {
+    it('migrating a v6 DB again changes nothing', async () => {
+      const db = await v5Db();
+      await migrateDb(db, MIGRATIONS.slice(0, 6));
+      await db.runAsync("INSERT INTO profiles (id, username, display_name) VALUES ('p1', 'ana', 'Ana B')");
+
+      await migrateDb(db, MIGRATIONS.slice(0, 6));
+
+      expect(await getSchemaVersion(db)).toBe(6);
+      expect(await db.getAllAsync('SELECT * FROM profiles')).toEqual([
+        { id: 'p1', username: 'ana', display_name: 'Ana B' },
+      ]);
+    });
+  });
+
+  describe('migration 7 (a received send: spots.copied_from_send, spots.from_username, S7)', () => {
+    /** A DB as S6's builds left it: at version 6. */
+    const v6Db = async () => {
+      const db = createTestDb();
+      await migrateDb(db, MIGRATIONS.slice(0, 6));
+      expect(await getSchemaVersion(db)).toBe(6);
+      return db;
+    };
+    const columnNames = async (db: SQLiteDatabase, table: string) =>
+      (await db.getAllAsync<{ name: string }>(`PRAGMA table_info(${table})`)).map((c) => c.name);
+    const schemaSql = async (db: SQLiteDatabase) =>
+      db.getAllAsync(`SELECT type, name, sql FROM sqlite_master WHERE name <> 'spots' ORDER BY name`);
+
+    it('is the last migration', () => {
+      expect(MIGRATIONS).toHaveLength(7);
+      expect(LATEST_SCHEMA_VERSION).toBe(7);
+    });
+
+    it('adds copied_from_send and from_username (TEXT, nullable) to spots and changes no other table', async () => {
+      const db = await v6Db();
+      const spotColumnsBefore = await columnNames(db, 'spots');
+      const mediaColumnsBefore = await columnNames(db, 'media');
+      const restBefore = await schemaSql(db);
+
+      await migrateDb(db);
+
+      expect(await getSchemaVersion(db)).toBe(7);
+      expect(await columnNames(db, 'spots')).toEqual([...spotColumnsBefore, 'copied_from_send', 'from_username']);
+      const info = await db.getAllAsync<{ name: string; type: string; notnull: number; dflt_value: unknown }>(
+        'PRAGMA table_info(spots)',
+      );
+      expect(info.filter((c) => c.name === 'copied_from_send' || c.name === 'from_username')).toEqual([
+        expect.objectContaining({ name: 'copied_from_send', type: 'TEXT', notnull: 0, dflt_value: null }),
+        expect.objectContaining({ name: 'from_username', type: 'TEXT', notnull: 0, dflt_value: null }),
+      ]);
+      expect(await columnNames(db, 'media')).toEqual(mediaColumnsBefore);
+      expect(await schemaSql(db)).toEqual(restBefore);
+    });
+
+    it('keeps a v6 spot as it was, with neither new field set', async () => {
+      const db = await v6Db();
+      const spot = createTestSpot({ name: 'Pier 57', natural_speed: 0 });
+      await db.runAsync(
+        `INSERT INTO spots (id, name, latitude, longitude, created_at, updated_at, feature_types_json, stopped, natural_speed)
+         VALUES (?, ?, ?, ?, ?, ?, '[]', 0, 0)`,
+        spot.id,
+        spot.name!,
+        spot.location.latitude,
+        spot.location.longitude,
+        spot.created_at,
+        spot.updated_at,
+      );
+
+      await migrateDb(db);
+
+      const read = await getSpot(db, spot.id);
+      expect(read).toMatchObject({ name: 'Pier 57', natural_speed: 0 });
+      expect(read?.copied_from_send).toBeUndefined();
+      expect(read?.from_username).toBeUndefined();
+    });
+
+    it('the v2 fixture rows migrate 2 → 7 with their spots and media intact', async () => {
       const db = createTestDb();
       await migrateDb(db, MIGRATIONS.slice(0, 2));
       const full = createTestSpot({ name: 'full' });
@@ -913,26 +983,33 @@ describe('migrateDb (PRAGMA user_version)', () => {
         landing: JSON.stringify(V2_SPOTS.full.landing),
         metadata: JSON.stringify(V2_SPOTS.full.metadata),
       });
+      const photo = createTestMedia({ spot_id: full.id });
+      await db.runAsync(
+        'INSERT INTO media (id, spot_id, file_path, created_at) VALUES (?, ?, ?, ?)',
+        photo.id,
+        full.id,
+        photo.file_path,
+        photo.created_at,
+      );
 
       await migrateDb(db);
 
-      expect(await getSchemaVersion(db)).toBe(6);
+      expect(await getSchemaVersion(db)).toBe(7);
       expect(await getSpot(db, full.id)).toMatchObject({ stopped: true, natural_speed: 3, notes: 'hello' });
       expect(await getSpotLegacy(db, full.id)).toEqual(V2_SPOTS.fullLegacy);
-      expect(await db.getFirstAsync('SELECT COUNT(*) AS n FROM profiles')).toEqual({ n: 0 });
+      expect((await getMediaForSpot(db, full.id)).map((m) => m.id)).toEqual([photo.id]);
     });
 
-    it('migrating a v6 DB again changes nothing', async () => {
-      const db = await v5Db();
+    it('migrating a v7 DB again changes nothing', async () => {
+      const db = await v6Db();
       await migrateDb(db);
-      await db.runAsync("INSERT INTO profiles (id, username, display_name) VALUES ('p1', 'ana', 'Ana B')");
+      const spot = createTestSpot({ copied_from_send: 'send-1', from_username: 'ana' });
+      await insertSpot(db, spot);
 
       await migrateDb(db);
 
-      expect(await getSchemaVersion(db)).toBe(6);
-      expect(await db.getAllAsync('SELECT * FROM profiles')).toEqual([
-        { id: 'p1', username: 'ana', display_name: 'Ana B' },
-      ]);
+      expect(await getSchemaVersion(db)).toBe(7);
+      expect(await getSpot(db, spot.id)).toMatchObject({ copied_from_send: 'send-1', from_username: 'ana' });
     });
   });
 

@@ -64,6 +64,21 @@ describe('Spot detail: notes', () => {
   });
 });
 
+describe("Spot detail: a received copy reads 'From @name' (S7)", () => {
+  it("shows 'From @ana' directly under the title when the spot came from a send", async () => {
+    await renderDetail({ name: 'Pier 57', from_username: 'ana', copied_from_send: 'send-1', notes: 'low' });
+
+    expect(screen.getByText('From @ana')).toBeOnTheScreen();
+    expect(texts()).toEqual(['Pier 57', 'From @ana', ...IN_NO_LISTS, 'Notes', 'low']);
+  });
+
+  it('shows no From line on a spot of the rider\'s own', async () => {
+    await renderDetail({ name: 'Pier 57' });
+
+    expect(screen.queryByText(/^From @/)).toBeNull();
+  });
+});
+
 describe('Spot detail: tag line and speed', () => {
   const tagged: Partial<Spot> = {
     feature_types: [FeatureType.Rail, FeatureType.Ledge],

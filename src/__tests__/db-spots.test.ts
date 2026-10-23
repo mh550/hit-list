@@ -294,6 +294,30 @@ describe('spots against real SQLite', () => {
       expect((await getSpot(db, mine.id))?.owner_id).toBe(ME);
     });
 
+    it('a received copy (S7) keeps copied_from_send and from_username, queues its upsert, and an edit keeps both', async () => {
+      const copy = createTestSpot({ owner_id: ME, copied_from_send: 'send-1', from_username: 'Ana_B' });
+
+      await insertSpot(db, copy);
+      await updateSpot(db, copy.id, { name: 'renamed' });
+
+      expect(await getSpots(db)).toEqual([expect.objectContaining({ copied_from_send: 'send-1', from_username: 'Ana_B', name: 'renamed' })]);
+      expect(await getSpot(db, copy.id)).toMatchObject({ copied_from_send: 'send-1', from_username: 'Ana_B' });
+      expect(await outboxOps(db)).toEqual([
+        ['spot', copy.id, 'upsert'],
+        ['spot', copy.id, 'upsert'],
+      ]);
+    });
+
+    it('a spot of the rider\'s own reads both send fields as undefined', async () => {
+      const own = createTestSpot({ owner_id: ME });
+      await insertSpot(db, own);
+
+      const [read] = await getSpots(db);
+
+      expect(read.copied_from_send).toBeUndefined();
+      expect(read.from_username).toBeUndefined();
+    });
+
     it("insert, update and soft delete of an owned spot each append one row: upsert, upsert, delete", async () => {
       const s = createTestSpot({ owner_id: ME });
 

@@ -3,7 +3,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { AccessibilityInfo } from 'react-native';
 import { useRouter } from 'expo-router';
-import { AuthRetryableFetchError } from '@supabase/supabase-js';
+import { AuthRetryableFetchError, AuthUnknownError } from '@supabase/supabase-js';
 
 import { createFakeSupabase, type FakeSupabase } from './helpers/fake-supabase';
 
@@ -124,6 +124,36 @@ describe('SignInScreen', () => {
     mockFake!.auth.signInWithOtp.mockResolvedValueOnce({
       data: { user: null, session: null },
       error: new AuthRetryableFetchError('Network request failed', 0),
+    } as never);
+    render(<SignInScreen />);
+    fireEvent.changeText(screen.getByLabelText('Email'), 'ana@example.com');
+    await act(async () => {
+      fireEvent.press(sendButton());
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent("Couldn't send the code. Check your connection and try again.", {
+      exact: true,
+    });
+  });
+
+  it.each([
+    ['a JSON body auth-js could not read a message from', { message: '{"code":500,"detail":"smtp"}', status: 500 }],
+    ['an empty message', { message: '', status: 500 }],
+  ])("shows fixed copy, not the server's text, for %s", async (_case, error) => {
+    mockFake!.failNext('signInWithOtp', error);
+    render(<SignInScreen />);
+    fireEvent.changeText(screen.getByLabelText('Email'), 'ana@example.com');
+    await act(async () => {
+      fireEvent.press(sendButton());
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent("Couldn't send the code. Check your connection and try again.", {
+      exact: true,
+    });
+  });
+
+  it("shows fixed copy for auth-js's unknown error (a reply that wasn't JSON, e.g. a captive portal page)", async () => {
+    mockFake!.auth.signInWithOtp.mockResolvedValueOnce({
+      data: { user: null, session: null },
+      error: new AuthUnknownError('Unexpected token < in JSON at position 0', new SyntaxError('Unexpected token <')),
     } as never);
     render(<SignInScreen />);
     fireEvent.changeText(screen.getByLabelText('Email'), 'ana@example.com');

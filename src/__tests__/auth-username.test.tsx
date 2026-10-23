@@ -303,13 +303,64 @@ describe('UsernameScreen', () => {
     expect(mockFake!.from).toHaveBeenCalledTimes(1);
   });
 
-  it('asks to sign in first when there is no account (opened by a stray link)', () => {
+  it('sends the rider back to Profile to sign in when there is no account (signed out, or a stray link)', () => {
     useAuthStore.setState({ ...SIGNED_OUT });
     render(<UsernameScreen />);
     expect(screen.queryByLabelText('Username')).toBeNull();
-    expect(screen.getByText('Sign in first to pick a username.')).toBeTruthy();
-    fireEvent.press(screen.getByRole('button', { name: 'Sign in' }));
-    expect(router.replace).toHaveBeenCalledWith('/auth/sign-in');
+    expect(screen.getByText('Signed out. Sign in again from Profile.')).toBeTruthy();
+    fireEvent.press(screen.getByRole('button', { name: 'Back to Profile' }));
+    expect(router.dismissTo).toHaveBeenCalledWith('/(tabs)/profile');
+    expect(router.replace).not.toHaveBeenCalled();
+  });
+
+  it('replaces itself with the tabs when it is the only screen and there is no account', () => {
+    // Redirected here at launch, then signed out: a replace with Sign in would leave a stack with no tabs, and the
+    // code screen's dismissAll would have nothing to go back to.
+    useAuthStore.setState({ ...SIGNED_OUT });
+    router.canDismiss.mockReturnValue(false);
+    render(<UsernameScreen />);
+    fireEvent.press(screen.getByRole('button', { name: 'Back to Profile' }));
+    expect(router.replace).toHaveBeenCalledWith('/(tabs)/profile');
+    expect(router.dismissTo).not.toHaveBeenCalled();
+  });
+
+  it('lets the rider sign out instead of picking a username', async () => {
+    render(<UsernameScreen />);
+    await act(async () => {
+      fireEvent.press(screen.getByRole('button', { name: 'Sign out' }));
+    });
+    expect(mockFake!.auth.signOut).toHaveBeenCalledTimes(1);
+    expect(mockFake!.from).not.toHaveBeenCalled();
+    expect(useAuthStore.getState()).toMatchObject(SIGNED_OUT);
+    expect(router.dismissTo).toHaveBeenCalledWith('/(tabs)/profile');
+  });
+
+  it('signs out from the only screen (redirected at launch) by replacing it with the tabs', async () => {
+    router.canDismiss.mockReturnValue(false);
+    render(<UsernameScreen />);
+    await act(async () => {
+      fireEvent.press(screen.getByRole('button', { name: 'Sign out' }));
+    });
+    expect(useAuthStore.getState()).toMatchObject(SIGNED_OUT);
+    expect(router.replace).toHaveBeenCalledWith('/(tabs)/profile');
+  });
+
+  it('signs out once while a sign out is in flight, and not while saving', async () => {
+    let finish!: () => void;
+    mockFake!.auth.signOut.mockImplementationOnce(
+      () => new Promise((resolve) => {
+        finish = () => resolve({ error: null });
+      }),
+    );
+    render(<UsernameScreen />);
+    act(() => {
+      fireEvent.press(screen.getByRole('button', { name: 'Sign out' }));
+      fireEvent.press(screen.getByRole('button', { name: 'Sign out' }));
+    });
+    expect(screen.getByRole('button', { name: 'Signing out…' })).toBeDisabled();
+    expect(doneButton()).toBeDisabled();
+    await act(async () => finish());
+    expect(mockFake!.auth.signOut).toHaveBeenCalledTimes(1);
   });
 
   it("shows only 'Accounts aren't set up in this build' when the client is unconfigured", () => {

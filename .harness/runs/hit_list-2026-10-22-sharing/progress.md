@@ -20,6 +20,56 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 · verify S5
+
+All 9 features hold (43 steps). The local stack was not started (build-only policy), so the two-device integration test was read, not re-run; the recorded run is in the plan.
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| S5-01 | 1 | `git show 5cc9e8f`; `npx expo export --platform ios --output-dir /tmp/harness/hit_list/hl-export` | chore commit touches only package.json/package-lock.json (expo-image-manipulator ~57.0.21); export exit 0 | yes |
+| S5-01 | 2 | Read headings of docs/plans/2026-10-22-s5-sync.md | Has Migration 5, Outbox, Push (+photos), Pull, Engine, Adoption, Sign out, Integration test design, Test list per feature | yes |
+| S5-01 | 3 | grep D65–D71 in spec §2/§9 | D65 (sync_queue drop) and D66 (other account's rows removed after push) *default* present, plus D67–D71, §9 Q26–Q32 | yes |
+| S5-01 | 4 | `check.sh` (lint + tsc + jest, 1332 tests): green | green | yes |
+| S5-02 | 1 | `git diff` of src/db/schema.ts since S5-01; jest db-migrate.test.ts (verbose) | Only the MIGRATIONS array line changed in migrations 1–4 (+99 added lines); 'migration 5' cases: owner_id/rev columns, sync_outbox+sync_state, sync_queue dropped, v2 fixture 2→5 intact, re-run no-op | yes |
+| S5-02 | 2 | jest db-sync.test.ts verbose | enqueue/peekOutbox id order, markDone, markFailed, skipFailed attempts≥3, countFailed ≥10, getCursor 0 default/setCursor, get/setSyncState user_id all pass | yes |
+| S5-02 | 3 | jest db-spots/db-media/db-hit-lists 'outbox (migration 5 triggers)' cases | Insert/update/soft-delete append upsert/delete; 'list/spot' membership ids; NULL owner appends nothing; failing statement leaves no outbox row; updateSpot on owned spot appends upsert | yes |
+| S5-02 | 4 | grep owner_id in src/types/index.ts; grep SyncQueueItem src | owner_id?: string on Spot, Media, HitList; SyncQueueItem gone; readers return owner_id (tests pass) | yes |
+| S5-02 | 5 | `check.sh` (lint + tsc + jest, 1332 tests): green | green, 0 console.error in the S5 suites | yes |
+| S5-03 | 1 | jest sync-photos.test.ts verbose | preparePhoto resizes to 2048 long edge, JPEG 0.85, 'never writes the original file'; uploadPhoto puts <owner>/<spot>/<media>.jpg image/jpeg overwriting | yes |
+| S5-03 | 2 | jest sync-push.test.ts verbose, read ordering/failure/missing/no-session cases | Order spot→photo+media→list→membership→delete pushed; failing upsert keeps attempts 1+last_error and holds later rows, retries next push; missing photo gets last_error 'photo missing' but is parked (set aside), not attempt-counted — intent holds; no session does nothing | yes |
+| S5-03 | 3 | jest 'pushes natural_speed 0 (None) as 0 and an unrated spot as null' | passes | yes |
+| S5-03 | 4 | `check.sh` (lint + tsc + jest, 1332 tests): green | green | yes |
+| S5-04 | 1 | jest sync-pull.test.ts verbose | Asks rev>0 order rev limit 500 per table; inserts with owner; cursor reused (with 200 overlap); LWW older/newer; server delete soft-deletes and keeps memberships; text[]→json; null speed→unset; 500-row page asks next page | yes |
+| S5-04 | 2 | jest 'readable-id reconciliation' cases | Removes foreign spots no longer readable with media; own rows excluded (SQL filters owner_id <> uid); error removes nothing | yes |
+| S5-04 | 3 | jest 'appends no outbox row for 3 pulled rows' | passes | yes |
+| S5-04 | 4 | read pull return type / engine test 'leaves the stores alone when the pull changed nothing' | pull returns { changed, failed }; engine reloads only on changed | yes |
+| S5-04 | 5 | `check.sh` (lint + tsc + jest, 1332 tests): green | green | yes |
+| S5-05 | 1 | jest sync-engine.test.ts verbose | single-flight, stores reloaded on changed, lastSyncAt/syncing/failedCount/lastError, no-session no calls, push exception → console.warn and pull still runs | yes |
+| S5-05 | 2 | jest use-sync.test.tsx verbose; app/_layout.tsx mounts it | Sync after ready, on AppState active only, every 300 000 ms, sign-out and unmount clear interval/listener (10 cases pass) | yes |
+| S5-05 | 3 | jest spots-view-mode.test.tsx 'Spots tab pull-to-refresh' | RefreshControl present signed in, syncs, spinner tied to the rider's pull; background sync shows none | yes |
+| S5-05 | 4 | jest profile.test.tsx + relative-time.test.ts | 'Backed up · just now' / '3 min ago'; '3 changes not backed up' + Retry resets then syncs; relativeTime cases pass | yes |
+| S5-05 | 5 | `check.sh` (lint + tsc + jest, 1332 tests): green | green | yes |
+| S5-06 | 1 | jest sync-adopt.test.ts 'adopt: the first sign-in' | 3 spots/4 media/2 lists → owners set, 9 upserts + 3 membership upserts, one transaction (failure leaves NULL/empty), idempotent | yes |
+| S5-06 | 2 | jest 'adopt: another account signs in' | A's spots/media/files/lists/memberships removed, cursors reset, then B adopts; fake-fs files gone | yes |
+| S5-06 | 3 | jest use-adoption.test.tsx | Adopt then syncNow when status becomes signed_in and when signed in at launch (hook is useAdoption in AuthInit, not useAuthInit; behaviour matches) | yes |
+| S5-06 | 4 | grep app/(tabs)/profile.tsx alerts; jest profile.test.tsx | Texts 'Keep spots on this phone?' / "They're backed up in your account either way." Keep / Remove from this phone; waiting: "N changes aren't backed up yet" Sign out anyway/Cancel, no Remove; all three paths tested | yes |
+| S5-06 | 5 | profile.tsx:200; profile.test.tsx:811 | 'Your account is deleted. Keep the spots on this phone?' with Keep/Remove; test asserts it | yes |
+| S5-06 | 6 | `check.sh` (lint + tsc + jest, 1332 tests): green | green | yes |
+| S5-07 | 1 | Read src/__integration__/sync.test.ts cases A→B (not run: build-only policy forbids starting containers) | Assertions match: spot+owner_id, getMediaForSpot, storage download bytes == fixture, rename, delete, offline-notes converge to B's, membership add/remove. Run record in plan: 2 suites 29 passed (not re-run by me) | yes |
+| S5-07 | 2 | Read 'one phone, two riders' cases; fixture photo-2kb.jpg (2086 B) | X adopted+pushed, Keep, Y removes X rows+files and pulls own spot, X back gets spots+photos byte-equal; same assertions as step | yes |
+| S5-07 | 3 | Read plan 'As built (S5-07)' Cleanup | deleteRiderAndPhotos in afterAll; ran twice in a row, 0 rows left (recorded, not re-run) | yes |
+| S5-07 | 4 | Plan as-built Run record; `docker ps --format '{{.Names}}'` | Recorded db:start/reset, test:db 569 pass, integration 29 pass ×2, db:stop; docker ps now lists only dj-*/n8n-* containers, no supabase_* | yes |
+| S5-07 | 5 | `check.sh` (lint + tsc + jest, 1332 tests): green | green | yes |
+| S5-08 | 1 | Read docs/plans/2026-10-22-s5-what-michael-will-see.md lines 1–27 | Profile states 'Backed up · just now', '3 changes not backed up'+Retry, Sign out alerts (Keep/Remove, aren't backed up yet, Delete account variant) with texts | yes |
+| S5-08 | 2 | Read lines 28–48 | What to tap: sign in, Backed up, Studio http://100.88.90.97:54323 + photos bucket, Airplane add + count + Retry/pull-to-refresh, sign out Keep, second rider empty tab, back as first; 'How to undo' present | yes |
+| S5-08 | 3 | Read 'Checks recorded' lines 50–56 | jest 1324 tests 0 console.error, integration 29 passed, expo export exit 0 5.1 MB; I re-ran export (exit 0) | yes |
+| S5-08 | 4 | `check.sh` (lint + tsc + jest, 1332 tests): green | green | yes |
+| S5-09 | 1 | ls reviews/s5.diff (8135 lines); read plan '## Review (S5-09)' table | Diff written; findings with severity, file:line, fix commits; RED-first table with RED commits before GREEN for each fix | yes |
+| S5-09 | 2 | Read written answers 1–10 and the named tests in the verbose run | Each of the eight claims has a named existing, passing test (markDone, pull LWW, Remove blocked while pending, adopt one transaction, use-sync timer cleanup, 'never writes the original file', foreign-only reconciliation, console.warn); caveat: parked rows not counted as pending, recorded as Minor | yes |
+| S5-09 | 3 | git log 265d76f | 'refactor: S5 simplification pass' commit exists | yes |
+| S5-09 | 4 | grep CLAUDE.md, README.md, live-checklist | CLAUDE.md has src/sync/ + src/db/sync.ts layout and Sync (S5)/owner_id convention; README line 58 'Backup and sync (S5)'; live-checklist 'S5' section with Studio checks | yes |
+| S5-09 | 5 | `check.sh` (lint + tsc + jest, 1332 tests): green | green; grep console.error in src/sync and src/db/sync.ts = 0 | yes |
+
 ### 2026-10-23 14:30 · S5-09 · passes
 
 - **What changed:** two Opus reviewers covered the S5 diff (`reviews/s5.diff`, 8135 lines). Three Important findings and two Minor ones were fixed RED → GREEN (`74add1c`/`0a768bd` → `fbf3810`/`6b2e622`):

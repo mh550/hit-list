@@ -15,7 +15,8 @@ import { getSupabase } from '@/src/sync/client';
 import { errorMessage } from '@/src/sync/errors';
 import { addFriend, refreshFriends, type AddResult } from '@/src/sync/friends';
 import { createInviteLink, listMyLinks, revokeLink, type MyLink } from '@/src/sync/links';
-import { leave, NotAllowedError, removeMember, setRole, stopSharing } from '@/src/sync/lists';
+import { syncNow } from '@/src/sync/engine';
+import { leave, ListNotBackedUpError, NotAllowedError, removeMember, setRole, stopSharing } from '@/src/sync/lists';
 import type { HitListMember, MemberRole } from '@/src/types';
 import { handleOf } from '@/src/utils/members';
 import { isForeign } from '@/src/utils/ownership';
@@ -207,7 +208,7 @@ export default function MembersScreen() {
       if (await call()) return true;
       Alert.alert(failed);
     } catch (err) {
-      if (err instanceof NotAllowedError) {
+      if (err instanceof NotAllowedError || err instanceof ListNotBackedUpError) {
         Alert.alert(err.message);
       } else {
         console.warn('[members] a list change failed:', errorMessage(err));
@@ -266,7 +267,12 @@ export default function MembersScreen() {
         text: 'Stop sharing',
         style: 'destructive',
         onPress: async () => {
-          if (await run(() => stopSharing(db, client, uid, list.id), "Couldn't stop sharing. Try again.")) {
+          // A change of the list still waiting would be lost to the server's row: back it up first (D85).
+          const stop = async () => {
+            await syncNow(db);
+            return stopSharing(db, client, uid, list.id);
+          };
+          if (await run(stop, "Couldn't stop sharing. Try again.")) {
             showToast(`Stopped sharing ${list.name}`);
             if (mountedRef.current) router.back();
           }

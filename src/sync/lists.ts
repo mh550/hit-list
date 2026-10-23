@@ -190,7 +190,8 @@ export async function leave(db: SQLiteDatabase, client: SupabaseClient, uid: str
 
 /**
  * The owner stops sharing: the server drops every member, invitation and spot row not the owner's (t30_unshare); the
- * phone writes the re-read list row (shared off, server rev), drops the mirror rows and the members' spots.
+ * phone writes the re-read list row (shared off, server rev), drops the mirror rows and the members' spots. Throws
+ * ListNotBackedUpError before any call while a change of the list waits in the outbox (D85).
  */
 export async function stopSharing(
   db: SQLiteDatabase,
@@ -199,6 +200,13 @@ export async function stopSharing(
   listId: string,
 ): Promise<boolean> {
   if (!(await maySync(db, client, uid))) return false;
+  // D85, as shareList: the re-read row carries the server's now(), so it would overwrite a change still waiting
+  // (a rename, a new circle) and the push would then send the old values (S10-01 review D1).
+  const waiting = await db.getFirstAsync(
+    `SELECT 1 FROM sync_outbox WHERE entity = 'hit_list' AND entity_id = ?`,
+    listId,
+  );
+  if (waiting) throw new ListNotBackedUpError();
   const { error } = await client.rpc('stop_sharing', { p_list: listId });
   if (error) throw fail(error);
   const { data, error: readError } = await client.from('hit_lists').select('*').eq('id', listId);

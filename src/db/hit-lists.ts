@@ -16,6 +16,7 @@ interface HitListRow {
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
+  owner_username?: string | null; // getHitLists only: from the profiles mirror, never stored
 }
 
 const HIT_LIST_COLUMNS =
@@ -51,6 +52,7 @@ function rowToHitList(row: HitListRow): HitList {
     created_at: row.created_at,
     updated_at: row.updated_at,
     deleted_at: row.deleted_at ?? undefined,
+    ...(row.owner_username ? { owner_username: row.owner_username } : {}),
   };
 }
 
@@ -73,10 +75,14 @@ export async function insertHitList(db: SQLiteDatabase, list: HitList): Promise<
   );
 }
 
-/** Live lists, oldest first, each with its members from the mirror (S8; a list with none has no `members`). */
+/**
+ * Live lists, oldest first, each with its members from the mirror (S8; a list with none has no `members`) and its
+ * owner's @username when the profiles mirror has it.
+ */
 export async function getHitLists(db: SQLiteDatabase): Promise<HitList[]> {
   const rows = await db.getAllAsync<HitListRow>(
-    `SELECT ${HIT_LIST_COLUMNS} FROM hit_lists WHERE deleted_at IS NULL ORDER BY created_at`,
+    `SELECT ${HIT_LIST_COLUMNS}, (SELECT username FROM profiles WHERE profiles.id = hit_lists.owner_id) AS owner_username
+     FROM hit_lists WHERE deleted_at IS NULL ORDER BY created_at`,
   );
   const members = await db.getAllAsync<MemberRow>(
     `SELECT ${MEMBER_COLUMNS} FROM hit_list_members m LEFT JOIN profiles p ON p.id = m.user_id

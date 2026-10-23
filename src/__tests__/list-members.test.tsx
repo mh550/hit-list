@@ -219,7 +219,7 @@ describe('Members screen as the owner', () => {
 
     await pressAlertButton('Stop sharing');
     expect(stopSharing).toHaveBeenCalledWith(db, mockFake, ME, 'L-downtown');
-    expect(useToastStore.getState().message).toBe('Stopped sharing Downtown');
+    expect(useToastStore.getState().text).toBe('Stopped sharing Downtown');
     expect(router.back).toHaveBeenCalled();
   });
 
@@ -289,7 +289,7 @@ describe('Members screen as a member', () => {
     expect(leave).toHaveBeenCalledWith(db, mockFake, ME, 'L-downtown');
     expect(router.dismissAll).toHaveBeenCalled();
     expect(router.navigate).toHaveBeenCalledWith('/(tabs)/lists');
-    expect(useToastStore.getState().message).toBe('Left Downtown');
+    expect(useToastStore.getState().text).toBe('Left Downtown');
   });
 
   it("with none of my spots in it the Leave alert has no message", async () => {

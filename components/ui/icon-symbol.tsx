@@ -30,6 +30,7 @@ const MAPPING = {
   'checkmark': 'check',
   'tray.fill': 'inbox',
   'photo': 'image',
+  'person.2.fill': 'group',
 } as IconMapping;
 
 /**

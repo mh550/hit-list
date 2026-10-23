@@ -201,7 +201,7 @@ describe('ShareListSheet signed in', () => {
     expect(shareList).toHaveBeenCalledWith(db, mockFake, 'user-me', 'L-downtown', ['id-ana'], 'add');
     expect(invite).not.toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();
-    expect(useToastStore.getState().message).toBe('Shared Downtown with @ana');
+    expect(useToastStore.getState().text).toBe('Shared Downtown with @ana');
   });
 
   it("View only shares with role 'view'; two friends toast 'with 2 friends'", async () => {
@@ -214,7 +214,7 @@ describe('ShareListSheet signed in', () => {
     await press(shareButton());
 
     expect(shareList).toHaveBeenCalledWith(db, mockFake, 'user-me', 'L-downtown', ['id-ana', 'id-ben'], 'view');
-    expect(useToastStore.getState().message).toBe('Shared Downtown with 2 friends');
+    expect(useToastStore.getState().text).toBe('Shared Downtown with 2 friends');
   });
 
   it('a double tap shares once', async () => {
@@ -356,7 +356,7 @@ describe('ShareListSheet in invite mode (a list already shared)', () => {
     await press(shareButton('Invite'));
     expect(invite).toHaveBeenCalledWith(db, mockFake, 'user-me', 'L-downtown', ['id-cal'], 'add');
     expect(shareList).not.toHaveBeenCalled();
-    expect(useToastStore.getState().message).toBe('Invited @cal');
+    expect(useToastStore.getState().text).toBe('Invited @cal');
     expect(onClose).toHaveBeenCalled();
   });
 });

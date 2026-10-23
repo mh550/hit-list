@@ -93,6 +93,7 @@ export interface HitList {
   name: string;
   kind: HitListKind; // 'manual' in S1; 'area' from S2
   owner_id?: string; // the account it belongs to (S5); undefined = phone-only, not adopted
+  owner_username?: string; // S8: the owner's @username from the profiles mirror, never stored
   shared: boolean; // false in S1; S8
   member_count?: number; // computed in S8, never stored
   members?: HitListMember[]; // S8: the hit_list_members mirror, joined members first; undefined = none

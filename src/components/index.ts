@@ -14,6 +14,7 @@ export { SpotsBrowser } from './SpotsBrowser';
 export { NameListCard, NameListSheet, useGuardedSubmit } from './NameListSheet';
 export { AddToListSheet } from './AddToListSheet';
 export { SendSheet } from './SendSheet';
+export { ShareListSheet } from './ShareListSheet';
 export { PickSpotsSheet } from './PickSpotsSheet';
 export { ToastHost } from './ToastHost';
 export { ListPickerChips } from './ListPickerChips';

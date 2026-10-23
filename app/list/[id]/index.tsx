@@ -4,24 +4,81 @@ import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Button, EmptyState, HeaderTextButton, NameListSheet, SendSheet, SpotsBrowser } from '@/src/components';
+import {
+  Button,
+  EmptyState,
+  HeaderTextButton,
+  NameListSheet,
+  SendSheet,
+  ShareListSheet,
+  SpotsBrowser,
+} from '@/src/components';
 import { EMPTY_AREA_COPY, EMPTY_LIST_COPY } from '@/src/components/SpotsBrowser';
 import { palette, spacing } from '@/src/constants/theme';
 import { useHitListActions } from '@/src/hooks/use-hit-list-actions';
 import { selectListSpots, selectMySpots, useHitListsStore, useSpotsStore } from '@/src/stores';
 import { useRiderId } from '@/src/hooks/use-rider-id';
+import { useAuthStore } from '@/src/stores/auth-store';
 import { useSettingsStore } from '@/src/stores/settings-store';
+import type { HitList } from '@/src/types';
 import { areaLabel, isAreaList } from '@/src/utils/area';
+import { initialOf, joinedMembers, memberCount } from '@/src/utils/members';
+import { isForeign } from '@/src/utils/ownership';
 import { getSpotDisplayName, spotCountLabel } from '@/src/utils/spot-name';
 
-/** Where S8's live-list action goes beside Send; nothing in S7. */
-function ShareListSlot() {
-  return null;
+/** Circles the member strip shows before '+2'. */
+const STRIP_CIRCLES = 5;
+const SHARE_SUBTITLE = "live: they'll see new spots too";
+
+/**
+ * A shared list's members under its title (S8-04): initials circles for the owner then each joined member, the count
+ * (D84: invitations don't count) and, for the owner, '+ Invite'. Pressing the circles opens the members screen.
+ */
+function MemberStrip({
+  list,
+  ownerName,
+  onOpen,
+  onInvite,
+}: {
+  list: HitList;
+  ownerName: string | null | undefined;
+  onOpen: () => void;
+  onInvite?: () => void;
+}) {
+  const names = [ownerName, ...joinedMembers(list).map((m) => m.username)];
+  const shown = names.slice(0, STRIP_CIRCLES);
+  const more = names.length - shown.length;
+  const count = memberCount(list);
+  return (
+    <View style={styles.strip}>
+      <Pressable
+        onPress={onOpen}
+        style={({ pressed }) => [styles.stripMembers, pressed && styles.actionPressed]}
+        accessibilityRole="button"
+        accessibilityLabel={`${count} in this list. Show members`}>
+        {shown.map((name, i) => (
+          <View key={i} style={[styles.circle, i > 0 && styles.circleOverlap]}>
+            <Text style={styles.circleText}>{initialOf(name)}</Text>
+          </View>
+        ))}
+        {more > 0 ? <Text style={styles.stripMore}>{`+${more}`}</Text> : null}
+        <IconSymbol name="person.2.fill" size={16} color={palette.gray[500]} />
+        <Text style={styles.stripCount}>{String(count)}</Text>
+      </Pressable>
+      {onInvite ? (
+        <Pressable onPress={onInvite} hitSlop={8} accessibilityRole="button" accessibilityLabel="+ Invite">
+          <Text style={styles.stripInvite}>+ Invite</Text>
+        </Pressable>
+      ) : null}
+    </View>
+  );
 }
 
 /**
  * One hit list: the Spots tab's List | Map body scoped to the list's spots, plus Rename and Delete list. An area list's
- * spots are computed from its circle, so it has 'Edit area' in place of 'Remove from list'.
+ * spots are computed from its circle, so it has 'Edit area' in place of 'Remove from list'. The owner shares it
+ * ('Share list', live) beside 'Send these spots' (a one-time copy); a shared list shows its members under the title,
+ * and a member gets none of the owner's controls (S8-04, D42).
  */
 export default function ListScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -31,6 +88,7 @@ export default function ListScreen() {
   const membershipBySpot = useHitListsStore((s) => s.membershipBySpot);
   const spots = useSpotsStore((s) => s.spots);
   const uid = useRiderId();
+  const username = useAuthStore((s) => s.username);
   const units = useSettingsStore((s) => s.units);
   const { renameList, deleteList, removeSpotFromList } = useHitListActions();
   const [renaming, setRenaming] = useState(false);
@@ -38,6 +96,8 @@ export default function ListScreen() {
   const [deleting, setDeleting] = useState(false);
   // The ids the open Send sheet sends, fixed when it opens; null = closed.
   const [sendIds, setSendIds] = useState<string[] | null>(null);
+  // The open Share sheet's mode; null = closed.
+  const [shareMode, setShareMode] = useState<'share' | 'invite' | null>(null);
 
   const listSpots = useMemo(
     () => (list ? selectListSpots(list, spots, membershipBySpot) : []),
@@ -68,9 +128,14 @@ export default function ListScreen() {
     }
   };
 
+  const owner = !isForeign(list, uid);
+  // A member with 'add' takes out only what they put in; a view-only member nothing (D42). The owner any spot.
+  const myRole = owner ? 'owner' : list.members?.find((m) => m.user_id === uid && m.status === 'member')?.role;
+
   const handleSpotLongPress = (spotId: string) => {
     const spot = listSpots.find((s) => s.id === spotId);
     if (!spot) return;
+    if (myRole !== 'owner' && (myRole !== 'add' || isForeign(spot, uid))) return;
     Alert.alert(getSpotDisplayName(spot), undefined, [
       {
         text: 'Remove from list',
@@ -88,7 +153,8 @@ export default function ListScreen() {
   };
 
   const confirmDelete = () => {
-    Alert.alert(`Delete ${list.name}?`, 'Spots stay in your library.', [
+    const consequence = list.shared ? ` Members lose access to all ${spotCountLabel(listSpots.length)} now.` : '';
+    Alert.alert(`Delete ${list.name}?`, `Spots stay in your library.${consequence}`, [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Delete',
@@ -126,29 +192,61 @@ export default function ListScreen() {
   // Every spot of the list (an area list's are the ones inside its circle), not just the ones a search shows; in a
   // shared list only the rider's own: another rider's spot is never sent onward (S8, D87).
   const subtitle = `one-time copy of ${spotCountLabel(ownSpots.length)}`;
-  const actions =
+  // The owner's live action: 'Share list' on a private list, 'Invite' once it is shared (the sheet's invite mode).
+  const shareTitle = list.shared ? 'Invite' : 'Share list';
+  const sendAction =
     ownSpots.length > 0 ? (
-      <View style={styles.actions}>
-        <Pressable
-          onPress={() => setSendIds(ownSpots.map((s) => s.id))}
-          style={({ pressed }) => [styles.action, pressed && styles.actionPressed]}
-          accessibilityRole="button"
-          accessibilityLabel={`Send these spots, ${subtitle}`}>
-          <IconSymbol name="paperplane.fill" size={20} color={palette.blue[500]} />
-          <View style={styles.actionLabel}>
-            <Text style={styles.actionTitle}>Send these spots</Text>
-            <Text style={styles.actionSubtitle}>{subtitle}</Text>
+      <Pressable
+        onPress={() => setSendIds(ownSpots.map((s) => s.id))}
+        style={({ pressed }) => [styles.action, pressed && styles.actionPressed]}
+        accessibilityRole="button"
+        accessibilityLabel={`Send these spots, ${subtitle}`}>
+        <IconSymbol name="paperplane.fill" size={20} color={palette.blue[500]} />
+        <View style={styles.actionLabel}>
+          <Text style={styles.actionTitle}>Send these spots</Text>
+          <Text style={styles.actionSubtitle}>{subtitle}</Text>
+        </View>
+      </Pressable>
+    ) : null;
+  const shareAction = owner ? (
+    <Pressable
+      onPress={() => setShareMode(list.shared ? 'invite' : 'share')}
+      style={({ pressed }) => [styles.action, pressed && styles.actionPressed]}
+      accessibilityRole="button"
+      accessibilityLabel={`${shareTitle}, ${SHARE_SUBTITLE}`}>
+      <IconSymbol name="person.2.fill" size={20} color={palette.blue[500]} />
+      <View style={styles.actionLabel}>
+        <Text style={styles.actionTitle}>{shareTitle}</Text>
+        <Text style={styles.actionSubtitle}>{SHARE_SUBTITLE}</Text>
+      </View>
+    </Pressable>
+  ) : null;
+  const strip = list.shared ? (
+    <MemberStrip
+      list={list}
+      ownerName={owner ? username : list.owner_username}
+      onOpen={() => router.push(`/list/${list.id}/members`)}
+      onInvite={owner ? () => setShareMode('invite') : undefined}
+    />
+  ) : null;
+  const aboveList =
+    strip || sendAction || shareAction ? (
+      <View>
+        {strip}
+        {sendAction || shareAction ? (
+          <View style={styles.actions}>
+            {sendAction}
+            {shareAction}
           </View>
-        </Pressable>
-        <ShareListSlot />
+        ) : null}
       </View>
     ) : undefined;
 
-  const renameButton = (
+  const renameButton = owner ? (
     <HeaderTextButton onPress={() => setRenaming(true)} accessibilityLabel="Rename list">
       Rename
     </HeaderTextButton>
-  );
+  ) : undefined;
 
   return (
     <View style={styles.container}>
@@ -158,19 +256,21 @@ export default function ListScreen() {
         {...(isArea ? EMPTY_AREA_COPY : EMPTY_LIST_COPY)}
         headerTitle={areaTitle}
         headerActions={renameButton}
-        aboveList={actions}
+        aboveList={aboveList}
         onSpotLongPress={isArea ? undefined : handleSpotLongPress}
       />
-      <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
-        {isArea ? (
+      {owner ? (
+        <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
+          {isArea ? (
+            <View style={styles.barButton}>
+              <Button title="Edit area" variant="secondary" onPress={() => router.push(`/area?listId=${list.id}`)} />
+            </View>
+          ) : null}
           <View style={styles.barButton}>
-            <Button title="Edit area" variant="secondary" onPress={() => router.push(`/area?listId=${list.id}`)} />
+            <Button title="Delete list" variant="destructive" onPress={confirmDelete} accessibilityLabel="Delete list" />
           </View>
-        ) : null}
-        <View style={styles.barButton}>
-          <Button title="Delete list" variant="destructive" onPress={confirmDelete} accessibilityLabel="Delete list" />
         </View>
-      </View>
+      ) : null}
       <NameListSheet
         visible={renaming}
         title="Rename list"
@@ -180,6 +280,7 @@ export default function ListScreen() {
         onSubmit={handleRename}
       />
       {sendIds ? <SendSheet spotIds={sendIds} onClose={() => setSendIds(null)} /> : null}
+      {shareMode ? <ShareListSheet listId={list.id} mode={shareMode} onClose={() => setShareMode(null)} /> : null}
     </View>
   );
 }
@@ -201,8 +302,55 @@ const styles = StyleSheet.create({
   },
   actions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    columnGap: spacing.lg,
+    rowGap: spacing.xs,
     paddingHorizontal: spacing.md,
     paddingTop: spacing.sm,
+  },
+  strip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+  },
+  stripMembers: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  circle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: palette.gray[100],
+    borderWidth: 2,
+    borderColor: palette.white,
+  },
+  circleOverlap: {
+    marginLeft: -(spacing.xs + 8),
+  },
+  circleText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: palette.gray[700],
+  },
+  stripMore: {
+    fontSize: 13,
+    color: palette.gray[500],
+  },
+  stripCount: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: palette.gray[700],
+  },
+  stripInvite: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: palette.blue[500],
   },
   action: {
     flexDirection: 'row',

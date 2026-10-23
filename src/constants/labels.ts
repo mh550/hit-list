@@ -1,4 +1,4 @@
-import { FeatureType, type NaturalSpeed } from '@/src/types';
+import { FeatureType, type MemberRole, type NaturalSpeed } from '@/src/types';
 
 /** Display labels for feature types: the filter chips, the list row and the map callout. */
 export const FEATURE_TYPE_LABELS: Record<FeatureType, string> = {
@@ -19,4 +19,10 @@ export const SPEED_LABELS: Record<NaturalSpeed, { label: string; description: st
   2: { label: 'Some', description: 'Some slope. Needs a bit of help.' },
   3: { label: 'Enough', description: 'Rolls in with speed for most tricks.' },
   4: { label: 'Too much', description: 'Steep. You have to scrub speed.' },
+};
+
+/** The two roles in a shared hit list (D42): the Share sheet, the members screen and its role menu. */
+export const ROLE_LABELS: Record<MemberRole, string> = {
+  add: 'Can add spots',
+  view: 'View only',
 };

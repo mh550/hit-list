@@ -573,8 +573,6 @@ describe("List screen: 'Share list' and the member strip (S8-04)", () => {
 
     fireEvent.press(screen.getByRole('button', { name: "Share list, live: they'll see new spots too" }));
     expect(mockShareSheet.mock.lastCall?.[0]).toMatchObject({ listId: downtown.id, mode: 'share' });
-    mockShareSheet.mockClear();
-    act(() => (mockShareSheet.mock.lastCall?.[0] as ShareProps | undefined)?.onClose());
   });
 
   it('Share list closes when the sheet asks', () => {
@@ -621,6 +619,7 @@ describe("List screen: 'Share list' and the member strip (S8-04)", () => {
     expect(within(strip).queryByText('C')).toBeNull();
     expect(within(strip).getByText('4')).toBeTruthy();
 
+    act(() => (mockShareSheet.mock.lastCall?.[0] as ShareProps).onClose());
     mockShareSheet.mockClear();
     fireEvent.press(screen.getByRole('button', { name: '+ Invite' }));
     expect(mockShareSheet.mock.lastCall?.[0]).toMatchObject({ listId: downtown.id, mode: 'invite' });

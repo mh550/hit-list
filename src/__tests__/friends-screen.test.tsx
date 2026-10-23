@@ -296,8 +296,10 @@ describe('Friends screen signed in', () => {
       fireEvent(row, 'accessibilityAction', { nativeEvent: { actionName: 'remove' } });
     });
     expect(removeFriend).toHaveBeenCalledWith(mockFake, 'user-me', 'f-ana');
-    fireEvent(row, 'accessibilityAction', { nativeEvent: { actionName: 'block' } });
-    expect(lastAlert().title).toBe('Block @ana?');
+    fireEvent(screen.getByRole('button', { name: '@ben' }), 'accessibilityAction', {
+      nativeEvent: { actionName: 'block' },
+    });
+    expect(lastAlert().title).toBe('Block @ben?');
   });
 
   it('a sent row is not one grouped element, so VoiceOver can reach its Cancel', async () => {
@@ -330,17 +332,59 @@ describe('Friends screen signed in', () => {
     expect(block).not.toHaveBeenCalled();
   });
 
-  it('the row is free again once the action is done, without waiting for the friends load', async () => {
+  it('a sent request leaves at once when Cancel went through, without waiting for the friends load', async () => {
     jest.mocked(refreshFriends).mockReturnValue(new Promise<void>(() => {}));
     await renderScreen();
     await act(async () => {
       fireEvent.press(screen.getByRole('button', { name: 'Cancel request to @cal' }));
     });
     expect(removeFriend).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole('button', { name: 'Cancel request to @cal' })).toBeOnTheScreen();
+    expect(screen.queryByText('@cal')).toBeNull();
+    expect(screen.queryByText('Requests sent')).toBeNull();
     jest.mocked(addFriend).mockResolvedValue({ found: false, status: 'not_found' });
     await add('dee');
     expect(screen.getByRole('button', { name: 'Add' })).toBeEnabled();
+  });
+
+  it('a removed friend leaves at once', async () => {
+    jest.mocked(refreshFriends).mockReturnValue(new Promise<void>(() => {}));
+    await renderScreen();
+    fireEvent(screen.getByText('@ana · Ana B'), 'longPress');
+    await pressAlertButton('Remove friend');
+    expect(screen.queryByText('@ana · Ana B')).toBeNull();
+    expect(screen.getByText('@ben')).toBeOnTheScreen();
+  });
+
+  it('a blocked friend moves to Blocked at once, with Unblock', async () => {
+    jest.mocked(refreshFriends).mockReturnValue(new Promise<void>(() => {}));
+    await renderScreen();
+    fireEvent(screen.getByText('@ana · Ana B'), 'longPress');
+    await pressAlertButton('Block @ana');
+    await pressAlertButton('Block');
+    expect(screen.queryByText('@ana · Ana B')).toBeNull();
+    expect(screen.getByText('Blocked')).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: 'Unblock @ana' })).toBeOnTheScreen();
+  });
+
+  it('an unblocked rider leaves Blocked at once', async () => {
+    jest.mocked(refreshFriends).mockReturnValue(new Promise<void>(() => {}));
+    signIn({ ...DATA, blocked: [profile('id-dee', 'dee')] });
+    await renderScreen();
+    await act(async () => {
+      fireEvent.press(screen.getByRole('button', { name: 'Unblock @dee' }));
+    });
+    expect(screen.queryByText('@dee')).toBeNull();
+    expect(screen.queryByText('Blocked')).toBeNull();
+  });
+
+  it('a Cancel that failed keeps the row and frees it for another try', async () => {
+    jest.mocked(removeFriend).mockRejectedValue(new Error('offline'));
+    await renderScreen();
+    await act(async () => {
+      fireEvent.press(screen.getByRole('button', { name: 'Cancel request to @cal' }));
+    });
+    expect(screen.getByText(NETWORK)).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: 'Cancel request to @cal' })).toBeOnTheScreen();
   });
 
   it.each([

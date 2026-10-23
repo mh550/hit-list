@@ -68,6 +68,49 @@ describe('useFriendsStore', () => {
     expect(useFriendsStore.getState().friends).toEqual(data.friends);
   });
 
+  describe('after an action went through (the load may wait minutes behind a backup)', () => {
+    const full: FriendsData = {
+      ...data,
+      outgoing: [
+        { friendshipId: 'f-cal', created_at: '2026-10-22T10:00:00.000Z', profile: { id: 'rider-cal', username: 'cal', display_name: null } },
+      ],
+      blocked: [{ id: 'rider-dee', username: 'dee', display_name: null }],
+    };
+
+    beforeEach(() => {
+      signIn('rider-me');
+      useFriendsStore.getState().applyFriends('rider-me', full);
+    });
+
+    it('dropFriendship takes the friendship out of friends, incoming and sent', () => {
+      useFriendsStore.getState().dropFriendship('rider-me', 'f-ana');
+      useFriendsStore.getState().dropFriendship('rider-me', 'f-cal');
+      useFriendsStore.getState().dropFriendship('rider-me', 'f-zed');
+      expect(useFriendsStore.getState()).toMatchObject({ friends: [], outgoing: [], incoming: [] });
+      expect(useFriendsStore.getState().blocked).toEqual(full.blocked);
+    });
+
+    it('noteBlocked drops every row with that rider and lists them under blocked, once, by name', () => {
+      const ana = full.friends[0].profile;
+      useFriendsStore.getState().noteBlocked('rider-me', ana);
+      useFriendsStore.getState().noteBlocked('rider-me', ana);
+      expect(useFriendsStore.getState().friends).toEqual([]);
+      expect(useFriendsStore.getState().blocked).toEqual([ana, full.blocked[0]]);
+    });
+
+    it('noteUnblocked takes the rider off blocked', () => {
+      useFriendsStore.getState().noteUnblocked('rider-me', 'rider-dee');
+      expect(useFriendsStore.getState().blocked).toEqual([]);
+    });
+
+    it('ignores another rider', () => {
+      useFriendsStore.getState().dropFriendship('someone-else', 'f-ana');
+      useFriendsStore.getState().noteBlocked('someone-else', full.friends[0].profile);
+      useFriendsStore.getState().noteUnblocked('someone-else', 'rider-dee');
+      expect(useFriendsStore.getState()).toMatchObject(full);
+    });
+  });
+
   it('setLoadError records the error for the rider shown only', () => {
     signIn('rider-me');
     useFriendsStore.getState().setLoadError('rider-me', 'offline');

@@ -10,7 +10,13 @@ import { useSyncStore } from '@/src/stores/sync-store';
 import { useFriendsStore } from '@/src/stores/friends-store';
 import { countPending, resetFailed } from '@/src/db/sync';
 import { syncNow } from '@/src/sync/engine';
-import { deleteAccountAndRelease, removeLocalAccountData, removeReleasedRows, type ReleasedRows } from '@/src/sync/adopt';
+import {
+  deleteAccountAndRelease,
+  removeForeignRows,
+  removeLocalAccountData,
+  removeReleasedRows,
+  type ReleasedRows,
+} from '@/src/sync/adopt';
 import { useSettingsActions } from '@/src/hooks/use-settings-actions';
 import { getSupabase } from '@/src/sync/client';
 import { deleteAccount, signOutOfAccount } from '@/src/sync/auth';
@@ -157,6 +163,17 @@ function AccountSection() {
     end();
   };
 
+  // Keep (and Sign out anyway) keeps the rider's own rows; friends' spots from shared lists leave the phone (D86). A
+  // failure there only warns: the next sign-in of another account removes them anyway.
+  const keepThenSignOut = async () => {
+    try {
+      if (userId) await removeForeignRows(db, userId);
+    } catch (err) {
+      console.warn("[Profile] removing friends' spots at sign-out failed:", err);
+    }
+    await finishSignOut();
+  };
+
   const removeThenSignOut = async () => {
     try {
       if (userId && !(await removeLocalAccountData(db, userId))) {
@@ -185,7 +202,7 @@ function AccountSection() {
     }
     if (pending === 0) {
       Alert.alert('Keep spots on this phone?', "They're backed up in your account either way.", [
-        { text: 'Keep', style: 'default', onPress: () => void finishSignOut() },
+        { text: 'Keep', style: 'default', onPress: () => void keepThenSignOut() },
         { text: 'Remove from this phone', style: 'destructive', onPress: () => void removeThenSignOut() },
         { text: 'Cancel', style: 'cancel', onPress: end },
       ]);
@@ -193,7 +210,7 @@ function AccountSection() {
     }
     Alert.alert(waitingTitle(pending), "Sign out anyway and they'll back up next time you sign in to this account.", [
       { text: 'Cancel', style: 'cancel', onPress: end },
-      { text: 'Sign out anyway', style: 'destructive', onPress: () => void finishSignOut() },
+      { text: 'Sign out anyway', style: 'destructive', onPress: () => void keepThenSignOut() },
     ]);
   };
 

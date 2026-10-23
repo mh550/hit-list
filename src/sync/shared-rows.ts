@@ -8,7 +8,7 @@ import type { SQLiteBindValue, SQLiteDatabase } from 'expo-sqlite';
  */
 
 /** Deletes the memberships `where` picks (an SQL condition on hit_list_spots) without queuing; resolves how many. */
-async function dropMemberships(db: SQLiteDatabase, where: string, ...params: SQLiteBindValue[]): Promise<number> {
+export async function dropMemberships(db: SQLiteDatabase, where: string, ...params: SQLiteBindValue[]): Promise<number> {
   await db.runAsync(`UPDATE hit_list_spots SET rev = -1 WHERE ${where}`, ...params);
   const { changes } = await db.runAsync(`DELETE FROM hit_list_spots WHERE rev = -1 AND (${where})`, ...params);
   return changes;

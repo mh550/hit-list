@@ -43,6 +43,16 @@ export function deleteCachedPhotos(spotIds: readonly string[]): void {
   }
 }
 
+/** Deletes the whole cache of others' photos (`Paths.cache/photos/`): sign-out (D86). One that can't go warns. */
+export function deleteAllCachedPhotos(): void {
+  try {
+    const dir = new Directory(Paths.cache, 'photos');
+    if (dir.exists) dir.delete();
+  } catch (err) {
+    console.warn('[sync] could not delete the cached photos:', errorMessage(err));
+  }
+}
+
 /** Deletes single cached photos (`cache/photos/…` file paths) of rows a pull removed; others' paths are ignored. */
 export function deleteCachedFiles(filePaths: readonly string[]): void {
   for (const filePath of filePaths) {

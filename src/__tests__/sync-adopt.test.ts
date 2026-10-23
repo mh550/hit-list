@@ -30,6 +30,7 @@ import {
   adopt,
   deleteAccountAndRelease,
   releaseAccountData,
+  removeForeignRows,
   removeLocalAccountData,
   removeReleasedRows,
 } from '@/src/sync/adopt';
@@ -564,6 +565,69 @@ describe('the shared-list members mirror (S8) leaves with the account', () => {
     await adopt(db, B);
 
     expect(fakeFs.__fileExists('file:///data/Caches/photos/ana-spot/p.jpg')).toBe(false);
+  });
+});
+
+describe("removeForeignRows: sign-out takes others' spots off the phone (S8, D86)", () => {
+  const ANA = 'rider-ana';
+  const anaCached = 'file:///data/Caches/photos/ana-s1/ana-m1.jpg';
+
+  /** A's own rows, plus ana's shared list holding ana's spot and A's own, and ana's spot in A's shared list. */
+  async function seedShared() {
+    await setSyncState(db, 'user_id', A);
+    await seedOwnedBy(A, 'a');
+    await insertSpot(db, createTestSpot({ id: 'ana-s1', owner_id: ANA }));
+    await insertMedia(
+      db,
+      createTestMedia({ id: 'ana-m1', spot_id: 'ana-s1', file_path: 'cache/photos/ana-s1/ana-m1.jpg' }),
+    );
+    new Directory(Paths.cache, 'photos', 'ana-s1').create({ intermediates: true });
+    fakeFs.__putFile(anaCached);
+    await insertHitList(db, createTestHitList({ id: 'ana-l1', name: 'Crew', owner_id: ANA, shared: true }));
+    await addSpotsToList(db, 'ana-l1', ['ana-s1', 'a-s1']);
+    await addSpotsToList(db, 'a-l1', ['ana-s1']);
+    await db.runAsync("UPDATE spots SET rev = 1 WHERE owner_id = ?", ANA);
+    await db.runAsync("UPDATE media SET rev = 1 WHERE owner_id = ?", ANA);
+    await db.runAsync("UPDATE hit_lists SET rev = 1 WHERE owner_id = ?", ANA);
+    await db.runAsync('UPDATE hit_list_spots SET rev = 1');
+    await db.runAsync(
+      "INSERT INTO hit_list_members (list_id, user_id, role, status) VALUES ('ana-l1', ?, 'add', 'member')",
+      A,
+    );
+    await setCursor(db, 'spots', 40);
+    await db.runAsync('DELETE FROM sync_outbox');
+  }
+
+  it("removes others' spots, photos, lists and memberships, queues nothing, keeps the rider's own and their photos", async () => {
+    await seedShared();
+
+    await removeForeignRows(db, A);
+
+    expect((await getSpots(db)).map((s) => s.id).sort()).toEqual(['a-s1', 'a-s2']);
+    expect((await getAllMedia(db)).map((m) => m.id)).toEqual(['a-m1']);
+    expect((await getHitLists(db)).map((l) => l.id)).toEqual(['a-l1']);
+    expect(await getListMemberships(db)).toEqual({ 'a-s1': ['a-l1'] });
+    expect(await count('hit_list_members')).toBe(0);
+    expect(await outboxOps(db)).toEqual([]);
+    expect(fakeFs.__fileExists(anaCached)).toBe(false);
+    expect(fakeFs.__fileExists(photoUri('a-s1', 'a-m1'))).toBe(true);
+    // the next sign-in reads the shared rows again from the start
+    expect(await getCursor(db, 'spots')).toBe(0);
+    expect(await getSyncState(db, 'user_id')).toBe(A);
+    expect(useSpotsStore.getState().spots.map((s) => s.id).sort()).toEqual(['a-s1', 'a-s2']);
+  });
+
+  it('an account switch re-paths the new rider\'s cached photos to photos/… so they download into Documents (S8-02 review #7)', async () => {
+    await setSyncState(db, 'user_id', A);
+    await insertSpot(db, createTestSpot({ id: 'b-s1', owner_id: B }));
+    await insertMedia(db, createTestMedia({ id: 'b-m1', spot_id: 'b-s1', file_path: 'cache/photos/b-s1/b-m1.jpg' }));
+    await db.runAsync('UPDATE media SET rev = 1');
+    await db.runAsync('UPDATE spots SET rev = 1');
+
+    await adopt(db, B);
+
+    expect((await getAllMedia(db)).map((m) => m.file_path)).toEqual(['photos/b-s1/b-m1.jpg']);
+    expect(await outboxOps(db)).toEqual([]);
   });
 });
 

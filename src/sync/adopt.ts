@@ -15,7 +15,8 @@ import { useSyncStore } from '@/src/stores/sync-store';
 import { deleteSpotPhotos } from '@/src/utils/photo-storage';
 import { reloadStoresQuietly, runExclusive } from './engine';
 import { errorMessage } from './errors';
-import { defaultPhotoIO, deleteCachedPhotos, type PhotoIO } from './photos';
+import { defaultPhotoIO, deleteAllCachedPhotos, deleteCachedPhotos, type PhotoIO } from './photos';
+import { dropMemberships, forgetList } from './shared-rows';
 
 /*
  * Whose rows are on the phone (S5-06, D38, D66, D67; docs/plans/2026-10-22-s5-sync.md "Adoption", "Sign out").
@@ -102,6 +103,13 @@ export function adopt(
       if (switching) {
         await forgetAccount(db, prev);
         removed = await deleteAccountRows(db, uid);
+        // The new rider's rows that were here as the last account's friend's (S8) had their photos in the cache:
+        // under photos/ the downloads fetch them into Documents (user_id is cleared, so nothing queues).
+        await db.runAsync(
+          `UPDATE media SET file_path = substr(file_path, length('cache/') + 1)
+           WHERE owner_id = ? AND file_path LIKE 'cache/photos/%'`,
+          uid,
+        );
         await clearOutbox(db);
         await resetCursors(db);
       }
@@ -116,6 +124,34 @@ export function adopt(
     deleteCachedPhotos(removed);
     await reloadStoresQuietly(db);
     return 'done';
+  });
+}
+
+/**
+ * Sign-out's Keep (S8, D86): others' rows leave the phone, so what stays is the rider's own and phone-only. Lists of
+ * other riders go with their memberships and members mirror (forgetList), others' spots with their photos and
+ * memberships (in the rider's lists too), all without queuing a server delete; the whole photo cache goes after the
+ * commit. The cursors restart, so the next sign-in reads the shared rows again. The rider's own rows, outbox and
+ * user_id are untouched. Resolves the removed spots' ids.
+ */
+export function removeForeignRows(db: SQLiteDatabase, uid: string): Promise<string[]> {
+  return runExclusive(async () => {
+    const foreign = 'owner_id IS NOT NULL AND owner_id <> ?';
+    let removed: string[] = [];
+    await db.withTransactionAsync(async () => {
+      const lists = await db.getAllAsync<{ id: string }>(`SELECT id FROM hit_lists WHERE ${foreign}`, uid);
+      for (const list of lists) await forgetList(db, list.id);
+      removed = (await db.getAllAsync<{ id: string }>(`SELECT id FROM spots WHERE ${foreign} ORDER BY id`, uid)).map(
+        (r) => r.id,
+      );
+      await dropMemberships(db, `spot_id IN (SELECT id FROM spots WHERE ${foreign})`, uid);
+      await db.runAsync(`DELETE FROM media WHERE ${foreign} OR spot_id IN (SELECT id FROM spots WHERE ${foreign})`, uid, uid);
+      await db.runAsync(`DELETE FROM spots WHERE ${foreign}`, uid);
+      await resetCursors(db);
+    });
+    deleteAllCachedPhotos();
+    await reloadStoresQuietly(db);
+    return removed;
   });
 }
 

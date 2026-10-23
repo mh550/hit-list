@@ -19,7 +19,12 @@ import { UnitSystem } from '@/src/types';
 import { saveUserSettings } from '@/src/db';
 import { countPending, resetFailed } from '@/src/db/sync';
 import { syncNow } from '@/src/sync/engine';
-import { deleteAccountAndRelease, removeLocalAccountData, removeReleasedRows } from '@/src/sync/adopt';
+import {
+  deleteAccountAndRelease,
+  removeForeignRows,
+  removeLocalAccountData,
+  removeReleasedRows,
+} from '@/src/sync/adopt';
 import { INITIAL_SYNC, useSyncStore } from '@/src/stores/sync-store';
 import { useFriendsStore } from '@/src/stores/friends-store';
 
@@ -30,6 +35,7 @@ jest.mock('@/src/db/sync', () => ({
 }));
 jest.mock('@/src/sync/adopt', () => ({
   removeLocalAccountData: jest.fn().mockResolvedValue(true),
+  removeForeignRows: jest.fn().mockResolvedValue([]),
   // The real one runs the server delete (the callback) on the sync queue, then releases the rows.
   deleteAccountAndRelease: jest.fn(async (_db: unknown, _uid: string, deleteServer: () => Promise<boolean>) =>
     (await deleteServer()) ? { deleted: true, released: { spotIds: [], listIds: [] } } : { deleted: false },
@@ -666,6 +672,28 @@ describe('Profile sign out and delete: Keep / Remove from this phone (S5-06, D38
     expect(removeLocalAccountData).not.toHaveBeenCalled();
     expect(mockFake!.auth.signOut).toHaveBeenCalledTimes(1);
     expect(useAuthStore.getState()).toMatchObject(SIGNED_OUT);
+  });
+
+  it("Keep takes friends' spots off the phone first (S8, D86); a failure there still signs out", async () => {
+    jest.mocked(removeForeignRows).mockClear();
+    useAuthStore.setState(ANA);
+    render(<ProfileScreen />);
+    await pressSignOut();
+    await pressInAlert('Keep');
+
+    expect(removeForeignRows).toHaveBeenCalledWith(expect.anything(), ANA.userId);
+    expect(jest.mocked(removeForeignRows).mock.invocationCallOrder[0]).toBeLessThan(
+      mockFake!.auth.signOut.mock.invocationCallOrder[0],
+    );
+
+    jest.mocked(removeForeignRows).mockRejectedValueOnce(new Error('disk full'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    act(() => useAuthStore.setState(ANA));
+    await pressSignOut();
+    await pressInAlert('Keep');
+    expect(useAuthStore.getState()).toMatchObject(SIGNED_OUT);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 
   it("Remove from this phone removes the rider's rows and photos, then signs out", async () => {

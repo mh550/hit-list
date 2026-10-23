@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import { Stack, useRouter } from 'expo-router';
-import { Keyboard, StyleSheet, View, Pressable, Text, TextInput } from 'react-native';
+import { Keyboard, StyleSheet, View, TextInput } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 
 import {
@@ -15,6 +15,7 @@ import { useLocationStore } from '@/src/stores/location-store';
 import { useSettingsStore } from '@/src/stores/settings-store';
 import { SpotListItem } from '@/src/components/SpotListItem';
 import { EmptyState } from '@/src/components/EmptyState';
+import { HeaderTextButton } from '@/src/components/HeaderTextButton';
 import { FilterSheet } from '@/src/components/FilterSheet';
 import { SegmentedControl } from '@/src/components/SegmentedControl';
 import { SpotMap } from '@/src/components/SpotMap';
@@ -53,6 +54,12 @@ interface SpotsBrowserProps {
   /** Defined = select mode: rows render as checkboxes, checked when their id is in the set. */
   selectedIds?: ReadonlySet<string>;
 }
+
+/** The empty state of a hit list with no spots (the list screen, and the Spots tab with that list picked). */
+export const EMPTY_LIST_COPY = {
+  emptyTitle: 'No spots in this list yet',
+  emptyMessage: "Add from a spot's page or select spots on the Spots tab",
+} as const;
 
 /**
  * The List | Map body of the Spots tab, reusable for any set of spots: mode toggle, search, sort chips, the list or
@@ -160,16 +167,12 @@ export function SpotsBrowser({
       : undefined;
 
   const filterButton = (
-    <Pressable
+    <HeaderTextButton
       onPress={() => setFilterVisible(true)}
-      hitSlop={8}
       accessibilityLabel={`Filter spots${activeFilterCount > 0 ? `, ${activeFilterCount} active` : ''}`}
-      accessibilityRole="button"
-      style={styles.filterButton}>
-      <Text style={[styles.filterText, activeFilterCount > 0 && styles.filterTextActive]}>
-        Filter{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
-      </Text>
-    </Pressable>
+      emphasized={activeFilterCount > 0}>
+      {`Filter${activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}`}
+    </HeaderTextButton>
   );
 
   return (
@@ -286,16 +289,5 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-  },
-  filterButton: {
-    paddingHorizontal: spacing.sm,
-  },
-  filterText: {
-    fontSize: 16,
-    color: palette.blue[500],
-    fontWeight: '500',
-  },
-  filterTextActive: {
-    fontWeight: '700',
   },
 });

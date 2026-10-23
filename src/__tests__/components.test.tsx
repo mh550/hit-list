@@ -9,6 +9,7 @@ import { EmptyState } from '@/src/components/EmptyState';
 import { Card, CardContent, CardTitle } from '@/src/components/Card';
 import { FormInput } from '@/src/components/FormField';
 import { SpotListItem } from '@/src/components/SpotListItem';
+import { HeaderTextButton } from '@/src/components/HeaderTextButton';
 
 describe('Button', () => {
   it('renders title', () => {
@@ -151,5 +152,31 @@ describe('SpotListItem', () => {
     expect(row.props.accessibilityState).toEqual({ checked: true });
     fireEvent.press(row);
     expect(onPress).toHaveBeenCalledWith('s1');
+  });
+});
+
+describe('HeaderTextButton', () => {
+  it('is a button with its label and text, and calls onPress', () => {
+    const onPress = jest.fn();
+    render(<HeaderTextButton accessibilityLabel="Rename list" onPress={onPress}>
+        Rename
+      </HeaderTextButton>);
+    const button = screen.getByRole('button', { name: 'Rename list' });
+    expect(screen.getByText('Rename')).toBeTruthy();
+    fireEvent.press(button);
+    expect(onPress).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the text as the label when none is given, and bolds the text when emphasized', () => {
+    render(<HeaderTextButton emphasized onPress={jest.fn()}>
+        Filter (2)
+      </HeaderTextButton>);
+    screen.getByRole('button', { name: 'Filter (2)' });
+    expect(StyleSheet.flatten(screen.getByText('Filter (2)').props.style).fontWeight).toBe('700');
+  });
+
+  it('keeps the regular weight by default', () => {
+    render(<HeaderTextButton onPress={jest.fn()}>Select</HeaderTextButton>);
+    expect(StyleSheet.flatten(screen.getByText('Select').props.style).fontWeight).toBe('500');
   });
 });

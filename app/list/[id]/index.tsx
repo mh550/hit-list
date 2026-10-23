@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
-import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, StyleSheet, View } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button, EmptyState, NameListSheet, SpotsBrowser } from '@/src/components';
+import { Button, EmptyState, HeaderTextButton, NameListSheet, SpotsBrowser } from '@/src/components';
+import { EMPTY_LIST_COPY } from '@/src/components/SpotsBrowser';
 import { palette, spacing } from '@/src/constants/theme';
 import { useHitListActions } from '@/src/hooks/use-hit-list-actions';
 import { selectListSpots, useHitListsStore, useSpotsStore } from '@/src/stores';
@@ -93,14 +94,9 @@ export default function ListScreen() {
   };
 
   const renameButton = (
-    <Pressable
-      onPress={() => setRenaming(true)}
-      hitSlop={8}
-      accessibilityLabel="Rename list"
-      accessibilityRole="button"
-      style={styles.headerButton}>
-      <Text style={styles.headerButtonText}>Rename</Text>
-    </Pressable>
+    <HeaderTextButton onPress={() => setRenaming(true)} accessibilityLabel="Rename list">
+      Rename
+    </HeaderTextButton>
   );
 
   return (
@@ -108,8 +104,7 @@ export default function ListScreen() {
       <Stack.Screen options={{ title: list.name }} />
       <SpotsBrowser
         spots={listSpots}
-        emptyTitle="No spots in this list yet"
-        emptyMessage="Add from a spot's page or select spots on the Spots tab"
+        {...EMPTY_LIST_COPY}
         headerActions={renameButton}
         onSpotLongPress={handleSpotLongPress}
       />
@@ -131,14 +126,6 @@ export default function ListScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  headerButton: {
-    paddingHorizontal: spacing.sm,
-  },
-  headerButtonText: {
-    fontSize: 16,
-    color: palette.blue[500],
-    fontWeight: '500',
   },
   bottomBar: {
     paddingHorizontal: spacing.md,

@@ -5,7 +5,8 @@ import { StyleSheet, View, Pressable, Text } from 'react-native';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 
 import { selectListSpots, useHitListsStore, useSpotsStore } from '@/src/stores';
-import { SpotsBrowser } from '@/src/components/SpotsBrowser';
+import { EMPTY_LIST_COPY, SpotsBrowser } from '@/src/components/SpotsBrowser';
+import { HeaderTextButton } from '@/src/components/HeaderTextButton';
 import { AddToListSheet } from '@/src/components/AddToListSheet';
 import { ListPickerChips } from '@/src/components/ListPickerChips';
 import { palette, radius, spacing } from '@/src/constants/theme';
@@ -57,23 +58,13 @@ export default function SpotsScreen() {
   };
 
   const selectAction = selecting ? (
-    <Pressable
-      onPress={endSelecting}
-      hitSlop={8}
-      accessibilityLabel="Cancel selection"
-      accessibilityRole="button"
-      style={styles.headerAction}>
-      <Text style={styles.headerActionText}>Cancel</Text>
-    </Pressable>
+    <HeaderTextButton onPress={endSelecting} accessibilityLabel="Cancel selection">
+      Cancel
+    </HeaderTextButton>
   ) : viewMode === 'list' && spots.length > 0 ? (
-    <Pressable
-      onPress={() => setSelected([])}
-      hitSlop={8}
-      accessibilityLabel="Select spots"
-      accessibilityRole="button"
-      style={styles.headerAction}>
-      <Text style={styles.headerActionText}>Select</Text>
-    </Pressable>
+    <HeaderTextButton onPress={() => setSelected([])} accessibilityLabel="Select spots">
+      Select
+    </HeaderTextButton>
   ) : null;
 
   const count = chosen.length;
@@ -84,10 +75,7 @@ export default function SpotsScreen() {
       <SpotsBrowser
         spots={spots}
         {...(activeList
-          ? {
-              emptyTitle: 'No spots in this list yet',
-              emptyMessage: "Add from a spot's page or select spots on the Spots tab",
-            }
+          ? EMPTY_LIST_COPY
           : {
               emptyTitle: 'No Spots Yet',
               emptyMessage: 'Tap the + button to add your first spot, or import from your photos',
@@ -148,14 +136,6 @@ export default function SpotsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-  },
-  headerAction: {
-    paddingHorizontal: spacing.sm,
-  },
-  headerActionText: {
-    fontSize: 16,
-    color: palette.blue[500],
-    fontWeight: '500',
   },
   selectBar: {
     paddingHorizontal: spacing.md,

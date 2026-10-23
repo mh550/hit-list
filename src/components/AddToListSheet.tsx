@@ -38,22 +38,14 @@ function AddToListSheetContent({ spotIds, onClose }: Omit<Props, 'visible'>) {
     spotIds.length > 0 && spotIds.every((id) => membershipBySpot[id]?.includes(listId));
 
   // The hook has already put the store back when a write fails; this only says so, once per toggle.
-  const add = async (listId: string) => {
-    try {
-      await addSpotsToList(listId, spotIds);
-    } catch {
-      Alert.alert("Couldn't update the list", 'Please try again.');
-    }
-  };
+  const reportFailure = (write: Promise<unknown>) =>
+    write.catch(() => Alert.alert("Couldn't update the list", 'Please try again.'));
+  const add = (listId: string) => reportFailure(addSpotsToList(listId, spotIds));
 
-  const toggle = async (listId: string) => {
-    if (!holdsAll(listId)) return add(listId);
-    try {
-      await Promise.all(spotIds.map((id) => removeSpotFromList(listId, id)));
-    } catch {
-      Alert.alert("Couldn't update the list", 'Please try again.');
-    }
-  };
+  const toggle = (listId: string) =>
+    holdsAll(listId)
+      ? reportFailure(Promise.all(spotIds.map((id) => removeSpotFromList(listId, id))))
+      : add(listId);
 
   const create = async (name: string) => {
     let listId: string;

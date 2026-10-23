@@ -282,7 +282,9 @@ async function migration3(db: SQLiteDatabase): Promise<void> {
 /**
  * Version 4: hit lists (S1). A list holds many spots and a spot sits in many lists (hit_list_spots). The area
  * columns are reserved for area lists (S2) and owner_id / added_by for accounts, so neither adds a migration.
- * IF NOT EXISTS so a table left behind by a crashed launch can't wedge the upgrade.
+ * IF NOT EXISTS like migration 1. (A crashed launch leaves nothing behind: the DDL runs in the migration's
+ * transaction. A v3 DB with an older, incompatible hit_lists table would fail on the index and keep the upgrade
+ * screen up; no build ever made one.)
  */
 async function migration4(db: SQLiteDatabase): Promise<void> {
   await db.execAsync(`

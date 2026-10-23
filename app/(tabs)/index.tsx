@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useRouter } from 'expo-router';
-import { StyleSheet, View, Pressable, Text } from 'react-native';
+import { RefreshControl, StyleSheet, View, Pressable, Text } from 'react-native';
+import { useSQLiteContext } from 'expo-sqlite';
 
 import { IconSymbol } from '@/components/ui/icon-symbol';
 
@@ -9,6 +10,9 @@ import { EMPTY_AREA_COPY, EMPTY_LIST_COPY, SpotsBrowser } from '@/src/components
 import { HeaderTextButton } from '@/src/components/HeaderTextButton';
 import { AddToListSheet } from '@/src/components/AddToListSheet';
 import { ListPickerChips } from '@/src/components/ListPickerChips';
+import { useAuthStore } from '@/src/stores/auth-store';
+import { useSyncStore } from '@/src/stores/sync-store';
+import { syncNow } from '@/src/sync/engine';
 import { palette, radius, spacing } from '@/src/constants/theme';
 
 // Floating action column (bottom-right): shared by its style and the list's bottom padding so the two
@@ -22,6 +26,9 @@ const LIST_BOTTOM_PADDING = FAB_BOTTOM + FAB_SIZE + FAB_GAP + FAB_SECONDARY_SIZE
 
 export default function SpotsScreen() {
   const router = useRouter();
+  const db = useSQLiteContext();
+  const signedIn = useAuthStore((s) => s.status === 'signed_in');
+  const syncing = useSyncStore((s) => s.syncing);
   const allSpots = useSpotsStore((s) => s.spots);
   const viewMode = useSpotsStore((s) => s.viewMode);
   const lists = useHitListsStore((s) => s.lists);
@@ -93,6 +100,10 @@ export default function SpotsScreen() {
         selectedIds={selectedIds}
         onSpotPress={selecting ? toggle : undefined}
         onSpotLongPress={(id) => (selecting ? toggle(id) : setSelected([id]))}
+        // Pull to refresh = sync now (D48); signed out there is nothing to sync.
+        refreshControl={
+          signedIn ? <RefreshControl refreshing={syncing} onRefresh={() => void syncNow(db)} /> : undefined
+        }
       />
       {selecting ? (
         <View testID="select-bar" style={styles.selectBar}>

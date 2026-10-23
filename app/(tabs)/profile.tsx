@@ -1,22 +1,65 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Alert, StyleSheet, ScrollView, View, Text, TextInput, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useSQLiteContext } from 'expo-sqlite';
 
 import { ACCOUNTS_NOT_SET_UP, AuthError, Button } from '@/src/components';
 import { useSettingsStore } from '@/src/stores/settings-store';
 import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
+import { useSyncStore } from '@/src/stores/sync-store';
+import { resetFailed } from '@/src/db/sync';
+import { syncNow } from '@/src/sync/engine';
 import { useSettingsActions } from '@/src/hooks/use-settings-actions';
 import { getSupabase } from '@/src/sync/client';
 import { deleteAccount, signOutOfAccount } from '@/src/sync/auth';
 import { palette, spacing, radius } from '@/src/constants/theme';
 import { UnitSystem } from '@/src/types';
 import { radiusFromInput, radiusToDisplay, radiusUnitLabel } from '@/src/utils/units';
+import { relativeTime } from '@/src/utils/relative-time';
 
 function SectionHeader({ title }: { title: string }) {
   return <Text style={styles.sectionHeader}>{title}</Text>;
 }
 
 const DELETE_FAILED = "Couldn't delete the account. Try again.";
+
+/** How often 'Backed up · 3 min ago' is worked out again while Profile is open. */
+const BACKUP_LINE_TICK_MS = 60_000;
+
+// The signed-in rider's backup (S5): when the last sync went through, and the changes that failed 10 times with Retry.
+// The sync store's values count only when they are this rider's.
+function BackupStatus({ userId }: { userId: string | null }) {
+  const db = useSQLiteContext();
+  const mine = useSyncStore((s) => s.userId !== null && s.userId === userId);
+  const lastSyncAt = useSyncStore((s) => s.lastSyncAt);
+  const failedCount = useSyncStore((s) => s.failedCount);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), BACKUP_LINE_TICK_MS);
+    return () => clearInterval(timer);
+  }, []);
+
+  const ago = mine && lastSyncAt ? relativeTime(lastSyncAt, Math.max(now, Date.parse(lastSyncAt))) : null;
+  const failed = mine ? failedCount : 0;
+  const retry = async () => {
+    await resetFailed(db);
+    await syncNow(db);
+  };
+
+  return (
+    <View style={styles.backup}>
+      <Text style={styles.fieldHint}>{ago ? `Backed up · ${ago}` : 'Not backed up yet'}</Text>
+      {failed > 0 ? (
+        <View style={styles.backupFailed}>
+          <Text style={styles.backupFailedText}>
+            {failed === 1 ? '1 change not backed up' : `${failed} changes not backed up`}
+          </Text>
+          <Button title="Retry" variant="secondary" size="sm" onPress={() => void retry()} />
+        </View>
+      ) : null}
+    </View>
+  );
+}
 
 // The account in its three states (§3.1, §5.6): a build without Supabase values, signed out, signed in. The tabs
 // redirect a 'needs_username' account to the username screen, so it shows here only for a moment, as signed in.
@@ -26,6 +69,7 @@ function AccountSection() {
   const email = useAuthStore((s) => s.email);
   const username = useAuthStore((s) => s.username);
   const displayName = useAuthStore((s) => s.displayName);
+  const userId = useAuthStore((s) => s.userId);
   const setAuth = useAuthStore((s) => s.setAuth);
   const [busy, setBusy] = useState<'signing_out' | 'deleting' | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -80,6 +124,7 @@ function AccountSection() {
       {username ? <Text style={styles.accountTitle}>@{username}</Text> : null}
       {displayName ? <Text style={styles.accountBody}>{displayName}</Text> : null}
       {email ? <Text style={styles.fieldHint}>{email}</Text> : null}
+      <BackupStatus userId={userId} />
       <AuthError message={error} />
       <Button
         title={busy === 'signing_out' ? 'Signing out…' : 'Sign out'}
@@ -201,6 +246,21 @@ const styles = StyleSheet.create({
   accountBody: {
     fontSize: 15,
     color: palette.gray[700],
+  },
+  backup: {
+    gap: spacing.xs,
+  },
+  backupFailed: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  backupFailedText: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '500',
+    color: palette.red[700],
   },
   unitsRow: {
     flexDirection: 'row',

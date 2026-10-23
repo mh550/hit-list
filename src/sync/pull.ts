@@ -30,6 +30,8 @@ const TABLES: readonly SyncTable[] = ['spots', 'media', 'hit_lists', 'hit_list_s
 export interface PullResult {
   /** A local row was written or removed: the stores need a reload. */
   changed: boolean;
+  /** A table could not be read (offline, a server error): the phone is not up to date. A row that waits is not this. */
+  failed?: true;
 }
 
 type ServerRow = Record<string, unknown>;
@@ -38,10 +40,15 @@ type Values = Record<string, SQLiteBindValue>;
 export async function pull(db: SQLiteDatabase, client: SupabaseClient, uid: string): Promise<PullResult> {
   if (!(await maySync(db, client, uid))) return { changed: false };
   let changed = false;
-  for (const table of TABLES) changed = (await pullTable(db, client, table)) || changed;
+  let failed = false;
+  for (const table of TABLES) {
+    const result = await pullTable(db, client, table);
+    changed = result.changed || changed;
+    failed = result.failed || failed;
+  }
   changed = (await reconcileMemberships(db, client, uid)) || changed;
   changed = (await reconcileReadableSpots(db, client, uid)) || changed;
-  return { changed };
+  return failed ? { changed, failed } : { changed };
 }
 
 const message = (err: unknown) => (err instanceof Error ? err.message : String(err));
@@ -50,15 +57,21 @@ const message = (err: unknown) => (err instanceof Error ? err.message : String(e
  * Pages `rev > cursor - REV_OVERLAP` in rev order. The table stops at the first row that can't be written (a photo
  * whose spot isn't here yet): the cursor stays at the last row applied, so that row and the ones after it come again.
  */
-async function pullTable(db: SQLiteDatabase, client: SupabaseClient, table: SyncTable): Promise<boolean> {
+async function pullTable(
+  db: SQLiteDatabase,
+  client: SupabaseClient,
+  table: SyncTable,
+): Promise<{ changed: boolean; failed: boolean }> {
   const cursor = await getCursor(db, table);
   let after = Math.max(0, cursor - REV_OVERLAP);
   let highest = cursor;
   let changed = false;
+  let failed = false;
   pages: for (;;) {
     const { data, error } = await client.from(table).select('*').gt('rev', after).order('rev').limit(PULL_PAGE);
     if (error) {
       console.warn(`[sync] pull ${table} failed:`, error.message);
+      failed = true;
       break;
     }
     const rows = (data ?? []) as ServerRow[];
@@ -75,7 +88,7 @@ async function pullTable(db: SQLiteDatabase, client: SupabaseClient, table: Sync
     after = Number(rows[rows.length - 1].rev);
   }
   if (highest > cursor) await setCursor(db, table, highest);
-  return changed;
+  return { changed, failed };
 }
 
 const text = (value: unknown): string | null => (value === null || value === undefined ? null : String(value));

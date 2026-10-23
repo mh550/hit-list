@@ -1,6 +1,6 @@
-import { useCallback, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useMemo, useState, type ReactElement, type ReactNode } from 'react';
 import { Stack, useRouter } from 'expo-router';
-import { Keyboard, StyleSheet, View, TextInput } from 'react-native';
+import { Keyboard, StyleSheet, View, TextInput, type RefreshControlProps } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 
 import {
@@ -53,6 +53,8 @@ interface SpotsBrowserProps {
   onSpotPress?: (id: string) => void;
   /** Defined = select mode: rows render as checkboxes, checked when their id is in the set. */
   selectedIds?: ReadonlySet<string>;
+  /** The list's pull-to-refresh (the Spots tab's sync, signed in only). */
+  refreshControl?: ReactElement<RefreshControlProps>;
 }
 
 /** The empty state of a hit list with no spots (the list screen, and the Spots tab with that list picked). */
@@ -85,6 +87,7 @@ export function SpotsBrowser({
   onSpotLongPress,
   onSpotPress,
   selectedIds,
+  refreshControl,
 }: SpotsBrowserProps) {
   const router = useRouter();
   useCurrentLocation(); // distances in the list and the map's own position (bug 5)
@@ -252,6 +255,7 @@ export function SpotsBrowser({
             contentContainerStyle={{ paddingBottom: contentBottomInset }}
             keyboardDismissMode="on-drag"
             keyboardShouldPersistTaps="handled"
+            refreshControl={refreshControl}
           />
         ) : null}
       </View>

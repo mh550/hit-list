@@ -190,7 +190,7 @@ describe('Spots tab pull-to-refresh', () => {
     useSyncStore.setState(INITIAL_SYNC);
     jest.mocked(syncNow).mockClear();
   });
-  afterEach(() => useAuthStore.setState(SIGNED_OUT));
+  afterEach(() => act(() => useAuthStore.setState(SIGNED_OUT)));
 
   it('signed in, the list has a RefreshControl that syncs, refreshing while a sync runs', () => {
     useAuthStore.setState({ status: 'signed_in', userId: 'rider-me', email: null, username: 'me', displayName: null });

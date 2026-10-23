@@ -9,6 +9,7 @@ import 'react-native-reanimated';
 import { DB_NAME } from '@/src/db';
 import { DBInitializer } from '@/src/components/DBInitializer';
 import { useAuthInit } from '@/src/hooks/use-auth-init';
+import { useSync } from '@/src/hooks/use-sync';
 import { palette } from '@/src/constants/theme';
 
 function LoadingScreen() {
@@ -19,9 +20,11 @@ function LoadingScreen() {
   );
 }
 
-// Mirrors the Supabase session into the auth store; inside DBInitializer, so it starts once the DB is ready.
+// Mirrors the Supabase session into the auth store, then syncs while signed in (S5); inside DBInitializer, so both
+// start once the DB is ready.
 function AuthInit() {
   useAuthInit();
+  useSync();
   return null;
 }
 

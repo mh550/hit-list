@@ -87,6 +87,7 @@ export interface HitList {
   owner_id?: string; // the account it belongs to (S5); undefined = phone-only, not adopted
   shared: boolean; // false in S1; S8
   member_count?: number; // computed in S8, never stored
+  members?: HitListMember[]; // S8: the hit_list_members mirror, joined members first; undefined = none
   area_center?: GeoPoint; // S2; both lat and lng NULL → undefined
   area_radius_m?: number; // S2, whole metres like batch_import_radius
   area_filters?: SpotFilters; // S2, area_filters_json
@@ -94,6 +95,26 @@ export interface HitList {
   created_at: string; // ISO 8601
   updated_at: string; // ISO 8601
   deleted_at?: string; // ISO 8601
+}
+
+export type MemberRole = 'add' | 'view'; // D42: 'Can add spots' / 'View only'
+export type MemberStatus = 'invited' | 'member'; // D57: 'invited' until Join
+
+/** One hit_list_members row as the local mirror holds it (S8, migration 8). The owner is implicit (owner_id). */
+export interface ListMember {
+  list_id: string;
+  user_id: string;
+  role: MemberRole;
+  status: MemberStatus;
+  joined_at?: string; // ISO 8601, set by the server on Join
+}
+
+/** A list's member as the store carries it; `username` from the profiles mirror (D72), undefined when unknown. */
+export interface HitListMember {
+  user_id: string;
+  username?: string;
+  role: MemberRole;
+  status: MemberStatus;
 }
 
 /** One spot in one list (hit_list_spots). */

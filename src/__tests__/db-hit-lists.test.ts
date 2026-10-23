@@ -12,7 +12,11 @@ import {
   removeSpotFromList,
   getListMemberships,
 } from '@/src/db';
-import { FeatureType, type HitList, type Spot } from '@/src/types';
+import { deleteMember, deleteMembers, getMembers, getMyMemberships, replaceMembers, upsertMembers } from '@/src/db/hit-lists';
+import { upsertProfiles } from '@/src/db/profiles';
+import { FeatureType, type HitList, type ListMember, type Spot } from '@/src/types';
+
+type Row = Record<string, unknown>;
 import { CITIES, createTestHitList, createTestSpot } from './factories';
 import { ME, adoptPhoneFor, outboxOps } from './helpers/outbox';
 
@@ -403,5 +407,129 @@ describe('hit lists in SQLite (src/db/hit-lists.ts)', () => {
       expect(await memberRows(db)).toEqual([expect.objectContaining({ list_id: mine.id, spot_id: s2.id })]);
       expect(await outboxOps(db)).toEqual([]);
     });
+  });
+});
+
+describe('the members mirror (migration 8, src/db/hit-lists.ts)', () => {
+  let db: SQLiteDatabase;
+  const ANA = 'rider-ana';
+  const BEN = 'rider-ben';
+  const member = (overrides: Partial<ListMember> = {}): ListMember => ({
+    list_id: 'list-1',
+    user_id: ANA,
+    role: 'add',
+    status: 'member',
+    joined_at: '2026-10-23T09:00:00.000Z',
+    ...overrides,
+  });
+  const allRows = () =>
+    db.getAllAsync('SELECT list_id, user_id, role, status, joined_at FROM hit_list_members ORDER BY list_id, user_id');
+
+  beforeEach(async () => {
+    db = await createMigratedTestDb();
+  });
+
+  it('addSpotsToList writes added_by when given (a member add), NULL otherwise', async () => {
+    const spot = createTestSpot();
+    await insertSpot(db, spot);
+    const list = createTestHitList();
+    const other = createTestHitList();
+    await insertHitList(db, list);
+    await insertHitList(db, other);
+
+    await addSpotsToList(db, list.id, [spot.id], '2026-10-23T00:00:00.000Z', ME);
+    await addSpotsToList(db, other.id, [spot.id]);
+
+    expect(
+      await db.getAllAsync('SELECT list_id, added_by FROM hit_list_spots WHERE spot_id = ? ORDER BY added_by', spot.id),
+    ).toEqual([
+      { list_id: other.id, added_by: null },
+      { list_id: list.id, added_by: ME },
+    ]);
+  });
+
+  it('upsertMembers inserts rows and updates role, status and joined_at of known ones', async () => {
+    await upsertMembers(db, [member(), member({ user_id: BEN, status: 'invited', role: 'view', joined_at: undefined })]);
+    await upsertMembers(db, [member({ user_id: BEN, status: 'member', joined_at: '2026-10-23T10:00:00.000Z' })]);
+
+    expect(await allRows()).toEqual([
+      { list_id: 'list-1', user_id: ANA, role: 'add', status: 'member', joined_at: '2026-10-23T09:00:00.000Z' },
+      { list_id: 'list-1', user_id: BEN, role: 'add', status: 'member', joined_at: '2026-10-23T10:00:00.000Z' },
+    ]);
+  });
+
+  it('upsertMembers of nothing writes nothing', async () => {
+    await upsertMembers(db, []);
+    expect(await allRows()).toEqual([]);
+  });
+
+  it('replaceMembers makes the mirror exactly the rows given and says whether anything changed', async () => {
+    await upsertMembers(db, [member(), member({ user_id: BEN }), member({ list_id: 'list-2' })]);
+
+    expect(await replaceMembers(db, [member(), member({ list_id: 'list-2', role: 'view' })])).toBe(true);
+    expect(await allRows()).toEqual([
+      { list_id: 'list-1', user_id: ANA, role: 'add', status: 'member', joined_at: '2026-10-23T09:00:00.000Z' },
+      { list_id: 'list-2', user_id: ANA, role: 'view', status: 'member', joined_at: '2026-10-23T09:00:00.000Z' },
+    ]);
+    expect(await replaceMembers(db, [member(), member({ list_id: 'list-2', role: 'view' })])).toBe(false);
+    expect(await replaceMembers(db, [])).toBe(true);
+    expect(await allRows()).toEqual([]);
+  });
+
+  it('getMembers lists one list: joined members first, then invitations, with usernames from the profiles mirror', async () => {
+    await upsertProfiles(db, [{ id: BEN, username: 'ben', display_name: null }]);
+    await upsertMembers(db, [
+      member({ user_id: 'rider-cal', status: 'invited', joined_at: undefined }),
+      member({ user_id: BEN, role: 'view' }),
+      member({ list_id: 'list-2' }),
+    ]);
+
+    expect(await getMembers(db, 'list-1')).toEqual([
+      { list_id: 'list-1', user_id: BEN, role: 'view', status: 'member', joined_at: '2026-10-23T09:00:00.000Z', username: 'ben' },
+      { list_id: 'list-1', user_id: 'rider-cal', role: 'add', status: 'invited' },
+    ]);
+  });
+
+  it("getMyMemberships maps each list to the rider's own role and status", async () => {
+    await upsertMembers(db, [
+      member({ user_id: ME, role: 'view' }),
+      member({ list_id: 'list-2', user_id: ME, status: 'invited', joined_at: undefined }),
+      member({ list_id: 'list-3' }),
+    ]);
+
+    expect(await getMyMemberships(db, ME)).toEqual({
+      'list-1': { role: 'view', status: 'member' },
+      'list-2': { role: 'add', status: 'invited' },
+    });
+  });
+
+  it('deleteMembers drops one list; deleteMember drops one row', async () => {
+    await upsertMembers(db, [member(), member({ user_id: BEN }), member({ list_id: 'list-2' })]);
+
+    await deleteMember(db, 'list-1', BEN);
+    expect((await allRows()).map((r) => `${String((r as Row).list_id)}/${String((r as Row).user_id)}`)).toEqual([
+      `list-1/${ANA}`,
+      `list-2/${ANA}`,
+    ]);
+    await deleteMembers(db, 'list-1');
+    expect(await getMembers(db, 'list-1')).toEqual([]);
+    expect(await getMembers(db, 'list-2')).toHaveLength(1);
+  });
+
+  it('getHitLists attaches each list its members (user_id, username, role, status); a private list has none', async () => {
+    const shared = createTestHitList({ id: 'list-1', owner_id: ME, shared: true });
+    const priv = createTestHitList({ id: 'list-9', owner_id: ME });
+    await insertHitList(db, shared);
+    await insertHitList(db, priv);
+    await upsertProfiles(db, [{ id: ANA, username: 'ana', display_name: 'Ana' }]);
+    await upsertMembers(db, [member(), member({ user_id: BEN, status: 'invited', role: 'view', joined_at: undefined })]);
+
+    const lists = await getHitLists(db);
+
+    expect(lists.find((l) => l.id === 'list-1')?.members).toEqual([
+      { user_id: ANA, username: 'ana', role: 'add', status: 'member' },
+      { user_id: BEN, role: 'view', status: 'invited' },
+    ]);
+    expect(lists.find((l) => l.id === 'list-9')).not.toHaveProperty('members');
   });
 });

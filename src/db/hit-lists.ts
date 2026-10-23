@@ -1,5 +1,5 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
-import type { HitList, HitListKind, HitListUpdate, SpotFilters } from '@/src/types';
+import type { HitList, HitListKind, HitListMember, HitListUpdate, ListMember, MemberRole, MemberStatus, SpotFilters } from '@/src/types';
 import { isObject } from '@/src/utils/is-object';
 
 interface HitListRow {
@@ -73,12 +73,26 @@ export async function insertHitList(db: SQLiteDatabase, list: HitList): Promise<
   );
 }
 
-/** Live lists, oldest first. */
+/** Live lists, oldest first, each with its members from the mirror (S8; a list with none has no `members`). */
 export async function getHitLists(db: SQLiteDatabase): Promise<HitList[]> {
   const rows = await db.getAllAsync<HitListRow>(
     `SELECT ${HIT_LIST_COLUMNS} FROM hit_lists WHERE deleted_at IS NULL ORDER BY created_at`,
   );
-  return rows.map(rowToHitList);
+  const members = await db.getAllAsync<MemberRow>(
+    `SELECT ${MEMBER_COLUMNS} FROM hit_list_members m LEFT JOIN profiles p ON p.id = m.user_id
+     WHERE m.list_id IN (SELECT id FROM hit_lists WHERE deleted_at IS NULL)
+     ORDER BY ${MEMBER_ORDER}`,
+  );
+  const byList = new Map<string, HitListMember[]>();
+  for (const row of members) {
+    const { list_id, joined_at: _joined, ...member } = rowToMember(row);
+    byList.set(list_id, [...(byList.get(list_id) ?? []), member]);
+  }
+  return rows.map((row) => {
+    const list = rowToHitList(row);
+    const listMembers = byList.get(list.id);
+    return listMembers ? { ...list, members: listMembers } : list;
+  });
 }
 
 /** Writes only the keys given (`area_place: null` clears the place); a deleted list is left alone. */
@@ -149,12 +163,14 @@ export async function addSpotsToList(
   listId: string,
   spotIds: string[],
   addedAt: string = new Date().toISOString(),
+  addedBy: string | null = null,
 ): Promise<void> {
   if (spotIds.length === 0) return;
   await db.runAsync(
-    `INSERT OR IGNORE INTO hit_list_spots (list_id, spot_id, added_at)
-     SELECT ?, value, ? FROM json_each(?)`,
+    `INSERT OR IGNORE INTO hit_list_spots (list_id, spot_id, added_by, added_at)
+     SELECT ?, value, ?, ? FROM json_each(?)`,
     listId,
+    addedBy,
     addedAt,
     JSON.stringify(spotIds),
   );
@@ -178,4 +194,92 @@ export async function getListMemberships(db: SQLiteDatabase): Promise<Record<str
   const memberships: Record<string, string[]> = {};
   for (const { spot_id, list_id } of rows) (memberships[spot_id] ??= []).push(list_id);
   return memberships;
+}
+
+// ── The members mirror (migration 8, S8) ───────────────
+// The server's hit_list_members rows of the lists the rider owns, joined or is invited to; written only by
+// src/sync/ (pull, lists.ts) with what the server returned, never pushed.
+
+interface MemberRow {
+  list_id: string;
+  user_id: string;
+  role: string;
+  status: string;
+  joined_at: string | null;
+  username: string | null;
+}
+
+const MEMBER_COLUMNS = 'm.list_id, m.user_id, m.role, m.status, m.joined_at, p.username';
+/** Joined members first, then invitations; by username (unknown last), then id. */
+const MEMBER_ORDER = "m.list_id, m.status = 'invited', p.username IS NULL, p.username, m.user_id";
+
+function rowToMember(row: MemberRow): ListMember & { username?: string } {
+  return {
+    list_id: row.list_id,
+    user_id: row.user_id,
+    role: row.role as MemberRole,
+    status: row.status as MemberStatus,
+    ...(row.joined_at !== null ? { joined_at: row.joined_at } : {}),
+    ...(row.username !== null ? { username: row.username } : {}),
+  };
+}
+
+const memberJson = (rows: readonly ListMember[]) =>
+  JSON.stringify(rows.map(({ list_id, user_id, role, status, joined_at }) => ({ list_id, user_id, role, status, joined_at: joined_at ?? null })));
+
+/** Inserts or updates `rows` in one statement; resolves how many rows it actually changed. */
+export async function upsertMembers(db: SQLiteDatabase, rows: readonly ListMember[]): Promise<number> {
+  if (rows.length === 0) return 0;
+  const { changes } = await db.runAsync(
+    `INSERT INTO hit_list_members (list_id, user_id, role, status, joined_at)
+       SELECT json_extract(value, '$.list_id'), json_extract(value, '$.user_id'), json_extract(value, '$.role'),
+              json_extract(value, '$.status'), json_extract(value, '$.joined_at')
+       FROM json_each(?) WHERE true
+     ON CONFLICT(list_id, user_id) DO UPDATE SET
+       role = excluded.role, status = excluded.status, joined_at = excluded.joined_at
+     WHERE role IS NOT excluded.role OR status IS NOT excluded.status OR joined_at IS NOT excluded.joined_at`,
+    memberJson(rows),
+  );
+  return changes;
+}
+
+/** The mirror becomes exactly `rows` (a full read of the server's); resolves whether any row changed. */
+export async function replaceMembers(db: SQLiteDatabase, rows: readonly ListMember[]): Promise<boolean> {
+  const { changes: removed } = await db.runAsync(
+    `DELETE FROM hit_list_members WHERE list_id || '/' || user_id NOT IN (SELECT value FROM json_each(?))`,
+    JSON.stringify(rows.map((r) => `${r.list_id}/${r.user_id}`)),
+  );
+  return (await upsertMembers(db, rows)) > 0 || removed > 0;
+}
+
+/** One list's rows, joined members first, with usernames from the profiles mirror. */
+export async function getMembers(db: SQLiteDatabase, listId: string): Promise<(ListMember & { username?: string })[]> {
+  const rows = await db.getAllAsync<MemberRow>(
+    `SELECT ${MEMBER_COLUMNS} FROM hit_list_members m LEFT JOIN profiles p ON p.id = m.user_id
+     WHERE m.list_id = ? ORDER BY ${MEMBER_ORDER}`,
+    listId,
+  );
+  return rows.map(rowToMember);
+}
+
+/** `{ [listId]: { role, status } }` of the rider's own rows. */
+export async function getMyMemberships(
+  db: SQLiteDatabase,
+  uid: string,
+): Promise<Record<string, { role: MemberRole; status: MemberStatus }>> {
+  const rows = await db.getAllAsync<{ list_id: string; role: string; status: string }>(
+    'SELECT list_id, role, status FROM hit_list_members WHERE user_id = ? ORDER BY list_id',
+    uid,
+  );
+  return Object.fromEntries(
+    rows.map((r) => [r.list_id, { role: r.role as MemberRole, status: r.status as MemberStatus }]),
+  );
+}
+
+export async function deleteMembers(db: SQLiteDatabase, listId: string): Promise<void> {
+  await db.runAsync('DELETE FROM hit_list_members WHERE list_id = ?', listId);
+}
+
+export async function deleteMember(db: SQLiteDatabase, listId: string, userId: string): Promise<void> {
+  await db.runAsync('DELETE FROM hit_list_members WHERE list_id = ? AND user_id = ?', listId, userId);
 }

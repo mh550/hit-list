@@ -11,4 +11,10 @@ export {
   addSpotsToList,
   removeSpotFromList,
   getListMemberships,
+  upsertMembers,
+  replaceMembers,
+  getMembers,
+  getMyMemberships,
+  deleteMembers,
+  deleteMember,
 } from './hit-lists';

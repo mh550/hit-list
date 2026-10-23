@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   KeyboardAvoidingView,
@@ -116,6 +116,8 @@ function AreaPickerBody({ editList }: { editList?: AreaList }) {
   const [filterVisible, setFilterVisible] = useState(false);
   const [choosing, setChoosing] = useState(false);
   const [savingArea, setSavingArea] = useState(false);
+  // Read by Cancel: a back while 'Save area' writes, then the save's own back, would pop the list screen too.
+  const savingAreaRef = useRef(false);
   const mapRef = useRef<MapView | null>(null);
   // A geocode answer applies only if nothing has moved the centre or changed the text since its submit: every such
   // action bumps this counter.
@@ -129,9 +131,10 @@ function AreaPickerBody({ editList }: { editList?: AreaList }) {
   );
   const activeFilterCount = selectActiveFilterCount(filters);
 
-  // D55: editing an area list loads its filters into the shared ones (the Filter badge shows them); once per list.
+  // D55: editing an area list loads its filters into the shared ones (the Filter badge shows them); once per list,
+  // before the first paint so the count doesn't open on the Spots tab's filters.
   const editListId = editList?.id;
-  useEffect(() => {
+  useLayoutEffect(() => {
     const list = useHitListsStore.getState().lists.find((l) => l.id === editListId);
     if (!list) return;
     const { resetFilters, setFilters } = useSpotsStore.getState();
@@ -169,11 +172,15 @@ function AreaPickerBody({ editList }: { editList?: AreaList }) {
       reportSaveFailure();
       throw err;
     }
+    // Closed first: the name card would take a second Create until the transition starts, and the screen shouldn't
+    // go while it presents a Modal.
+    setChoosing(false);
     router.replace(`/list/${listId}`);
   };
 
   const saveArea = async () => {
-    if (!editList || savingArea) return;
+    if (!editList || savingAreaRef.current) return;
+    savingAreaRef.current = true;
     setSavingArea(true);
     try {
       await updateHitList(editList.id, {
@@ -183,6 +190,7 @@ function AreaPickerBody({ editList }: { editList?: AreaList }) {
         area_filters: { ...filters },
       });
     } catch {
+      savingAreaRef.current = false;
       setSavingArea(false);
       reportSaveFailure();
       return;
@@ -254,7 +262,9 @@ function AreaPickerBody({ editList }: { editList?: AreaList }) {
     <View style={styles.container}>
       <Stack.Screen
         options={{
-          headerLeft: () => <HeaderTextButton onPress={() => router.back()}>Cancel</HeaderTextButton>,
+          headerLeft: () => (
+            <HeaderTextButton onPress={() => !savingAreaRef.current && router.back()}>Cancel</HeaderTextButton>
+          ),
           headerRight: () => (
             <HeaderTextButton
               onPress={() => setFilterVisible(true)}

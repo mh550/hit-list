@@ -24,6 +24,7 @@ export function useHitListActions() {
   const db = useSQLiteContext();
   const addList = useHitListsStore((s) => s.addList);
   const updateList = useHitListsStore((s) => s.updateList);
+  const replaceList = useHitListsStore((s) => s.replaceList);
   const removeList = useHitListsStore((s) => s.removeList);
   const addMemberships = useHitListsStore((s) => s.addMemberships);
   const removeMemberships = useHitListsStore((s) => s.removeMemberships);
@@ -83,18 +84,21 @@ export function useHitListActions() {
         await dbUpdateHitList(db, id, applied);
       } catch (err) {
         console.error('[useHitListActions] updateHitList failed:', err);
-        // Put back the keys this call patched, unless a later update has replaced it in the meantime.
-        if (before && findList(id)?.updated_at === applied.updated_at) {
-          const restore: HitListUpdate = { updated_at: before.updated_at };
+        // Put back the keys this call patched (dropping those the list didn't have), unless a later update has
+        // replaced it in the meantime.
+        const current = findList(id);
+        if (before && current?.updated_at === applied.updated_at) {
+          const restored: Record<string, unknown> = { ...current, updated_at: before.updated_at };
           for (const key of Object.keys(updates) as (keyof HitListUpdate)[]) {
-            Object.assign(restore, { [key]: before[key] ?? (key === 'area_place' ? null : undefined) });
+            if (before[key] === undefined) delete restored[key];
+            else restored[key] = before[key];
           }
-          updateList(id, restore);
+          replaceList(restored as unknown as HitList);
         }
         throw err;
       }
     },
-    [db, updateList],
+    [db, updateList, replaceList],
   );
 
   const deleteList = useCallback(

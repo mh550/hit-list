@@ -581,6 +581,17 @@ describe('Area picker: saving a new list (S2-04)', () => {
     expect(mockAddSpotsToList.mock.invocationCallOrder[0]).toBeLessThan(replace.mock.invocationCallOrder[0]);
   });
 
+  it('closes the chooser before it navigates, so Create cannot run twice', async () => {
+    renderPicker();
+    choose('Keep it updated');
+    await nameIt('Weekend');
+
+    expect(screen.queryByLabelText('List name')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Create' })).toBeNull();
+    expect(mockCreateList).toHaveBeenCalledTimes(1);
+    expect(replace).toHaveBeenCalledTimes(1);
+  });
+
   it("'Keep it updated' → Create makes an area list of the circle, place and filters, with no memberships", async () => {
     jest.mocked(geocodeAsync).mockResolvedValue([CAPITOL_HILL]);
     useSpotsStore.setState({ filters: { types: [FeatureType.Rail], stopped: true } });
@@ -725,6 +736,18 @@ describe('Area picker: editing an area list (S2-04)', () => {
       'L-area',
       expect.objectContaining({ area_center: CITIES.portland, area_radius_m: 1609, area_place: null }),
     );
+  });
+
+  it("ignores Cancel while 'Save area' is writing (two backs would pop the list too)", async () => {
+    let finish: () => void = () => {};
+    mockUpdateHitList.mockImplementationOnce(() => new Promise<void>((resolve) => (finish = resolve)));
+    renderPicker();
+
+    fireEvent.press(screen.getByRole('button', { name: 'Save area' }));
+    pressHeader('headerLeft', 'Cancel');
+    await act(async () => finish());
+
+    expect(back).toHaveBeenCalledTimes(1);
   });
 
   it("a failed 'Save area' says so and stays", async () => {

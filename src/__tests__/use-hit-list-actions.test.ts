@@ -185,6 +185,19 @@ describe('useHitListActions', () => {
     expect(consoleSpy).toHaveBeenCalledWith('[useHitListActions] updateHitList failed:', err);
   });
 
+  it('updateHitList: a failed write takes back a key the list did not have before', async () => {
+    const list = await seedList({ kind: 'area', area_center: CITIES.seattle, area_radius_m: 3219 });
+    const { err } = failNextWrite();
+    const { result } = renderHook(() => useHitListActions());
+    await act(async () => {
+      await expect(
+        result.current.updateHitList(list.id, { area_filters: { types: [FeatureType.Rail] } }),
+      ).rejects.toBe(err);
+    });
+    expect(store().lists[0].area_filters).toBeUndefined();
+    expect(store().lists).toEqual([list]);
+  });
+
   it('updateHitList: a failed write that clears no place keeps a list that had none without one', async () => {
     const list = await seedList({ kind: 'area', area_center: CITIES.seattle, area_radius_m: 3219 });
     const { err } = failNextWrite();

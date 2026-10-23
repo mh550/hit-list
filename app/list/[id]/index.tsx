@@ -44,7 +44,7 @@ export default function ListScreen() {
     // expo-router's Stack.Screen only sets options, so clear the list's title and Rename/Filter buttons here.
     return (
       <View style={styles.container}>
-        <Stack.Screen options={{ title: 'Hit list', headerRight: () => null }} />
+        <Stack.Screen options={{ title: 'Hit list', headerTitle: undefined, headerRight: () => null }} />
         {deleting ? null : (
           <EmptyState icon="list.bullet" title="This list is gone" message="It may have been deleted." />
         )}
@@ -108,7 +108,11 @@ export default function ListScreen() {
   const isArea = list.kind === 'area';
   const areaTitle =
     isArea && list.area_radius_m !== undefined ? (
-      <View style={styles.title} accessibilityRole="header">
+      <View
+        style={styles.title}
+        accessible
+        accessibilityRole="header"
+        accessibilityLabel={`${list.name}, ${areaLabel(list.area_radius_m, units, list.area_place)}`}>
         <Text style={styles.titleName} numberOfLines={1}>
           {list.name}
         </Text>

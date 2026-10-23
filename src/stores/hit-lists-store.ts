@@ -15,6 +15,8 @@ interface HitListsState {
   setMemberships: (membershipBySpot: Record<string, string[]>) => void;
   addList: (list: HitList) => void;
   updateList: (id: string, updates: HitListUpdate) => void;
+  /** Swaps in this version of the list, by id (a failed write's revert, which may need to drop a key). */
+  replaceList: (list: HitList) => void;
   /** Also resets activeListId to null when it was this list. */
   removeList: (id: string) => void;
   /** No duplicates: a spot already in the list keeps its place. */
@@ -48,6 +50,8 @@ export const useHitListsStore = create<HitListsState>((set) => ({
         }),
       };
     }),
+
+  replaceList: (list) => set((s) => ({ lists: s.lists.map((l) => (l.id === list.id ? list : l)) })),
 
   removeList: (id) =>
     set((s) => ({

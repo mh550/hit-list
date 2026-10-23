@@ -369,6 +369,18 @@ describe('List screen: an area list (S2-04)', () => {
     render((headerTitle as () => ReactElement)());
     expect(screen.getByText('Weekend')).toBeTruthy();
     expect(screen.getByText('Area · 2 mi of Capitol Hill')).toBeTruthy();
+    // VoiceOver reads the two lines as one header.
+    expect(screen.getByRole('header', { name: 'Weekend, Area · 2 mi of Capitol Hill' }).props.accessible).toBe(true);
+  });
+
+  it('drops the two-line title once the list is gone', () => {
+    renderList();
+    act(() => useHitListsStore.getState().removeList(weekend.id));
+
+    const screens = screen.UNSAFE_getAllByType('Stack.Screen' as never);
+    const options = (screens.at(-1)!.props as { options: ScreenOptions }).options;
+    expect('headerTitle' in options).toBe(true);
+    expect(options.headerTitle).toBeUndefined();
   });
 
   it("drops 'of <place>' when the list has no place", () => {

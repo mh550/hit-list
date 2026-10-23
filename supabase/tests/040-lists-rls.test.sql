@@ -1,7 +1,7 @@
 -- S3-04: who reads and writes a hit list, its spots and its members (D42 roles, D43 a member's spots leave with them,
 -- D57 invitations). §3.3 cases; the Case table in docs/plans/2026-10-22-s3-backend.md names each test.
 begin;
-select plan(79);
+select plan(94);
 
 -- People ----------------------------------------------------------------------------------------------------------
 select set_config('t.owner', tests.create_user('owner@test.local', 'owner')::text, true);
@@ -14,19 +14,32 @@ select set_config('t.stranger', tests.create_user('stranger@test.local', 'strang
 select set_config('t.friend', tests.create_user('friend@test.local', 'friend')::text, true);
 select set_config('t.friend2', tests.create_user('friend2@test.local', 'friend2')::text, true);
 select set_config('t.blocker', tests.create_user('blocker@test.local', 'blocker')::text, true);
+select set_config('t.blocked', tests.create_user('blocked@test.local', 'blocked')::text, true);
+select set_config('t.decliner', tests.create_user('decliner@test.local', 'decliner')::text, true);
+select set_config('t.withdrawn', tests.create_user('withdrawn@test.local', 'withdrawn')::text, true);
+select set_config('t.joiner', tests.create_user('joiner@test.local', 'joiner')::text, true);
+select set_config('t.late', tests.create_user('late@test.local', 'late')::text, true);
+select set_config('t.pending', tests.create_user('pending@test.local', 'pending')::text, true);
 
--- owner's accepted friends: friend, friend2 and blocker (who has also blocked owner; D50 says a block deletes the
--- friendship, the row is kept here to prove the block check on its own). stranger is nobody's friend.
+-- owner's accepted friends: friend, friend2, blocker (who has also blocked owner) and blocked (whom owner blocked; D50
+-- says a block deletes the friendship, the rows are kept here to prove the block checks on their own). stranger is
+-- nobody's friend. adder and friend2 are friends too (so 'member cannot invite' fails on the role, not the friendship).
 insert into public.friendships (user_a, user_b, status, requested_by)
 select least(o, f), greatest(o, f), 'accepted', o
 from (select current_setting('t.owner')::uuid as o, current_setting('t.' || who)::uuid as f
-      from unnest(array['friend', 'friend2', 'blocker']) as who) p;
+      from unnest(array['friend', 'friend2', 'blocker', 'blocked']) as who) p;
 insert into public.blocks (blocker, blocked)
-values (current_setting('t.blocker')::uuid, current_setting('t.owner')::uuid);
+values (current_setting('t.blocker')::uuid, current_setting('t.owner')::uuid),
+       (current_setting('t.owner')::uuid, current_setting('t.blocked')::uuid);
+insert into public.friendships (user_a, user_b, status, requested_by)
+select least(a, f), greatest(a, f), 'accepted', a
+from (select current_setting('t.adder')::uuid as a, current_setting('t.friend2')::uuid as f) p;
 
 -- Spots (as postgres: RLS bypassed for the setup) ------------------------------------------------------------------
--- o1 owner's, in L1 · o2, o3 owner's, in no list · o5 owner's, in L5 · a1 adder's, in L1 · a2 adder's, in no list ·
--- a3 adder's, in L5 · v1 viewer's · i1 invited's · l1 leaver's, in L1 · r1 removee's, in L1 · s1 stranger's.
+-- a1 owner's, in e1 · a2, a3 owner's, in no list · a5 owner's, in e5 · b1 adder's, in e1 · b2 adder's, in no list ·
+-- b3 adder's, in e5 · c1 viewer's · c2 invited's · c3 leaver's, in e1 · c4 removee's, in e1 · c5 stranger's, a stray
+-- row in e5 (added by someone not in the list, e.g. left behind by a race with Leave) · b4 adder's, in e1 (the owner
+-- removes it) · c6 joiner's, a row in e1 left from an earlier membership (Join clears it).
 insert into public.spots (id, owner_id, lat, lng, updated_at)
 select id::uuid, current_setting('t.' || who)::uuid, 40.0, -105.0, '2026-10-22T12:00:00Z'
 from (values
@@ -41,11 +54,15 @@ from (values
   ('00000000-0000-0000-0000-0000000000c2', 'invited'),
   ('00000000-0000-0000-0000-0000000000c3', 'leaver'),
   ('00000000-0000-0000-0000-0000000000c4', 'removee'),
-  ('00000000-0000-0000-0000-0000000000c5', 'stranger')
+  ('00000000-0000-0000-0000-0000000000c5', 'stranger'),
+  ('00000000-0000-0000-0000-0000000000b4', 'adder'),
+  ('00000000-0000-0000-0000-0000000000c6', 'joiner')
 ) as v(id, who);
 
 -- Lists, all owner's: e1 'Shared' shared manual · e2 'Private' manual, not shared · e3 'Area' shared area ·
--- e4 'Gone' shared manual, soft-deleted · e5 'Crew' shared manual (for stop_sharing).
+-- e4 'Gone' shared manual, soft-deleted · e5 'Crew' shared manual (for stop_sharing) · e6 'Was shared' manual, not
+-- shared, with adder's membership left over (only the service role can leave that state: unsharing drops members) ·
+-- e7 'Other crew' shared manual, adder not in it.
 insert into public.hit_lists (id, owner_id, name, kind, shared, area_center_lat, area_center_lng, area_radius_m,
                               updated_at, deleted_at)
 select id::uuid, current_setting('t.owner')::uuid, name, kind, shared, clat, clng, r, '2026-10-22T12:00:00Z', deleted
@@ -55,7 +72,9 @@ from (values
   ('00000000-0000-0000-0000-0000000000e2', 'Private', 'manual', false, null, null, null, null),
   ('00000000-0000-0000-0000-0000000000e3', 'Area', 'area', true, 40.0, -105.0, 1000, null),
   ('00000000-0000-0000-0000-0000000000e4', 'Gone', 'manual', true, null, null, null, now()),
-  ('00000000-0000-0000-0000-0000000000e5', 'Crew', 'manual', true, null, null, null, null)
+  ('00000000-0000-0000-0000-0000000000e5', 'Crew', 'manual', true, null, null, null, null),
+  ('00000000-0000-0000-0000-0000000000e6', 'Was shared', 'manual', false, null, null, null, null),
+  ('00000000-0000-0000-0000-0000000000e7', 'Other crew', 'manual', true, null, null, null, null)
 ) as v(id, name, kind, shared, clat, clng, r, deleted);
 
 insert into public.hit_list_members (list_id, user_id, role, status, invited_by)
@@ -68,7 +87,13 @@ from (values
   ('00000000-0000-0000-0000-0000000000e1', 'removee', 'add', 'member'),
   ('00000000-0000-0000-0000-0000000000e4', 'adder', 'add', 'member'),
   ('00000000-0000-0000-0000-0000000000e5', 'adder', 'add', 'member'),
-  ('00000000-0000-0000-0000-0000000000e5', 'viewer', 'view', 'member')
+  ('00000000-0000-0000-0000-0000000000e5', 'viewer', 'view', 'member'),
+  ('00000000-0000-0000-0000-0000000000e6', 'adder', 'add', 'member'),
+  ('00000000-0000-0000-0000-0000000000e1', 'decliner', 'add', 'invited'),
+  ('00000000-0000-0000-0000-0000000000e1', 'withdrawn', 'add', 'invited'),
+  ('00000000-0000-0000-0000-0000000000e1', 'joiner', 'view', 'invited'),
+  ('00000000-0000-0000-0000-0000000000e4', 'late', 'add', 'invited'),
+  ('00000000-0000-0000-0000-0000000000e5', 'pending', 'add', 'invited')
 ) as v(l, who, role, status);
 
 insert into public.hit_list_spots (list_id, spot_id, added_by)
@@ -79,7 +104,11 @@ from (values
   ('00000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-0000000000c3', 'leaver'),
   ('00000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-0000000000c4', 'removee'),
   ('00000000-0000-0000-0000-0000000000e5', '00000000-0000-0000-0000-0000000000a5', 'owner'),
-  ('00000000-0000-0000-0000-0000000000e5', '00000000-0000-0000-0000-0000000000b3', 'adder')
+  ('00000000-0000-0000-0000-0000000000e5', '00000000-0000-0000-0000-0000000000b3', 'adder'),
+  ('00000000-0000-0000-0000-0000000000e5', '00000000-0000-0000-0000-0000000000c5', 'stranger'),
+  ('00000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-0000000000b4', 'adder'),
+  ('00000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-0000000000c6', 'joiner'),
+  ('00000000-0000-0000-0000-0000000000e4', '00000000-0000-0000-0000-0000000000a3', 'owner')
 ) as v(l, s, who);
 
 -- Shape -------------------------------------------------------------------------------------------------------------
@@ -97,8 +126,8 @@ select ok((select count(*) > 0 and bool_and(roles = array['authenticated']::name
           'every list policy applies to authenticated only (anon gets none)');
 select is(
   array(select p from unnest(array['is_list_owner', 'is_list_member', 'is_list_invitee', 'can_add_to_list',
-                                   'can_invite_to_list', 'leave_list', 'remove_member', 'stop_sharing',
-                                   'remove_member_spots']) as p
+                                   'can_invite_to_list', 'can_read_list_spots', 'leave_list', 'remove_member',
+                                   'stop_sharing', 'remove_member_spots', 'drop_list_sharing']) as p
         where not exists (select 1 from pg_proc
                           where proname = p and pronamespace = 'public'::regnamespace
                             and prosecdef and 'search_path=""' = any(proconfig))),
@@ -109,15 +138,18 @@ select is(
   array(select proname::text from pg_proc
         where pronamespace = 'public'::regnamespace
           and proname in ('is_list_owner', 'is_list_member', 'is_list_invitee', 'can_add_to_list',
-                          'can_invite_to_list', 'leave_list', 'remove_member', 'stop_sharing', 'remove_member_spots',
-                          'guard_member_update', 'keep_list_identity')
+                          'can_invite_to_list', 'can_read_list_spots', 'leave_list', 'remove_member', 'stop_sharing',
+                          'remove_member_spots', 'drop_list_sharing', 'guard_member_update', 'keep_list_identity',
+                          'lock_adder_membership')
           and has_function_privilege('authenticated', oid, 'execute')
           and not has_function_privilege('anon', oid, 'execute')
         order by 1),
-  array['can_add_to_list', 'can_invite_to_list', 'is_list_invitee', 'is_list_member', 'is_list_owner', 'leave_list',
+  array['can_add_to_list', 'can_invite_to_list', 'can_read_list_spots', 'is_list_invitee', 'is_list_member', 'is_list_owner', 'leave_list',
         'remove_member', 'stop_sharing'],
   'authenticated executes the list helpers and functions, anon none, nobody the trigger functions'
 );
+select trigger_is('public', 'hit_list_spots', 't10_lock_membership', 'public', 'lock_adder_membership',
+                  'a member''s add locks their membership row until it commits (no row outlives a Leave)');
 
 -- Owner: everything on their own list -------------------------------------------------------------------------------
 select tests.authenticate_as(current_setting('t.owner')::uuid);
@@ -125,7 +157,7 @@ select results_eq(
   $$ select id from public.hit_lists order by id $$,
   $$ values ('00000000-0000-0000-0000-0000000000e1'::uuid), ('00000000-0000-0000-0000-0000000000e2'::uuid),
             ('00000000-0000-0000-0000-0000000000e3'::uuid), ('00000000-0000-0000-0000-0000000000e4'::uuid),
-            ('00000000-0000-0000-0000-0000000000e5'::uuid) $$,
+            ('00000000-0000-0000-0000-0000000000e5'::uuid), ('00000000-0000-0000-0000-0000000000e6'::uuid), ('00000000-0000-0000-0000-0000000000e7'::uuid) $$,
   'owner reads own lists, deleted included'
 );
 select lives_ok(
@@ -161,9 +193,16 @@ select throws_ok(
   'hit list id, owner_id, kind and created_at are fixed', 'owner cannot change a list''s kind'
 );
 select is((select count(*) from public.hit_list_members where list_id = '00000000-0000-0000-0000-0000000000e1'),
-          5::bigint, 'owner reads every membership of their list, invited included');
+          8::bigint, 'owner reads every membership of their list, invited included');
 select is((select count(*) from public.hit_list_spots where list_id = '00000000-0000-0000-0000-0000000000e1'),
-          4::bigint, 'owner reads every spot row of their list');
+          6::bigint, 'owner reads every spot row of their list');
+select results_eq(
+  $$ delete from public.hit_list_spots
+     where list_id = '00000000-0000-0000-0000-0000000000e1' and spot_id = '00000000-0000-0000-0000-0000000000b4'
+     returning spot_id $$,
+  $$ values ('00000000-0000-0000-0000-0000000000b4'::uuid) $$,
+  'owner removes a spot a member added'
+);
 select lives_ok(
   $$ insert into public.hit_list_spots (list_id, spot_id, added_by)
      values ('00000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-0000000000a2',
@@ -224,6 +263,12 @@ select throws_ok(
   '42501', null, 'blocked owner cannot invite the blocker'
 );
 select throws_ok(
+  $$ insert into public.hit_list_members (list_id, user_id, invited_by)
+     values ('00000000-0000-0000-0000-0000000000e1', current_setting('t.blocked')::uuid,
+             current_setting('t.owner')::uuid) $$,
+  '42501', null, 'owner cannot invite someone they blocked'
+);
+select throws_ok(
   $$ insert into public.hit_list_members (list_id, user_id, status, invited_by)
      values ('00000000-0000-0000-0000-0000000000e1', current_setting('t.friend2')::uuid, 'member',
              current_setting('t.owner')::uuid) $$,
@@ -234,6 +279,19 @@ select throws_ok(
      values ('00000000-0000-0000-0000-0000000000e2', current_setting('t.friend2')::uuid,
              current_setting('t.owner')::uuid) $$,
   '42501', null, 'owner cannot invite to an unshared list'
+);
+select throws_ok(
+  $$ insert into public.hit_list_members (list_id, user_id, invited_by)
+     values ('00000000-0000-0000-0000-0000000000e4', current_setting('t.friend2')::uuid,
+             current_setting('t.owner')::uuid) $$,
+  '42501', null, 'owner cannot invite to a deleted list'
+);
+select throws_ok(
+  $$ insert into public.hit_list_members (list_id, user_id, invited_by)
+     values ('00000000-0000-0000-0000-0000000000e1', current_setting('t.decliner')::uuid,
+             current_setting('t.owner')::uuid)
+     on conflict (list_id, user_id) do update set status = 'member' $$,
+  '42501', null, 'owner cannot force a join through an upsert'
 );
 select results_eq(
   $$ update public.hit_list_members set role = 'add'
@@ -328,9 +386,11 @@ select results_eq(
   'member reads the list row'
 );
 select is((select count(*) from public.hit_list_spots where list_id = '00000000-0000-0000-0000-0000000000e1'),
-          5::bigint, 'member reads every spot row of the list');
+          6::bigint, 'member reads every spot row of the list');
 select is((select count(*) from public.hit_list_members where list_id = '00000000-0000-0000-0000-0000000000e1'),
-          5::bigint, 'member reads the member strip');
+          8::bigint, 'member reads the member strip');
+select is_empty($$ select spot_id from public.hit_list_spots where list_id = '00000000-0000-0000-0000-0000000000e4' $$,
+                'member reads no spot row of a deleted list');
 select lives_ok(
   $$ insert into public.hit_list_spots (list_id, spot_id, added_by)
      values ('00000000-0000-0000-0000-0000000000e1', '00000000-0000-0000-0000-0000000000b2',
@@ -351,9 +411,15 @@ select throws_ok(
 );
 select throws_ok(
   $$ insert into public.hit_list_spots (list_id, spot_id, added_by)
-     values ('00000000-0000-0000-0000-0000000000e2', '00000000-0000-0000-0000-0000000000b2',
+     values ('00000000-0000-0000-0000-0000000000e7', '00000000-0000-0000-0000-0000000000b2',
              current_setting('t.adder')::uuid) $$,
   '42501', null, 'member cannot add to a list they are not in'
+);
+select throws_ok(
+  $$ insert into public.hit_list_spots (list_id, spot_id, added_by)
+     values ('00000000-0000-0000-0000-0000000000e6', '00000000-0000-0000-0000-0000000000b2',
+             current_setting('t.adder')::uuid) $$,
+  '42501', null, 'member cannot add to a list that is no longer shared'
 );
 select results_eq(
   $$ delete from public.hit_list_spots
@@ -412,6 +478,44 @@ select throws_ok(
   '42501', null, 'view member cannot make themselves an adder'
 );
 
+-- Invitations: Decline and withdraw through the functions, Join's rules -------------------------------------------
+select tests.authenticate_as(current_setting('t.decliner')::uuid);
+select lives_ok($$ select public.leave_list('00000000-0000-0000-0000-0000000000e1') $$,
+                'invitee declines through leave_list');
+select tests.authenticate_as(current_setting('t.owner')::uuid);
+select lives_ok($$ select public.remove_member('00000000-0000-0000-0000-0000000000e1',
+                                               current_setting('t.withdrawn')::uuid) $$,
+                'owner withdraws an invitation with remove_member');
+select tests.authenticate_as(current_setting('t.joiner')::uuid);
+select throws_ok(
+  $$ update public.hit_list_members set status = 'member', role = 'add'
+     where list_id = '00000000-0000-0000-0000-0000000000e1' and user_id = current_setting('t.joiner')::uuid $$,
+  '42501', null, 'a view invitee cannot join as an adder'
+);
+select results_eq(
+  $$ update public.hit_list_members set status = 'member', joined_at = '2000-01-01T00:00:00Z'
+     where list_id = '00000000-0000-0000-0000-0000000000e1' and user_id = current_setting('t.joiner')::uuid
+     returning joined_at > now() - interval '1 minute' $$,
+  $$ values (true) $$,
+  'Join stamps joined_at itself (a client value is ignored)'
+);
+select tests.authenticate_as(current_setting('t.late')::uuid);
+select throws_ok(
+  $$ update public.hit_list_members set status = 'member'
+     where list_id = '00000000-0000-0000-0000-0000000000e4' and user_id = current_setting('t.late')::uuid $$,
+  '42501', null, 'invitee cannot join a deleted list'
+);
+reset role;
+select ok(
+  not exists (select 1 from public.hit_list_members
+              where list_id = '00000000-0000-0000-0000-0000000000e1'
+                and user_id in (current_setting('t.decliner')::uuid, current_setting('t.withdrawn')::uuid))
+  and not exists (select 1 from public.hit_list_spots
+                  where list_id = '00000000-0000-0000-0000-0000000000e1'
+                    and added_by = current_setting('t.joiner')::uuid),
+  'declined and withdrawn invitations are gone; Join cleared a row left from an earlier membership'
+);
+
 -- leave_list (D43) --------------------------------------------------------------------------------------------------
 select tests.authenticate_as(current_setting('t.owner')::uuid);
 select throws_ok($$ select public.leave_list('00000000-0000-0000-0000-0000000000e1') $$,
@@ -465,7 +569,7 @@ select ok(
   'a direct delete of a membership takes the member''s spots out too'
 );
 
--- stop_sharing on e5 (members adder 'add' with b3, viewer 'view'; owner's a5) --------------------------------------
+-- stop_sharing on e5 (members adder 'add' with b3, viewer 'view'; invitee pending; owner's a5; the stray c5) --------------------------------------
 select tests.authenticate_as(current_setting('t.adder')::uuid);
 select is(public.can_read_spot('00000000-0000-0000-0000-0000000000a5'), true,
           'member reads the list spot before stop_sharing');
@@ -482,8 +586,25 @@ select results_eq(
             array(select s.spot_id from public.hit_list_spots s where s.list_id = l.id)
      from public.hit_lists l where l.id = '00000000-0000-0000-0000-0000000000e5' $$,
   $$ values (false, 0::bigint, array['00000000-0000-0000-0000-0000000000a5'::uuid]) $$,
-  'stop_sharing unshares, drops every member and their spots, keeps the owner''s'
+  'stop_sharing unshares, drops every member and every row but the owner''s'
 );
+
+-- Unsharing by a plain UPDATE (a sync push) does the same ---------------------------------------------------------
+select tests.authenticate_as(current_setting('t.owner')::uuid);
+update public.hit_lists set shared = false where id = '00000000-0000-0000-0000-0000000000e1';
+reset role;
+select ok(
+  not exists (select 1 from public.hit_list_members where list_id = '00000000-0000-0000-0000-0000000000e1')
+  and not exists (select 1 from public.hit_list_spots
+                  where list_id = '00000000-0000-0000-0000-0000000000e1'
+                    and added_by <> current_setting('t.owner')::uuid)
+  and exists (select 1 from public.hit_list_spots
+              where list_id = '00000000-0000-0000-0000-0000000000e1'
+                and added_by = current_setting('t.owner')::uuid),
+  'unsharing by a plain update drops every member and every row but the owner''s'
+);
+select tests.authenticate_as(current_setting('t.viewer')::uuid);
+select is_empty($$ select id from public.hit_lists $$, 'a former member reads no list once it is unshared');
 
 select * from finish();
 rollback;

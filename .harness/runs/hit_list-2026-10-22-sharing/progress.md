@@ -20,6 +20,14 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 02:50 · S3-04 · passes
+
+- Changed: `supabase/migrations/20261023021848_lists_rls.sql` (hit_lists / hit_list_spots / hit_list_members policies; definer helpers `is_list_owner`, `is_list_member`, `is_list_invitee`, `can_add_to_list`, `can_invite_to_list`, `can_read_list_spots`; `leave_list`, `remove_member`, `stop_sharing`; triggers `t05_keep_identity` (list owner_id/kind fixed), `t10_member_guard`, `t10_lock_membership`, `t30_member_spots_leave`/`_join` (D43), `t30_unshare`). `supabase/tests/040-lists-rls.test.sql` has 94 assertions; `010` 45 → 42. RED commit `62c39aa` (48/79 failed). Jest 924 → 924; pgTAP 138 → 229.
+- Verified: `db:start` → `db reset` → `test db`: `Files=4, Tests=229, Result: PASS` → `db:stop`; `docker ps` = the same 7 n8n-*/dj-* containers. 20 hand mutations of the migration each fail a named test. Two of them survived at first, which led to 3 new tests. A two-session race script: before the fix a row outlived `leave_list` (1 left); after it, leave waited ~2.1 s and 0 were left. `check.sh` green (924).
+- Opus review: 2 Important, both fixed test-first (8 of 13 new assertions failed on the pre-review SQL). (1) a plain `update set shared=false` kept members, so unsharing now drops them in a trigger. (2) a race between an add and Leave, fixed with a membership `FOR SHARE` lock plus a clean-up on Join. Minor: an invitee also sees an area list's circle. It is kept and recorded in the plan.
+- Next sessions must know: S3-05 should make `block_user` delete pending invitations between the two users. S3-07 `redeem_invite` runs as definer, so the member guard doesn't apply. It must refuse unshared or deleted lists and clear leftover rows. Both are under Proposed changes in the S3 plan.
+- Questions for Michael: none new.
+
 ### 2026-10-22 23:55 · S3-03 · passes
 
 - Changed: `supabase/migrations/20261023020530_spots_rls.sql` (`can_read_spot` security definer/stable/`search_path ''`, `spot_matches_filters`, spots + media policies to `authenticated`, `t05_keep_identity` triggers), `supabase/tests/030-spots-rls.test.sql` (60 assertions), `010` drops spots/media from the no-policy list (47 → 45). RED commit `6b057bc` (3 fail, died at test 4: no `can_read_spot`). Jest 924 → 924; pgTAP 80 → 138.

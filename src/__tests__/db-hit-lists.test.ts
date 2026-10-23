@@ -12,7 +12,7 @@ import {
   removeSpotFromList,
   getListMemberships,
 } from '@/src/db';
-import { deleteMember, deleteMembers, getMembers, getMyMemberships, replaceMembers, upsertMembers } from '@/src/db/hit-lists';
+import { deleteMember, deleteMembers, getMembers, replaceMembers, upsertMembers } from '@/src/db/hit-lists';
 import { upsertProfiles } from '@/src/db/profiles';
 import { FeatureType, type HitList, type ListMember, type Spot } from '@/src/types';
 
@@ -488,19 +488,6 @@ describe('the members mirror (migration 8, src/db/hit-lists.ts)', () => {
       { list_id: 'list-1', user_id: BEN, role: 'view', status: 'member', joined_at: '2026-10-23T09:00:00.000Z', username: 'ben' },
       { list_id: 'list-1', user_id: 'rider-cal', role: 'add', status: 'invited' },
     ]);
-  });
-
-  it("getMyMemberships maps each list to the rider's own role and status", async () => {
-    await upsertMembers(db, [
-      member({ user_id: ME, role: 'view' }),
-      member({ list_id: 'list-2', user_id: ME, status: 'invited', joined_at: undefined }),
-      member({ list_id: 'list-3' }),
-    ]);
-
-    expect(await getMyMemberships(db, ME)).toEqual({
-      'list-1': { role: 'view', status: 'member' },
-      'list-2': { role: 'add', status: 'invited' },
-    });
   });
 
   it('deleteMembers drops one list; deleteMember drops one row', async () => {

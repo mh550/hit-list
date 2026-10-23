@@ -268,22 +268,10 @@ export async function getMembers(db: SQLiteDatabase, listId: string): Promise<(L
   return rows.map(rowToMember);
 }
 
-/** `{ [listId]: { role, status } }` of the rider's own rows. */
-export async function getMyMemberships(
-  db: SQLiteDatabase,
-  uid: string,
-): Promise<Record<string, { role: MemberRole; status: MemberStatus }>> {
-  const rows = await db.getAllAsync<{ list_id: string; role: string; status: string }>(
-    'SELECT list_id, role, status FROM hit_list_members WHERE user_id = ? ORDER BY list_id',
-    uid,
-  );
-  return Object.fromEntries(
-    rows.map((r) => [r.list_id, { role: r.role as MemberRole, status: r.status as MemberStatus }]),
-  );
-}
-
-export async function deleteMembers(db: SQLiteDatabase, listId: string): Promise<void> {
-  await db.runAsync('DELETE FROM hit_list_members WHERE list_id = ?', listId);
+/** Drops one list's mirror rows; resolves how many. */
+export async function deleteMembers(db: SQLiteDatabase, listId: string): Promise<number> {
+  const { changes } = await db.runAsync('DELETE FROM hit_list_members WHERE list_id = ?', listId);
+  return changes;
 }
 
 export async function deleteMember(db: SQLiteDatabase, listId: string, userId: string): Promise<void> {

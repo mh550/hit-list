@@ -48,9 +48,6 @@ const fail = (error: ServerError): Error => (error.code === '42501' ? new NotAll
 
 type Row = Record<string, unknown>;
 
-/** Takes a commit's changes to the screens. */
-const reload = (db: SQLiteDatabase) => reloadStoresQuietly(db);
-
 /**
  * Runs `write` on the sync queue in one transaction (no pull sees it half done), then deletes the cached photos. The
  * server has already answered, so a local failure only warns: the transaction leaves every row, and the next pull's
@@ -70,7 +67,7 @@ async function removeLocally(db: SQLiteDatabase, uid: string, write: () => Promi
     console.warn('[lists] the local removal failed; the next sync removes the rows:', errorMessage(err));
   }
   deleteCachedPhotos(removed);
-  await reload(db);
+  await reloadStoresQuietly(db);
 }
 
 /**
@@ -98,7 +95,7 @@ export async function shareList(
     const { data, error } = await client.rpc('share_list', { p_list: listId });
     if (error) throw fail(error);
     await applyListRow(db, data as Row);
-    await reload(db);
+    await reloadStoresQuietly(db);
   }
   return invite(db, client, uid, listId, friendIds, role);
 }
@@ -134,7 +131,7 @@ export async function invite(
     db,
     rows.filter((r) => !known.has(r.user_id)).map(({ list_id, user_id }) => ({ list_id, user_id, role, status: 'invited' })),
   );
-  await reload(db);
+  await reloadStoresQuietly(db);
   return true;
 }
 
@@ -158,7 +155,7 @@ export async function setRole(
   const rows = (data ?? []) as Row[];
   if (rows.length === 0) throw new NotAllowedError();
   await upsertMembers(db, rows.map(memberFromServer));
-  await reload(db);
+  await reloadStoresQuietly(db);
   return true;
 }
 
@@ -254,7 +251,7 @@ export async function respondInvite(
     removeItem();
     await mirrorAnswer(() => deleteMember(db, listId, uid));
   }
-  await reload(db);
+  await reloadStoresQuietly(db);
   return true;
 }
 

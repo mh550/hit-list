@@ -38,6 +38,7 @@ import { isJoining, joinList } from '@/src/sync/join';
 import { INVITATION_WITHDRAWN, loadAndApplyInvites, respondInvite } from '@/src/sync/lists';
 import { PHOTOS_BUCKET } from '@/src/sync/photos';
 import { dismissSend, hasPendingSave, loadAndApplySends, saveSend, type SaveResult } from '@/src/sync/sends';
+import { handleOf } from '@/src/utils/members';
 import { frozenSpotTitle } from '@/src/utils/send-payload';
 import { spotCountLabel } from '@/src/utils/spot-name';
 
@@ -261,7 +262,7 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
     );
 
   const renderRequest = (item: FriendRequestItem) => {
-    const handle = item.from.username ? `@${item.from.username}` : 'this rider';
+    const handle = handleOf(item.from.username, 'this rider');
     const line = `${item.from.username ? `@${item.from.username}` : 'A rider'} wants to be friends`;
     const isBusy = busy.has(keyOf(item));
     return (
@@ -412,7 +413,7 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
 
   const renderInvite = (item: InviteItem) => {
     const line = inviteLine(item);
-    const handle = item.from.username ? `@${item.from.username}` : 'this rider';
+    const handle = handleOf(item.from.username, 'this rider');
     const busyLabel = busy.get(keyOf(item));
     return (
       <View style={styles.row}>

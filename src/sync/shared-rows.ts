@@ -1,4 +1,5 @@
 import type { SQLiteBindValue, SQLiteDatabase } from 'expo-sqlite';
+import { deleteMember, deleteMembers } from '@/src/db/hit-lists';
 
 /*
  * Local removals of shared-list rows (S8, docs/plans/2026-10-22-s8-shared-lists.md): Leave, Stop sharing, Remove and
@@ -26,14 +27,14 @@ export async function forgetList(db: SQLiteDatabase, listId: string): Promise<bo
     listId,
     listId,
   );
-  const { changes: members } = await db.runAsync('DELETE FROM hit_list_members WHERE list_id = ?', listId);
+  const members = await deleteMembers(db, listId);
   const { changes: list } = await db.runAsync('DELETE FROM hit_lists WHERE id = ?', listId);
   return memberships + members + list > 0;
 }
 
 /** The rider's own list is private again: its mirror rows go, and so do the spots others had put in it (D43). */
 export async function unshareLocally(db: SQLiteDatabase, uid: string, listId: string): Promise<void> {
-  await db.runAsync('DELETE FROM hit_list_members WHERE list_id = ?', listId);
+  await deleteMembers(db, listId);
   await dropMemberships(
     db,
     'list_id = ? AND spot_id IN (SELECT id FROM spots WHERE owner_id IS NOT NULL AND owner_id <> ?)',
@@ -44,7 +45,7 @@ export async function unshareLocally(db: SQLiteDatabase, uid: string, listId: st
 
 /** A member the owner removed: their mirror row and their spots in the list (D43). */
 export async function removeMemberLocally(db: SQLiteDatabase, listId: string, userId: string): Promise<void> {
-  await db.runAsync('DELETE FROM hit_list_members WHERE list_id = ? AND user_id = ?', listId, userId);
+  await deleteMember(db, listId, userId);
   await dropMemberships(db, 'list_id = ? AND spot_id IN (SELECT id FROM spots WHERE owner_id = ?)', listId, userId);
 }
 

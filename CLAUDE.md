@@ -136,7 +136,7 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   Migration 7 (S7-02): `spots.copied_from_send`/`from_username` (a saved send's copy, 'From @ana' under the detail title),
   written only by `insertSpot`, never by `updateSpot`. Push/pull carry both (pull only when the server row has the key).
   Migration 8 (S8-02): `hit_list_members` (the members mirror, no FK, never pushed; `upsertMembers`/`replaceMembers`/
-  `getMembers`/`getMyMemberships` in `hit-lists.ts`, `getHitLists` attaches `members`) and the membership triggers
+  `getMembers`/`deleteMembers`/`deleteMember` in `hit-lists.ts`, `getHitLists` attaches `members`) and the membership triggers
   recreated: an add queues when the spot is the rider's and the list has an owner (a member's add), a delete when the
   list is the rider's and the spot has an owner, or the spot is the rider's and the list has an owner. So **every
   local membership DELETE that isn't the rider's own change sets `rev = -1` first** (pull, `src/sync/shared-rows.ts`).

@@ -14,7 +14,6 @@ export {
   upsertMembers,
   replaceMembers,
   getMembers,
-  getMyMemberships,
   deleteMembers,
   deleteMember,
 } from './hit-lists';

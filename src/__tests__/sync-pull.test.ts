@@ -296,6 +296,26 @@ describe('pull: bring the server rows down (real SQLite, fake client)', () => {
       ]);
     });
 
+    it('an edit saved while the pull is running is never overwritten (the updated_at guard is in the UPDATE)', async () => {
+      await insertSpot(db, createTestSpot({ id: 'spot-1', owner_id: ME, name: 'Mine', updated_at: T0 }));
+      await clearOutbox(db);
+      serve({ spots: [serverSpot({ name: 'Theirs', rev: 6 })] });
+      // the rider saves between the pull's read of the row (T0 < T1: apply) and its UPDATE
+      const run = db.runAsync.bind(db);
+      jest.spyOn(db, 'runAsync').mockImplementation((async (sql: string, ...params: never[]) => {
+        if (sql.startsWith('UPDATE spots SET owner_id')) {
+          await run('UPDATE spots SET name = ?, updated_at = ? WHERE id = ?', 'Edited', T2, 'spot-1');
+        }
+        return run(sql, ...params);
+      }) as typeof db.runAsync);
+
+      expect(await pull(db, asClient(fake), ME)).toEqual({ changed: false });
+
+      expect((await getSpot(db, 'spot-1'))?.name).toBe('Edited');
+      expect((await getSpot(db, 'spot-1'))?.updated_at).toBe(T2);
+      expect(await outboxOps(db)).toEqual([['spot', 'spot-1', 'upsert']]);
+    });
+
     it('the echo of the rider’s own push (same updated_at, newer rev) stores the rev and reports no change', async () => {
       await insertSpot(
         db,
@@ -493,9 +513,13 @@ describe('pull: bring the server rows down (real SQLite, fake client)', () => {
       await clearOutbox(db);
       // the server still lets the rider read foreign-1 only (not even listing 'mine': it must stay anyway); the row
       // has no rev, so only the id check sees it
+      // both memberships are still on the server, so only the readable-id check can remove foreign-2's
       serve({
         spots: [{ id: 'foreign-1', rev: null }],
-        hit_list_spots: [serverMembership({ spot_id: 'mine', rev: null })],
+        hit_list_spots: [
+          serverMembership({ spot_id: 'mine', rev: null }),
+          serverMembership({ spot_id: 'foreign-2', rev: null }),
+        ],
       });
     }
 
@@ -515,7 +539,8 @@ describe('pull: bring the server rows down (real SQLite, fake client)', () => {
       ]);
       expect((await getSpots(db)).map((s) => s.id).sort()).toEqual(['foreign-1', 'mine', 'phone-only']);
       expect(await rawSpot(db, 'foreign-2')).toBeNull();
-      expect(await getMediaForSpot(db, 'foreign-2')).toEqual([]);
+      expect(await db.getAllAsync('SELECT id FROM media WHERE spot_id = ?', 'foreign-2')).toEqual([]);
+      expect(await db.getAllAsync('SELECT list_id FROM hit_list_spots WHERE spot_id = ?', 'foreign-2')).toEqual([]);
       expect(await getListMemberships(db)).toEqual({ mine: ['list-1'] });
       expect(await countOutbox(db)).toBe(0);
     });
@@ -625,6 +650,13 @@ describe('downloadMissingPhotos: own photos pulled from another phone', () => {
     } finally {
       globalThis.FileReader = realFileReader;
     }
+  });
+
+  it('skips the photos of a deleted spot', async () => {
+    await db.runAsync('UPDATE spots SET deleted_at = ?, rev = 99 WHERE id = ?', T2, 'spot-1');
+    const io = memoryIO({});
+    expect(await downloadMissingPhotos(db, asClient(fake), ME, io)).toBe(0);
+    expect(io.exists).not.toHaveBeenCalled();
   });
 
   it('stops after `limit` downloads', async () => {

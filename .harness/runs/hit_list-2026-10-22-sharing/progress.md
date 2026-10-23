@@ -20,6 +20,14 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-22 23:55 · S3-03 · passes
+
+- Changed: `supabase/migrations/20261023020530_spots_rls.sql` (`can_read_spot` security definer/stable/`search_path ''`, `spot_matches_filters`, spots + media policies to `authenticated`, `t05_keep_identity` triggers), `supabase/tests/030-spots-rls.test.sql` (60 assertions), `010` drops spots/media from the no-policy list (47 → 45). RED commit `6b057bc` (3 fail, died at test 4: no `can_read_spot`). Jest 924 → 924; pgTAP 80 → 138.
+- Verified: `supabase start` → `db reset` → `test db`: `Files=3, Tests=138, Result: PASS` → `supabase stop` exit 0; `docker ps` = the same 7 n8n-*/dj-* containers. Hand-made mutations of every `can_read_spot` condition, the filters and `media_select` each fail a named test. `check.sh` green (924).
+- Opus review: 11 findings, no current leak. Fixed test-first: a manual-list row grants read only if `added_by` = the spot's owner and that owner is still the list owner or a member. The area circle is on the sphere, matching the app's haversine (edge test at 999.5 m). Allow-list probe guard. A 20-case filter table. Area shared/deleted/invited tests. Spot/photo identity fixed. The table is under Review in the S3 plan.
+- Next session (S3-04) must know: make `hit_lists.owner_id`/`kind` immutable and test it, because the area branch trusts `owner_id`. Keep `hit_list_spots` insert = `added_by = auth.uid()` and caller owns the spot. S5: index `rev`; upserts must resend the same identity columns, otherwise `t05` raises 42501.
+- Questions for Michael: none new.
+
 ### 2026-10-22 23:10 · S3-02 · passes
 
 - Changed: `supabase/migrations/20261023015403_schema.sql` (the only migration: 10 tables, RLS on + no policies, postgis/citext in `extensions`, `sync_rev`, `t20_rev` / `t10_stale_guard` / `on_auth_user_created` triggers, username check, privileges), `supabase/seed.sql` (`tests.create_user`, `authenticate_as`, `authenticate_as_service_role`, `clear_auth`), `supabase/tests/010-schema.test.sql` (47) + `020-triggers.test.sql` (33). RED commit `1981ed4` (no migration: all failed). Jest 924 → 924 (SQL only); pgTAP 0 → 80.

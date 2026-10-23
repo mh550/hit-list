@@ -1,6 +1,6 @@
 -- S3-02: every §3.2 table exists with RLS on (no policies yet = deny all), the extensions, the generated geog.
 begin;
-select plan(47);
+select plan(45);
 
 select has_table('public', 'profiles', 'profiles exists');
 select has_table('public', 'spots', 'spots exists');
@@ -18,9 +18,9 @@ select ok(coalesce((select relrowsecurity from pg_class where oid = to_regclass(
 from unnest(array['profiles', 'spots', 'media', 'hit_lists', 'hit_list_spots', 'hit_list_members', 'friendships',
                   'blocks', 'sends', 'links']) as t;
 
--- Deny all: no policy on any table yet.
+-- Deny all: no policy on a table until its feature's migration (spots and media: S3-03, 030-spots-rls).
 select policies_are('public', t, '{}'::name[], t || ' has no policies')
-from unnest(array['profiles', 'spots', 'media', 'hit_lists', 'hit_list_spots', 'hit_list_members', 'friendships',
+from unnest(array['profiles', 'hit_lists', 'hit_list_spots', 'hit_list_members', 'friendships',
                   'blocks', 'sends', 'links']) as t;
 
 -- Privileges: nobody but the trigger can move the pull cursor; anon/authenticated can't TRUNCATE (RLS doesn't cover

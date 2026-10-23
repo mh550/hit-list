@@ -20,6 +20,7 @@ jest.mock('@/src/sync/lists', () => ({
   stopSharing: jest.fn(),
   leave: jest.fn(),
 }));
+jest.mock('@/src/sync/engine', () => ({ syncNow: jest.fn(() => Promise.resolve()) }));
 // The link calls are sync-links.test.ts's; here only what the screen asks of them (S9-03).
 jest.mock('@/src/sync/links', () => ({
   ...jest.requireActual('@/src/sync/links'),
@@ -47,7 +48,8 @@ import MembersScreen from '@/app/list/[id]/members';
 import { useHitListsStore, useSpotsStore } from '@/src/stores';
 import { SIGNED_OUT, useAuthStore, type AuthSnapshot } from '@/src/stores/auth-store';
 import { clearToast, useToastStore } from '@/src/stores/toast-store';
-import { leave, NotAllowedError, removeMember, setRole, stopSharing } from '@/src/sync/lists';
+import { leave, ListNotBackedUpError, NotAllowedError, removeMember, setRole, stopSharing } from '@/src/sync/lists';
+import { syncNow } from '@/src/sync/engine';
 import { createInviteLink, listMyLinks, revokeLink, type MyLink } from '@/src/sync/links';
 import { addFriend, refreshFriends, type FriendProfile } from '@/src/sync/friends';
 import { EMPTY_FRIENDS, useFriendsStore } from '@/src/stores/friends-store';
@@ -295,6 +297,21 @@ describe('Members screen as the owner', () => {
       await pressed;
     });
     expect(useToastStore.getState().text).toBe('Stopped sharing Downtown');
+    expect(router.back).not.toHaveBeenCalled();
+  });
+
+  // S10-01 review D1: a change of the list still waiting would be lost, so it syncs first and refuses if it still waits
+  it("'Stop sharing' syncs first; a list still not backed up alerts \"This list isn't backed up yet.\" and stays", async () => {
+    jest.mocked(stopSharing).mockRejectedValue(new ListNotBackedUpError());
+    await renderScreen();
+    fireEvent.press(screen.getByRole('button', { name: 'Stop sharing' }));
+    await pressAlertButton('Stop sharing');
+
+    expect(syncNow).toHaveBeenCalledWith(db);
+    expect(jest.mocked(syncNow).mock.invocationCallOrder[0]).toBeLessThan(
+      jest.mocked(stopSharing).mock.invocationCallOrder[0],
+    );
+    expect(lastAlert()[0]).toBe("This list isn't backed up yet.");
     expect(router.back).not.toHaveBeenCalled();
   });
 

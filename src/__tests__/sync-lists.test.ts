@@ -9,7 +9,7 @@ import { fakeFs } from './helpers/fake-fs';
 import { ME, adoptPhoneFor, outboxOps } from './helpers/outbox';
 import { createTestHitList, createTestSpot } from './factories';
 
-import { getHitLists, getMembers, insertHitList, insertSpot, upsertMembers } from '@/src/db';
+import { getHitLists, getMembers, insertHitList, insertSpot, updateHitList, upsertMembers } from '@/src/db';
 import { getProfiles } from '@/src/db/profiles';
 import { clearOutbox } from '@/src/db/sync';
 import {
@@ -385,6 +385,19 @@ describe('stopSharing', () => {
     expect(await ids('spots')).toEqual(['mine']);
     expect(await ids('media')).toEqual([]);
     expect(fakeFs.__fileExists(`${CACHE}photos/ana-1/ana-1-photo.jpg`)).toBe(false);
+  });
+
+  // S10-01 review D1: the re-read row (server now()) would overwrite a rename still waiting, and push the old name
+  it('refuses with ListNotBackedUpError before any call while a change of the list waits in the outbox (D85)', async () => {
+    await updateHitList(db, 'list-1', { name: 'DT spots', updated_at: '2026-10-23T10:00:00.000Z' });
+
+    await expect(stopSharing(db, client(), ME, 'list-1')).rejects.toBeInstanceOf(ListNotBackedUpError);
+
+    expect(fake.rpcs).toEqual([]);
+    expect(await db.getFirstAsync('SELECT name, shared FROM hit_lists WHERE id = ?', 'list-1')).toEqual({
+      name: 'DT spots',
+      shared: 1,
+    });
   });
 
   it('a failed stop_sharing changes nothing', async () => {

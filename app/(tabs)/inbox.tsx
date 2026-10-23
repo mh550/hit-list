@@ -85,12 +85,15 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
     [items],
   );
 
-  const runAction = async (key: string, action: () => Promise<void>) => {
+  /** Answers or blocks `item`'s request; once that went through, the row leaves at once (no second answer to it). */
+  const runAction = async (item: InboxItem, action: () => Promise<void>) => {
+    const key = item.id;
     if (busyKeys.current.has(key)) return;
     busyKeys.current.add(key);
     setBusy(new Set(busyKeys.current));
     try {
       await action();
+      useInboxStore.getState().removeItem(uid, item.kind, item.id);
     } catch (err) {
       console.warn('[Inbox] the action failed:', errorMessage(err));
       Alert.alert("Couldn't reach the server", 'Try again.');
@@ -113,7 +116,7 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
       {
         text: 'Block',
         style: 'destructive',
-        onPress: () => void runAction(item.id, () => block(client, uid, item.from.id)),
+        onPress: () => void runAction(item, () => block(client, uid, item.from.id)),
       },
     ]);
   };
@@ -150,21 +153,21 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
           ) : null}
         </Pressable>
         {isBusy ? (
-          <ActivityIndicator color={palette.gray[500]} />
+          <ActivityIndicator color={palette.gray[500]} accessibilityLabel="Sending your answer" />
         ) : (
           <View style={styles.actions}>
             <Button
               title="Accept"
               size="sm"
               accessibilityLabel={`Accept friend request from ${handle}`}
-              onPress={() => void runAction(item.id, () => respond(client, uid, item.friendshipId, 'accept'))}
+              onPress={() => void runAction(item, () => respond(client, uid, item.friendshipId, 'accept'))}
             />
             <Button
               title="Decline"
               variant="secondary"
               size="sm"
               accessibilityLabel={`Decline friend request from ${handle}`}
-              onPress={() => void runAction(item.id, () => respond(client, uid, item.friendshipId, 'decline'))}
+              onPress={() => void runAction(item, () => respond(client, uid, item.friendshipId, 'decline'))}
             />
           </View>
         )}

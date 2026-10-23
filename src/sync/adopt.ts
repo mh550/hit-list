@@ -10,6 +10,7 @@ import {
   setSyncState,
 } from '@/src/db/sync';
 import { clearProfiles } from '@/src/db/profiles';
+import { seenKey } from '@/src/stores/inbox-store';
 import { useSyncStore } from '@/src/stores/sync-store';
 import { deleteSpotPhotos } from '@/src/utils/photo-storage';
 import { reloadStoresQuietly, runExclusive } from './engine';
@@ -97,7 +98,10 @@ export function adopt(
     await db.withTransactionAsync(async () => {
       if (switching) {
         await setSyncState(db, 'user_id', null);
-        if (prev !== undefined) await setSyncState(db, `last_sync_at:${prev}`, null);
+        if (prev !== undefined) {
+          await setSyncState(db, `last_sync_at:${prev}`, null);
+          await setSyncState(db, seenKey(prev), null);
+        }
         removed = await deleteAccountRows(db, uid);
         await clearOutbox(db);
         await resetCursors(db);
@@ -133,6 +137,7 @@ export function removeLocalAccountData(
     await db.withTransactionAsync(async () => {
       await setSyncState(db, 'user_id', null);
       await setSyncState(db, `last_sync_at:${uid}`, null);
+      await setSyncState(db, seenKey(uid), null);
       removed = await deleteAccountRows(db, null);
       await clearOutbox(db);
       await resetCursors(db);
@@ -190,6 +195,7 @@ async function release(db: SQLiteDatabase, uid: string, io: Pick<PhotoIO, 'exist
   await db.withTransactionAsync(async () => {
     await setSyncState(db, 'user_id', null);
     await setSyncState(db, `last_sync_at:${uid}`, null);
+    await setSyncState(db, seenKey(uid), null);
     removed = await deleteAccountRows(db, uid);
     const media = await db.getAllAsync<{ id: string; file_path: string }>(
       'SELECT id, file_path FROM media WHERE owner_id = ?',

@@ -322,13 +322,17 @@ export async function loadAndApplyFriends(
       outgoing: data.outgoing.map((f) => ({ ...f, profile: named(f.profile) })),
       blocked: data.blocked.map(named).sort(byName),
     };
+    // The Inbox's seen mark loads before its items: a cold start with a stored session fires no sign-in, so nothing
+    // else would read it. One that can't be read stays unloaded (badge 0); it isn't a friends load error.
+    try {
+      await useInboxStore.getState().loadSeen(db, uid);
+    } catch (err) {
+      console.warn('[friends] reading the Inbox seen mark failed:', errorMessage(err));
+    }
     if (!isNewest() || !(await signedInAs(client, uid))) return;
+    // both stores move together; the Inbox takes only requests asked by others (never what the rider sent)
     useFriendsStore.getState().applyFriends(uid, filled);
-    // the Inbox's friend requests: only the ones asked by others (the badge never counts what the rider sent). The
-    // seen mark loads first: a cold start with a stored session fires no sign-in, so nothing else would read it.
-    const inbox = useInboxStore.getState();
-    await inbox.loadSeen(db, uid);
-    if (isNewest()) inbox.setItems(uid, 'friend_request', filled.incoming.map(requestItem));
+    useInboxStore.getState().setItems(uid, 'friend_request', filled.incoming.map(requestItem));
   } catch (err) {
     console.warn('[friends] loading friends failed:', errorMessage(err));
     if (isNewest()) useFriendsStore.getState().setLoadError(uid, errorMessage(err));

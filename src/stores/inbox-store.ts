@@ -39,6 +39,8 @@ export interface InboxState {
   seenAt: string | null | undefined;
   /** Replaces the items of `kind` only, unless `uid` is not the rider signed in now. */
   setItems: <K extends InboxKind>(uid: string, kind: K, items: ItemsOf<K>) => void;
+  /** Drops one item at once (answered, blocked), before the next load replaces the kind. */
+  removeItem: (uid: string, kind: InboxKind, id: string) => void;
   /** Reads `uid`'s stored seen mark (never moves the one in memory back). */
   loadSeen: (db: SQLiteDatabase, uid: string) => Promise<void>;
   /** Marks every item seen: stores max(stored, shown, newest item) under `uid`'s key. */
@@ -68,6 +70,12 @@ export const useInboxStore = create<InboxState>((set, get) => ({
       return;
     }
     set({ items: [...s.items.filter((i) => i.kind !== kind), ...items] });
+  },
+
+  removeItem: (uid, kind, id) => {
+    const s = get();
+    if (s.userId !== uid || !isShown(uid)) return;
+    set({ items: s.items.filter((i) => i.kind !== kind || i.id !== id) });
   },
 
   loadSeen: async (db, uid) => {

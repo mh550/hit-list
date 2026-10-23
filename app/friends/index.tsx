@@ -298,7 +298,7 @@ function FriendsBody({ client, uid }: { client: SupabaseClient; uid: string }) {
       ) : null}
       {loadError ? <Text style={styles.lineError}>{LOAD_FAILED}</Text> : null}
       {incomingCount > 0 ? (
-        <Pressable accessibilityRole="link" onPress={() => router.navigate('/inbox')} hitSlop={spacing.sm}>
+        <Pressable accessibilityRole="link" onPress={() => router.dismissTo('/inbox')} hitSlop={spacing.sm}>
           <Text style={styles.link}>
             {incomingCount === 1 ? '1 friend request in Inbox' : `${incomingCount} friend requests in Inbox`}
           </Text>

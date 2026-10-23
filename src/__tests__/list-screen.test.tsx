@@ -5,9 +5,10 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useHitListsStore, useMediaStore, useSpotsStore } from '@/src/stores';
 import { useLocationStore } from '@/src/stores/location-store';
-import { DEFAULT_FILTERS, FeatureType, SortDirection, SortField } from '@/src/types';
+import { DEFAULT_FILTERS, FeatureType, SortDirection, SortField, UnitSystem } from '@/src/types';
 import { SpotMap } from '@/src/components/SpotMap';
-import { createTestHitList, createTestSpot } from './factories';
+import { useSettingsStore } from '@/src/stores/settings-store';
+import { CITIES, createTestHitList, createTestSpot } from './factories';
 
 const mockRenameList = jest.fn((id: string, name: string): Promise<void> => {
   void id;
@@ -58,7 +59,7 @@ function renderList() {
   );
 }
 
-type ScreenOptions = { title?: string; headerRight?: () => ReactElement };
+type ScreenOptions = { title?: string; headerTitle?: string | (() => ReactElement); headerRight?: () => ReactElement };
 /** Every Stack.Screen's options, merged in render order (as the navigator merges them). */
 function headerOptions(): ScreenOptions {
   const screens = screen.UNSAFE_getAllByType('Stack.Screen' as never);
@@ -330,5 +331,85 @@ describe('List screen: gone', () => {
 
     expect(screen.getByText('This list is gone')).toBeTruthy();
     expect(screen.queryByText('Pier rail')).toBeNull();
+  });
+});
+
+describe('List screen: an area list (S2-04)', () => {
+  const weekend = createTestHitList({
+    id: 'L-weekend',
+    name: 'Weekend',
+    kind: 'area',
+    area_center: CITIES.seattle,
+    area_radius_m: 3219,
+    area_place: 'Capitol Hill',
+  });
+  const near = createTestSpot({ id: 'near', name: 'Near rail', location: CITIES.seattle });
+  const far = createTestSpot({ id: 'far', name: 'Far ledge', location: CITIES.portland });
+
+  beforeEach(() => {
+    useSettingsStore.setState({ units: UnitSystem.Imperial });
+    jest.mocked(useLocalSearchParams).mockReturnValue({ id: weekend.id });
+    useSpotsStore.setState({ spots: [near, far] });
+    // A stale membership row must not matter: an area list's spots come from its circle.
+    useHitListsStore.setState({ lists: [weekend], membershipBySpot: { far: [weekend.id] } });
+  });
+
+  it('shows the spots inside its circle', () => {
+    renderList();
+
+    expect(screen.getByText('Near rail')).toBeTruthy();
+    expect(screen.queryByText('Far ledge')).toBeNull();
+  });
+
+  it("titles the header with its name over 'Area · 2 mi of Capitol Hill'", () => {
+    renderList();
+
+    const { headerTitle } = headerOptions();
+    expect(typeof headerTitle).toBe('function');
+    render((headerTitle as () => ReactElement)());
+    expect(screen.getByText('Weekend')).toBeTruthy();
+    expect(screen.getByText('Area · 2 mi of Capitol Hill')).toBeTruthy();
+  });
+
+  it("drops 'of <place>' when the list has no place", () => {
+    useHitListsStore.setState({ lists: [{ ...weekend, area_place: undefined }] });
+    renderList();
+
+    render((headerOptions().headerTitle as () => ReactElement)());
+    expect(screen.getByText('Area · 2 mi')).toBeTruthy();
+  });
+
+  it("'Edit area' opens the picker on this list", () => {
+    renderList();
+
+    fireEvent.press(screen.getByRole('button', { name: 'Edit area' }));
+    expect(mockPush).toHaveBeenCalledWith(`/area?listId=${weekend.id}`);
+    expect(screen.getByRole('button', { name: 'Delete list' })).toBeTruthy();
+  });
+
+  it("has no 'Remove from list' on a long press (its spots are computed)", () => {
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    renderList();
+
+    fireEvent(screen.getByRole('button', { name: /^Near rail/ }), 'longPress');
+    expect(alert).not.toHaveBeenCalled();
+  });
+
+  it('shows the area empty copy when no spot is inside', () => {
+    useSpotsStore.setState({ spots: [far] });
+    renderList();
+
+    expect(screen.getByText('No spots in this area yet')).toBeTruthy();
+    expect(screen.getByText('Spots you save inside the circle show up here')).toBeTruthy();
+  });
+
+  it('a manual list keeps the plain title and has no Edit area', () => {
+    jest.mocked(useLocalSearchParams).mockReturnValue({ id: downtown.id });
+    useHitListsStore.setState({ lists: [downtown, weekend], membershipBySpot: { near: [downtown.id] } });
+    renderList();
+
+    expect(headerOptions().title).toBe('Downtown');
+    expect(headerOptions().headerTitle).toBeUndefined();
+    expect(screen.queryByRole('button', { name: 'Edit area' })).toBeNull();
   });
 });

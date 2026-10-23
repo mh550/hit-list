@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Alert } from 'react-native';
-import { useHitListsStore } from '@/src/stores';
-import { createTestHitList } from './factories';
+import { useHitListsStore, useSpotsStore } from '@/src/stores';
+import { CITIES, createTestHitList, createTestSpot } from './factories';
 
 const mockCreateList = jest.fn();
 const mockAddSpotsToList = jest.fn();
@@ -43,14 +43,18 @@ describe('AddToListSheet', () => {
     expect(screen.queryByText('Add to hit list')).toBeNull();
   });
 
-  it('shows every live manual list by name, checked when the spot is in it', () => {
+  it('shows every live list by name, checked when the spot is in it', () => {
     const area = createTestHitList({ id: 'L-area', name: 'Area', kind: 'area' });
     const gone = createTestHitList({ id: 'L-gone', name: 'Gone', deleted_at: '2026-10-02T12:00:00.000Z' });
     useHitListsStore.setState({ lists: [downtown, bridges, area, gone] });
     render(<AddToListSheet visible spotIds={['a']} onClose={jest.fn()} />);
 
     expect(screen.getByText('Add to hit list')).toBeOnTheScreen();
-    expect(screen.getAllByRole('checkbox').map((r) => r.props.accessibilityLabel)).toEqual(['Bridges', 'Downtown']);
+    expect(screen.getAllByRole('checkbox').map((r) => r.props.accessibilityLabel)).toEqual([
+      'Area',
+      'Bridges',
+      'Downtown',
+    ]);
     expect(row('Downtown').props.accessibilityState).toEqual({ checked: true });
     expect(row('Bridges').props.accessibilityState).toEqual({ checked: false });
   });
@@ -193,5 +197,57 @@ describe('AddToListSheet', () => {
     fireEvent.press(screen.getByRole('button', { name: 'Done' }));
 
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  describe('area lists (S2-04)', () => {
+    const HINT = 'Area list: spots inside its circle are in it automatically';
+    const weekend = createTestHitList({
+      id: 'L-weekend',
+      name: 'Weekend',
+      kind: 'area',
+      area_center: CITIES.seattle,
+      area_radius_m: 1609,
+    });
+
+    beforeEach(() => {
+      useSpotsStore.setState({
+        spots: [
+          createTestSpot({ id: 'a', location: CITIES.seattle }),
+          createTestSpot({ id: 'b', location: CITIES.seattle }),
+          createTestSpot({ id: 'far', location: CITIES.portland }),
+        ],
+      });
+      useHitListsStore.setState({ lists: [downtown, weekend], membershipBySpot: {} });
+    });
+
+    it('shows an area list as a disabled row with its hint', () => {
+      render(<AddToListSheet visible spotIds={['far']} onClose={jest.fn()} />);
+
+      expect(row('Weekend').props.accessibilityState).toEqual({ disabled: true, checked: false });
+      expect(screen.getByText(HINT)).toBeTruthy();
+      expect(row('Downtown').props.accessibilityState).toEqual({ checked: false });
+    });
+
+    it('checks it when every given spot is inside its circle', () => {
+      render(<AddToListSheet visible spotIds={['a', 'b']} onClose={jest.fn()} />);
+
+      expect(row('Weekend').props.accessibilityState).toEqual({ disabled: true, checked: true });
+    });
+
+    it('leaves it unchecked when one given spot is outside', () => {
+      render(<AddToListSheet visible spotIds={['a', 'far']} onClose={jest.fn()} />);
+
+      expect(row('Weekend').props.accessibilityState).toEqual({ disabled: true, checked: false });
+    });
+
+    it('never writes when its row is pressed', () => {
+      render(<AddToListSheet visible spotIds={['far']} onClose={jest.fn()} />);
+
+      fireEvent.press(row('Weekend'));
+      fireEvent.press(screen.getByText(HINT));
+
+      expect(mockAddSpotsToList).not.toHaveBeenCalled();
+      expect(mockRemoveSpotFromList).not.toHaveBeenCalled();
+    });
   });
 });

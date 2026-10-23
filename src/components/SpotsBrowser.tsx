@@ -44,8 +44,8 @@ interface SpotsBrowserProps {
   contentBottomInset?: number;
   /** Rendered in the header before the Filter button (a screen's own headerRight would replace Filter). */
   headerActions?: ReactNode;
-  /** Overrides the header's title text ('2 selected'); undefined shows the screen's title. */
-  headerTitle?: string;
+  /** Overrides the header's title: text ('2 selected') or a node (an area list's two lines); undefined shows the screen's title. */
+  headerTitle?: ReactNode;
   /** The header's left side (the Spots tab's 'Select' / 'Cancel'); undefined keeps the default (a back button). */
   headerLeft?: ReactNode;
   onSpotLongPress?: (id: string) => void;
@@ -181,7 +181,9 @@ export function SpotsBrowser({
         // These options always carry headerTitle and headerLeft (undefined un-sets them, as '2 selected' needs), so
         // they overwrite a layout's; a screen sets them through these props, not its own Stack.Screen.
         options={{
-          headerTitle,
+          // A string is the title text; any other node is drawn as the title component.
+          headerTitle:
+            typeof headerTitle === 'string' || headerTitle == null ? (headerTitle ?? undefined) : () => headerTitle,
           headerLeft: headerLeft === undefined ? undefined : () => headerLeft,
           headerRight: () => (
             <View style={styles.headerButtons}>

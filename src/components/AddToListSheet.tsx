@@ -3,7 +3,8 @@ import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'rea
 
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useHitListActions } from '@/src/hooks/use-hit-list-actions';
-import { selectListsByName, useHitListsStore } from '@/src/stores';
+import { selectListSpots, selectListsByName, useHitListsStore, useSpotsStore } from '@/src/stores';
+import type { HitList } from '@/src/types';
 import { palette, radius, spacing } from '@/src/constants/theme';
 import { NameListSheet } from './NameListSheet';
 
@@ -15,8 +16,9 @@ interface Props {
 }
 
 /**
- * A set of switches, one per manual list: each toggle writes at once (no staging) and Done only closes. A list is
- * checked when every given spot is in it, so toggling an unchecked one adds them all.
+ * A set of switches, one per list: each toggle writes at once (no staging) and Done only closes. A list is checked
+ * when every given spot is in it, so toggling an unchecked one adds them all. An area list's row is read-only: its
+ * spots are the ones inside its circle, so it shows whether they are and never writes.
  */
 export function AddToListSheet({ visible, ...rest }: Props) {
   if (!visible) return null;
@@ -26,26 +28,30 @@ export function AddToListSheet({ visible, ...rest }: Props) {
 function AddToListSheetContent({ spotIds, onClose }: Omit<Props, 'visible'>) {
   const lists = useHitListsStore((s) => s.lists);
   const membershipBySpot = useHitListsStore((s) => s.membershipBySpot);
+  const spots = useSpotsStore((s) => s.spots);
   const { createList, addSpotsToList, removeSpotFromList } = useHitListActions();
   const [naming, setNaming] = useState(false);
 
-  const rows = useMemo(
-    () => selectListsByName(lists.filter((l) => l.kind === 'manual' && l.deleted_at === undefined)),
-    [lists],
-  );
+  const rows = useMemo(() => selectListsByName(lists.filter((l) => l.deleted_at === undefined)), [lists]);
+  const given = useMemo(() => {
+    const ids = new Set(spotIds);
+    return spots.filter((s) => ids.has(s.id));
+  }, [spots, spotIds]);
   // No spots is in no list (every() over [] would check them all).
-  const holdsAll = (listId: string) =>
-    spotIds.length > 0 && spotIds.every((id) => membershipBySpot[id]?.includes(listId));
+  const holdsAll = (list: HitList) =>
+    list.kind === 'area'
+      ? given.length > 0 && selectListSpots(list, given, membershipBySpot).length === given.length
+      : spotIds.length > 0 && spotIds.every((id) => membershipBySpot[id]?.includes(list.id));
 
   // The hook has already put the store back when a write fails; this only says so, once per toggle.
   const reportFailure = (write: Promise<unknown>) =>
     write.catch(() => Alert.alert("Couldn't update the list", 'Please try again.'));
   const add = (listId: string) => reportFailure(addSpotsToList(listId, spotIds));
 
-  const toggle = (listId: string) =>
-    holdsAll(listId)
-      ? reportFailure(Promise.all(spotIds.map((id) => removeSpotFromList(listId, id))))
-      : add(listId);
+  const toggle = (list: HitList) =>
+    holdsAll(list)
+      ? reportFailure(Promise.all(spotIds.map((id) => removeSpotFromList(list.id, id))))
+      : add(list.id);
 
   const create = async (name: string) => {
     let listId: string;
@@ -73,11 +79,33 @@ function AddToListSheetContent({ spotIds, onClose }: Omit<Props, 'visible'>) {
 
         <ScrollView contentContainerStyle={styles.content}>
           {rows.map((list) => {
-            const checked = holdsAll(list.id);
+            const checked = holdsAll(list);
+            if (list.kind === 'area') {
+              return (
+                <View
+                  key={list.id}
+                  style={[styles.row, styles.rowDisabled]}
+                  accessible
+                  accessibilityRole="checkbox"
+                  accessibilityLabel={list.name}
+                  accessibilityHint={AREA_HINT}
+                  accessibilityState={{ disabled: true, checked }}>
+                  <View style={styles.rowLabel}>
+                    <Text style={styles.rowText} numberOfLines={1}>
+                      {list.name}
+                    </Text>
+                    <Text style={styles.rowHint}>{AREA_HINT}</Text>
+                  </View>
+                  <View style={[styles.box, checked && styles.boxChecked]}>
+                    {checked ? <IconSymbol name="checkmark" size={16} color={palette.white} /> : null}
+                  </View>
+                </View>
+              );
+            }
             return (
               <Pressable
                 key={list.id}
-                onPress={() => toggle(list.id)}
+                onPress={() => toggle(list)}
                 style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
                 accessibilityRole="checkbox"
                 accessibilityLabel={list.name}
@@ -112,6 +140,8 @@ function AddToListSheetContent({ spotIds, onClose }: Omit<Props, 'visible'>) {
     </Modal>
   );
 }
+
+const AREA_HINT = 'Area list: spots inside its circle are in it automatically';
 
 const styles = StyleSheet.create({
   container: {
@@ -153,6 +183,17 @@ const styles = StyleSheet.create({
   },
   rowPressed: {
     backgroundColor: palette.gray[100],
+  },
+  rowDisabled: {
+    opacity: 0.5,
+  },
+  rowLabel: {
+    flexShrink: 1,
+    gap: 2,
+  },
+  rowHint: {
+    fontSize: 13,
+    color: palette.gray[500],
   },
   rowText: {
     flexShrink: 1,

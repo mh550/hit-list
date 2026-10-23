@@ -7,7 +7,9 @@ import { EmptyState, NameListSheet } from '@/src/components';
 import { palette, spacing } from '@/src/constants/theme';
 import { useHitListActions } from '@/src/hooks/use-hit-list-actions';
 import { selectListCounts, selectListsByName, useHitListsStore, useSpotsStore } from '@/src/stores';
+import { useSettingsStore } from '@/src/stores/settings-store';
 import type { HitList } from '@/src/types';
+import { areaLabel } from '@/src/utils/area';
 import { spotCountLabel } from '@/src/utils/spot-name';
 
 export default function ListsScreen() {
@@ -15,6 +17,7 @@ export default function ListsScreen() {
   const lists = useHitListsStore((s) => s.lists);
   const membershipBySpot = useHitListsStore((s) => s.membershipBySpot);
   const spots = useSpotsStore((s) => s.spots);
+  const units = useSettingsStore((s) => s.units);
   const { createList } = useHitListActions();
   const [naming, setNaming] = useState(false);
 
@@ -39,16 +42,19 @@ export default function ListsScreen() {
 
   const renderItem = ({ item }: { item: HitList }) => {
     const count = spotCountLabel(counts[item.id] ?? 0);
+    // No place on the row: rows are tight (the list's own header has it).
+    const area = item.kind === 'area' && item.area_radius_m !== undefined ? areaLabel(item.area_radius_m, units) : null;
     return (
       <Pressable
         style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
         onPress={() => router.push(`/list/${item.id}`)}
         accessibilityRole="button"
-        accessibilityLabel={`${item.name}, ${count}`}>
+        accessibilityLabel={[item.name, area, count].filter(Boolean).join(', ')}>
         <View style={styles.rowText}>
           <Text style={styles.rowName} numberOfLines={1}>
             {item.name}
           </Text>
+          {area ? <Text style={styles.rowCount}>{area}</Text> : null}
           <Text style={styles.rowCount}>{count}</Text>
         </View>
         <IconSymbol name="chevron.right" size={18} color={palette.gray[400]} />
@@ -58,14 +64,24 @@ export default function ListsScreen() {
 
   return (
     <View style={styles.container}>
-      <Pressable
-        style={({ pressed }) => [styles.newButton, pressed && styles.rowPressed]}
-        onPress={() => setNaming(true)}
-        accessibilityRole="button"
-        accessibilityLabel="New hit list">
-        <IconSymbol name="plus" size={20} color={palette.blue[500]} />
-        <Text style={styles.newText}>New hit list</Text>
-      </Pressable>
+      <View style={styles.newRow}>
+        <Pressable
+          style={({ pressed }) => [styles.newButton, pressed && styles.rowPressed]}
+          onPress={() => setNaming(true)}
+          accessibilityRole="button"
+          accessibilityLabel="New hit list">
+          <IconSymbol name="plus" size={20} color={palette.blue[500]} />
+          <Text style={styles.newText}>New hit list</Text>
+        </Pressable>
+        <Pressable
+          style={({ pressed }) => [styles.newButton, pressed && styles.rowPressed]}
+          onPress={() => router.push('/area')}
+          accessibilityRole="button"
+          accessibilityLabel="New area list">
+          <IconSymbol name="plus" size={20} color={palette.blue[500]} />
+          <Text style={styles.newText}>Area list</Text>
+        </Pressable>
+      </View>
 
       {sections.length === 0 ? (
         // No action button: the one above is the action, and two 'New hit list' labels would collide.
@@ -109,14 +125,17 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  newRow: {
+    flexDirection: 'row',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: palette.gray[200],
+  },
   newButton: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: palette.gray[200],
   },
   newText: {
     fontSize: 17,

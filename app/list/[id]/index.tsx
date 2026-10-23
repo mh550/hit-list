@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Alert, StyleSheet, View } from 'react-native';
+import { Alert, StyleSheet, Text, View } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -8,9 +8,20 @@ import { EMPTY_LIST_COPY } from '@/src/components/SpotsBrowser';
 import { palette, spacing } from '@/src/constants/theme';
 import { useHitListActions } from '@/src/hooks/use-hit-list-actions';
 import { selectListSpots, useHitListsStore, useSpotsStore } from '@/src/stores';
+import { useSettingsStore } from '@/src/stores/settings-store';
+import { areaLabel } from '@/src/utils/area';
 import { getSpotDisplayName } from '@/src/utils/spot-name';
 
-/** One hit list: the Spots tab's List | Map body scoped to the list's spots, plus Rename and Delete list. */
+/** The area empty state: its spots arrive by being saved inside the circle. */
+const EMPTY_AREA_COPY = {
+  emptyTitle: 'No spots in this area yet',
+  emptyMessage: 'Spots you save inside the circle show up here',
+} as const;
+
+/**
+ * One hit list: the Spots tab's List | Map body scoped to the list's spots, plus Rename and Delete list. An area list's
+ * spots are computed from its circle, so it has 'Edit area' in place of 'Remove from list'.
+ */
 export default function ListScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
@@ -18,6 +29,7 @@ export default function ListScreen() {
   const list = useHitListsStore((s) => s.lists.find((l) => l.id === id && l.deleted_at === undefined));
   const membershipBySpot = useHitListsStore((s) => s.membershipBySpot);
   const spots = useSpotsStore((s) => s.spots);
+  const units = useSettingsStore((s) => s.units);
   const { renameList, deleteList, removeSpotFromList } = useHitListActions();
   const [renaming, setRenaming] = useState(false);
   // Set once Delete is confirmed: the store drops the list before router.back() runs, so 'gone' would flash.
@@ -93,6 +105,19 @@ export default function ListScreen() {
     ]);
   };
 
+  const isArea = list.kind === 'area';
+  const areaTitle =
+    isArea && list.area_radius_m !== undefined ? (
+      <View style={styles.title} accessibilityRole="header">
+        <Text style={styles.titleName} numberOfLines={1}>
+          {list.name}
+        </Text>
+        <Text style={styles.titleArea} numberOfLines={1}>
+          {areaLabel(list.area_radius_m, units, list.area_place)}
+        </Text>
+      </View>
+    ) : undefined;
+
   const renameButton = (
     <HeaderTextButton onPress={() => setRenaming(true)} accessibilityLabel="Rename list">
       Rename
@@ -104,12 +129,20 @@ export default function ListScreen() {
       <Stack.Screen options={{ title: list.name }} />
       <SpotsBrowser
         spots={listSpots}
-        {...EMPTY_LIST_COPY}
+        {...(isArea ? EMPTY_AREA_COPY : EMPTY_LIST_COPY)}
+        headerTitle={areaTitle}
         headerActions={renameButton}
-        onSpotLongPress={handleSpotLongPress}
+        onSpotLongPress={isArea ? undefined : handleSpotLongPress}
       />
       <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
-        <Button title="Delete list" variant="destructive" onPress={confirmDelete} accessibilityLabel="Delete list" />
+        {isArea ? (
+          <View style={styles.barButton}>
+            <Button title="Edit area" variant="secondary" onPress={() => router.push(`/area?listId=${list.id}`)} />
+          </View>
+        ) : null}
+        <View style={styles.barButton}>
+          <Button title="Delete list" variant="destructive" onPress={confirmDelete} accessibilityLabel="Delete list" />
+        </View>
       </View>
       <NameListSheet
         visible={renaming}
@@ -128,9 +161,27 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   bottomBar: {
+    flexDirection: 'row',
+    gap: spacing.sm,
     paddingHorizontal: spacing.md,
     paddingTop: spacing.md,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: palette.gray[200],
+  },
+  barButton: {
+    flex: 1,
+  },
+  title: {
+    alignItems: 'center',
+    maxWidth: 220,
+  },
+  titleName: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: palette.gray[900],
+  },
+  titleArea: {
+    fontSize: 12,
+    color: palette.gray[500],
   },
 });

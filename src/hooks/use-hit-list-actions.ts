@@ -3,13 +3,13 @@ import { useSQLiteContext } from 'expo-sqlite';
 
 import {
   insertHitList,
-  updateHitList,
+  updateHitList as dbUpdateHitList,
   softDeleteHitList,
   addSpotsToList as dbAddSpotsToList,
   removeSpotFromList as dbRemoveSpotFromList,
 } from '@/src/db';
 import { useHitListsStore } from '@/src/stores';
-import type { HitList } from '@/src/types';
+import type { HitList, HitListUpdate, NewHitList } from '@/src/types';
 import { newId } from '@/src/utils/id';
 
 const findList = (id: string) => useHitListsStore.getState().lists.find((l) => l.id === id);
@@ -30,12 +30,12 @@ export function useHitListActions() {
   const setActiveListId = useHitListsStore((s) => s.setActiveListId);
 
   const createList = useCallback(
-    async (name: string): Promise<HitList> => {
+    async (name: string, opts: NewHitList = { kind: 'manual' }): Promise<HitList> => {
       const now = new Date().toISOString();
       const list: HitList = {
         id: newId(),
         name: name.trim(),
-        kind: 'manual',
+        ...opts,
         shared: false,
         created_at: now,
         updated_at: now,
@@ -60,12 +60,36 @@ export function useHitListActions() {
       const applied = { name: name.trim(), updated_at: new Date().toISOString() };
       updateList(id, applied);
       try {
-        await updateHitList(db, id, applied);
+        await dbUpdateHitList(db, id, applied);
       } catch (err) {
         console.error('[useHitListActions] renameList failed:', err);
         // Unless a later rename has replaced this one in the meantime.
         if (before && findList(id)?.updated_at === applied.updated_at) {
           updateList(id, { name: before.name, updated_at: before.updated_at });
+        }
+        throw err;
+      }
+    },
+    [db, updateList],
+  );
+
+  // Named after the DB function it wraps; renameList stays for the name alone.
+  const updateHitList = useCallback(
+    async (id: string, updates: HitListUpdate) => {
+      const before = findList(id);
+      const applied: HitListUpdate = { ...updates, updated_at: new Date().toISOString() };
+      updateList(id, applied);
+      try {
+        await dbUpdateHitList(db, id, applied);
+      } catch (err) {
+        console.error('[useHitListActions] updateHitList failed:', err);
+        // Put back the keys this call patched, unless a later update has replaced it in the meantime.
+        if (before && findList(id)?.updated_at === applied.updated_at) {
+          const restore: HitListUpdate = { updated_at: before.updated_at };
+          for (const key of Object.keys(updates) as (keyof HitListUpdate)[]) {
+            Object.assign(restore, { [key]: before[key] ?? (key === 'area_place' ? null : undefined) });
+          }
+          updateList(id, restore);
         }
         throw err;
       }
@@ -124,5 +148,5 @@ export function useHitListActions() {
     [db, addMemberships, removeMemberships],
   );
 
-  return { createList, renameList, deleteList, addSpotsToList, removeSpotFromList };
+  return { createList, renameList, updateHitList, deleteList, addSpotsToList, removeSpotFromList };
 }

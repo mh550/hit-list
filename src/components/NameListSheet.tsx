@@ -22,58 +22,86 @@ export function NameListSheet({ visible, ...rest }: Props) {
   return <NameListSheetContent {...rest} />;
 }
 
-function NameListSheetContent({ title, initialName = '', confirmLabel, onCancel, onSubmit }: Omit<Props, 'visible'>) {
-  const [name, setName] = useState(initialName);
+function NameListSheetContent({ onCancel, onSubmit, ...card }: Omit<Props, 'visible'>) {
+  const { submitting, submit, cancel } = useGuardedSubmit(onSubmit, onCancel);
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={cancel} testID="name-list-sheet-modal">
+      <KeyboardAvoidingView behavior="padding" style={styles.backdrop}>
+        <Pressable style={StyleSheet.absoluteFill} onPress={cancel} accessible={false} />
+        <NameListCard {...card} submitting={submitting} onCancel={cancel} onSubmit={submit} />
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+/**
+ * Runs one submit at a time (a second tap can land before the disabled state renders) and turns cancel into a no-op
+ * while one runs: closing mid-submit would let the caller act (navigate, alert) for a sheet the user already
+ * dismissed. A rejection is swallowed: the caller reports it, the sheet just lets the user try again.
+ */
+export function useGuardedSubmit(onSubmit: Props['onSubmit'], onCancel: () => void) {
   const [submitting, setSubmitting] = useState(false);
-  // A second tap can land before the disabled state renders; the ref makes it a no-op.
   const inFlight = useRef(false);
-  const trimmed = name.trim();
-  // Closing mid-submit would let the caller act (navigate, alert) for a sheet the user already dismissed.
   const cancel = () => {
     if (!inFlight.current) onCancel();
   };
-
-  const submit = async () => {
-    if (trimmed === '' || inFlight.current) return;
+  const submit = async (name: string) => {
+    if (inFlight.current) return;
     inFlight.current = true;
     setSubmitting(true);
     try {
-      await onSubmit(trimmed);
+      await onSubmit(name);
     } catch {
-      // The caller reports the failure; the sheet just lets the user try again.
+      // Reported by the caller.
     } finally {
       inFlight.current = false;
       setSubmitting(false);
     }
   };
+  return { submitting, submit, cancel };
+}
+
+interface CardProps {
+  title: string;
+  initialName?: string;
+  confirmLabel: string;
+  /** Disables both buttons while a submit runs (useGuardedSubmit). */
+  submitting: boolean;
+  onCancel: () => void;
+  /** Gets the trimmed, non-empty name. */
+  onSubmit: (name: string) => void;
+}
+
+/** The sheet's card alone, for a screen that shows it inside its own Modal (one Modal at a time on iOS). */
+export function NameListCard({ title, initialName = '', confirmLabel, submitting, onCancel, onSubmit }: CardProps) {
+  const [name, setName] = useState(initialName);
+  const trimmed = name.trim();
+  const submit = () => {
+    if (trimmed !== '') onSubmit(trimmed);
+  };
 
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={cancel} testID="name-list-sheet-modal">
-      <KeyboardAvoidingView behavior="padding" style={styles.backdrop}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={cancel} accessible={false} />
-        <View style={styles.card}>
-          <Text style={styles.title} accessibilityRole="header">
-            {title}
-          </Text>
-          <TextInput
-            style={styles.input}
-            value={name}
-            onChangeText={setName}
-            placeholder="Name"
-            placeholderTextColor={palette.gray[400]}
-            accessibilityLabel="List name"
-            autoFocus
-            returnKeyType="done"
-            submitBehavior="submit"
-            onSubmitEditing={submit}
-          />
-          <View style={styles.buttons}>
-            <Button title="Cancel" variant="secondary" onPress={cancel} disabled={submitting} />
-            <Button title={confirmLabel} onPress={submit} disabled={trimmed === '' || submitting} />
-          </View>
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
+    <View style={styles.card}>
+      <Text style={styles.title} accessibilityRole="header">
+        {title}
+      </Text>
+      <TextInput
+        style={styles.input}
+        value={name}
+        onChangeText={setName}
+        placeholder="Name"
+        placeholderTextColor={palette.gray[400]}
+        accessibilityLabel="List name"
+        autoFocus
+        returnKeyType="done"
+        submitBehavior="submit"
+        onSubmitEditing={submit}
+      />
+      <View style={styles.buttons}>
+        <Button title="Cancel" variant="secondary" onPress={onCancel} disabled={submitting} />
+        <Button title={confirmLabel} onPress={submit} disabled={trimmed === '' || submitting} />
+      </View>
+    </View>
   );
 }
 

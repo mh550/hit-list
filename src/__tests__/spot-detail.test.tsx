@@ -8,7 +8,7 @@ import { useHitListsStore, useMediaStore, useSettingsStore, useSpotsStore } from
 import { palette } from '@/src/constants/theme';
 import { resolvePhotoUri } from '@/src/utils/photo-storage';
 import { FeatureType, UnitSystem, type Media, type Spot } from '@/src/types';
-import { createTestHitList, createTestMedia, createTestSpot } from './factories';
+import { CITIES, createTestHitList, createTestMedia, createTestSpot } from './factories';
 
 import SpotDetailScreen from '@/app/spot/[id]/index';
 
@@ -345,6 +345,33 @@ describe("Spot detail: 'In lists' row", () => {
 
     fireEvent.press(screen.getByRole('button', { name: 'Done' }));
     expect(screen.queryByRole('header', { name: 'Add to hit list' })).toBeNull();
+  });
+
+  describe('area lists (S2-04)', () => {
+    const weekend = createTestHitList({
+      id: 'L-weekend',
+      name: 'Weekend',
+      kind: 'area',
+      area_center: CITIES.seattle,
+      area_radius_m: 1609,
+    });
+
+    it('shows a chip for an area list whose circle holds the spot, which opens the list', async () => {
+      useHitListsStore.setState({ lists: [weekend, downtown], membershipBySpot: { 'spot-1': [downtown.id] } });
+      await renderDetail({ id: 'spot-1', location: CITIES.seattle });
+
+      const order = texts();
+      expect(order.slice(order.indexOf('In lists'))).toEqual(['In lists', 'Downtown', 'Weekend', '+ Add to hit list']);
+      fireEvent.press(screen.getByRole('button', { name: 'Weekend' }));
+      expect(push).toHaveBeenCalledWith(`/list/${weekend.id}`);
+    });
+
+    it('shows no chip for an area list when the spot is outside its circle', async () => {
+      useHitListsStore.setState({ lists: [weekend], membershipBySpot: {} });
+      await renderDetail({ id: 'spot-1', location: CITIES.portland });
+
+      expect(screen.queryByText('Weekend')).toBeNull();
+    });
   });
 
   it('shows a new membership as a chip at once', async () => {

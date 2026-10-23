@@ -2,8 +2,9 @@ import { act, fireEvent, render, screen } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useHitListsStore, useSpotsStore } from '@/src/stores';
-import type { HitList } from '@/src/types';
-import { createTestHitList, createTestSpot } from './factories';
+import { useSettingsStore } from '@/src/stores/settings-store';
+import { UnitSystem, type GeoPoint, type HitList } from '@/src/types';
+import { CITIES, createTestHitList, createTestSpot } from './factories';
 
 // createList is held open by a test that double-taps Create; the others resolve at once.
 let finishCreate: (list: HitList) => void = () => {};
@@ -114,12 +115,11 @@ describe('Lists tab', () => {
     expect(screen.getByText('1 spot')).toBeTruthy();
   });
 
-  it("has no 'Shared with me' section and no area-list entry yet", () => {
+  it("has no 'Shared with me' section yet", () => {
     seedTwoLists();
     render(<ListsScreen />);
 
     expect(screen.queryByText('Shared with me')).toBeNull();
-    expect(screen.queryByLabelText('New area list')).toBeNull();
   });
 
   it('opens the list screen when a row is pressed', () => {
@@ -229,5 +229,71 @@ describe('Lists tab', () => {
     await act(async () => finishCreate(createTestHitList({ id: 'L-new' })));
     expect(mockPush).toHaveBeenCalledWith('/list/L-new');
     expect(screen.queryByPlaceholderText('Name')).toBeNull();
+  });
+
+  describe('area lists (S2-04)', () => {
+    /** A point `meters` due north of `p` (haversine's Earth: 6371 km). */
+    const north = (p: GeoPoint, meters: number): GeoPoint => ({
+      latitude: p.latitude + (meters / 6_371_000) * (180 / Math.PI),
+      longitude: p.longitude,
+    });
+    const weekend = createTestHitList({
+      id: 'L-weekend',
+      name: 'Weekend',
+      kind: 'area',
+      area_center: CITIES.seattle,
+      area_radius_m: 3219,
+      area_place: 'Capitol Hill',
+    });
+
+    beforeEach(() => {
+      useSettingsStore.setState({ units: UnitSystem.Imperial });
+    });
+
+    it("'+ Area list' opens the area picker", () => {
+      render(<ListsScreen />);
+
+      expect(screen.getByText('Area list')).toBeTruthy();
+      fireEvent.press(screen.getByRole('button', { name: 'New area list' }));
+      expect(mockPush).toHaveBeenCalledWith('/area');
+    });
+
+    it("an area list's row shows 'Area · 2 mi' and the live count of the spots inside its circle", () => {
+      useSpotsStore.setState({
+        spots: [
+          createTestSpot({ id: 'in-1', location: north(CITIES.seattle, 100) }),
+          createTestSpot({ id: 'in-2', location: north(CITIES.seattle, 3000) }),
+          createTestSpot({ id: 'out', location: north(CITIES.seattle, 3300) }),
+        ],
+      });
+      useHitListsStore.setState({ lists: [weekend, downtown] });
+      render(<ListsScreen />);
+
+      expect(screen.getByText('Area · 2 mi')).toBeTruthy();
+      expect(screen.queryByText(/Capitol Hill/)).toBeNull();
+      expect(screen.getByText('2 spots')).toBeTruthy();
+      fireEvent.press(screen.getByLabelText('Weekend, Area · 2 mi, 2 spots'));
+      expect(mockPush).toHaveBeenCalledWith('/list/L-weekend');
+      // A manual row keeps its one line.
+      expect(screen.getByLabelText('Downtown, 0 spots')).toBeTruthy();
+    });
+
+    it('counts a spot saved inside the circle on the next render', () => {
+      useHitListsStore.setState({ lists: [weekend] });
+      render(<ListsScreen />);
+      expect(screen.getByLabelText('Weekend, Area · 2 mi, 0 spots')).toBeTruthy();
+
+      act(() => useSpotsStore.setState({ spots: [createTestSpot({ id: 'new', location: CITIES.seattle })] }));
+
+      expect(screen.getByLabelText('Weekend, Area · 2 mi, 1 spot')).toBeTruthy();
+    });
+
+    it("labels the radius in the rider's units", () => {
+      useSettingsStore.setState({ units: UnitSystem.Metric });
+      useHitListsStore.setState({ lists: [weekend] });
+      render(<ListsScreen />);
+
+      expect(screen.getByText('Area · 3.2 km')).toBeTruthy();
+    });
   });
 });

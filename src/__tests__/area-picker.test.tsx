@@ -1,25 +1,53 @@
 import { isValidElement, type ReactElement } from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { Alert } from 'react-native';
 import { geocodeAsync } from 'expo-location';
 import * as ReactNativeMaps from 'react-native-maps';
 import type { Region } from 'react-native-maps';
-import { useSpotsStore } from '@/src/stores';
+import { useHitListsStore, useSpotsStore } from '@/src/stores';
 import { useLocationStore } from '@/src/stores/location-store';
 import { useSettingsStore } from '@/src/stores/settings-store';
-import { DEFAULT_FILTERS, FeatureType, UnitSystem, type GeoPoint } from '@/src/types';
+import {
+  DEFAULT_FILTERS,
+  FeatureType,
+  UnitSystem,
+  type GeoPoint,
+  type HitList,
+  type HitListUpdate,
+  type NewHitList,
+} from '@/src/types';
 import { circleRegion } from '@/src/utils/area';
 import { NO_LOCATION } from '@/src/utils/geo';
 import { initialRegion } from '@/src/utils/map-region';
-import { CITIES, createTestSpot } from './factories';
+import { CITIES, createTestHitList, createTestSpot } from './factories';
 
+const mockCreateList = jest.fn(
+  (name: string, opts?: NewHitList): Promise<HitList> =>
+    Promise.resolve(createTestHitList({ id: 'L-new', name, ...opts })),
+);
+const mockAddSpotsToList = jest.fn((listId: string, spotIds: string[]): Promise<void> => {
+  void listId;
+  void spotIds;
+  return Promise.resolve();
+});
+const mockUpdateHitList = jest.fn((id: string, updates: HitListUpdate): Promise<void> => {
+  void id;
+  void updates;
+  return Promise.resolve();
+});
+const mockDeleteList = jest.fn((id: string): Promise<void> => {
+  void id;
+  return Promise.resolve();
+});
 jest.mock('@/src/hooks/use-hit-list-actions', () => ({
   useHitListActions: () => ({
-    createList: jest.fn(),
+    createList: mockCreateList,
     renameList: jest.fn(),
-    deleteList: jest.fn(),
-    addSpotsToList: jest.fn(),
+    updateHitList: mockUpdateHitList,
+    deleteList: mockDeleteList,
+    addSpotsToList: mockAddSpotsToList,
     removeSpotFromList: jest.fn(),
   }),
 }));
@@ -479,17 +507,18 @@ describe("Area picker: 'Save as hit list'", () => {
     expect(screen.queryByText(/Send/)).toBeNull();
   });
 
-  it.each(['Just these 23 spots', 'Keep it updated', 'Cancel'])("'%s' only closes the chooser (S2-03)", (option) => {
+  it("'Cancel' only closes the chooser", () => {
     useSpotsStore.setState({ spots: inside });
     useLocationStore.setState({ currentLocation: CITIES.seattle });
     renderPicker();
 
     fireEvent.press(screen.getByRole('button', { name: 'Save as hit list' }));
-    fireEvent.press(screen.getByRole('button', { name: option }));
+    fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
 
     expect(screen.queryByText('Keep it updated')).toBeNull();
     expect(screen.queryByText('Just these 23 spots')).toBeNull();
     expect(screen.queryByLabelText('List name')).toBeNull();
+    expect(mockCreateList).not.toHaveBeenCalled();
   });
 
   it("hides 'Just these 0 spots' when the circle is empty", () => {
@@ -499,5 +528,240 @@ describe("Area picker: 'Save as hit list'", () => {
 
     expect(screen.queryByText(/^Just these/)).toBeNull();
     expect(screen.getByRole('button', { name: 'Keep it updated' })).toBeTruthy();
+  });
+});
+
+const CAPITOL_HILL = { latitude: 47.625, longitude: -122.3214 };
+
+describe('Area picker: saving a new list (S2-04)', () => {
+  const replace = jest.fn();
+
+  beforeEach(() => {
+    mockCreateList.mockClear();
+    mockAddSpotsToList.mockClear();
+    mockDeleteList.mockClear();
+    replace.mockReset();
+    jest.mocked(useRouter).mockReturnValue({ push: jest.fn(), back: jest.fn(), replace, dismissAll: jest.fn() } as never);
+    jest.mocked(useLocalSearchParams).mockReturnValue({});
+    useSpotsStore.setState({ spots: [...inside, ...outside, unlocated] });
+    useLocationStore.setState({ currentLocation: CITIES.seattle });
+  });
+
+  function choose(option: string) {
+    fireEvent.press(screen.getByRole('button', { name: 'Save as hit list' }));
+    fireEvent.press(screen.getByRole('button', { name: option }));
+  }
+
+  async function nameIt(name: string) {
+    fireEvent.changeText(screen.getByLabelText('List name'), name);
+    await act(async () => {
+      fireEvent.press(screen.getByRole('button', { name: 'Create' }));
+    });
+  }
+
+  it.each(['Just these 23 spots', 'Keep it updated'])("'%s' asks for a name in place of the chooser", (option) => {
+    renderPicker();
+    choose(option);
+
+    expect(screen.getByText('New hit list')).toBeTruthy();
+    expect(screen.getByLabelText('List name')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Keep it updated' })).toBeNull();
+  });
+
+  it("'Just these 23 spots' → Create makes a manual list of the 23 spots inside and opens it", async () => {
+    renderPicker();
+    choose('Just these 23 spots');
+    await nameIt('Weekend');
+
+    expect(mockCreateList).toHaveBeenCalledWith('Weekend', { kind: 'manual' });
+    expect(mockAddSpotsToList).toHaveBeenCalledTimes(1);
+    expect(mockAddSpotsToList).toHaveBeenCalledWith('L-new', inside.map((sp) => sp.id));
+    expect(replace).toHaveBeenCalledWith('/list/L-new');
+    expect(mockCreateList.mock.invocationCallOrder[0]).toBeLessThan(mockAddSpotsToList.mock.invocationCallOrder[0]);
+    expect(mockAddSpotsToList.mock.invocationCallOrder[0]).toBeLessThan(replace.mock.invocationCallOrder[0]);
+  });
+
+  it("'Keep it updated' → Create makes an area list of the circle, place and filters, with no memberships", async () => {
+    jest.mocked(geocodeAsync).mockResolvedValue([CAPITOL_HILL]);
+    useSpotsStore.setState({ filters: { types: [FeatureType.Rail], stopped: true } });
+    renderPicker();
+    const field = screen.getByLabelText('Search a place');
+    fireEvent.changeText(field, 'Capitol Hill');
+    fireEvent(field, 'submitEditing');
+    await waitFor(() => expect(circle().center).toEqual(CAPITOL_HILL));
+
+    choose('Keep it updated');
+    await nameIt('Weekend');
+
+    expect(mockCreateList).toHaveBeenCalledWith('Weekend', {
+      kind: 'area',
+      area_center: CAPITOL_HILL,
+      area_radius_m: 3219,
+      area_place: 'Capitol Hill',
+      area_filters: { types: [FeatureType.Rail], stopped: true },
+    });
+    expect(mockAddSpotsToList).not.toHaveBeenCalled();
+    expect(replace).toHaveBeenCalledWith('/list/L-new');
+  });
+
+  it("'Keep it updated' after a drag saves the radius picked and no place", async () => {
+    renderPicker();
+    fireEvent.press(screen.getByRole('radio', { name: '5 mi' }));
+    moveMap(CITIES.portland);
+
+    choose('Keep it updated');
+    await nameIt('Portland');
+
+    const [, opts] = mockCreateList.mock.calls[0];
+    expect(opts).toEqual(expect.objectContaining({ kind: 'area', area_center: CITIES.portland, area_radius_m: 8047 }));
+    expect(opts && 'area_place' in opts ? opts.area_place : undefined).toBeUndefined();
+  });
+
+  it("a failed create says so, keeps the name sheet open and doesn't navigate", async () => {
+    mockCreateList.mockRejectedValueOnce(new Error('disk full'));
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    renderPicker();
+    choose('Keep it updated');
+    await nameIt('Weekend');
+
+    expect(alertSpy).toHaveBeenCalledWith("Couldn't save the list", 'Please try again.');
+    expect(screen.getByLabelText('List name')).toBeTruthy();
+    expect(replace).not.toHaveBeenCalled();
+    alertSpy.mockRestore();
+  });
+
+  it("a failed add takes the new list back out, says so and doesn't navigate", async () => {
+    mockAddSpotsToList.mockRejectedValueOnce(new Error('disk full'));
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    renderPicker();
+    choose('Just these 23 spots');
+    await nameIt('Weekend');
+
+    expect(mockDeleteList).toHaveBeenCalledWith('L-new');
+    expect(alertSpy).toHaveBeenCalledWith("Couldn't save the list", 'Please try again.');
+    expect(screen.getByLabelText('List name')).toBeTruthy();
+    expect(replace).not.toHaveBeenCalled();
+    alertSpy.mockRestore();
+  });
+
+  it("the name sheet's Cancel closes it without saving", () => {
+    renderPicker();
+    choose('Keep it updated');
+    fireEvent.press(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(screen.queryByLabelText('List name')).toBeNull();
+    expect(mockCreateList).not.toHaveBeenCalled();
+  });
+});
+
+describe('Area picker: editing an area list (S2-04)', () => {
+  const back = jest.fn();
+  const fremont = { latitude: 47.6505, longitude: -122.3493 };
+  const areaList = createTestHitList({
+    id: 'L-area',
+    name: 'Fremont',
+    kind: 'area',
+    area_center: fremont,
+    area_radius_m: 8047,
+    area_place: 'Fremont',
+    area_filters: { types: [FeatureType.Rail] },
+  });
+
+  beforeEach(() => {
+    mockUpdateHitList.mockClear();
+    mockCreateList.mockClear();
+    back.mockReset();
+    jest.mocked(useRouter).mockReturnValue({ push: jest.fn(), back, replace: jest.fn(), dismissAll: jest.fn() } as never);
+    jest.mocked(useLocalSearchParams).mockReturnValue({ listId: 'L-area' });
+    useHitListsStore.setState({ lists: [areaList, createTestHitList({ id: 'L-manual', name: 'Manual' })] });
+    useSpotsStore.setState({ filters: { types: [], stopped: true } });
+    useLocationStore.setState({ currentLocation: CITIES.seattle });
+  });
+
+  afterAll(() => {
+    jest.mocked(useLocalSearchParams).mockReturnValue({});
+    useHitListsStore.setState({ lists: [] });
+  });
+
+  it("opens on the list's centre, radius and place, and loads its filters into the shared filters", () => {
+    renderPicker();
+
+    expect(circle()).toEqual(expect.objectContaining({ center: fremont, radius: 8047 }));
+    expect(screen.getByTestId('map-view').props.initialRegion).toEqual(circleRegion(fremont, 8047));
+    expect(screen.getByRole('radio', { name: '5 mi' }).props.accessibilityState).toEqual(
+      expect.objectContaining({ checked: true }),
+    );
+    expect(useSpotsStore.getState().filters).toEqual({ types: [FeatureType.Rail] });
+  });
+
+  it("has the single bottom action 'Save area', which writes the circle, place and filters, then goes back", async () => {
+    renderPicker();
+
+    expect(screen.queryByRole('button', { name: 'Save as hit list' })).toBeNull();
+    await act(async () => {
+      fireEvent.press(screen.getByRole('button', { name: 'Save area' }));
+    });
+
+    expect(mockUpdateHitList).toHaveBeenCalledWith('L-area', {
+      area_center: fremont,
+      area_radius_m: 8047,
+      area_place: 'Fremont',
+      area_filters: { types: [FeatureType.Rail] },
+    });
+    expect(back).toHaveBeenCalledTimes(1);
+    expect(mockUpdateHitList.mock.invocationCallOrder[0]).toBeLessThan(back.mock.invocationCallOrder[0]);
+    expect(mockCreateList).not.toHaveBeenCalled();
+  });
+
+  it("'Save area' after a drag away and a new radius clears the place", async () => {
+    renderPicker();
+    fireEvent.press(screen.getByRole('radio', { name: '1 mi' }));
+    moveMap(CITIES.portland);
+    await act(async () => {
+      fireEvent.press(screen.getByRole('button', { name: 'Save area' }));
+    });
+
+    expect(mockUpdateHitList).toHaveBeenCalledWith(
+      'L-area',
+      expect.objectContaining({ area_center: CITIES.portland, area_radius_m: 1609, area_place: null }),
+    );
+  });
+
+  it("a failed 'Save area' says so and stays", async () => {
+    mockUpdateHitList.mockRejectedValueOnce(new Error('disk full'));
+    const alertSpy = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    renderPicker();
+    await act(async () => {
+      fireEvent.press(screen.getByRole('button', { name: 'Save area' }));
+    });
+
+    expect(alertSpy).toHaveBeenCalledWith("Couldn't save the list", 'Please try again.');
+    expect(back).not.toHaveBeenCalled();
+    alertSpy.mockRestore();
+  });
+
+  it("keeps a saved radius that isn't a chip of the rider's units, with no chip selected (D56)", () => {
+    useSettingsStore.setState({ units: UnitSystem.Metric });
+    renderPicker();
+
+    expect(circle().radius).toBe(8047);
+    for (const chip of screen.getAllByRole('radio')) {
+      expect(chip.props.accessibilityState).toEqual(expect.objectContaining({ checked: false }));
+    }
+  });
+
+  it.each([
+    ['an unknown id', 'L-missing'],
+    ['a manual list', 'L-manual'],
+  ])("shows 'This list is gone' for %s", (_, listId) => {
+    jest.mocked(useLocalSearchParams).mockReturnValue({ listId });
+    renderPicker();
+
+    expect(screen.getByText('This list is gone')).toBeTruthy();
+    expect(screen.queryByTestId('map-view')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Save area' })).toBeNull();
+    expect(useSpotsStore.getState().filters).toEqual({ types: [], stopped: true });
+    pressHeader('headerLeft', 'Cancel');
+    expect(back).toHaveBeenCalledTimes(1);
   });
 });

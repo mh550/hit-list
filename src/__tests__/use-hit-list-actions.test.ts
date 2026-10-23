@@ -4,7 +4,8 @@ import type { SQLiteDatabase } from 'expo-sqlite';
 import { getHitLists, getListMemberships, insertHitList, insertSpot } from '@/src/db';
 import { useHitListActions } from '@/src/hooks/use-hit-list-actions';
 import { useHitListsStore } from '@/src/stores';
-import { createTestHitList, createTestSpot } from './factories';
+import { FeatureType } from '@/src/types';
+import { CITIES, createTestHitList, createTestSpot } from './factories';
 import { createMigratedTestDb } from './helpers/node-sqlite-db';
 
 let mockDb: SQLiteDatabase;
@@ -81,6 +82,117 @@ describe('useHitListActions', () => {
     expect(store().lists).toEqual([]);
     expect(await getHitLists(mockDb)).toEqual([]);
     expect(consoleSpy).toHaveBeenCalledWith('[useHitListActions] createList failed:', err);
+  });
+
+  it('createList with area options saves an area list (centre, radius, place, filters) to the store and the DB', async () => {
+    const { result } = renderHook(() => useHitListActions());
+    let created!: Awaited<ReturnType<typeof result.current.createList>>;
+    await act(async () => {
+      created = await result.current.createList('Weekend', {
+        kind: 'area',
+        area_center: CITIES.seattle,
+        area_radius_m: 3219,
+        area_place: 'Capitol Hill',
+        area_filters: { types: [FeatureType.Rail], stopped: false },
+      });
+    });
+
+    expect(created).toEqual(
+      expect.objectContaining({
+        name: 'Weekend',
+        kind: 'area',
+        area_center: CITIES.seattle,
+        area_radius_m: 3219,
+        area_place: 'Capitol Hill',
+        area_filters: { types: [FeatureType.Rail], stopped: false },
+      }),
+    );
+    expect(store().lists).toEqual([created]);
+    expect(await getHitLists(mockDb)).toEqual([created]);
+    expect(await getListMemberships(mockDb)).toEqual({});
+  });
+
+  it('createList: an area list with no place leaves area_place out', async () => {
+    const { result } = renderHook(() => useHitListActions());
+    let created!: Awaited<ReturnType<typeof result.current.createList>>;
+    await act(async () => {
+      created = await result.current.createList('Around', {
+        kind: 'area',
+        area_center: CITIES.seattle,
+        area_radius_m: 1609,
+        area_filters: { types: [] },
+      });
+    });
+
+    expect(created).toEqual(expect.objectContaining({ kind: 'area', area_radius_m: 1609 }));
+    expect(created.area_place).toBeUndefined();
+    expect(await getHitLists(mockDb)).toEqual([created]);
+  });
+
+  it('updateHitList patches the store first, then the DB, with one updated_at', async () => {
+    const list = await seedList({
+      kind: 'area',
+      area_center: CITIES.seattle,
+      area_radius_m: 3219,
+      area_place: 'Capitol Hill',
+      area_filters: { types: [] },
+    });
+    const { result } = renderHook(() => useHitListActions());
+    let pending!: Promise<void>;
+    act(() => {
+      pending = result.current.updateHitList(list.id, {
+        area_center: CITIES.portland,
+        area_radius_m: 8047,
+        area_place: null,
+        area_filters: { types: [FeatureType.Ledge] },
+      });
+    });
+    expect(store().lists[0].area_center).toEqual(CITIES.portland);
+    await act(async () => {
+      await pending;
+    });
+
+    const [saved] = await getHitLists(mockDb);
+    expect(saved).toEqual(
+      expect.objectContaining({
+        area_center: CITIES.portland,
+        area_radius_m: 8047,
+        area_filters: { types: [FeatureType.Ledge] },
+      }),
+    );
+    expect(saved.area_place).toBeUndefined();
+    expect(saved.updated_at > list.updated_at).toBe(true);
+    expect(store().lists[0]).toEqual(saved);
+  });
+
+  it('updateHitList: a failed write restores every patched key and rejects', async () => {
+    const list = await seedList({
+      kind: 'area',
+      area_center: CITIES.seattle,
+      area_radius_m: 3219,
+      area_place: 'Capitol Hill',
+      area_filters: { types: [] },
+    });
+    const { err, consoleSpy } = failNextWrite();
+    const { result } = renderHook(() => useHitListActions());
+    await act(async () => {
+      await expect(
+        result.current.updateHitList(list.id, { area_center: CITIES.portland, area_radius_m: 8047, area_place: null }),
+      ).rejects.toBe(err);
+    });
+    expect(store().lists).toEqual([list]);
+    expect(await getHitLists(mockDb)).toEqual([list]);
+    expect(consoleSpy).toHaveBeenCalledWith('[useHitListActions] updateHitList failed:', err);
+  });
+
+  it('updateHitList: a failed write that clears no place keeps a list that had none without one', async () => {
+    const list = await seedList({ kind: 'area', area_center: CITIES.seattle, area_radius_m: 3219 });
+    const { err } = failNextWrite();
+    const { result } = renderHook(() => useHitListActions());
+    await act(async () => {
+      await expect(result.current.updateHitList(list.id, { area_place: 'Fremont' })).rejects.toBe(err);
+    });
+    expect(store().lists).toEqual([list]);
   });
 
   it('renameList renames in the store first, then the DB, with one updated_at', async () => {

@@ -97,13 +97,20 @@ export interface HitListSpot {
   added_at: string; // ISO 8601
 }
 
-/** A patch for a list; undefined keeps the stored value (S2 adds the area fields). */
-/** In an update, `area_place: null` clears the place (as `null` does in a SpotUpdate). */
+/**
+ * A patch for a list; undefined keeps the stored value (S2 adds the area fields). `area_place: null` clears the place
+ * (as `null` does in a SpotUpdate).
+ */
 export type HitListUpdate = Partial<
   Pick<HitList, 'name' | 'shared' | 'updated_at' | 'area_center' | 'area_radius_m' | 'area_filters'>
 > & {
   area_place?: string | null;
 };
+
+/** What createList needs beyond the name: a manual list, or an area list's circle, place and filters. */
+export type NewHitList =
+  | { kind: 'manual' }
+  | { kind: 'area'; area_center: GeoPoint; area_radius_m: number; area_place?: string; area_filters: SpotFilters };
 
 export interface UserSettings {
   units: UnitSystem;

@@ -517,7 +517,7 @@
         "S2",
         "S4"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S5-02",

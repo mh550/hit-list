@@ -20,6 +20,18 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 02:00 · S5-01 · passes
+
+- **What changed:** `expo-image-manipulator` ~57.0.21 installed with `npx expo install`, in its own chore commit `5cc9e8f`. `npx expo export --platform ios` exits 0 (5.0 MB, scratch dir) and expo-doctor passes 21/21. Wrote `docs/plans/2026-10-22-s5-sync.md`, which covers Migration 5, Outbox, Push and photos, Pull, Engine, Adoption and switch, Sign out, the integration test design and a test list per feature. Added D65–D69 *default* to spec §2 and asked them as §9 Q26–Q30. No code changed: 1069 → 1069 tests, check.sh green.
+- **Design the next sessions must know:** the outbox row comes from **SQLite triggers** in migration 5, not an app transaction. CLAUDE.md forbids `withTransactionAsync` for app writes. A trigger fires only for rows owned by `sync_state.user_id`, and only when `rev` is unchanged. Pull always writes the server's `rev`, so pull writes never queue anything, which prevents an echo loop with the server's equal-`updated_at`-applies guard. Local media becomes a soft delete with `updated_at`/`deleted_at`.
+- **Plan review:** an Opus subagent reviewed the plan before any code: 1 Critical, 7 Important, 4 Minor. All 12 were folded into the plan; they are tabled under "Plan review". The Critical one: `syncNow` must not run until `sync_state.user_id` equals the session uid.
+- **Questions for Michael:** Q26 (D65) is it fine to drop the never-used `sync_queue` table? Q27 (D66) another account signing in removes the last account's rows and asks first if some never backed up; OK? Q28 (D67) Keep after Delete account makes the spots phone-only again; OK? Q29 (D68) the archived Older details stay on the phone and are not backed up; want them backed up too? Q30 (D69) Sign out syncs first and offers no Remove while anything is waiting; OK?
+- **Proposed changes:**
+  - S5-02 step 1: hit_lists already has `owner_id` from migration 4, so migration 5 adds it to spots and media only; the test checks all three.
+  - S5-04 step 2: reconciliation removes others' unreadable spots instead of soft-deleting them. A soft delete would queue an upsert this rider can't write.
+  - S5-06 step 4: the not-backed-up sign-out variant keys on pending rows (`countPending`, failed ones included), not `failedCount > 0`.
+  - S5-06: add the D66 switch confirm, "Changes not backed up" · Cancel / Remove and continue.
+
 ### 2026-10-23 · verify S4
 
 All 8 features hold (37 steps). Limit: the build-only policy forbids containers, so the integration suite was not re-run, only read.

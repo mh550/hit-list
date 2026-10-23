@@ -177,6 +177,18 @@ describe('syncNow', () => {
     expect(useSpotsStore.getState().spots.map((s) => s.id).sort()).toEqual(['spot-1', 'spot-2']);
   });
 
+  it('a photo saved while a reload ran shows once (savePhotos writes the DB first, then the store)', async () => {
+    await insertSpot(db, createTestSpot({ id: 'spot-1' }));
+    const photo = createTestMedia({ id: 'media-1', spot_id: 'spot-1' });
+    await insertMedia(db, photo); // saved, not in the store yet: the other photos of the batch are still copying
+    mockPull.mockResolvedValueOnce({ changed: true });
+
+    await syncNow(db);
+    useMediaStore.getState().addMany([photo]); // the batch finishes
+
+    expect(useMediaStore.getState().mediaBySpot['spot-1']?.map((m) => m.id)).toEqual(['media-1']);
+  });
+
   it('shows the stored lastSyncAt of this rider before a sync that fails', async () => {
     await setSyncState(db, `last_sync_at:${ME}`, '2026-10-22T12:00:00.000Z');
     await setSyncState(db, 'last_sync_at:rider-other', '2026-10-23T12:00:00.000Z');

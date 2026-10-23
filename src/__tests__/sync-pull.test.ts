@@ -342,6 +342,19 @@ describe('pull: bring the server rows down (real SQLite, fake client)', () => {
       expect(await countOutbox(db)).toBe(0);
     });
 
+    it('a town stored after the push (same updated_at) survives the echo of that push, and still pushes', async () => {
+      await insertSpot(db, createTestSpot({ id: 'spot-1', owner_id: ME, generated_name: undefined, updated_at: T1 }));
+      await clearOutbox(db); // pushed without a town
+      // the geocoder answers after the push: setTown keeps updated_at
+      await updateSpot(db, 'spot-1', { generated_name: 'Capitol Hill', updated_at: T1 });
+      serve({ spots: [serverSpot({ generated_name: null, rev: 5 })] });
+
+      await pull(db, asClient(fake), ME);
+
+      expect(await rawSpot(db, 'spot-1')).toEqual(expect.objectContaining({ generated_name: 'Capitol Hill' }));
+      expect(await outboxOps(db)).toEqual([['spot', 'spot-1', 'upsert']]);
+    });
+
     it('a server delete soft-deletes the spot locally and keeps its list memberships', async () => {
       await insertSpot(db, createTestSpot({ id: 'spot-1', owner_id: ME, updated_at: T1 }));
       await insertHitList(db, createTestHitList({ id: 'list-1', owner_id: ME }));

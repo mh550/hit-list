@@ -26,7 +26,13 @@ import {
   setCursor,
   setSyncState,
 } from '@/src/db/sync';
-import { adopt, releaseAccountData, removeLocalAccountData, removeReleasedRows } from '@/src/sync/adopt';
+import {
+  adopt,
+  deleteAccountAndRelease,
+  releaseAccountData,
+  removeLocalAccountData,
+  removeReleasedRows,
+} from '@/src/sync/adopt';
 import { INITIAL_SYNC, useSyncStore } from '@/src/stores/sync-store';
 import * as engine from '@/src/sync/engine';
 import { useHitListsStore, useMediaStore, useSpotsStore } from '@/src/stores';
@@ -425,5 +431,61 @@ describe('releaseAccountData: Keep after Delete account (D67)', () => {
     expect((await outboxOps(db)).filter(([entity]) => entity === 'hit_list_spot')).toEqual([
       ['hit_list_spot', 'a-l1/a-s1', 'upsert'],
     ]);
+  });
+});
+
+describe('deleteAccountAndRelease: Delete account on the sync queue (S5-09 review)', () => {
+  it('waits for a running sync, and nothing queued after it runs between the server delete and the release', async () => {
+    await setSyncState(db, 'user_id', A);
+    await seedOwnedBy(A, 'a');
+    let finishSync!: () => void;
+    const running = engine.runExclusive(() => new Promise<void>((resolve) => (finishSync = resolve)));
+    const order: string[] = [];
+    const deleteServer = jest.fn(async () => {
+      order.push('server delete');
+      return true;
+    });
+
+    const deleting = deleteAccountAndRelease(db, A, deleteServer);
+    // A sync the timer queues while the delete waits: it must not pull between the delete and the release.
+    const queuedSync = engine.runExclusive(async () => {
+      order.push(`next task sees user_id ${String(await getSyncState(db, 'user_id'))}`);
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(deleteServer).not.toHaveBeenCalled();
+
+    finishSync();
+    await running;
+    const result = await deleting;
+    await queuedSync;
+
+    expect(result).toEqual({ deleted: true, released: { spotIds: ['a-s1', 'a-s2'], listIds: ['a-l1'] } });
+    expect(order).toEqual(['server delete', 'next task sees user_id undefined']);
+    expect(await ownersOf('spots')).toEqual([null, null]);
+    expect(await getListMemberships(db)).toEqual({ 'a-s1': ['a-l1'] });
+  });
+
+  it('a server delete that fails releases nothing', async () => {
+    await setSyncState(db, 'user_id', A);
+    await seedOwnedBy(A, 'a');
+
+    expect(await deleteAccountAndRelease(db, A, async () => false)).toEqual({ deleted: false });
+
+    expect(await ownersOf('spots')).toEqual([A, A]);
+    expect(await getSyncState(db, 'user_id')).toBe(A);
+  });
+
+  it('a release that fails after the delete warns and still reports the account deleted', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    await setSyncState(db, 'user_id', A);
+    await seedOwnedBy(A, 'a');
+    await db.runAsync(
+      "CREATE TEMP TRIGGER fail_release BEFORE UPDATE OF owner_id ON hit_lists BEGIN SELECT RAISE(ABORT, 'disk full'); END",
+    );
+
+    expect(await deleteAccountAndRelease(db, A, async () => true)).toEqual({ deleted: true, released: null });
+
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
   });
 });

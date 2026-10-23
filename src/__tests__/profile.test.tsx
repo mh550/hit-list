@@ -19,7 +19,7 @@ import { UnitSystem } from '@/src/types';
 import { saveUserSettings } from '@/src/db';
 import { countPending, resetFailed } from '@/src/db/sync';
 import { syncNow } from '@/src/sync/engine';
-import { releaseAccountData, removeLocalAccountData, removeReleasedRows } from '@/src/sync/adopt';
+import { deleteAccountAndRelease, removeLocalAccountData, removeReleasedRows } from '@/src/sync/adopt';
 import { INITIAL_SYNC, useSyncStore } from '@/src/stores/sync-store';
 
 jest.mock('@/src/sync/engine', () => ({ syncNow: jest.fn().mockResolvedValue(undefined) }));
@@ -29,7 +29,10 @@ jest.mock('@/src/db/sync', () => ({
 }));
 jest.mock('@/src/sync/adopt', () => ({
   removeLocalAccountData: jest.fn().mockResolvedValue(true),
-  releaseAccountData: jest.fn().mockResolvedValue({ spotIds: [], listIds: [] }),
+  // The real one runs the server delete (the callback) on the sync queue, then releases the rows.
+  deleteAccountAndRelease: jest.fn(async (_db: unknown, _uid: string, deleteServer: () => Promise<boolean>) =>
+    (await deleteServer()) ? { deleted: true, released: { spotIds: [], listIds: [] } } : { deleted: false },
+  ),
   removeReleasedRows: jest.fn().mockResolvedValue(undefined),
 }));
 
@@ -602,7 +605,12 @@ describe('Profile sign out and delete: Keep / Remove from this phone (S5-06, D38
     jest.mocked(syncNow).mockReset().mockResolvedValue(undefined);
     jest.mocked(countPending).mockReset().mockResolvedValue(0);
     jest.mocked(removeLocalAccountData).mockReset().mockResolvedValue(true);
-    jest.mocked(releaseAccountData).mockReset().mockResolvedValue(RELEASED);
+    jest
+      .mocked(deleteAccountAndRelease)
+      .mockReset()
+      .mockImplementation(async (_db, _uid, deleteServer) =>
+        (await deleteServer()) ? { deleted: true, released: RELEASED } : { deleted: false },
+      );
     jest.mocked(removeReleasedRows).mockReset().mockResolvedValue(undefined);
     alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
   });
@@ -791,8 +799,10 @@ describe('Profile sign out and delete: Keep / Remove from this phone (S5-06, D38
 
     await deleteAccountNow();
 
-    expect(releaseAccountData).toHaveBeenCalledWith(expect.anything(), ANA.userId);
-    expect(jest.mocked(releaseAccountData).mock.invocationCallOrder[0]).toBeLessThan(
+    // The server delete runs inside it, on the sync queue: no sync can pull between the delete and the release.
+    expect(deleteAccountAndRelease).toHaveBeenCalledWith(expect.anything(), ANA.userId, expect.any(Function));
+    expect(mockFake!.functions.invoke).toHaveBeenCalledWith('account-delete');
+    expect(jest.mocked(deleteAccountAndRelease).mock.invocationCallOrder[0]).toBeLessThan(
       mockFake!.auth.signOut.mock.invocationCallOrder[0],
     );
     expect(useAuthStore.getState()).toMatchObject(SIGNED_OUT);
@@ -814,7 +824,7 @@ describe('Profile sign out and delete: Keep / Remove from this phone (S5-06, D38
 
     await pressInAlert('Keep');
 
-    expect(releaseAccountData).toHaveBeenCalledTimes(1);
+    expect(deleteAccountAndRelease).toHaveBeenCalledTimes(1);
     expect(removeReleasedRows).not.toHaveBeenCalled();
     expect(removeLocalAccountData).not.toHaveBeenCalled();
   });
@@ -830,18 +840,15 @@ describe('Profile sign out and delete: Keep / Remove from this phone (S5-06, D38
     expect(removeLocalAccountData).not.toHaveBeenCalled();
   });
 
-  it('a release that fails warns, still signs out, and asks nothing', async () => {
-    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
-    jest.mocked(releaseAccountData).mockRejectedValueOnce(new Error('locked'));
+  it('a release that failed after the delete still signs out, and asks nothing', async () => {
+    jest.mocked(deleteAccountAndRelease).mockResolvedValueOnce({ deleted: true, released: null });
     useAuthStore.setState(ANA);
     render(<ProfileScreen />);
 
     await deleteAccountNow();
 
-    expect(warn).toHaveBeenCalled();
     expect(useAuthStore.getState()).toMatchObject(SIGNED_OUT);
     expect(alert).toHaveBeenCalledTimes(1);
-    warn.mockRestore();
   });
 
   it('a failed delete asks nothing about the phone', async () => {
@@ -852,6 +859,6 @@ describe('Profile sign out and delete: Keep / Remove from this phone (S5-06, D38
     await deleteAccountNow();
 
     expect(alert).toHaveBeenCalledTimes(1);
-    expect(releaseAccountData).not.toHaveBeenCalled();
+    expect(useAuthStore.getState()).toMatchObject(ANA);
   });
 });

@@ -517,6 +517,25 @@ describe('push: drain the outbox into Supabase (real SQLite, fake client)', () =
     ]);
   });
 
+  it('a membership delete sent after the session ended stays in the outbox and the push stops (0 rows is no answer)', async () => {
+    const { io } = await seed();
+    await clearOutbox(db);
+    await removeSpotFromList(db, 'list-1', 'spot-1');
+    const realFrom = fake.from.getMockImplementation()!;
+    fake.from.mockImplementationOnce((table: string) => {
+      // signed out while the push runs: the anon DELETE matches no row under RLS and answers without an error
+      fake.setSession(null);
+      return realFrom(table);
+    });
+    const error = jest.spyOn(console, 'error');
+
+    await push(db, asClient(fake), ME, io);
+
+    expect(await outboxOps(db)).toEqual([['hit_list_spot', 'list-1/spot-1', 'delete']]);
+    expect(error).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+
   it('a missing parent (FK 23503) is an ordinary failure that retries', async () => {
     const { io } = await seed();
     await setOutbox(db, [['media', 'media-1', 'upsert']]);

@@ -6,16 +6,36 @@
 //   node_modules/@supabase/postgrest-js/dist/index.d.mts (from(t).select(cols).eq(c, v).maybeSingle(),
 //     from(t).update(v).eq(c, v), optionally .select(cols) to get the updated rows back (else data null); a
 //     thenable { data, error }, PostgrestError has message/details/hint/code)
+//     from(t).upsert(values, { onConflict?, ignoreDuplicates? }), from(t).delete().eq(c, v)
+//   node_modules/@supabase/storage-js/dist/index.d.mts (storage.from(bucket).upload(path, fileBody, fileOptions?) →
+//     { data: { id, path, fullPath }, error: null } | { data: null, error: StorageError })
 //   node_modules/@supabase/functions-js/dist/module/FunctionsClient.d.ts (functions.invoke(name, options?))
 // Every member is a jest.fn. Screens get it with
 //   jest.mock('@/src/sync/client', () => ({ getSupabase: () => mockFake, isConfigured: () => true }))
 // The fake keeps one session and a `profiles` table; `failNext(method, error)` makes the next call of
-// that method answer { data: null, error }; `queryDelayMs` slows every query down.
+// that method answer { data: null, error }; `queryDelayMs` slows every query down. Every upsert, delete and upload
+// is logged in `calls`, in the order the app awaited them (the push tests read the order there).
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
 
 export type FakeError = { message: string; code?: string; status?: number };
 type Listener = (event: AuthChangeEvent, session: Session | null) => void;
-type FailMethod = 'getSession' | 'signInWithOtp' | 'verifyOtp' | 'signOut' | 'select' | 'update' | 'invoke';
+type FailMethod =
+  | 'getSession'
+  | 'signInWithOtp'
+  | 'verifyOtp'
+  | 'signOut'
+  | 'select'
+  | 'update'
+  | 'upsert'
+  | 'delete'
+  | 'upload'
+  | 'invoke';
+export type FakeCall =
+  | { kind: 'upsert'; table: string; values: Record<string, unknown>; options?: UpsertOptions }
+  | { kind: 'delete'; table: string; filters: [string, unknown][] }
+  | { kind: 'upload'; bucket: string; path: string; body: unknown; options?: UploadOptions };
+type UpsertOptions = { onConflict?: string; ignoreDuplicates?: boolean };
+type UploadOptions = { contentType?: string; upsert?: boolean };
 export interface FakeProfile {
   username: string | null;
   display_name: string | null;
@@ -44,6 +64,7 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
   const listeners = new Set<Listener>();
   const failures = new Map<FailMethod, FakeError>();
   const profiles = new Map<string, FakeProfile>();
+  const calls: FakeCall[] = [];
 
   const takeFailure = (method: FailMethod) => {
     const error = failures.get(method);
@@ -58,22 +79,29 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
   interface FakeQuery extends PromiseLike<QueryResult> {
     select: jest.Mock<FakeQuery, [columns?: string]>;
     update: jest.Mock<FakeQuery, [values: Partial<FakeProfile>]>;
+    upsert: jest.Mock<FakeQuery, [values: Record<string, unknown>, options?: UpsertOptions]>;
+    delete: jest.Mock<FakeQuery, [options?: { count?: string }]>;
     eq: jest.Mock<FakeQuery, [column: string, value: unknown]>;
     maybeSingle: jest.Mock<FakeQuery, []>;
   }
 
   // A PostgREST builder: chainable, and awaiting it runs the query against `profiles`.
   function query(table: string): FakeQuery {
-    let op: 'select' | 'update' = 'select';
+    let op: 'select' | 'update' | 'upsert' | 'delete' = 'select';
     let values: Partial<FakeProfile> = {};
+    let upserted: Record<string, unknown> = {};
+    let upsertOptions: UpsertOptions | undefined;
     let one = false;
     // update(…).select(): answer the updated rows (only `id`: the app asks for nothing else).
     let returning = false;
     const filters: [string, unknown][] = [];
 
     const run = (): QueryResult => {
+      if (op === 'upsert') calls.push({ kind: 'upsert', table, values: upserted, options: upsertOptions });
+      if (op === 'delete') calls.push({ kind: 'delete', table, filters: [...filters] });
       const error = takeFailure(op);
       if (error) return { data: null, error };
+      if (op === 'upsert' || op === 'delete') return { data: null, error: null };
       if (table !== 'profiles') return { data: one ? null : [], error: null };
       const rows = [...profiles.entries()]
         .map(([id, row]) => ({ id, ...row }))
@@ -94,6 +122,16 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
       update: jest.fn((next: Partial<FakeProfile>) => {
         op = 'update';
         values = next;
+        return builder;
+      }),
+      upsert: jest.fn((next: Record<string, unknown>, options?: UpsertOptions) => {
+        op = 'upsert';
+        upserted = next;
+        upsertOptions = options;
+        return builder;
+      }),
+      delete: jest.fn((_options?: { count?: string }) => {
+        op = 'delete';
         return builder;
       }),
       eq: jest.fn((column: string, value: unknown) => {
@@ -146,6 +184,16 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
       stopAutoRefresh: jest.fn(async () => {}),
     },
     from: jest.fn((table: string) => query(table)),
+    storage: {
+      from: jest.fn((bucket: string) => ({
+        upload: jest.fn(async (path: string, body: unknown, options?: UploadOptions) => {
+          calls.push({ kind: 'upload', bucket, path, body, options });
+          const error = takeFailure('upload');
+          if (error) return { data: null, error };
+          return { data: { id: `object-${path}`, path, fullPath: `${bucket}/${path}` }, error: null };
+        }),
+      })),
+    },
     functions: {
       invoke: jest.fn(async (_name: string, _options?: { body?: unknown }) => {
         const error = takeFailure('invoke');
@@ -156,6 +204,7 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
 
     // Test hooks.
     profiles,
+    calls,
     /** Makes every query answer after this many ms (an in-flight fetch racing an auth event). */
     queryDelayMs: 0,
     listenerCount: () => listeners.size,

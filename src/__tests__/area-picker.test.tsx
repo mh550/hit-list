@@ -497,7 +497,7 @@ describe('Area picker: header', () => {
 });
 
 describe("Area picker: 'Save as hit list'", () => {
-  it('is the only bottom action (no Send yet)', () => {
+  it('is the only bottom action with no spots inside (Send hides at 0)', () => {
     renderPicker();
 
     expect(screen.getByRole('button', { name: 'Save as hit list' })).toBeTruthy();
@@ -515,7 +515,8 @@ describe("Area picker: 'Save as hit list'", () => {
     expect(screen.getByText('A normal hit list of the spots inside the circle right now')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Keep it updated' })).toBeTruthy();
     expect(screen.getByText('An area list: your spots inside this circle, now and later')).toBeTruthy();
-    expect(screen.queryByText(/Send/)).toBeNull();
+    // The chooser offers no Send of its own: the bottom bar's is the only one (S7-04).
+    expect(screen.getAllByText(/Send/)).toHaveLength(1);
   });
 
   it("'Cancel' only closes the chooser", () => {
@@ -867,7 +868,7 @@ describe("Area picker: 'Send these N spots' (S7-04)", () => {
       kind: 'area',
       area_center: CITIES.seattle,
       area_radius_m: 3219,
-      area_filters: {},
+      area_filters: { types: [] },
     });
     useHitListsStore.setState({ lists: [list], membershipBySpot: {} });
     useSpotsStore.setState({ spots: [...inside, ...outside] });

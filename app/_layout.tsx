@@ -8,6 +8,7 @@ import 'react-native-reanimated';
 
 import { DB_NAME } from '@/src/db';
 import { DBInitializer } from '@/src/components/DBInitializer';
+import { ToastHost } from '@/src/components/ToastHost';
 import { useAdoption } from '@/src/hooks/use-adoption';
 import { useAuthInit } from '@/src/hooks/use-auth-init';
 import { useSync } from '@/src/hooks/use-sync';
@@ -72,6 +73,8 @@ export default function RootLayout() {
                   options={{ title: 'Your username', headerBackVisible: false, gestureEnabled: false }}
                 />
               </Stack>
+              {/* After the Stack, so the toast line draws over every screen. */}
+              <ToastHost />
             </DBInitializer>
           </SQLiteProvider>
         </Suspense>

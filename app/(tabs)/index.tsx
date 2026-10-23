@@ -9,6 +9,7 @@ import { selectListSpots, useHitListsStore, useSpotsStore } from '@/src/stores';
 import { EMPTY_AREA_COPY, EMPTY_LIST_COPY, SpotsBrowser } from '@/src/components/SpotsBrowser';
 import { HeaderTextButton } from '@/src/components/HeaderTextButton';
 import { AddToListSheet } from '@/src/components/AddToListSheet';
+import { SendSheet } from '@/src/components/SendSheet';
 import { ListPickerChips } from '@/src/components/ListPickerChips';
 import { useAuthStore } from '@/src/stores/auth-store';
 import { syncNow } from '@/src/sync/engine';
@@ -50,6 +51,8 @@ export default function SpotsScreen() {
   // The ids the open sheet files, fixed when it opens: unticking the active list there takes the spots out of scope
   // (and so out of `selected`), and a re-tick must still put them back. null = sheet closed.
   const [sheetIds, setSheetIds] = useState<string[] | null>(null);
+  // The same for the Send sheet: the ids it sends, fixed when it opens.
+  const [sendIds, setSendIds] = useState<string[] | null>(null);
   // Selecting is a List view thing: switching to Map, or the last spot in scope going, ends it (adjusting state
   // while rendering, not in an effect).
   if (selected !== null && (viewMode !== 'list' || spots.length === 0)) setSelected(null);
@@ -65,6 +68,7 @@ export default function SpotsScreen() {
     setSelected((prev) => (prev?.includes(id) ? prev.filter((x) => x !== id) : [...(prev ?? []), id]));
   const endSelecting = () => {
     setSheetIds(null);
+    setSendIds(null);
     setSelected(null);
   };
 
@@ -80,6 +84,7 @@ export default function SpotsScreen() {
 
   const count = chosen.length;
   const addLabel = `Add to list (${count})`;
+  const sendLabel = `Send (${count})`;
 
   return (
     <View style={styles.container}>
@@ -111,22 +116,29 @@ export default function SpotsScreen() {
       />
       {selecting ? (
         <View testID="select-bar" style={styles.selectBar}>
-          <Pressable
-            onPress={() => setSheetIds(chosen)}
-            disabled={count === 0}
-            style={({ pressed }) => [
-              styles.selectButton,
-              count === 0 && styles.selectButtonDisabled,
-              pressed && styles.selectButtonPressed,
-            ]}
-            accessibilityRole="button"
-            accessibilityLabel={addLabel}
-            accessibilityState={{ disabled: count === 0 }}>
-            <Text style={styles.selectButtonText}>{addLabel}</Text>
-          </Pressable>
+          {[
+            { label: sendLabel, onPress: () => setSendIds(chosen) },
+            { label: addLabel, onPress: () => setSheetIds(chosen) },
+          ].map(({ label, onPress }) => (
+            <Pressable
+              key={label}
+              onPress={onPress}
+              disabled={count === 0}
+              style={({ pressed }) => [
+                styles.selectButton,
+                count === 0 && styles.selectButtonDisabled,
+                pressed && styles.selectButtonPressed,
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={label}
+              accessibilityState={{ disabled: count === 0 }}>
+              <Text style={styles.selectButtonText}>{label}</Text>
+            </Pressable>
+          ))}
         </View>
       ) : null}
       <AddToListSheet visible={sheetIds !== null} spotIds={sheetIds ?? []} onClose={endSelecting} />
+      {sendIds ? <SendSheet spotIds={sendIds} onClose={endSelecting} /> : null}
       {/* The floating actions would cover the select bar; nothing to add while choosing spots. */}
       {selecting ? null : (
         <View style={styles.fabColumn}>
@@ -155,6 +167,8 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   selectBar: {
+    flexDirection: 'row',
+    gap: spacing.sm,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     borderTopWidth: StyleSheet.hairlineWidth,
@@ -162,6 +176,7 @@ const styles = StyleSheet.create({
     backgroundColor: palette.white,
   },
   selectButton: {
+    flex: 1,
     alignItems: 'center',
     paddingVertical: spacing.md,
     borderRadius: radius.md,

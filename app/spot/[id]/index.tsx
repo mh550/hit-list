@@ -6,7 +6,8 @@ import { StyleSheet, ScrollView, View, Text, Pressable } from 'react-native';
 import type { Spot } from '@/src/types';
 import { getSpotLegacy, type SpotLegacy } from '@/src/db';
 import { useSpotsStore, useMediaStore, useSettingsStore, useHitListsStore, selectSpotLists } from '@/src/stores';
-import { AddPhotosTile, AddToListSheet, Chip, ChipGroup, PhotoGrid, SpeedScale, Tag } from '@/src/components';
+import { AddPhotosTile, AddToListSheet, Chip, ChipGroup, PhotoGrid, SendSheet, SpeedScale, Tag } from '@/src/components';
+import { useAuthStore } from '@/src/stores/auth-store';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { FEATURE_TYPE_LABELS } from '@/src/constants/labels';
 import { getSpotDisplayName } from '@/src/utils/spot-name';
@@ -97,6 +98,9 @@ export default function SpotDetailScreen() {
   const router = useRouter();
   const spot = useSpotsStore((s) => s.spots.find((sp) => sp.id === id));
   const media = useMediaStore((s) => (id ? s.mediaBySpot[id] : undefined));
+  const userId = useAuthStore((s) => s.userId);
+  const [sending, setSending] = useState(false);
+  const sendIds = useMemo(() => (id ? [id] : []), [id]);
 
   const handleEdit = useCallback(() => {
     router.push(`/spot/${id}/edit` as `/spot/${string}/edit`);
@@ -118,6 +122,9 @@ export default function SpotDetailScreen() {
   const displayName = getSpotDisplayName(spot);
   const photos = spotPhotos(spot, media);
   const hasTags = spot.feature_types.length > 0 || spot.stopped;
+  // Only the rider's own spots are sent; another account's (S8) gets Save a copy instead. Signed out, a phone-only
+  // spot keeps Send and the sheet asks to sign in (D37).
+  const othersSpot = spot.owner_id !== undefined && userId !== null && spot.owner_id !== userId;
 
   return (
     <>
@@ -125,9 +132,20 @@ export default function SpotDetailScreen() {
         options={{
           title: displayName,
           headerRight: () => (
-            <Pressable onPress={handleEdit} hitSlop={8} accessibilityRole="button">
-              <Text style={styles.editButton}>Edit</Text>
-            </Pressable>
+            <View style={styles.headerButtons}>
+              {othersSpot ? null : (
+                <Pressable
+                  onPress={() => setSending(true)}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Send this spot">
+                  <IconSymbol name="paperplane.fill" size={22} color={palette.blue[500]} />
+                </Pressable>
+              )}
+              <Pressable onPress={handleEdit} hitSlop={8} accessibilityRole="button">
+                <Text style={styles.editButton}>Edit</Text>
+              </Pressable>
+            </View>
           ),
         }}
       />
@@ -166,6 +184,7 @@ export default function SpotDetailScreen() {
 
         <OlderDetails key={spot.id} spotId={spot.id} />
       </ScrollView>
+      {sending ? <SendSheet spotIds={sendIds} onClose={() => setSending(false)} /> : null}
     </>
   );
 }
@@ -197,6 +216,11 @@ const styles = StyleSheet.create({
     marginTop: -spacing.sm,
     fontSize: 15,
     color: palette.gray[500],
+  },
+  headerButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.lg,
   },
   editButton: {
     fontSize: 17,

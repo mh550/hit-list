@@ -22,6 +22,7 @@ import {
   FilterHeaderButton,
   HeaderTextButton,
   NameListCard,
+  SendSheet,
   useGuardedSubmit,
 } from '@/src/components';
 import { FilterSheet } from '@/src/components/FilterSheet';
@@ -123,6 +124,8 @@ function AreaPickerBody({ editList }: { editList?: AreaList }) {
   const [filterVisible, setFilterVisible] = useState(false);
   const [choosing, setChoosing] = useState(false);
   const [savingArea, setSavingArea] = useState(false);
+  // The ids the open Send sheet sends (the spots inside when it opened); null = closed.
+  const [sendIds, setSendIds] = useState<string[] | null>(null);
   // Read by Cancel: a back while 'Save area' writes, then the save's own back, would pop the list screen too.
   const savingAreaRef = useRef(false);
   const mapRef = useRef<MapView | null>(null);
@@ -345,11 +348,20 @@ function AreaPickerBody({ editList }: { editList?: AreaList }) {
         <Text style={styles.count} accessibilityLiveRegion="polite">
           {spotCountLabel(areaSpots.length)}
         </Text>
-        {editList ? (
-          <Button title="Save area" onPress={saveArea} disabled={savingArea} />
-        ) : (
-          <Button title="Save as hit list" onPress={() => setChoosing(true)} />
-        )}
+        <View style={styles.barButtons}>
+          {areaSpots.length > 0 ? (
+            <Button
+              title={areaSpots.length === 1 ? 'Send this spot' : `Send these ${spotCountLabel(areaSpots.length)}`}
+              variant="secondary"
+              onPress={() => setSendIds(areaSpots.map((s) => s.id))}
+            />
+          ) : null}
+          {editList ? (
+            <Button title="Save area" onPress={saveArea} disabled={savingArea} />
+          ) : (
+            <Button title="Save as hit list" onPress={() => setChoosing(true)} />
+          )}
+        </View>
       </View>
 
       <FilterSheet visible={filterVisible} onClose={() => setFilterVisible(false)} />
@@ -359,6 +371,7 @@ function AreaPickerBody({ editList }: { editList?: AreaList }) {
         onClose={() => setChoosing(false)}
         onSave={saveNewList}
       />
+      {sendIds ? <SendSheet spotIds={sendIds} onClose={() => setSendIds(null)} /> : null}
     </View>
   );
 }
@@ -504,6 +517,7 @@ const styles = StyleSheet.create({
   },
   bottomBar: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: spacing.md,
@@ -511,6 +525,10 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: palette.gray[200],
+  },
+  barButtons: {
+    flexDirection: 'row',
+    gap: spacing.sm,
   },
   count: {
     fontSize: 17,

@@ -47,7 +47,8 @@ describe('ToastHost (S7-04)', () => {
 
   it('renders nothing without a toast', () => {
     renderHost();
-    expect(screen.toJSON()).toBeNull();
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.queryAllByText(/./)).toHaveLength(0);
   });
 
   it('shows the line, announced, until it clears', () => {

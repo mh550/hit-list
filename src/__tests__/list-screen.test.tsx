@@ -455,10 +455,18 @@ describe("List screen: 'Send these spots' (S7-04)", () => {
     expect(mockSendSheet).not.toHaveBeenCalled();
   });
 
-  it("reads 'of 1 spot' for one, and sends all of the list even while a search hides some", () => {
+  it("reads 'of 1 spot' for one", () => {
     useHitListsStore.setState({ membershipBySpot: { a: [downtown.id] } });
     renderList();
     expect(screen.getByText('one-time copy of 1 spot')).toBeTruthy();
+  });
+
+  it('sends every spot of the list even while a search hides some', () => {
+    useSpotsStore.setState({ searchQuery: 'Pier' });
+    renderList();
+    expect(screen.queryByText('Library ledge')).toBeNull();
+    fireEvent.press(screen.getByRole('button', { name: 'Send these spots, one-time copy of 2 spots' }));
+    expect([...(mockSendSheet.mock.lastCall?.[0] as SheetProps).spotIds].sort()).toEqual(['a', 'b']);
   });
 
   it('is hidden when the list has no spots', () => {
@@ -474,7 +482,7 @@ describe("List screen: 'Send these spots' (S7-04)", () => {
       kind: 'area',
       area_center: CITIES.seattle,
       area_radius_m: 3219,
-      area_filters: {},
+      area_filters: { types: [] },
     });
     useSpotsStore.setState({
       spots: [

@@ -1,16 +1,22 @@
 import { useMemo, useState } from 'react';
-import { Alert, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button, EmptyState, HeaderTextButton, NameListSheet, SpotsBrowser } from '@/src/components';
+import { IconSymbol } from '@/components/ui/icon-symbol';
+import { Button, EmptyState, HeaderTextButton, NameListSheet, SendSheet, SpotsBrowser } from '@/src/components';
 import { EMPTY_AREA_COPY, EMPTY_LIST_COPY } from '@/src/components/SpotsBrowser';
 import { palette, spacing } from '@/src/constants/theme';
 import { useHitListActions } from '@/src/hooks/use-hit-list-actions';
 import { selectListSpots, useHitListsStore, useSpotsStore } from '@/src/stores';
 import { useSettingsStore } from '@/src/stores/settings-store';
 import { areaLabel, isAreaList } from '@/src/utils/area';
-import { getSpotDisplayName } from '@/src/utils/spot-name';
+import { getSpotDisplayName, spotCountLabel } from '@/src/utils/spot-name';
+
+/** Where S8's live-list action goes beside Send; nothing in S7. */
+function ShareListSlot() {
+  return null;
+}
 
 /**
  * One hit list: the Spots tab's List | Map body scoped to the list's spots, plus Rename and Delete list. An area list's
@@ -28,6 +34,8 @@ export default function ListScreen() {
   const [renaming, setRenaming] = useState(false);
   // Set once Delete is confirmed: the store drops the list before router.back() runs, so 'gone' would flash.
   const [deleting, setDeleting] = useState(false);
+  // The ids the open Send sheet sends, fixed when it opens; null = closed.
+  const [sendIds, setSendIds] = useState<string[] | null>(null);
 
   const listSpots = useMemo(
     () => (list ? selectListSpots(list, spots, membershipBySpot) : []),
@@ -112,6 +120,26 @@ export default function ListScreen() {
     </View>
   ) : undefined;
 
+  // Every spot of the list (an area list's are the ones inside its circle), not just the ones a search shows.
+  const subtitle = `one-time copy of ${spotCountLabel(listSpots.length)}`;
+  const actions =
+    listSpots.length > 0 ? (
+      <View style={styles.actions}>
+        <Pressable
+          onPress={() => setSendIds(listSpots.map((s) => s.id))}
+          style={({ pressed }) => [styles.action, pressed && styles.actionPressed]}
+          accessibilityRole="button"
+          accessibilityLabel={`Send these spots, ${subtitle}`}>
+          <IconSymbol name="paperplane.fill" size={20} color={palette.blue[500]} />
+          <View style={styles.actionLabel}>
+            <Text style={styles.actionTitle}>Send these spots</Text>
+            <Text style={styles.actionSubtitle}>{subtitle}</Text>
+          </View>
+        </Pressable>
+        <ShareListSlot />
+      </View>
+    ) : undefined;
+
   const renameButton = (
     <HeaderTextButton onPress={() => setRenaming(true)} accessibilityLabel="Rename list">
       Rename
@@ -126,6 +154,7 @@ export default function ListScreen() {
         {...(isArea ? EMPTY_AREA_COPY : EMPTY_LIST_COPY)}
         headerTitle={areaTitle}
         headerActions={renameButton}
+        aboveList={actions}
         onSpotLongPress={isArea ? undefined : handleSpotLongPress}
       />
       <View style={[styles.bottomBar, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
@@ -146,6 +175,7 @@ export default function ListScreen() {
         onCancel={() => setRenaming(false)}
         onSubmit={handleRename}
       />
+      {sendIds ? <SendSheet spotIds={sendIds} onClose={() => setSendIds(null)} /> : null}
     </View>
   );
 }
@@ -164,6 +194,32 @@ const styles = StyleSheet.create({
   },
   barButton: {
     flex: 1,
+  },
+  actions: {
+    flexDirection: 'row',
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+  },
+  action: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  actionPressed: {
+    opacity: 0.6,
+  },
+  actionLabel: {
+    gap: 1,
+  },
+  actionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: palette.blue[500],
+  },
+  actionSubtitle: {
+    fontSize: 13,
+    color: palette.gray[500],
   },
   title: {
     alignItems: 'center',

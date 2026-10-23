@@ -257,14 +257,6 @@ describe('Spots tab multi-select', () => {
     expect(screen.getByLabelText('Add new spot')).toBeTruthy();
   });
 
-  it('has no Send action yet (S7 adds it)', () => {
-    render(<SpotsScreen />);
-    fireEvent(row(/Alley rail/), 'longPress');
-
-    expect(screen.queryByText(/Send/)).toBeNull();
-    expect(screen.queryByLabelText(/Send/)).toBeNull();
-  });
-
   it('switching to Map ends select mode, and Select is offered in List view only', () => {
     render(<SpotsScreen />);
     fireEvent(row(/Alley rail/), 'longPress');

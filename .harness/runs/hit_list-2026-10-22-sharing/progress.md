@@ -20,6 +20,13 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 02:10 · S2-05 · passes
+
+- New `docs/plans/2026-10-22-s2-what-michael-will-see.md`: the picker (default imperial and metric, count '1 spot'), the 'Save as hit list' chooser, the Lists tab (one area, one manual list), the area list screen (two-line header, 'Edit area'), 'What to tap', and the checks. Rendered by a temporary test (deleted before the commit); tests stay at 919.
+- Verified: `npx jest --silent` 67 suites / 919 passed, `npx jest --ci` 0 `console.error`; `npx expo export --platform ios` exit 0 (entry hbc 4.4 MB); `check.sh` green.
+- Next: S2 is complete; the next feature is the S2 PR / S3 per the feature list. Phone checks are listed at the end of the new doc.
+- Questions for Michael: none new (D53–D56 still open in spec §9).
+
 ### 2026-10-23 01:30 · S2-04 · passes
 
 - Picker (`app/area/index.tsx`): 'Just these N' and 'Keep it updated' now lead to a name card **in the same Modal** (`NameListCard` + `useGuardedSubmit`, split out of `NameListSheet`; iOS won't present a second Modal while the first is closing). Create → `createList(name, { kind: 'manual' })` + `addSpotsToList` (a failed add deletes the new list again), or `createList(name, { kind: 'area', … })`; then the chooser closes and `router.replace('/list/<id>')`. Edit mode `?listId`: pre-fills centre/radius/place, loads `area_filters` into the shared filters (D55), and has one action, 'Save area' → `updateHitList` → `back()`. A missing or manual list shows 'This list is gone' with Cancel.

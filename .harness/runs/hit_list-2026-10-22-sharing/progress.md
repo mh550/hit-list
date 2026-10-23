@@ -20,6 +20,41 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-22 verify S2
+
+Re-ran `check.sh` (green, 924 tests), `npx jest --ci` (67 suites, 924 tests, 0 `console.error` lines) and `npx expo export --platform ios` (exit 0, `entry-*.hbc` 4,357,679 B). Read each named test's assertions.
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| S2-01 | 1 | `grep '^## '` docs/plans/2026-10-22-s2-area.md | Sections Geometry, Area lists, Picker screen, Mock, Lists tab and list screen, Add-to-list sheet and spot detail, Copy, Test list (per feature), plus Review | yes |
+| S2-01 | 2 | Spec §2 rows D53–D56 and §9 Q14–17; plan line 46 | D53 ignores NO_LOCATION, D54 place = typed text or 'my location', D55 filters, D56 radius; all *default*, in §9; plan says 'Send these N spots' is added in S7 | yes |
+| S2-01 | 3 | `git show --stat` of 1d59ff6 + `check.sh` | Commit touches only the plan, the spec and harness files; check green | yes |
+| S2-02 | 1 | `npx jest src/__tests__/area.test.ts`, read lines 25–138 | Steps arrays equal the stated values; boundary kept, 1 m short dropped; NO_LOCATION never; nearestStep(1700, imperial)=1609; the three areaLabel strings match; circleRegion asserted numerically at 47.6° | yes |
+| S2-02 | 2 | hit-lists-store.test.ts lines 119–210 | area list returns inside-circle spots; `types: [rail]` drops the ledge; the store spot appears on the next selectListSpots; selectListCounts counts area lists | yes |
+| S2-02 | 3 | db-hit-lists.test.ts lines 52–66 and 211–224 | Area list with centre, radius, place and filters round-trips equal; an area-lists block covers updateHitList (centre/radius 3219/place 'Capitol Hill') | yes |
+| S2-02 | 4 | `check.sh`, `npx jest --ci` | Green; 0 console.error | yes |
+| S2-03 | 1 | `__mocks__/react-native-maps.tsx` lines 1–43 | Circle renders View testID 'map-circle' with props; MapView spreads props so onRegionChangeComplete is fireable; comment cites `node_modules/react-native-maps/dist/src/*.d.ts` (package has no lib/, so the path in the step differs, same files) | yes |
+| S2-03 | 2 | `app/_layout.tsx:51`, area-picker.test.tsx lines 132–260 | Registered fullScreenModal 'Pick an area'; centre = location else initialRegion; chips imperial/metric, 2 mi checked, circle radius 3219; '5 mi' → 8047; region change moves centre and recounts; '23 spots' and '1 spot' | yes |
+| S2-03 | 3 | area-picker.test.tsx lines 268–330 and 412–430 | geocodeAsync('Capitol Hill') moves centre; 'No place found' on empty and on reject (no console.error); 'Use my location' disabled with no fix and recentres | yes |
+| S2-03 | 4 | area-picker.test.tsx lines 436–470 | Header Filter opens FilterSheet; rail filter drops count 26 → 3 | yes |
+| S2-03 | 5 | area-picker.test.tsx lines 490–512 | Only 'Save as hit list', no Send text; chooser shows both options with the exact hints | yes |
+| S2-03 | 6 | `npx jest --ci` | Green; 0 console.error | yes |
+| S2-04 | 1 | area-picker.test.tsx lines 584–630 | Manual: createList('Weekend', {kind:'manual'}), addSpotsToList with the 23 ids, replace('/list/L-new'), in that order; area: createList with kind 'area', centre, 3219, 'Capitol Hill', filters; addSpotsToList not called | yes |
+| S2-04 | 2 | lists-tab.test.tsx lines 253–295 | 'New area list' button pushes '/area'; row 'Weekend, Area · 2 mi, 2 spots'; live count after a spot is added | yes |
+| S2-04 | 3 | list-screen.test.tsx lines 357–425; area-picker.test.tsx lines 700–770 | Title 'Area · 2 mi of Capitol Hill'; Edit area pushes `/area?listId=…`; picker prefills; 'Save area' → updateHitList(id, {centre, radius, place, filters}) then back; long press shows no Alert | yes |
+| S2-04 | 4 | add-to-list-sheet.test.tsx lines 202–245; spot-detail.test.tsx lines 350–372 | Disabled row with the exact hint, no add/remove call; detail 'In lists' shows the area chip when the circle holds the spot, none when outside | yes |
+| S2-04 | 5 | area-list-live.test.tsx lines 72–95 | Real SQLite, radius 1609 at Seattle; spot at 500 m renders with no other action, spot at 2000 m does not; memberships empty | yes |
+| S2-04 | 6 | `npx jest --ci` | Green; 0 console.error | yes |
+| S2-05 | 1 | docs/plans/2026-10-22-s2-what-michael-will-see.md §1–4; `ls src/__tests__` | Covers picker default (imperial + metric chips, count), chooser, Lists tab with area + manual list, area list screen with 'Edit area'; no leftover temp test file | yes |
+| S2-05 | 2 | Same file, 'What to tap' | Steps 1–6 cover + Area list, drag, 1 mi, search Capitol Hill, Keep it updated, Quick Add inside the circle, Edit area to 5 mi | yes |
+| S2-05 | 3 | Same file 'Checks recorded'; re-ran `npx expo export --platform ios` | Doc records jest counts (919 then; 924 now), 0 console.error, export exit 0, 4.4 MB; my export exit 0, 4.36 MB | yes |
+| S2-05 | 4 | `check.sh` | Green | yes |
+| S2-06 | 1 | reviews/s2.diff (3,380 lines, starts at __mocks__), plan '## Review' | Diff exists, base 2488824 (S1 verified) named; findings table has severity, file:line and fix commit; no Critical/Important, Minor fixes list RED tests | yes |
+| S2-06 | 2 | Plan Review 'Reviewer's written answers' 1–5, with area.ts, picker and tests read above | All five answered; backed by the tests I read (NO_LOCATION excluded, radius from steps, one selectAreaSpots, reject → 'No place found' with no console.error, region change with `geocodeAsync` not called) | yes |
+| S2-06 | 3 | `git log` | 5af129a `refactor:` S2 simplification pass | yes |
+| S2-06 | 4 | CLAUDE.md lines 47, 93, 121; README.md line 44 | Layout mentions app/area/, src/utils/area.ts, 'computed, never stored'; README has the 'Area lists (S2)' bullet | yes |
+| S2-06 | 5 | `npx jest --ci`, `check.sh` | Green; 0 console.error | yes |
+
 ### 2026-10-23 02:50 · S2-06 · passes
 
 - Review: an Opus reviewer read `reviews/s2.diff` (`git diff 2488824..HEAD -- src app __mocks__`, 3,380 lines). It found **no Critical or Important** issues and 5 Minor ones. Three are fixed, each with a RED test first (`5dd05fd`): an empty area list on the Spots tab now uses the area copy; the chooser reads 'Just this 1 spot'; 'Edit area' puts your own filters back on close (Save or Cancel). Two are accepted: place-name drift across edits (needs a migration; noted in D54) and unclustered pins in a big circle (phone check added). The findings and the five written answers (NO_LOCATION, radius steps round-trip, one `selectAreaSpots`, geocode rejection, no geocode on drag) are under 'Review' in `docs/plans/2026-10-22-s2-area.md`.

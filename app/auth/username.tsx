@@ -4,9 +4,9 @@ import { useRouter } from 'expo-router';
 
 import { AccountsNotSetUp, AuthError, AuthScreen, Button, FormInput } from '@/src/components';
 import { palette, spacing, typography } from '@/src/constants/theme';
-import { useAuthStore } from '@/src/stores/auth-store';
+import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
 import { getSupabase } from '@/src/sync/client';
-import { saveProfile } from '@/src/sync/auth';
+import { saveProfile, signOutOfAccount } from '@/src/sync/auth';
 import { normalizeUsername, validateUsername } from '@/src/utils/username';
 
 /** The server's display-name limit (D58), in characters; maxLength counts UTF-16 units, so emoji get fewer. */
@@ -19,19 +19,30 @@ const SAVE_ERRORS = {
   failed: "Couldn't save. Try again.",
 } as const;
 
+// From the code screen the root stack is [(tabs), auth/sign-in, auth/username]: drop back to those tabs (a replace
+// would open a second (tabs) as a sheet over Sign in). Redirected here at launch, this is the only screen, so it
+// becomes the tabs.
+function leaveToProfile(router: ReturnType<typeof useRouter>) {
+  if (router.canDismiss()) router.dismissTo('/(tabs)/profile');
+  else router.replace('/(tabs)/profile');
+}
+
 // Onboarding after the first sign-in: an @username (required, D39) and a display name (optional, D63). The Stack
-// gives it no back button and no swipe, and the tabs redirect here while the account is 'needs_username'.
+// gives it no back button and no swipe, and the tabs redirect here while the account is 'needs_username'; Sign out is
+// the way out for a rider who doesn't want one (yet).
 export default function UsernameScreen() {
   const router = useRouter();
   const userId = useAuthStore((s) => s.userId);
   const setProfile = useAuthStore((s) => s.setProfile);
+  const setAuth = useAuthStore((s) => s.setAuth);
   const [text, setText] = useState('');
   // No message before the first keystroke.
   const [touched, setTouched] = useState(false);
   const [displayName, setDisplayName] = useState('');
   const [saving, setSaving] = useState(false);
+  const [signingOut, setSigningOut] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // A second tap can land before the disabled state renders.
+  // A second tap (or the other button) can land before the disabled state renders.
   const inFlight = useRef(false);
   const displayNameInput = useRef<TextInput>(null);
 
@@ -40,14 +51,14 @@ export default function UsernameScreen() {
   if (!userId) {
     return (
       <AuthScreen>
-        <Text style={styles.body}>Sign in first to pick a username.</Text>
-        <Button title="Sign in" size="lg" onPress={() => router.replace('/auth/sign-in')} />
+        <Text style={styles.body}>Signed out. Sign in again from Profile.</Text>
+        <Button title="Back to Profile" size="lg" onPress={() => leaveToProfile(router)} />
       </AuthScreen>
     );
   }
 
   const invalid = validateUsername(text);
-  const canSave = !saving && !invalid;
+  const canSave = !saving && !signingOut && !invalid;
 
   const changeText = (next: string) => {
     // The field already shows the '@'.
@@ -68,17 +79,22 @@ export default function UsernameScreen() {
     setSaving(false);
     if (result === 'saved') {
       setProfile(username, name);
-      // From the code screen the root stack is [(tabs), auth/sign-in, auth/username]: drop back to those tabs (a
-      // replace would open a second (tabs) as a sheet over Sign in). Redirected here at launch, this is the only
-      // screen, so it becomes the tabs.
-      if (router.canDismiss()) router.dismissTo('/(tabs)/profile');
-      else router.replace('/(tabs)/profile');
+      leaveToProfile(router);
     } else {
       setError(SAVE_ERRORS[result]);
     }
   };
   const submit = () => {
     if (canSave) void save();
+  };
+
+  const signOut = async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setSigningOut(true);
+    await signOutOfAccount(client);
+    setAuth(SIGNED_OUT);
+    leaveToProfile(router);
   };
 
   return (
@@ -129,6 +145,12 @@ export default function UsernameScreen() {
       <Text style={styles.hint}>Optional. Shown to friends.</Text>
       <AuthError message={error} />
       <Button title={saving ? 'Saving…' : 'Done'} size="lg" onPress={submit} disabled={!canSave} />
+      <Button
+        title={signingOut ? 'Signing out…' : 'Sign out'}
+        variant="ghost"
+        onPress={() => void signOut()}
+        disabled={saving || signingOut}
+      />
     </AuthScreen>
   );
 }

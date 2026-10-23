@@ -44,8 +44,12 @@ export async function sendSignInCode(client: SupabaseClient, email: string): Pro
   try {
     const { error } = await client.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
     if (!error) return null;
-    // Offline, auth-js's message is the fetch's ('Network request failed').
-    return isAuthRetryableFetchError(error) ? SEND_FAILED : error.message;
+    // Offline, auth-js's message is the fetch's ('Network request failed'). A reply it couldn't read (not JSON: a
+    // captive portal, a proxy) is an AuthUnknownError with the parse error's text, and a JSON body with no message
+    // field comes through stringified: neither is for the rider.
+    const unreadable = isAuthRetryableFetchError(error) || error.name === 'AuthUnknownError';
+    const message = error.message?.trim();
+    return unreadable || !message || /^[[{]/.test(message) ? SEND_FAILED : message;
   } catch {
     return SEND_FAILED;
   }

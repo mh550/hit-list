@@ -6,7 +6,7 @@ import { createFakeSupabase, fakeSession, type FakeSupabase } from './helpers/fa
 import { ME, adoptPhoneFor } from './helpers/outbox';
 
 import { getProfiles, upsertProfiles } from '@/src/db/profiles';
-import { setSyncState } from '@/src/db/sync';
+import { getSyncState, setSyncState } from '@/src/db/sync';
 import {
   addFriend,
   block,
@@ -20,6 +20,7 @@ import {
 import { runExclusive } from '@/src/sync/queue';
 import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
 import { EMPTY_FRIENDS, useFriendsStore } from '@/src/stores/friends-store';
+import { selectUnseenCount, useInboxStore } from '@/src/stores/inbox-store';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
 // ids sort like the server's uuids: user_a is the smaller of the pair
@@ -67,6 +68,7 @@ beforeEach(async () => {
   fake.tables.blocks = [];
   useAuthStore.setState({ ...SIGNED_OUT, status: 'signed_in', userId: ME, username: 'me' });
   useFriendsStore.getState().clearFriends();
+  useInboxStore.getState().clearInbox();
 });
 
 afterEach(() => {
@@ -428,6 +430,53 @@ describe('refreshFriends', () => {
     expect(s.blocked).toEqual([profile(DEE, 'dee')]);
     expect(s.loadedAt).toEqual(expect.any(String));
     expect(s.loadError).toBeNull();
+  });
+
+  it("puts the incoming requests into the Inbox as friend_request items, with the rider's stored seen mark", async () => {
+    fake.tables.friendships.push(friendship('f-ana2', ANA, 'pending', ANA, '2026-10-22 08:00:00+00'));
+    await setSyncState(db, `inbox_seen_at:${ME}`, '2026-10-20T10:00:00.000Z');
+
+    await refreshFriends(db, client(), ME);
+
+    const inbox = useInboxStore.getState();
+    expect(inbox.userId).toBe(ME);
+    expect(inbox.seenAt).toBe('2026-10-20T10:00:00.000Z');
+    // only requests asked by others: the accepted friend and the one the rider sent are not Inbox items
+    expect(inbox.items).toEqual([
+      {
+        kind: 'friend_request',
+        id: 'f-zed',
+        created_at: '2026-10-20T10:00:00.000Z',
+        friendshipId: 'f-zed',
+        from: profile(ZED, 'zed'),
+      },
+    ]);
+    expect(selectUnseenCount(inbox)).toBe(0);
+    expect(await getSyncState(db, `inbox_seen_at:${ME}`)).toBe('2026-10-20T10:00:00.000Z');
+  });
+
+  it('a request newer than the seen mark is unseen; never set, every request is', async () => {
+    fake.tables.friendships = [friendship('f-zed', ZED, 'pending', ZED, '2026-10-22 08:00:00+00')];
+
+    await refreshFriends(db, client(), ME);
+
+    expect(useInboxStore.getState().seenAt).toBeNull();
+    expect(selectUnseenCount(useInboxStore.getState())).toBe(1);
+  });
+
+  it('a load that ends after the rider signed out leaves the Inbox empty', async () => {
+    const realFrom = fake.from.getMockImplementation()!;
+    fake.from.mockImplementation((table: string) => {
+      if (table === 'profiles') {
+        fake.setSession(null);
+        useAuthStore.setState({ ...SIGNED_OUT });
+      }
+      return realFrom(table);
+    });
+
+    await refreshFriends(db, client(), ME);
+
+    expect(useInboxStore.getState()).toMatchObject({ userId: null, items: [] });
   });
 
   it('a name it never knew stays null (the screen shows "A rider you asked", D73)', async () => {

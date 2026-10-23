@@ -101,7 +101,7 @@
         "app/spot/[id]/index.tsx shows an 'In lists' row under the tag line: one chip per list the spot is in (text = list name) and a trailing '+ Add to hit list' chip (accessibilityLabel 'Add to hit list') that opens the sheet; with no lists the row shows only the '+ Add to hit list' chip; src/__tests__/spot-detail.test.tsx gains these cases and tapping a list chip pushes '/list/<id>'.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S1-08",

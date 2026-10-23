@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { StyleSheet, ScrollView, View, Text, Pressable } from 'react-native';
 
 import { getSpotLegacy, type SpotLegacy } from '@/src/db';
-import { useSpotsStore, useMediaStore, useSettingsStore } from '@/src/stores';
-import { AddPhotosTile, PhotoGrid, SpeedScale, Tag, ChipGroup } from '@/src/components';
+import { useSpotsStore, useMediaStore, useSettingsStore, useHitListsStore, selectSpotLists } from '@/src/stores';
+import { AddPhotosTile, AddToListSheet, Chip, ChipGroup, PhotoGrid, SpeedScale, Tag } from '@/src/components';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { FEATURE_TYPE_LABELS } from '@/src/constants/labels';
 import { getSpotDisplayName } from '@/src/utils/spot-name';
@@ -59,6 +59,34 @@ function OlderDetails({ spotId }: { spotId: string }) {
             </View>
           ))
         : null}
+    </View>
+  );
+}
+
+/** 'In lists': a chip per list the spot is in (opens it), then '+ Add to hit list', which files it from here. */
+function InLists({ spotId }: { spotId: string }) {
+  const router = useRouter();
+  const lists = useHitListsStore((s) => s.lists);
+  const membershipBySpot = useHitListsStore((s) => s.membershipBySpot);
+  const inLists = useMemo(() => selectSpotLists(spotId, lists, membershipBySpot), [spotId, lists, membershipBySpot]);
+  const spotIds = useMemo(() => [spotId], [spotId]);
+  const [adding, setAdding] = useState(false);
+
+  return (
+    <View style={styles.inLists}>
+      <Text style={styles.inListsLabel}>In lists</Text>
+      <ChipGroup>
+        {inLists.map((list) => (
+          <Chip
+            key={list.id}
+            label={list.name}
+            role="button"
+            onPress={() => router.push(`/list/${list.id}` as `/list/${string}`)}
+          />
+        ))}
+        <Chip label="+ Add to hit list" role="button" accessibilityLabel="Add to hit list" onPress={() => setAdding(true)} />
+      </ChipGroup>
+      <AddToListSheet visible={adding} spotIds={spotIds} onClose={() => setAdding(false)} />
     </View>
   );
 }
@@ -123,6 +151,8 @@ export default function SpotDetailScreen() {
           </ChipGroup>
         ) : null}
 
+        <InLists spotId={spot.id} />
+
         <SpeedScale readonly value={spot.natural_speed} />
 
         {spot.notes ? (
@@ -168,6 +198,13 @@ const styles = StyleSheet.create({
   },
   notes: {
     gap: spacing.xs,
+  },
+  inLists: {
+    gap: spacing.sm,
+  },
+  inListsLabel: {
+    fontSize: 15,
+    color: palette.gray[500],
   },
   notesLabel: {
     fontSize: 15,

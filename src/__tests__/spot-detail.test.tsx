@@ -4,11 +4,11 @@ import { Image, StyleSheet } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { getSpotLegacy } from '@/src/db';
-import { useMediaStore, useSettingsStore, useSpotsStore } from '@/src/stores';
+import { useHitListsStore, useMediaStore, useSettingsStore, useSpotsStore } from '@/src/stores';
 import { palette } from '@/src/constants/theme';
 import { resolvePhotoUri } from '@/src/utils/photo-storage';
 import { FeatureType, UnitSystem, type Media, type Spot } from '@/src/types';
-import { createTestMedia, createTestSpot } from './factories';
+import { createTestHitList, createTestMedia, createTestSpot } from './factories';
 
 import SpotDetailScreen from '@/app/spot/[id]/index';
 
@@ -23,6 +23,7 @@ beforeEach(() => {
   push.mockReset();
   jest.mocked(useRouter).mockReturnValue({ push, back: jest.fn(), replace: jest.fn() } as never);
   useSettingsStore.getState().setUnits(UnitSystem.Imperial);
+  useHitListsStore.setState({ lists: [], membershipBySpot: {}, activeListId: null });
 });
 
 /** Renders the detail screen and lets the Older details lookup settle, so no act() warning reaches console.error. */
@@ -38,6 +39,8 @@ async function renderDetail(overrides: Partial<Spot> = {}, media: Media[] = []) 
 }
 
 const texts = () => screen.getAllByText(/./).map((t) => t.props.children);
+/** The 'In lists' row of a spot in no list (S1-07), under the tag line on every spot. */
+const IN_NO_LISTS = ['In lists', '+ Add to hit list'];
 
 describe('Spot detail: notes', () => {
   it('shows the notes paragraph when the spot has notes', async () => {
@@ -57,7 +60,7 @@ describe('Spot detail: notes', () => {
   it('shows only the title and the notes, no section from the removed model (D17)', async () => {
     await renderDetail({ name: 'Pier 57', notes: 'under the bridge' });
 
-    expect(texts()).toEqual(['Pier 57', 'Notes', 'under the bridge']);
+    expect(texts()).toEqual(['Pier 57', ...IN_NO_LISTS, 'Notes', 'under the bridge']);
   });
 });
 
@@ -85,7 +88,8 @@ describe('Spot detail: tag line and speed', () => {
     await renderDetail(tagged, [createTestMedia()]);
 
     expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
-    expect(screen.queryAllByRole('button')).toHaveLength(0);
+    // The only button is the 'In lists' row's add chip.
+    expect(screen.queryAllByRole('button').map((b) => b.props.accessibilityLabel)).toEqual(['Add to hit list']);
     const stopped = screen.getByTestId('tag-stopped');
     expect(stopped.props.accessibilityRole).toBeUndefined();
     expect(stopped.props.accessibilityState).toBeUndefined();
@@ -103,7 +107,7 @@ describe('Spot detail: tag line and speed', () => {
   it('shows Skate stopped alone when the spot has no feature types', async () => {
     await renderDetail({ name: 'Bank', stopped: true });
 
-    expect(texts()).toEqual(['Bank', 'Skate stopped']);
+    expect(texts()).toEqual(['Bank', 'Skate stopped', ...IN_NO_LISTS]);
   });
 
   it('shows no speed bar when the speed is not rated', async () => {
@@ -258,7 +262,7 @@ describe('Spot detail: nothing from the old model', () => {
   it('shows only the title for a spot with a name and one photo', async () => {
     await renderDetail({ name: 'Pier 57' }, [createTestMedia()]);
 
-    expect(texts()).toEqual(['Pier 57']);
+    expect(texts()).toEqual(['Pier 57', ...IN_NO_LISTS]);
   });
 });
 
@@ -274,5 +278,80 @@ describe('Spot detail: header', () => {
     header.unmount();
 
     expect(push).toHaveBeenCalledWith(`/spot/${spot.id}/edit`);
+  });
+});
+
+describe("Spot detail: 'In lists' row", () => {
+  const downtown = createTestHitList({ id: 'L-downtown', name: 'Downtown' });
+  const bridges = createTestHitList({ id: 'L-bridges', name: 'Bridges' });
+  const other = createTestHitList({ id: 'L-other', name: 'Other' });
+
+  /** The lists the spot is in, by id; the spot's id is fixed so the memberships can name it. */
+  async function renderInLists(listIds: string[]) {
+    useHitListsStore.setState({
+      lists: [downtown, bridges, other],
+      membershipBySpot: { 'spot-1': listIds, 'spot-2': [other.id] },
+    });
+    return renderDetail({ id: 'spot-1', name: 'Pier 57', feature_types: [FeatureType.Rail] });
+  }
+
+  it('shows one chip per list the spot is in, by name, then the add chip, under the tag line', async () => {
+    await renderInLists([downtown.id, bridges.id]);
+
+    const order = texts();
+    expect(order.indexOf('Rail')).toBeLessThan(order.indexOf('In lists'));
+    expect(order.slice(order.indexOf('In lists'))).toEqual(['In lists', 'Bridges', 'Downtown', '+ Add to hit list']);
+    expect(screen.queryByText('Other')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Add to hit list' })).toBeOnTheScreen();
+  });
+
+  it('shows only the add chip when the spot is in no list', async () => {
+    await renderInLists([]);
+
+    expect(screen.getByText('In lists')).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: 'Add to hit list' })).toBeOnTheScreen();
+    expect(screen.queryByText('Downtown')).toBeNull();
+    expect(screen.queryByText('Bridges')).toBeNull();
+  });
+
+  it('skips a deleted list and keeps the live one', async () => {
+    useHitListsStore.setState({
+      lists: [{ ...downtown, deleted_at: '2026-10-02T12:00:00.000Z' }, bridges],
+      membershipBySpot: { 'spot-1': [downtown.id, bridges.id] },
+    });
+    await renderDetail({ id: 'spot-1', name: 'Pier 57' });
+
+    expect(screen.queryByText('Downtown')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Bridges' })).toBeOnTheScreen();
+  });
+
+  it('opens the list when its chip is pressed', async () => {
+    await renderInLists([downtown.id]);
+
+    fireEvent.press(screen.getByRole('button', { name: 'Downtown' }));
+
+    expect(push).toHaveBeenCalledWith(`/list/${downtown.id}`);
+  });
+
+  it('opens the Add-to-list sheet for this spot from the add chip, and Done closes it', async () => {
+    await renderInLists([downtown.id]);
+    expect(screen.queryByRole('header', { name: 'Add to hit list' })).toBeNull();
+
+    fireEvent.press(screen.getByRole('button', { name: 'Add to hit list' }));
+
+    expect(screen.getByRole('header', { name: 'Add to hit list' })).toBeOnTheScreen();
+    expect(screen.getByRole('checkbox', { name: 'Downtown' }).props.accessibilityState).toEqual({ checked: true });
+    expect(screen.getByRole('checkbox', { name: 'Bridges' }).props.accessibilityState).toEqual({ checked: false });
+
+    fireEvent.press(screen.getByRole('button', { name: 'Done' }));
+    expect(screen.queryByRole('header', { name: 'Add to hit list' })).toBeNull();
+  });
+
+  it('shows a new membership as a chip at once', async () => {
+    await renderInLists([]);
+
+    act(() => useHitListsStore.getState().addMemberships(bridges.id, ['spot-1']));
+
+    expect(screen.getByRole('button', { name: 'Bridges' })).toBeOnTheScreen();
   });
 });

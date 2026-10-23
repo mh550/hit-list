@@ -12,3 +12,4 @@ export { SpotTagFields, type SpotTags } from './SpotTagFields';
 export { ZoomablePhoto } from './ZoomablePhoto';
 export { SpotsBrowser } from './SpotsBrowser';
 export { NameListSheet } from './NameListSheet';
+export { AddToListSheet } from './AddToListSheet';

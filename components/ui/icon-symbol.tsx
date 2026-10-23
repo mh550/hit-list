@@ -27,6 +27,7 @@ const MAPPING = {
   'xmark': 'close',
   'plus': 'add',
   'list.bullet': 'format-list-bulleted',
+  'checkmark': 'check',
 } as IconMapping;
 
 /**

@@ -20,6 +20,53 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 · verify S3
+
+39 steps re-run; 8 features hold, 0 fail. Build-only policy vs the brief: the brief explicitly allows the local supabase_*_hit-list stack, which the steps need; it was stopped afterwards.
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| S3-01 | 1 | read package.json, `git show --stat d1d1030` | devDependency "supabase": "2.121.0" (no caret); d1d1030 "chore: pin supabase CLI" touches only package.json + package-lock.json; scripts db:start/db:stop/db:reset/test:db present | yes |
+| S3-01 | 2 | read supabase/config.toml, .gitignore, supabase/README.md | project_id "hit-list", ports 54321-54324, [auth.email] enable_signup true, enable_confirmations false, otp_length 6, double_confirm_changes default; .gitignore has supabase/.temp/ and .branches/; README line 29 carries the Docker rule verbatim | yes |
+| S3-01 | 3 | read docs/plans/2026-10-22-s3-backend.md (Schema, Functions, Storage, pgTAP harness, Case table), live-checklist.md; checked every backticked test name in the Case table against supabase/tests/*.sql | all sections present; 392 case names checked, all exist in the named files (4 differ only in templating/quoting and the real text was found); checklist exists with S3 live steps; D57 default recorded in spec | yes |
+| S3-01 | 4 | `npm run db:start`; `npx supabase status`; `npm run test:db`; `npm run db:stop`; `docker ps` | API_URL http://127.0.0.1:54321; test:db ran 9 files (the empty-run state of that session is history, recorded in the plan); after stop docker ps shows only dj-*/n8n-* containers, no supabase_*; I touched no other container | yes |
+| S3-01 | 5 | `npx jest --ci`, `npx tsc --noEmit`, `npx expo lint` | 67 suites / 924 tests pass, 0 console.error lines, tsc clean, lint no output; check.sh green | yes |
+| S3-02 | 1 | `npm run db:reset` then `npm run test:db`; read 010-schema.test.sql | 010 ok: has_table x10, RLS on x10 (one ok() per table), postgis+citext, spots.geog geography(Point,4326) stored-generated and st_equals(ST_MakePoint(lng,lat)); the "no policies" check now covers only links (policies came with later features, as the file comments) | yes |
+| S3-02 | 2 | read 020-triggers.test.sql; ran it | 020 ok (33): rev strictly bumps, global across tables, stale updated_at skipped with no rev bump and no sequence number, auth.users insert creates profile with NULL username, Ab/a-b/21-char/ABC dup rejected (23514), rider_1.a accepted | yes |
+| S3-02 | 3 | read seed.sql, ls supabase/migrations; ran test:db | tests.create_user/authenticate_as/clear_auth exist and 020 uses them; the schema commit a46c5d2 added exactly one migration (7 exist now, later features appended); test:db exits 0 with all files reported | yes |
+| S3-02 | 4 | stack started, checks run, `npm run db:stop` | stack stopped, no supabase_* left, no other container touched | yes |
+| S3-02 | 5 | jest/tsc/lint | 924 pass, 0 console.error, tsc ok | yes |
+| S3-03 | 1 | read 030-spots-rls.test.sql names; own psql probe in a rolled-back txn (members/strangers); `git log` for RED | RED 6b057bc (no policies, 3 fail then dies). Probe: stranger 0 spots/media/lists; friend 0; view member sees owner spot+media (1/1) in shared list; member update/delete = 0 rows; owner insert with other owner_id 42501, own ok; after DELETE of membership member sees 0 spots, 0 media; 030 covers area in/out, other owner, deleted spot, invited status, list B | yes |
+| S3-03 | 2 | read spots_rls.sql; `pg_proc` query | can_read_spot is security definer, STABLE, search_path "" ; spots/media policies present (media via can_read_spot) | yes |
+| S3-03 | 3 | read Case table rows for 030 | rows marked **done** with test names that exist in 030 | yes |
+| S3-03 | 4 | stack started and stopped | no supabase_* container left, others untouched | yes |
+| S3-03 | 5 | jest/tsc/lint | 924 pass, 0 console.error, tsc ok | yes |
+| S3-04 | 1 | read 040 names, ran it (94 pass); probe for view-member insert, member rename; RED 62c39aa | RED 62c39aa 48/79 fail. Probe: view member add own spot raises 42501 "not a member who can add"; member rename list 0 rows; 040 names exist for add-own/not-others, delete own rows only, owner-only members, Join, Decline/Leave, leave_list/remove_member/stop_sharing and can_read_spot false after | yes |
+| S3-04 | 2 | read lists_rls.sql, pg_proc | leave_list, remove_member, stop_sharing are security definer with search_path "" and use auth.uid() | yes |
+| S3-04 | 3 | stack started and stopped | no supabase_* left, others untouched | yes |
+| S3-04 | 4 | jest/tsc/lint | 924 pass, 0 console.error, tsc ok | yes |
+| S3-05 | 1 | read 050 names, ran it (91 pass); probes find_profile/friend request/block; RED 5370167 | RED 5370167. Probe: find_profile(ANA) 1 row; nonexistent 0; send_friend_request gives user_a<user_b, pending, requested_by caller; reverse request ends accepted with 1 row; blocked caller: find_profile 0 rows, request raises "user not found", send raises; block deleted friendship; blocked user sees 0 blocks rows | yes |
+| S3-05 | 2 | read friends_rls.sql, pg_proc | find_profile, send_friend_request, respond_friend_request, block_user, unblock_user exist; username NULL-able; find_profile test "anon cannot call" | yes |
+| S3-05 | 3 | stack started and stopped | no supabase_* left, others untouched | yes |
+| S3-05 | 4 | jest/tsc/lint | 924 pass, 0 console.error, tsc ok | yes |
+| S3-06 | 1 | read 060 names, ran it (60 pass); probe sends; RED a3194cd | RED a3194cd (060 dies at test 1). Probe: create_send returns id; to non-friend raises; third user sees 0; recipient sees 1, payload update 0 rows; after withdraw_send recipient sees 0 and sender sees withdrawn_at set; 060 also has saved_at/dismiss/blocked/NULL-recipient cases | yes |
+| S3-06 | 2 | read 070-storage-rls.test.sql names, ran it (46 pass); `select public from storage.buckets` | photos bucket public = f; 070 has owner insert, stranger blocked, member select, removed member empty, sender sends/<id>/ path, recipient select, third no, 3-segment parser | yes |
+| S3-06 | 3 | read sends_storage.sql | policies, create_send/withdraw_send/mark_send_saved/dismiss_send, bucket insert with on conflict do nothing, split_part-based path check (photo_path_ok) | yes |
+| S3-06 | 4 | stack started and stopped | no supabase_* left, others untouched | yes |
+| S3-06 | 5 | jest/tsc/lint | 924 pass, 0 console.error, tsc ok | yes |
+| S3-07 | 1 | read 080 names, ran it (116 pass); probes: authenticated select/insert on links, preview_link as authenticated/anon, redeem as anon; RED 8ddadb5 | RED 8ddadb5. Probe: links select 0 rows, direct insert 42501, preview_link and redeem_invite permission denied for authenticated/anon; 080 covers create_link by sender/owner, preview of live/expired/revoked/withdrawn/unknown (same empty), redeem makes member with role, used raises, blocked raises, two redeems one row | yes |
+| S3-07 | 2 | read links.sql, pg_proc | create_link, revoke_link, preview_link (service_role claim check, invoker), redeem_invite (extensions.digest sha256 hex), list_my_links exist; links has RLS and no policies | yes |
+| S3-07 | 3 | plan Case table; `npm run test:db` | all case rows done; test:db lists all nine files passing (8 original + 090) | yes |
+| S3-07 | 4 | stack started and stopped | no supabase_* left, others untouched | yes |
+| S3-07 | 5 | jest/tsc/lint | 924 pass, 0 console.error, tsc ok | yes |
+| S3-08 | 1 | ls reviews/, read plan Review section | s3.diff exists (4936 lines); findings tables with severity, file:line and fix commit for S3-08 (RED cd88475, GREEN 3711528); Important sync finding handled as S5 proposed change, not an access bug | yes |
+| S3-08 | 2 | read the six written answers; pg_proc query; read 090 names | all 40+ definer functions search_path ""; client-callable ones use auth.uid(); no recursion tests; can_read_spot STABLE with index-scan EXPLAIN tests; t20_rev on the six tables; anon executes 0 public functions (pg_proc: anon false for all); photo_path_ok test for <3 segments; each answer names tests that exist | yes |
+| S3-08 | 3 | `npm run db:reset` then `npm run test:db`; read supabase/README.md | all 9 files ok, Files=9 Tests=569 Result: PASS; counts recorded in the plan (010 38 · 020 33 · 030 60 · 040 94 · 050 91 · 060 60 · 070 46 · 080 116 · 090 31); README lists the four commands and "Stop the stack when you are done" | yes |
+| S3-08 | 4 | grep CLAUDE.md | Commands has db:start with "need Docker; not in CI" and the four scripts; Layout has supabase/; Conventions has the Docker bullet with the rule verbatim | yes |
+| S3-08 | 5 | `npm run db:start`... `npm run db:stop`; docker ps | stopped cleanly; docker ps shows only dj-*/n8n-*; no other container touched | yes |
+| S3-08 | 6 | `npx jest --ci`, tsc, lint | 67 suites / 924 pass, 0 console.error lines, tsc ok, lint clean | yes |
+
+
 ### 2026-10-23 06:20 · S3-08 · passes
 
 - Changed: new `supabase/tests/090-review.test.sql` (31: catalog proofs of the six review answers + the fixes), `supabase/migrations/20261023060000_review_fixes.sql` (`block_user` withdraws pair invitations directly, `t05_block_guard_join` on Join, media `uploaded_by` = the uploader), seed.sql revokes `tests.create_user` from client roles; CLAUDE.md (4 db scripts, `supabase/` in Layout, the Docker rule), README/live checklist (never `--include-seed`/`db reset --linked`). RED `cd88475` (5/31 failed), GREEN `3711528`. Jest 924 → 924; pgTAP 538 → 569.

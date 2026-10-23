@@ -119,7 +119,7 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   Keep / Remove / Cancel, or 'N changes aren't backed up yet' (Cancel / Sign out anyway).
   `profiles.ts` (migration 6, S6-02): `upsertProfiles`/`getProfiles`, the local mirror of friend names (D72).
   Migration 7 (S7-02): `spots.copied_from_send`/`from_username` (a saved send's copy, 'From @ana' under the detail title),
-  written only by `insertSpot`, never by `updateSpot`.
+  written only by `insertSpot`, never by `updateSpot`. Push/pull carry both (pull only when the server row has the key).
   `hit-lists.ts` (migration 4): `insertHitList`, `getHitLists` (live only), `updateHitList`, `softDeleteHitList`,
   `addSpotsToList` (one `INSERT OR IGNORE … FROM json_each(?)`, idempotent; no `withTransactionAsync` for app writes: it is a
   plain BEGIN/COMMIT on the shared connection, so two writes at once collide), `removeSpotFromList`, `getListMemberships` (`{ spotId: listId[] }`, live lists).
@@ -129,6 +129,13 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
 - `src/sync/` backup and sync (S5, details in the `src/db/` paragraph above): the outbox lives in `src/db/sync.ts` (filled by the migration 5 triggers), `push.ts` (outbox → server), `photos.ts` (re-encode into the cache, upload, download), `pull.ts` (server → SQLite by `rev`, LWW), `adopt.ts` (sign-in adoption, account switch, Remove, release), `engine.ts` (`syncNow`, `runExclusive`, `reloadStoresQuietly`), `account.ts` (`maySync`), `owner.ts`, `time.ts`,
 `queue.ts` (`runExclusive`, re-exported by engine),
 `friends.ts` (S6-02: `loadFriends`/`addFriend`/`respond`/`removeFriend`/`block`/`unblock` take `(client, uid, …)`, do nothing without a session for `uid` and only call the server: the caller then runs `refreshFriends(db, client, uid)` (on the queue, newest load wins, `maySync` before the mirror write); the engine runs `loadAndApplyFriends` after each sync; rpc args are `p_username`/`p_id`/`p_action`/`p_user`), `src/stores/friends-store.ts` (emptied on every `useAuthStore` `userId` change; `dropFriendship`/`noteBlocked`/`noteUnblocked` take a row off as soon as its action went through, S6-07), `src/stores/inbox-store.ts` (S6-04: kind-tagged `InboxItem`s (`friend_request` now; S7/S8 add `send`/`invite`), `setItems(uid, kind, …)` replaces one kind, `removeItem`, `seenAt` = newest server `created_at` seen, `sync_state` `inbox_seen_at:<uid>` (undefined = not loaded, badge 0), `markSeen`/`loadSeen` never move it back, `selectUnseenCount` = the Inbox tab's badge; filled by `loadAndApplyFriends`; emptied on every rider change; adopt/Remove/release clear the key), `app/(tabs)/inbox.tsx` (Friend requests: Accept/Decline, long press Block; marks seen while focused and the app active), migration 6 `profiles` = the local mirror of friend names (`src/db/profiles.ts`, D72; emptied with the account's rows in adopt/Remove/release; never in the outbox),
+`sends.ts` (S7-03: `createSend(db, client, uid, { spotIds, recipientIds, sender })` copies each photo to
+`sends/<newId>/` then `create_send`, per friend (D76/D77; `NotBackedUpError` unless every spot is owned and has no
+outbox row, D78); `loadSends`/`loadAndApplySends` (engine, after friends; Inbox kind `send`); `saveSend` (download →
+`runExclusive`{`maySync`, `mark_send_saved(p_id, p_token)`, inserts through `src/db`} → reload; single-flight; a save
+the server may have marked stays pending in memory and its retry sends the **same token** and inserts only missing
+rows); `dismissSend`, `withdrawSend`, `listSent`; hook `src/hooks/use-sent-sends.ts`), `reload.ts`
+(`reloadStores(Quietly)`, re-exported by engine), `PhotoIO.remove`,
 `errors.ts` (`errorMessage`); push marks a row done only while the rider's session lasts (an anon DELETE answers 204
 for 0 rows); a pull keeps the local row on an `updated_at` tie while a change of it waits in the outbox; media
 `addMany` skips ids already in the store (a reload may have read them first); accounts (S4) are `client.ts`, `auth.ts`, `session-storage.ts`.
@@ -157,6 +164,10 @@ for 0 rows); a pull keeps the local row on an `updated_at` tie while a change of
   pgTAP (`NNN-*.test.sql`; every RLS policy and function has its cases there), `seed.sql` = the `tests` schema only
   (`create_user`, `authenticate_as`, `clear_auth`; runs on `db reset`, never pushed). The CLI is the pinned `supabase`
   devDependency (`npx supabase …`).
+  S7-03 migration `20261024010000_sends_s7.sql`: a **staged** send photo (under `sends/<id>/`, `owner_id` = the caller,
+  no `sends` row yet) is only its stager's; `create_send` refuses another's staged id, needs a username and stamps
+  `payload.sender` (D80); `mark_send_saved` saves once (55000; the same `p_token` again succeeds); `spots.from_username`;
+  `staged_send_objects` (service role, account-delete). pgTAP `100-sends-s7`.
   `functions/` Edge Functions (Deno, outside tsc/eslint): `account-delete/index.ts` (the uid comes only from the caller's
   JWT via `auth.getUser`, never the body; 401 without one; removes Storage under `<uid>/` and `sends/<id>/` of every
   send from or to the rider, then `auth.admin.deleteUser`), `_shared/cors.ts`. The local edge runtime does not reload an edited

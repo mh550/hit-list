@@ -784,7 +784,7 @@
         "The engine's pull refreshes received sends into the inbox store; listSent is loaded on the Sent screen's mount.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S7-04",

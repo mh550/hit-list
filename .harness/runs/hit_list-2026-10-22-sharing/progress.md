@@ -20,6 +20,20 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 10:30 · S7-03 · passes
+
+- Server: append-only migration `20261024010000_sends_s7.sql` (staged send photos D77, `create_send` stamps the sender D80 and refuses another's staged id, `mark_send_saved(p_id, p_token)` saves once with a retry token, `spots.from_username`, `staged_send_objects`); account-delete removes staged leftovers. pgTAP `100-sends-s7` (34) + edits to 060/070.
+- Client: `src/sync/sends.ts` (createSend, NotBackedUpError, loadSends/loadAndApplySends in the engine after friends, saveSend, dismissSend, withdrawSend, listSent), `src/hooks/use-sent-sends.ts`, `src/sync/reload.ts`, push/pull carry `copied_from_send`/`from_username`, `PhotoIO.remove`, Inbox `SendItem` (a plain line until S7-05). Fake client: copy/remove/createSignedUrl/`.is()`, rpc in `calls`.
+- Tests 1538 → 1589 (new `sync-sends` 42, `use-sent-sends` 5; +1 push, pull, accounts-integration; +2 engine). RED commits c21261f, 4eff9d1, e6d3297 first. Local stack: `test:db` Files=10 Tests=604 PASS, `test:integration` 36/36, stack stopped, `docker ps` shows only the 7 dj-*/n8n-* containers. `check.sh` green 1589, `npx jest --ci` 0 `console.error`.
+- Opus review: 2 Important (a lost `mark_send_saved` answer or a failed insert could save twice or lose copies → save token + an in-memory pending save) and 4 Minor, all fixed RED-first; table in the S7 plan, under As built.
+- Next session (S7-04): `createSend` takes `sender` (pass `useAuthStore` username/displayName). Catch `NotBackedUpError` for the D78 line. A result with `failed` set means a partial send.
+- Step 2 ("listSent is loaded on the Sent screen's mount"): the hook loads on mount. The screen itself is S7-05's.
+- Proposed changes:
+  - S7-05's Inbox should map `saveSend`'s statuses to the copy table: `already_saved` → 'Already saved', `taken_back` → '@ana took these spots back.', `failed` → "Couldn't save these spots. Try again."
+  - S7-06 can use the save-token retry case.
+  - Signatures follow the plan, not the feature text: `loadSends`, `saveSend(db, client, uid, item, opts)`, `withdrawSend(client, uid, { id, photoPaths })`.
+- Questions for Michael: none new (D76–D82 still open in §9).
+
 ### 2026-10-23 07:00 · S7-02 · passes
 
 - New `src/utils/send-payload.ts` (`freezeSend`, `parseSendPayload(json, sendId)`, `thawSend(payload, { sendId, uid, now, newId, spotIds })`, `MAX_SEND_SPOTS` 100, `sendPhotoPath`); local migration 7 (`spots.copied_from_send`, `from_username`; `insertSpot`/`getSpots` carry them, `SpotUpdate` excludes them); detail shows 'From @ana' under the title. `photoRelativePath` now exported from photo-storage.

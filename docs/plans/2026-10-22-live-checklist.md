@@ -163,7 +163,13 @@ Works from S7-05 on (the server migration lands in S7-03). Same setup as S6: sta
 - [ ] **Server side first:** `npm run db:reset && npm run test:db && npm run test:integration`. Check: the send suite
       passes (counts in the S7 plan's 'As built').
 - [ ] **Deploy order (cloud, later):** `npx supabase db push` the S7 migration **before** installing a build that
-      sends spots (an older server without `spots.from_username` stalls every backup).
+      sends spots (an older server without `spots.from_username` stalls every backup), then
+      `npx supabase functions deploy account-delete` (it calls `staged_send_objects`, which the migration adds: deployed
+      first, every Delete account answers 500). Check: `select public.mark_send_saved` takes `(uuid, uuid)` in the SQL
+      editor's function list and a test rider's Delete account answers ok. Undo: redeploy the previous function
+      (`git show <S6 commit>:supabase/functions/account-delete/index.ts`); the migration only adds.
+- [ ] **Staged photos:** Studio → SQL: `select * from public.staged_send_objects('<A's id>')` after an interrupted send
+      (kill the app while 'Sending…'). Check: the leftover paths are listed; they go with A's account delete.
 - [ ] **One spot from its page:** as A, open a spot with a photo → paper-plane (top right) → tick @B. Check: the
       sentence "They get a copy of this spot as it is now. Changes you make later won't reach them." and no word
       "Share" anywhere in the sheet. Send. Check: 'Sent to @B'.

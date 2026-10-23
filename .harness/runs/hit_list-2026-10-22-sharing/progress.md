@@ -20,6 +20,28 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 07:10 · S5-04 · passes
+
+- **What changed:** new `src/sync/pull.ts` (`pull` → `{ changed }`, `PULL_PAGE` 500, `REV_OVERLAP` 200) and `src/sync/account.ts` (`maySync`/`signedInAs`, now shared with push). `photos.ts` gained `downloadMissingPhotos` and `PhotoIO.write`. The fake client now answers selects from `fake.tables` (gt/in/order/limit), logs them in `fake.selects`, has `failSelect(match)` and per-table `failNext`, and serves storage `download` from `fake.objects`. Tests went 1179 → 1209 (new `sync-pull.test.ts`, 30 cases). Commits: RED `5886e88`, GREEN `015140c`, then the review RED/GREEN pair `b1d6201`/`5407c17`.
+- **Verified:** check.sh green, 1209 tests, 0 `console.error`. Step by step:
+  - The first pull asks `select('*').gt('rev', 0).order('rev').limit(500)` for spots → media → hit_lists → hit_list_spots, exactly.
+  - A 502-row table asks for a second page, `gt('rev', 500)`.
+  - Two foreign spots, one no longer readable: that one is gone with its media and membership rows; the rider's own and phone-only spots stay.
+  - Pulling 3 rows leaves `sync_outbox` at 0, and a later local edit of one of them queues 1.
+- **Opus review:** 0 Critical, 2 Important, 3 Minor, 1 Nit.
+  - **Fixed, RED first:** an edit saved while a pull was running could be overwritten. The updated_at guard is now inside the UPDATE itself.
+  - **Also fixed:** photo downloads skip deleted spots, and the readable-id test is stronger.
+  - **Left for S8 (Important, only once sharing is live):** a row that can never be written stops its table for good. Details are in the plan under "As built (S5-04)".
+- **Next session (S5-05) must know:**
+  - The engine runs push → pull → `downloadMissingPhotos(db, client, uid)`, and reloads the stores when `changed`.
+  - Pull, like push, does nothing unless `sync_state.user_id` = the session uid.
+- **Questions for Michael:** none new.
+- **Proposed changes:**
+  - S5-04 step 1 says "a second pull uses the stored cursor". It asks from the cursor minus `REV_OVERLAP` (late commits, as the plan says), and the test asserts that.
+  - Step 2 "soft-deletes" is built as removing the rows (already proposed in S5-01).
+  - Step 2's `select('id')` carries `.in('id', <local foreign ids>)` instead of reading every readable id.
+  - S8 should add: skip a permanently failing row after N tries, fetch readable rows that aren't held locally whatever their rev (S3-08), and filter invitee-only lists out of pull.
+
 ### 2026-10-23 05:00 · S5-03 · passes
 
 - **What changed:** new `src/sync/push.ts`, `src/sync/photos.ts` (`preparePhoto`, `defaultPhotoIO`, `uploadPhoto`) and `src/sync/time.ts` (`toIso`). `peekOutbox` gained `afterId`. The fake client gained `upsert`, `delete`, storage `upload` and an ordered `fake.calls` log. The fake fs gained `bytes`, `write`, `delete`, `Paths.cache` and `__writes()`. Tests went 1122 → 1179 (new `sync-push`, `sync-photos`, `sync-time`, plus 1 db-sync case). Commits: RED `f1c7c33`, GREEN `cc248ad`, then the review RED/GREEN pair `f9a70c7`/`8fc3b8c`.

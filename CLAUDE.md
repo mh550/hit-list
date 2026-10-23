@@ -92,6 +92,11 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   `src/sync/photos.ts` (`preparePhoto` ≤ 2048 px JPEG 0.85 into the cache, `defaultPhotoIO`, `uploadPhoto` →
   `photos/<owner>/<spot>/<media>.jpg`), `src/sync/time.ts` `toIso` (every timestamp crossing the server; `'local'`
   for EXIF `captured_at`). Fake client: `fake.calls` logs upsert/delete/upload in order.
+  Pull (S5-04): `src/sync/pull.ts` `pull(db, client, uid)` → `{ changed }` (same guard, `src/sync/account.ts` `maySync`;
+  pages of 500 by `rev` with a 200-rev overlap, FK order; the LWW `updated_at` guard is inside the UPDATE; a table stops
+  at its first failing row; reconciles memberships and others' unreadable spots by asking about local ids only, any
+  error or a lost session removes nothing); `downloadMissingPhotos` in photos.ts. Fake client: `fake.tables` answer
+  selects (`gt`/`in`/`order`/`limit`), `fake.selects` logs them, `failSelect(match)`, `fake.objects` for downloads.
   `hit-lists.ts` (migration 4): `insertHitList`, `getHitLists` (live only), `updateHitList`, `softDeleteHitList`,
   `addSpotsToList` (one `INSERT OR IGNORE … FROM json_each(?)`, idempotent; no `withTransactionAsync` for app writes: it is a
   plain BEGIN/COMMIT on the shared connection, so two writes at once collide), `removeSpotFromList`, `getListMemberships` (`{ spotId: listId[] }`, live lists).

@@ -561,7 +561,7 @@
         "pull returns { changed: boolean } so the engine (S5-05) knows whether to reload the stores.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S5-05",

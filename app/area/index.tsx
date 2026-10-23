@@ -30,7 +30,8 @@ import { FilterSheet } from '@/src/components/FilterSheet';
 import { palette, radius, spacing } from '@/src/constants/theme';
 import { useCurrentLocation } from '@/src/hooks/use-current-location';
 import { useHitListActions } from '@/src/hooks/use-hit-list-actions';
-import { selectAreaSpots, useHitListsStore, useSpotsStore } from '@/src/stores';
+import { selectAreaSpots, selectMySpots, useHitListsStore, useSpotsStore } from '@/src/stores';
+import { useAuthStore } from '@/src/stores/auth-store';
 import { useLocationStore } from '@/src/stores/location-store';
 import { useSettingsStore } from '@/src/stores/settings-store';
 import type { GeoPoint } from '@/src/types';
@@ -91,7 +92,10 @@ function AreaPickerBody({ editList }: { editList?: AreaList }) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   useCurrentLocation();
-  const spots = useSpotsStore((s) => s.spots);
+  const allSpots = useSpotsStore((s) => s.spots);
+  const uid = useAuthStore((s) => s.userId);
+  // Only the rider's own spots are offered here: another rider's (S8) never takes photos or goes in a list (D47).
+  const spots = useMemo(() => selectMySpots(allSpots, uid), [allSpots, uid]);
   const filters = useSpotsStore((s) => s.filters);
   const currentLocation = useLocationStore((s) => s.currentLocation);
   const units = useSettingsStore((s) => s.units);

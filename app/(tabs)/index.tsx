@@ -63,7 +63,12 @@ export default function SpotsScreen() {
   const inScope = useMemo(() => new Set(spots.map((s) => s.id)), [spots]);
   if (selected?.some((id) => !inScope.has(id))) setSelected(selected.filter((id) => inScope.has(id)));
   const selecting = selected !== null;
-  const chosen = useMemo(() => selected ?? [], [selected]);
+  // Send and Add to list take only the rider's own: another rider's spot (a shared list's) is never sent onward or
+  // filed from this phone (S8, D47, D87).
+  const chosen = useMemo(() => {
+    const mine = new Set(selectMySpots(spots, uid).map((s) => s.id));
+    return (selected ?? []).filter((id) => mine.has(id));
+  }, [selected, spots, uid]);
   const selectedIds = useMemo(() => (selected ? new Set(selected) : undefined), [selected]);
 
   const toggle = (id: string) =>
@@ -107,7 +112,7 @@ export default function SpotsScreen() {
         // Left, so the header's right side stays the Filter button alone.
         headerLeft={selectAction}
         // headerTitle, not title: a tab's title is also its tab bar label.
-        headerTitle={selecting ? `${count} selected` : undefined}
+        headerTitle={selecting ? `${selected.length} selected` : undefined}
         selectedIds={selectedIds}
         onSpotPress={selecting ? toggle : undefined}
         onSpotLongPress={(id) => (selecting ? toggle(id) : setSelected([id]))}

@@ -4,6 +4,7 @@ import { Alert, type AlertButton } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useHitListsStore, useMediaStore, useSpotsStore } from '@/src/stores';
+import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
 import { useLocationStore } from '@/src/stores/location-store';
 import { DEFAULT_FILTERS, FeatureType, SortDirection, SortField, UnitSystem } from '@/src/types';
 import { SpotMap } from '@/src/components/SpotMap';
@@ -453,6 +454,20 @@ describe("List screen: 'Send these spots' (S7-04)", () => {
     mockSendSheet.mockClear();
     act(() => props.onClose());
     expect(mockSendSheet).not.toHaveBeenCalled();
+  });
+
+  it("a shared list sends only the rider's own spots and counts them; none of their own → no Send row (S8, D87)", () => {
+    useAuthStore.setState({ status: 'signed_in', userId: 'u-me', username: 'me' });
+    useSpotsStore.setState({ spots: [a, { ...b, owner_id: 'u-ana' }] });
+    renderList();
+    fireEvent.press(screen.getByRole('button', { name: 'Send these spots, one-time copy of 1 spot' }));
+    expect((mockSendSheet.mock.lastCall?.[0] as SheetProps).spotIds).toEqual(['a']);
+    screen.unmount();
+
+    useSpotsStore.setState({ spots: [{ ...a, owner_id: 'u-ana' }, { ...b, owner_id: 'u-ana' }] });
+    renderList();
+    expect(screen.queryByText('Send these spots')).toBeNull();
+    act(() => useAuthStore.setState(SIGNED_OUT));
   });
 
   it("reads 'of 1 spot' for one", () => {

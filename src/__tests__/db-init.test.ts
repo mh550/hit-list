@@ -140,6 +140,27 @@ describe('useDbInit', () => {
     );
   });
 
+  it("never backfills another rider's spot (S8: no foreign write, its place never goes to Apple)", async () => {
+    mockDb.getFirstAsync.mockImplementation(async (sql: string, key: string) =>
+      sql.includes('sync_state') && key === 'user_id' ? { value: 'u-me' } : null,
+    );
+    const mine = [createTestSpot({ owner_id: 'u-me' }), createTestSpot()];
+    const anas = createTestSpot({ owner_id: 'u-ana' });
+    mockGetSpots.mockResolvedValue([anas, ...mine]);
+    mockGetUserSettings.mockResolvedValue(null);
+    jest.mocked(reverseGeocodeAsync).mockResolvedValue([{ city: 'Seattle' }] as never);
+
+    renderHook(() => useDbInit());
+    await flushInit();
+
+    await waitFor(() =>
+      expect(useSpotsStore.getState().spots.filter((s) => s.generated_name === 'Seattle')).toHaveLength(2),
+    );
+    expect(reverseGeocodeAsync).toHaveBeenCalledTimes(2);
+    expect(useSpotsStore.getState().spots.find((s) => s.id === anas.id)?.generated_name).toBeUndefined();
+    mockDb.getFirstAsync.mockResolvedValue(null);
+  });
+
   it('still loads spots, media and settings when migrateDb throws', async () => {
     // A failed upgrade leaves the DB at the last good version; whatever still loads is loaded (DBInitializer then
     // blocks the app, D28).

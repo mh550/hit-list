@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react-n
 import { Modal } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useHitListsStore, useMediaStore, useSpotsStore } from '@/src/stores';
+import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
 import { useLocationStore } from '@/src/stores/location-store';
 import { DEFAULT_FILTERS, SortDirection, SortField } from '@/src/types';
 import { AddToListSheet } from '@/src/components/AddToListSheet';
@@ -363,6 +364,26 @@ describe('Spots tab select bar: Send (S7-04)', () => {
     act(() => props.onClose());
     expect(mockSendSheet).not.toHaveBeenCalled();
     expect(screen.queryByTestId('select-bar')).toBeNull();
+  });
+
+  it("in a shared list, Send and Add to list take only the rider's own spots (S8, D47/D87)", () => {
+    useAuthStore.setState({ status: 'signed_in', userId: 'u-me', username: 'me' });
+    const crew = createTestHitList({ id: 'L-crew', name: 'Crew', owner_id: 'u-ana', shared: true });
+    useSpotsStore.setState({ spots: [a, { ...c, owner_id: 'u-ana' }] });
+    useHitListsStore.setState({ lists: [crew], membershipBySpot: { a: [crew.id], c: [crew.id] }, activeListId: crew.id });
+    render(<SpotsScreen />);
+    fireEvent(row(/Church ledge/), 'longPress');
+    fireEvent.press(row(/Alley rail/));
+
+    const bar = screen.getByTestId('select-bar');
+    expect(within(bar).getAllByRole('button').map((x) => x.props.accessibilityLabel)).toEqual([
+      'Send (1)',
+      'Add to list (1)',
+    ]);
+    fireEvent.press(within(bar).getByLabelText('Send (1)'));
+    expect((mockSendSheet.mock.lastCall?.[0] as SheetProps).spotIds).toEqual(['a']);
+    act(() => useAuthStore.setState(SIGNED_OUT));
+    act(() => useHitListsStore.setState({ lists: [], membershipBySpot: {}, activeListId: null }));
   });
 
   it("'Send (0)' is disabled with nothing checked", () => {

@@ -8,7 +8,8 @@ import { Button, EmptyState, HeaderTextButton, NameListSheet, SendSheet, SpotsBr
 import { EMPTY_AREA_COPY, EMPTY_LIST_COPY } from '@/src/components/SpotsBrowser';
 import { palette, spacing } from '@/src/constants/theme';
 import { useHitListActions } from '@/src/hooks/use-hit-list-actions';
-import { selectListSpots, useHitListsStore, useSpotsStore } from '@/src/stores';
+import { selectListSpots, selectMySpots, useHitListsStore, useSpotsStore } from '@/src/stores';
+import { useAuthStore } from '@/src/stores/auth-store';
 import { useSettingsStore } from '@/src/stores/settings-store';
 import { areaLabel, isAreaList } from '@/src/utils/area';
 import { getSpotDisplayName, spotCountLabel } from '@/src/utils/spot-name';
@@ -29,6 +30,7 @@ export default function ListScreen() {
   const list = useHitListsStore((s) => s.lists.find((l) => l.id === id && l.deleted_at === undefined));
   const membershipBySpot = useHitListsStore((s) => s.membershipBySpot);
   const spots = useSpotsStore((s) => s.spots);
+  const uid = useAuthStore((s) => s.userId);
   const units = useSettingsStore((s) => s.units);
   const { renameList, deleteList, removeSpotFromList } = useHitListActions();
   const [renaming, setRenaming] = useState(false);
@@ -41,6 +43,7 @@ export default function ListScreen() {
     () => (list ? selectListSpots(list, spots, membershipBySpot) : []),
     [list, spots, membershipBySpot],
   );
+  const ownSpots = useMemo(() => selectMySpots(listSpots, uid), [listSpots, uid]);
 
   if (!list) {
     // expo-router's Stack.Screen only sets options, so clear the list's title and Rename/Filter buttons here.
@@ -120,13 +123,14 @@ export default function ListScreen() {
     </View>
   ) : undefined;
 
-  // Every spot of the list (an area list's are the ones inside its circle), not just the ones a search shows.
-  const subtitle = `one-time copy of ${spotCountLabel(listSpots.length)}`;
+  // Every spot of the list (an area list's are the ones inside its circle), not just the ones a search shows; in a
+  // shared list only the rider's own: another rider's spot is never sent onward (S8, D87).
+  const subtitle = `one-time copy of ${spotCountLabel(ownSpots.length)}`;
   const actions =
-    listSpots.length > 0 ? (
+    ownSpots.length > 0 ? (
       <View style={styles.actions}>
         <Pressable
-          onPress={() => setSendIds(listSpots.map((s) => s.id))}
+          onPress={() => setSendIds(ownSpots.map((s) => s.id))}
           style={({ pressed }) => [styles.action, pressed && styles.actionPressed]}
           accessibilityRole="button"
           accessibilityLabel={`Send these spots, ${subtitle}`}>

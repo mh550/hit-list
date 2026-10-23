@@ -15,7 +15,8 @@ import { Image } from 'expo-image';
 import { useSpotActions } from '@/src/hooks/use-spot-actions';
 import { useMediaActions } from '@/src/hooks/use-media-actions';
 import { Chip, ChipGroup } from '@/src/components';
-import { useMediaStore, useSettingsStore, useSpotsStore } from '@/src/stores';
+import { selectMySpots, useMediaStore, useSettingsStore, useSpotsStore } from '@/src/stores';
+import { useAuthStore } from '@/src/stores/auth-store';
 import { newId } from '@/src/utils/id';
 import { formatSpotDate, getSpotDisplayName } from '@/src/utils/spot-name';
 import { NO_LOCATION } from '@/src/utils/geo';
@@ -45,7 +46,10 @@ export default function ImportReviewScreen() {
   // The ref stops a second press that lands before the re-render; the state greys and locks the screen.
   const savingRef = useRef(false);
   const [saving, setSaving] = useState(false);
-  const spots = useSpotsStore((s) => s.spots);
+  const allSpots = useSpotsStore((s) => s.spots);
+  const uid = useAuthStore((s) => s.userId);
+  // Only the rider's own spots are offered here: another rider's (S8) never takes photos or goes in a list (D47).
+  const spots = useMemo(() => selectMySpots(allSpots, uid), [allSpots, uid]);
   const mediaBySpot = useMediaStore((s) => s.mediaBySpot);
   const importRadius = useSettingsStore((s) => s.batch_import_radius);
   const imperial = useSettingsStore((s) => s.units === UnitSystem.Imperial);

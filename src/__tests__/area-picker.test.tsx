@@ -7,6 +7,7 @@ import { geocodeAsync } from 'expo-location';
 import * as ReactNativeMaps from 'react-native-maps';
 import type { Region } from 'react-native-maps';
 import { useHitListsStore, useSpotsStore } from '@/src/stores';
+import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
 import { useLocationStore } from '@/src/stores/location-store';
 import { useSettingsStore } from '@/src/stores/settings-store';
 import {
@@ -273,6 +274,18 @@ describe('Area picker: count', () => {
     renderPicker();
 
     expect(screen.getByText('1 spot')).toBeTruthy();
+  });
+});
+
+describe("Area picker: another rider's spots (S8, D47)", () => {
+  it('counts, saves and sends only the rider\'s own spots', () => {
+    useAuthStore.setState({ status: 'signed_in', userId: 'u-me', username: 'me' });
+    useSpotsStore.setState({ spots: [inside[0], { ...inside[1], owner_id: 'u-ana' }, { ...inside[2], owner_id: 'u-me' }] });
+    useLocationStore.setState({ currentLocation: CITIES.seattle });
+    renderPicker();
+
+    expect(screen.getByText('2 spots')).toBeTruthy();
+    act(() => useAuthStore.setState(SIGNED_OUT));
   });
 });
 

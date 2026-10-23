@@ -36,6 +36,11 @@ three-filter list (M5), the review screens (M6) and the import radius in your un
 - Apple Maps view (List | Map), one pin colour; a pin's bubble lists the spot's feature types ('Rail · Ledge'), tap through to the spot. Nearby spots
   cluster into a numbered circle; spots at the same place open a list to pick from.
 - Search by name (both views) and sort by Distance, Date or Name (list).
+- Hit lists (S1): a Lists tab ('My hit lists', each with its live spot count) where '+ New hit list' names a list;
+  a list opens as the same List | Map view scoped to its spots, with Rename, long-press 'Remove from list' and
+  'Delete list' (spots stay in your library). Add a spot from its page ('In lists' chips, '+ Add to hit list') or
+  select several on the Spots tab (long press or 'Select', then 'Add to list'); a chip row above the Spots tab
+  ('My spots', then each list) scopes both views. A spot can be in many lists. Local only, no accounts yet.
 - Unnamed spots read `Untitled · Seattle · Oct 13, 2:22 PM` (town from Apple's geocoder, which needs internet).
 - Profile: Imperial or Metric units; the import radius is shown and typed in them (50 m reads 164 ft), and the
   import screen says '(within 164 ft)'.

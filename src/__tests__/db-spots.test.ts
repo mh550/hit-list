@@ -3,6 +3,7 @@ import { createMigratedTestDb } from './helpers/node-sqlite-db';
 import { insertSpot, getSpot, getSpots, getSpotLegacy, updateSpot, softDeleteSpot } from '@/src/db';
 import { FeatureType } from '@/src/types';
 import { createTestSpot } from './factories';
+import { ME, adoptPhoneFor, outboxOps } from './helpers/outbox';
 
 describe('spots against real SQLite', () => {
   let db: SQLiteDatabase;
@@ -272,6 +273,122 @@ describe('spots against real SQLite', () => {
         s.id,
       );
       expect(row).toEqual({ deleted_at: at, updated_at: at });
+    });
+  });
+
+  describe('outbox (migration 5 triggers)', () => {
+    beforeEach(async () => {
+      await adoptPhoneFor(db);
+    });
+
+    it("getSpots/getSpot return owner_id, undefined when it is NULL", async () => {
+      const mine = createTestSpot({ owner_id: ME, created_at: '2026-10-13T12:00:00.000Z' });
+      const loose = createTestSpot({ created_at: '2026-10-13T11:00:00.000Z' });
+      await insertSpot(db, mine);
+      await insertSpot(db, loose);
+
+      const [a, b] = await getSpots(db);
+
+      expect(a.owner_id).toBe(ME);
+      expect(b.owner_id).toBeUndefined();
+      expect((await getSpot(db, mine.id))?.owner_id).toBe(ME);
+    });
+
+    it("insert, update and soft delete of an owned spot each append one row: upsert, upsert, delete", async () => {
+      const s = createTestSpot({ owner_id: ME });
+
+      await insertSpot(db, s);
+      expect(await outboxOps(db)).toEqual([['spot', s.id, 'upsert']]);
+
+      await updateSpot(db, s.id, { name: 'Pier rail' });
+      expect(await outboxOps(db)).toEqual([
+        ['spot', s.id, 'upsert'],
+        ['spot', s.id, 'upsert'],
+      ]);
+
+      await softDeleteSpot(db, s.id);
+      expect(await outboxOps(db)).toEqual([
+        ['spot', s.id, 'upsert'],
+        ['spot', s.id, 'upsert'],
+        ['spot', s.id, 'delete'],
+      ]);
+    });
+
+    it('a spot with no owner (phone-only) appends nothing, whatever is written', async () => {
+      const s = createTestSpot();
+
+      await insertSpot(db, s);
+      await updateSpot(db, s.id, { notes: 'kinked' });
+      await softDeleteSpot(db, s.id);
+
+      expect(await outboxOps(db)).toEqual([]);
+    });
+
+    it("a spot owned by another rider (S8) appends nothing", async () => {
+      const s = createTestSpot({ owner_id: 'someone-else' });
+
+      await insertSpot(db, s);
+      await updateSpot(db, s.id, { notes: 'kinked' });
+
+      expect(await outboxOps(db)).toEqual([]);
+    });
+
+    it('with no account on the phone (sync_state has no user_id) an owned spot appends nothing', async () => {
+      await db.runAsync("DELETE FROM sync_state WHERE key = 'user_id'");
+      const s = createTestSpot({ owner_id: ME });
+
+      await insertSpot(db, s);
+      await updateSpot(db, s.id, { notes: 'x' });
+
+      expect(await outboxOps(db)).toEqual([]);
+    });
+
+    it("writes that set rev (a pull) append nothing; a later local edit of the pulled row does", async () => {
+      const s = createTestSpot({ owner_id: ME });
+      await db.runAsync(
+        `INSERT INTO spots (id, owner_id, rev, latitude, longitude, created_at, updated_at) VALUES (?, ?, 7, 1, 2, ?, ?)`,
+        s.id,
+        ME,
+        s.created_at,
+        s.updated_at,
+      );
+      await db.runAsync("UPDATE spots SET name = 'from the server', rev = 8 WHERE id = ?", s.id);
+      expect(await outboxOps(db)).toEqual([]);
+
+      await updateSpot(db, s.id, { name: 'renamed here' });
+
+      expect(await outboxOps(db)).toEqual([['spot', s.id, 'upsert']]);
+    });
+
+    it('a failing insert (duplicate id) appends no row of its own', async () => {
+      const s = createTestSpot({ owner_id: ME });
+      await insertSpot(db, s);
+
+      await expect(insertSpot(db, s)).rejects.toThrow();
+
+      expect(await outboxOps(db)).toEqual([['spot', s.id, 'upsert']]);
+    });
+
+    it('the outbox row is part of the write: when it cannot be appended the edit is not saved either', async () => {
+      const s = createTestSpot({ owner_id: ME, name: 'before' });
+      await insertSpot(db, s);
+      await db.execAsync('DROP TABLE sync_outbox');
+
+      await expect(updateSpot(db, s.id, { name: 'after' })).rejects.toThrow(/sync_outbox/);
+
+      expect((await getSpot(db, s.id))?.name).toBe('before');
+    });
+
+    it('updateSpot on an owned spot appends upsert even when only the town changes', async () => {
+      const s = createTestSpot({ owner_id: ME });
+      await insertSpot(db, s);
+
+      await updateSpot(db, s.id, { generated_name: 'Belltown', updated_at: s.updated_at });
+
+      expect(await outboxOps(db)).toEqual([
+        ['spot', s.id, 'upsert'],
+        ['spot', s.id, 'upsert'],
+      ]);
     });
   });
 });

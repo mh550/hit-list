@@ -64,7 +64,16 @@ describe('migrateDb (PRAGMA user_version)', () => {
     await migrateDb(db);
 
     expect(await getSchemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
-    expect(await tables(db)).toEqual(['hit_list_spots', 'hit_lists', 'media', 'spots', 'sync_queue', 'user_settings']);
+    expect(await tables(db)).toEqual([
+      'hit_list_spots',
+      'hit_lists',
+      'media',
+      'spots',
+      'sqlite_sequence',
+      'sync_outbox',
+      'sync_state',
+      'user_settings',
+    ]);
     // A fresh install has nothing to migrate: an empty v3 spots table.
     expect(await getSpots(db)).toEqual([]);
     const columns = (await db.getAllAsync<{ name: string }>('PRAGMA table_info(spots)')).map((c) => c.name);
@@ -511,11 +520,6 @@ describe('migrateDb (PRAGMA user_version)', () => {
         ),
       );
 
-    it('is the last migration', () => {
-      expect(MIGRATIONS).toHaveLength(4);
-      expect(LATEST_SCHEMA_VERSION).toBe(4);
-    });
-
     it('a v3 DB gains hit_lists and hit_list_spots with exactly these columns, and keeps its spots', async () => {
       const db = await v3Db();
       const spot = createTestSpot({ name: 'kept' });
@@ -523,7 +527,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
 
       await migrateDb(db);
 
-      expect(await getSchemaVersion(db)).toBe(4);
+      expect(await getSchemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
       expect(await columnNames(db, 'hit_lists')).toEqual([
         'id',
         'owner_id',
@@ -602,7 +606,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
 
       await migrateDb(db);
 
-      expect(await getSchemaVersion(db)).toBe(4);
+      expect(await getSchemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
       expect((await getSpots(db)).map((s) => s.name).sort()).toEqual(['empty', 'full']);
       expect(await getSpot(db, full.id)).toMatchObject({ stopped: true, natural_speed: 3, notes: 'hello' });
       expect(await getSpotLegacy(db, full.id)).toEqual(V2_SPOTS.fullLegacy);
@@ -627,7 +631,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
 
       await migrateDb(db);
 
-      expect(await getSchemaVersion(db)).toBe(4);
+      expect(await getSchemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
       expect({
         lists: await db.getAllAsync('SELECT * FROM hit_lists'),
         members: await db.getAllAsync('SELECT * FROM hit_list_spots'),
@@ -642,7 +646,191 @@ describe('migrateDb (PRAGMA user_version)', () => {
 
       await expect(migrateDb(db)).resolves.toBeUndefined();
 
+      expect(await getSchemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
+    });
+  });
+
+  describe('migration 5 (sync: owner_id, rev, sync_outbox, sync_state, outbox triggers)', () => {
+    /** A DB as the builds before sync left it: at version 4. */
+    const v4Db = async () => {
+      const db = createTestDb();
+      await migrateDb(db, MIGRATIONS.slice(0, 4));
       expect(await getSchemaVersion(db)).toBe(4);
+      return db;
+    };
+    const columnNames = async (db: SQLiteDatabase, table: string) =>
+      (await db.getAllAsync<{ name: string }>(`PRAGMA table_info(${table})`)).map((c) => c.name);
+    const schemaNames = async (db: SQLiteDatabase, type: 'index' | 'trigger') =>
+      (
+        await db.getAllAsync<{ name: string }>(`SELECT name FROM sqlite_master WHERE type = ? ORDER BY name`, type)
+      ).map((r) => r.name);
+
+    it('is the last migration', () => {
+      expect(MIGRATIONS).toHaveLength(5);
+      expect(LATEST_SCHEMA_VERSION).toBe(5);
+    });
+
+    it('adds owner_id to spots and media (hit_lists has it since 4), rev to all four tables, media updated_at/deleted_at', async () => {
+      const db = await v4Db();
+      expect(await columnNames(db, 'spots')).not.toContain('owner_id');
+
+      await migrateDb(db);
+
+      expect(await getSchemaVersion(db)).toBe(5);
+      for (const table of ['spots', 'media', 'hit_lists']) {
+        expect(await columnNames(db, table)).toEqual(expect.arrayContaining(['owner_id', 'rev']));
+      }
+      expect(await columnNames(db, 'hit_list_spots')).toEqual(['list_id', 'spot_id', 'added_by', 'added_at', 'rev']);
+      expect(await columnNames(db, 'media')).toEqual(expect.arrayContaining(['updated_at', 'deleted_at']));
+    });
+
+    it('creates sync_outbox and sync_state with exactly these columns', async () => {
+      const db = await v4Db();
+
+      await migrateDb(db);
+
+      expect(await columnNames(db, 'sync_outbox')).toEqual([
+        'id',
+        'entity',
+        'entity_id',
+        'op',
+        'created_at',
+        'attempts',
+        'last_error',
+        'parked',
+      ]);
+      expect(await columnNames(db, 'sync_state')).toEqual(['key', 'value']);
+    });
+
+    it('drops sync_queue and its index (D65: nothing ever read it)', async () => {
+      const db = await v4Db();
+      expect(await tables(db)).toContain('sync_queue');
+
+      await migrateDb(db);
+
+      expect(await tables(db)).not.toContain('sync_queue');
+      expect(await schemaNames(db, 'index')).not.toContain('idx_sync_queue_created_at');
+      expect(
+        await db.getFirstAsync(`SELECT COUNT(*) AS n FROM sqlite_master WHERE name LIKE '%sync_queue%'`),
+      ).toEqual({ n: 0 });
+    });
+
+    it('creates the owner_id indexes and the outbox triggers', async () => {
+      const db = await v4Db();
+
+      await migrateDb(db);
+
+      expect(await schemaNames(db, 'index')).toEqual(
+        expect.arrayContaining(['idx_spots_owner_id', 'idx_media_owner_id']),
+      );
+      expect(await schemaNames(db, 'trigger')).toEqual([
+        'hit_list_spots_outbox_del',
+        'hit_list_spots_outbox_ins',
+        'hit_lists_outbox_ins',
+        'hit_lists_outbox_upd',
+        'media_outbox_ins',
+        'media_outbox_upd',
+        'spots_outbox_ins',
+        'spots_outbox_upd',
+      ]);
+    });
+
+    it('existing rows get no owner, no rev and no outbox row; media updated_at is backfilled from created_at', async () => {
+      const db = await v4Db();
+      const spot = createTestSpot({ name: 'kept' });
+      await insertSpot(db, spot);
+      await db.runAsync(
+        `INSERT INTO media (id, spot_id, file_path, created_at) VALUES ('m1', ?, 'photos/a/m1.jpg', '2026-10-13T11:00:00.000Z')`,
+        spot.id,
+      );
+      await db.runAsync(
+        `INSERT INTO hit_lists (id, name, created_at, updated_at) VALUES ('L', 'Downtown', 'x', 'x')`,
+      );
+
+      await migrateDb(db);
+
+      expect(await db.getFirstAsync('SELECT owner_id, rev FROM spots')).toEqual({ owner_id: null, rev: null });
+      expect(await db.getFirstAsync('SELECT owner_id, rev, updated_at, deleted_at FROM media')).toEqual({
+        owner_id: null,
+        rev: null,
+        updated_at: '2026-10-13T11:00:00.000Z',
+        deleted_at: null,
+      });
+      expect(await db.getFirstAsync('SELECT owner_id, rev FROM hit_lists')).toEqual({ owner_id: null, rev: null });
+      expect(await db.getFirstAsync('SELECT COUNT(*) AS n FROM sync_outbox')).toEqual({ n: 0 });
+      expect(await db.getFirstAsync('SELECT COUNT(*) AS n FROM sync_state')).toEqual({ n: 0 });
+      expect(await getSpots(db)).toEqual([spot]);
+    });
+
+    it("rewrites spots and media created_at stamped by SQLite ('YYYY-MM-DD HH:MM:SS') to ISO, leaving unreadable values alone", async () => {
+      const db = await v4Db();
+      await db.runAsync(
+        `INSERT INTO spots (id, latitude, longitude, created_at, updated_at) VALUES ('old', 1, 2, '2026-10-13 12:34:56', '2026-10-13T12:34:56.000Z')`,
+      );
+      await db.runAsync(
+        `INSERT INTO spots (id, latitude, longitude, created_at, updated_at) VALUES ('odd', 1, 2, 'yesterday', '2026-10-13T12:34:56.000Z')`,
+      );
+      await db.runAsync(
+        `INSERT INTO media (id, spot_id, file_path, created_at) VALUES ('m1', 'old', 'photos/old/m1.jpg', '2026-10-14 01:02:03')`,
+      );
+
+      await migrateDb(db);
+
+      expect(await db.getAllAsync('SELECT id, created_at FROM spots ORDER BY id')).toEqual([
+        { id: 'odd', created_at: 'yesterday' },
+        { id: 'old', created_at: '2026-10-13T12:34:56.000Z' },
+      ]);
+      expect(await db.getFirstAsync('SELECT created_at, updated_at FROM media')).toEqual({
+        created_at: '2026-10-14T01:02:03.000Z',
+        updated_at: '2026-10-14T01:02:03.000Z',
+      });
+    });
+
+    it('the v2 fixture rows migrate 2 → 5 with their spots, media and memberships intact', async () => {
+      const db = createTestDb();
+      await migrateDb(db, MIGRATIONS.slice(0, 2));
+      const asColumns = (old: { status: string; feature: object; inRun: object; landing: object; metadata: object }): OldColumns => ({
+        status: old.status,
+        feature: JSON.stringify(old.feature),
+        inRun: JSON.stringify(old.inRun),
+        landing: JSON.stringify(old.landing),
+        metadata: JSON.stringify(old.metadata),
+      });
+      const full = createTestSpot({ name: 'full' });
+      const empty = createTestSpot({ name: 'empty' });
+      await insertOldSpot(db, full, asColumns(V2_SPOTS.full));
+      await insertOldSpot(db, empty, asColumns(V2_SPOTS.empty));
+      const photo = createTestMedia({ spot_id: full.id });
+      await db.runAsync(
+        'INSERT INTO media (id, spot_id, file_path, created_at) VALUES (?, ?, ?, ?)',
+        photo.id,
+        photo.spot_id,
+        photo.file_path,
+        photo.created_at,
+      );
+
+      await migrateDb(db);
+
+      expect(await getSchemaVersion(db)).toBe(5);
+      expect((await getSpots(db)).map((s) => s.name).sort()).toEqual(['empty', 'full']);
+      expect(await getSpot(db, full.id)).toMatchObject({ stopped: true, natural_speed: 3, notes: 'hello' });
+      expect(await getSpotLegacy(db, full.id)).toEqual(V2_SPOTS.fullLegacy);
+      expect(await getMediaForSpot(db, full.id)).toEqual([photo]);
+      expect(await db.getAllAsync('PRAGMA foreign_key_check')).toEqual([]);
+      expect(await db.getFirstAsync('SELECT COUNT(*) AS n FROM sync_outbox')).toEqual({ n: 0 });
+    });
+
+    it('migrating a v5 DB again changes nothing', async () => {
+      const db = await v4Db();
+      await migrateDb(db);
+      const spot = createTestSpot();
+      await insertSpot(db, spot);
+      const before = await db.getAllAsync('SELECT * FROM spots');
+
+      await migrateDb(db);
+
+      expect(await getSchemaVersion(db)).toBe(5);
+      expect(await db.getAllAsync('SELECT * FROM spots')).toEqual(before);
     });
   });
 

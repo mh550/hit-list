@@ -14,6 +14,7 @@ import {
 } from '@/src/db';
 import { FeatureType, type HitList, type Spot } from '@/src/types';
 import { CITIES, createTestHitList, createTestSpot } from './factories';
+import { ME, adoptPhoneFor, outboxOps } from './helpers/outbox';
 
 const memberRows = (db: SQLiteDatabase) =>
   db.getAllAsync<{ list_id: string; spot_id: string; added_at: string }>(
@@ -274,5 +275,107 @@ describe('hit lists in SQLite (src/db/hit-lists.ts)', () => {
     await softDeleteSpot(db, a.id);
 
     expect(await getListMemberships(db)).toEqual({ [a.id]: [list.id], [b.id]: [list.id] });
+  });
+
+  describe('outbox (migration 5 triggers)', () => {
+    let mine: HitList;
+    let s1: Spot;
+    let s2: Spot;
+    let s3: Spot;
+
+    beforeEach(async () => {
+      await adoptPhoneFor(db);
+      mine = createTestHitList({ owner_id: ME, name: 'Mine' });
+      s1 = createTestSpot({ owner_id: ME });
+      s2 = createTestSpot({ owner_id: ME });
+      s3 = createTestSpot({ owner_id: ME });
+      await insertHitList(db, mine);
+      for (const s of [s1, s2, s3]) await insertSpot(db, s);
+      await db.runAsync('DELETE FROM sync_outbox'); // only what each case writes
+    });
+
+    it('insert, update and soft delete of an owned list each append one row: upsert, upsert, delete', async () => {
+      const l = createTestHitList({ owner_id: ME });
+
+      await insertHitList(db, l);
+      await updateHitList(db, l.id, { name: 'Renamed' });
+      await softDeleteHitList(db, l.id);
+
+      expect(await outboxOps(db)).toEqual([
+        ['hit_list', l.id, 'upsert'],
+        ['hit_list', l.id, 'upsert'],
+        ['hit_list', l.id, 'delete'],
+      ]);
+    });
+
+    it('a phone-only list appends nothing, and neither do its memberships', async () => {
+      await updateHitList(db, list.id, { name: 'Renamed' });
+      await addSpotsToList(db, list.id, [s1.id]);
+      await removeSpotFromList(db, list.id, s1.id);
+      await softDeleteHitList(db, list.id);
+
+      expect(await outboxOps(db)).toEqual([]);
+    });
+
+    it("addSpotsToList of 3 (1 already in) appends 2 upserts with entity_id 'list/spot'", async () => {
+      await addSpotsToList(db, mine.id, [s1.id]);
+      await db.runAsync('DELETE FROM sync_outbox');
+
+      await addSpotsToList(db, mine.id, [s1.id, s2.id, s3.id]);
+
+      expect(await outboxOps(db)).toEqual([
+        ['hit_list_spot', `${mine.id}/${s2.id}`, 'upsert'],
+        ['hit_list_spot', `${mine.id}/${s3.id}`, 'upsert'],
+      ]);
+    });
+
+    it("removeSpotFromList appends 'delete' for the membership", async () => {
+      await addSpotsToList(db, mine.id, [s1.id]);
+
+      await removeSpotFromList(db, mine.id, s1.id);
+
+      expect(await outboxOps(db)).toEqual([
+        ['hit_list_spot', `${mine.id}/${s1.id}`, 'upsert'],
+        ['hit_list_spot', `${mine.id}/${s1.id}`, 'delete'],
+      ]);
+    });
+
+    it('a membership whose spot has no owner yet appends nothing (adoption queues it later)', async () => {
+      await addSpotsToList(db, mine.id, [a.id]);
+      await removeSpotFromList(db, mine.id, a.id);
+
+      expect(await outboxOps(db)).toEqual([]);
+    });
+
+    it("a membership in another rider's list appends nothing", async () => {
+      const theirs = createTestHitList({ owner_id: 'someone-else' });
+      await insertHitList(db, theirs);
+
+      await addSpotsToList(db, theirs.id, [s1.id]);
+
+      expect(await outboxOps(db)).toEqual([]);
+    });
+
+    it('a membership written with a rev (a pull) appends nothing; deleting one marked rev = -1 appends nothing', async () => {
+      await db.runAsync(
+        "INSERT INTO hit_list_spots (list_id, spot_id, added_at, rev) VALUES (?, ?, 'x', 3)",
+        mine.id,
+        s1.id,
+      );
+      await addSpotsToList(db, mine.id, [s2.id]);
+      await db.runAsync('DELETE FROM sync_outbox');
+
+      await db.runAsync('UPDATE hit_list_spots SET rev = -1 WHERE list_id = ? AND spot_id = ?', mine.id, s2.id);
+      await removeSpotFromList(db, mine.id, s2.id);
+
+      expect(await outboxOps(db)).toEqual([]);
+    });
+
+    it('addSpotsToList that fails on its second spot (unknown id) leaves no membership and no outbox row', async () => {
+      await expect(addSpotsToList(db, mine.id, [s1.id, 'missing'])).rejects.toThrow();
+
+      expect(await memberRows(db)).toEqual([]);
+      expect(await outboxOps(db)).toEqual([]);
+    });
   });
 });

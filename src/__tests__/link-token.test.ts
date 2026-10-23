@@ -37,18 +37,31 @@ describe('linkUrl', () => {
 });
 
 describe('parseToken', () => {
+  const T = 'AbC-d_9AbC-d_9AbC-d_9x'; // 22 chars, like newToken()
+
   it.each([
-    ['https://x.test/share/#t=tok', 'tok'],
-    ['?t=tok', 'tok'],
-    ['tok', 'tok'],
-    ['  tok  ', 'tok'],
-    ['https://x.test/share/?a=1&t=tok', 'tok'],
-    ['https://x.test/share/?t=AbC-d_9', 'AbC-d_9'],
+    [`https://x.test/share/#t=${T}`, T],
+    [`?t=${T}`, T],
+    [T, T],
+    [`  ${T}  `, T],
+    [`https://x.test/share/?a=1&t=${T}`, T],
+    [`https://x.test/share/?t=${T}`, T],
   ])('reads %p as %p', (text, token) => {
     expect(parseToken(text)).toBe(token);
   });
 
-  it.each(['https://x.test/other', '', '   ', 'two words'])('returns null for %p', (text) => {
+  // S9-07 review B#3: a single word ('rail') is not a token; it would reach redeem_invite and the preview's log
+  it.each([
+    'https://x.test/other',
+    '',
+    '   ',
+    'two words',
+    'rail',
+    'downtown',
+    'https://x.test/share/#t=tok',
+    `${T}x`,
+    `https://x.test/share/#t=${T}x`,
+  ])('returns null for %p', (text) => {
     expect(parseToken(text)).toBeNull();
   });
 });

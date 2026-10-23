@@ -25,9 +25,12 @@ const functionUrl = () => `${supabaseUrl()}/functions/v1/share-preview`;
 const newToken = () => randomBytes(16).toString('base64url');
 const sha = (token: string) => createHash('sha256').update(token).digest('hex');
 
-/** The function as a browser calls it: a plain GET, no headers at all. */
+/**
+ * The function as the page calls it (D96): a POST whose text/plain body is the token, no other headers, nothing in
+ * the URL, so no request log keeps the token.
+ */
 async function preview(token: string): Promise<{ status: number; text: string; headers: Headers }> {
-  const response = await fetch(`${functionUrl()}?t=${encodeURIComponent(token)}`);
+  const response = await fetch(functionUrl(), { method: 'POST', body: token });
   return { status: response.status, text: await response.text(), headers: response.headers };
 }
 
@@ -151,6 +154,26 @@ afterAll(async () => {
   for (const rider of riders) await deleteRiderAndPhotos(rider.email, rider.userId);
 });
 
+/** A shared list of ana's with a live 7-day 'view' invite link. */
+async function liveInviteLink(): Promise<{ listId: string; token: string }> {
+  const listId = randomUUID();
+  const { error } = await ana.client
+    .from('hit_lists')
+    .insert({ id: listId, owner_id: ana.userId, name: 'Gone soon', kind: 'manual', updated_at: new Date().toISOString() });
+  if (error) throw error;
+  await rpc(ana.client, 'share_list', { p_list: listId });
+  const token = newToken();
+  await rpc(ana.client, 'create_link', {
+    p_kind: 'invite',
+    p_target: listId,
+    p_token_sha256: sha(token),
+    p_expires_at: new Date(Date.now() + 7 * 864e5).toISOString(),
+    p_role: 'view',
+  });
+  expect((await preview(token)).status).toBe(200);
+  return { listId, token };
+}
+
 describe('a live send link', () => {
   it('answers 200 with the frozen spots, signed photo URLs and the server-side sender, with no auth header', async () => {
     const { status, text, headers } = await preview(live.link.token);
@@ -190,15 +213,35 @@ describe('a live send link', () => {
     expect(urls.join(' ')).not.toContain(outsidePath);
   });
 
-  it('answers OPTIONS with CORS and anything but GET with 405', async () => {
+  // S9-07 review A#3: JSON on every answer, never HTML
+  it('answers OPTIONS with CORS and anything but POST with 405, all as JSON', async () => {
     const options = await fetch(functionUrl(), { method: 'OPTIONS' });
     expect(options.status).toBe(204);
     expect(options.headers.get('access-control-allow-origin')).toBe('*');
-    expect(options.headers.get('access-control-allow-methods')).toBe('GET, OPTIONS');
+    expect(options.headers.get('access-control-allow-methods')).toBe('POST, OPTIONS');
+    expect(options.headers.get('content-type')).toBe('application/json');
     await options.text();
-    const post = await fetch(`${functionUrl()}?t=${live.link.token}`, { method: 'POST' });
-    expect(post.status).toBe(405);
-    expect(await post.json()).toEqual({ error: 'method not allowed' });
+    // D96: the old GET ?t= no longer previews (its URL would sit in the request log)
+    const get = await fetch(`${functionUrl()}?t=${live.link.token}`);
+    expect(get.status).toBe(405);
+    expect(get.headers.get('content-type')).toBe('application/json');
+    expect(await get.json()).toEqual({ error: 'method not allowed' });
+    const put = await fetch(functionUrl(), { method: 'PUT', body: live.link.token });
+    expect(put.status).toBe(405);
+    expect(put.headers.get('content-type')).toBe('application/json');
+    await put.text();
+  });
+
+  // S9-07 review A#2: a signed photo URL lives 600 s
+  it('signs each photo URL for 600 seconds', async () => {
+    const body = JSON.parse((await preview(live.link.token)).text);
+    const urls: string[] = body.spots.flatMap((s: { photo_urls: string[] }) => s.photo_urls);
+    expect(urls.length).toBeGreaterThan(0);
+    for (const url of urls) {
+      const jwt = new URL(url).searchParams.get('token') ?? '';
+      const claims = JSON.parse(Buffer.from(jwt.split('.')[1], 'base64url').toString('utf8'));
+      expect(claims.exp - claims.iat).toBe(600);
+    }
   });
 });
 
@@ -242,25 +285,6 @@ describe('a dead token', () => {
     const link = await sendLink(ana, send.sendId, inADay());
     expect((await preview(link.token)).status).toBe(200);
     return { sendId: send.sendId, link };
-  }
-
-  async function liveInviteLink(): Promise<{ listId: string; token: string }> {
-    const listId = randomUUID();
-    const { error } = await ana.client
-      .from('hit_lists')
-      .insert({ id: listId, owner_id: ana.userId, name: 'Gone soon', kind: 'manual', updated_at: new Date().toISOString() });
-    if (error) throw error;
-    await rpc(ana.client, 'share_list', { p_list: listId });
-    const token = newToken();
-    await rpc(ana.client, 'create_link', {
-      p_kind: 'invite',
-      p_target: listId,
-      p_token_sha256: sha(token),
-      p_expires_at: new Date(Date.now() + 7 * 864e5).toISOString(),
-      p_role: 'view',
-    });
-    expect((await preview(token)).status).toBe(200);
-    return { listId, token };
   }
 
   beforeAll(async () => {
@@ -321,6 +345,27 @@ describe('a dead token', () => {
       expect(answer.status).toBe(404);
       expect(answer.text).toBe(GONE);
       expect(shape(answer.headers)).toEqual(['application/json', 'no-store', '*', 'no-referrer']);
+    }
+  });
+});
+
+// S9-07 review A#1: single use under concurrency (redeem_invite's FOR UPDATE): two riders redeeming one token at the
+// same moment, ten times over, always leave exactly one member and one refusal.
+describe('redeem_invite under concurrency', () => {
+  it('two riders redeeming one token at once: exactly one joins', async () => {
+    const ben = await createRider(uniqueUsername('ben'));
+    const cara = await createRider(uniqueUsername('cara'));
+    riders.push(ben, cara);
+    for (let i = 0; i < 10; i++) {
+      const { listId, token } = await liveInviteLink();
+      const answers = await Promise.all(
+        [ben, cara].map((rider) => rider.client.rpc('redeem_invite', { p_token: token })),
+      );
+      expect(answers.filter((a) => a.error === null).map((a) => a.data)).toEqual([listId]);
+      expect(answers.filter((a) => a.error !== null).map((a) => a.error?.code)).toEqual(['42501']);
+      const { data, error } = await adminClient().from('hit_list_members').select('user_id').eq('list_id', listId);
+      if (error) throw error;
+      expect(data?.filter((m) => m.user_id !== ana.userId)).toHaveLength(1);
     }
   });
 });

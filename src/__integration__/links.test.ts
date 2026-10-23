@@ -125,9 +125,9 @@ async function listSpots(p: Phone, listId: string): Promise<string[]> {
 
 const functionUrl = () => `${supabaseUrl()}/functions/v1/share-preview`;
 
-/** share-preview as a browser calls it: a plain GET with no headers at all. */
+/** share-preview as the page calls it (D96): a POST whose text/plain body is the token, no other headers. */
 async function preview(token: string): Promise<{ status: number; text: string }> {
-  const response = await fetch(`${functionUrl()}?t=${encodeURIComponent(token)}`);
+  const response = await fetch(functionUrl(), { method: 'POST', body: token });
   return { status: response.status, text: await response.text() };
 }
 
@@ -190,8 +190,8 @@ function startStaticServer(functionsUrl: string): Promise<Server> {
  */
 const pageFunctionsUrl = () => `${supabaseUrl().replace('://127.0.0.1', '://localhost')}/functions/v1`;
 
-/** Every URL the open pages fetched (share-preview), in order. */
-const pageFetches: string[] = [];
+/** Every request the open pages made to share-preview (URL, method and body), in order. */
+const pageFetches: { url: string; method?: string; body?: unknown }[] = [];
 
 /** Opens the page at `url` in jsdom (share.js loaded from the server, Node's fetch in the window) once it rendered. */
 async function openPage(url: string): Promise<JSDOM> {
@@ -201,9 +201,9 @@ async function openPage(url: string): Promise<JSDOM> {
     resources: 'usable',
     pretendToBeVisual: true,
     beforeParse(window) {
-      // jsdom 20 has no fetch: a browser's would do the same GET
+      // jsdom 20 has no fetch: a browser's would make the same request
       (window as unknown as { fetch: typeof fetch }).fetch = (input: string | URL | Request, init?: RequestInit) => {
-        pageFetches.push(String(input));
+        pageFetches.push({ url: String(input), method: init?.method, body: init?.body });
         return fetch(input, init);
       };
     },
@@ -284,7 +284,7 @@ describe('a send link (D44: anyone holding it can look, no account)', () => {
     const { port } = server.address() as AddressInfo;
     const dom = await openPage(`http://127.0.0.1:${port}/share/#t=${token}`);
     // the fragment's token, sent to the functions URL the page was given
-    expect(pageFetches).toEqual([`${pageFunctionsUrl()}/share-preview?t=${token}`]);
+    expect(pageFetches).toEqual([{ url: `${pageFunctionsUrl()}/share-preview`, method: 'POST', body: token }]);
     const { document } = dom.window;
     expect(document.body.dataset.state).toBe('send');
     expect(document.querySelector('h1')?.textContent).toBe(`2 spots from @${a.username}`);
@@ -328,7 +328,7 @@ describe('a send link (D44: anyone holding it can look, no account)', () => {
     // and the page says so
     const { port } = server.address() as AddressInfo;
     const dom = await openPage(`http://127.0.0.1:${port}/share/#t=${second}`);
-    expect(pageFetches).toEqual([`${pageFunctionsUrl()}/share-preview?t=${second}`]);
+    expect(pageFetches).toEqual([{ url: `${pageFunctionsUrl()}/share-preview`, method: 'POST', body: second }]);
     expect(dom.window.document.body.dataset.state).toBe('gone');
     expect(dom.window.document.body.textContent).toContain("This link doesn't work any more.");
   });

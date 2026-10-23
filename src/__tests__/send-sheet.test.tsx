@@ -541,7 +541,8 @@ describe('SendSheet Copy link instead (S9-03)', () => {
   const PROFILE_FAILED = "Couldn't load your profile. Try again.";
   const URL = 'https://hitlist.example/s/#t=abcdefghijklmnopqrstuv';
   const toLink = () => fireEvent.press(screen.getByRole('button', { name: 'Copy link instead' }));
-  const chip = (label: string) => screen.getByRole('button', { name: label });
+  // S9-07 review B#6: one expiry of four, so radios (checked), not buttons
+  const chip = (label: string) => screen.getByRole('radio', { name: label });
 
   it("'Copy link instead' hides the friends and shows the expiry chips (30 days selected), the D44 line and Copy link", async () => {
     signIn();
@@ -554,16 +555,16 @@ describe('SendSheet Copy link instead (S9-03)', () => {
     expect(screen.queryByText(D34_MANY(3))).toBeNull();
     expect(screen.getByText(D44)).toBeOnTheScreen();
     for (const label of ['1 day', '7 days', 'Never']) {
-      expect(chip(label).props.accessibilityState).toMatchObject({ selected: false });
+      expect(chip(label).props.accessibilityState).toMatchObject({ checked: false });
     }
-    expect(chip('30 days').props.accessibilityState).toMatchObject({ selected: true });
+    expect(chip('30 days').props.accessibilityState).toMatchObject({ checked: true });
     expect(screen.getByRole('button', { name: 'Copy link' }).props.accessibilityState).toMatchObject({
       disabled: false,
     });
 
     fireEvent.press(chip('7 days'));
-    expect(chip('7 days').props.accessibilityState).toMatchObject({ selected: true });
-    expect(chip('30 days').props.accessibilityState).toMatchObject({ selected: false });
+    expect(chip('7 days').props.accessibilityState).toMatchObject({ checked: true });
+    expect(chip('30 days').props.accessibilityState).toMatchObject({ checked: false });
   });
 
   it('Copy link backs up, makes a 30-day link, copies its URL, toasts Link copied and closes', async () => {
@@ -638,6 +639,44 @@ describe('SendSheet Copy link instead (S9-03)', () => {
     expect(makeSendLink).toHaveBeenCalledTimes(2);
     expect(Clipboard.setStringAsync).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
+  });
+
+  // S9-07 review B#2: the link was made; a failed copy must not make a second link-only send on the next tap
+  it("a failed copy says \"Couldn't copy the link. Try again.\"; the next tap copies the same link, no second one", async () => {
+    signIn();
+    jest.mocked(makeSendLink).mockResolvedValue(URL);
+    jest.mocked(Clipboard.setStringAsync).mockRejectedValueOnce(new Error('pasteboard'));
+    await renderSheet();
+    toLink();
+    await pressCopyLink();
+
+    expect(screen.getByText("Couldn't copy the link. Try again.")).toBeOnTheScreen();
+    expect(screen.queryByText(LINK_FAILED)).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(URL);
+
+    jest.mocked(syncNow).mockClear();
+    await pressCopyLink();
+    expect(makeSendLink).toHaveBeenCalledTimes(1);
+    expect(syncNow).not.toHaveBeenCalled();
+    expect(Clipboard.setStringAsync).toHaveBeenCalledTimes(2);
+    expect(Clipboard.setStringAsync).toHaveBeenLastCalledWith(URL);
+    expect(useToastStore.getState().text).toBe('Link copied');
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('after a failed copy, another expiry makes a new link', async () => {
+    signIn();
+    jest.mocked(makeSendLink).mockResolvedValue(URL);
+    jest.mocked(Clipboard.setStringAsync).mockRejectedValueOnce(new Error('pasteboard'));
+    await renderSheet();
+    toLink();
+    await pressCopyLink();
+    fireEvent.press(chip('7 days'));
+    await pressCopyLink();
+
+    expect(makeSendLink).toHaveBeenCalledTimes(2);
+    expect(jest.mocked(makeSendLink).mock.calls[1][3]).toMatchObject({ expiry: '7d' });
   });
 
   it('a spot not backed up yet shows the D78 line', async () => {

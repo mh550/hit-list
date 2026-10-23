@@ -5,6 +5,7 @@ import {
   AppState,
   Linking,
   RefreshControl,
+  SectionList,
   type AlertButton,
   type AppStateStatus,
 } from 'react-native';
@@ -1137,6 +1138,44 @@ describe('Inbox tab: Paste a link (S9-03)', () => {
 
     expect(open).toHaveBeenCalledWith(`http://localhost:8080/share/#t=${TOKEN}`);
     expect(screen.getByPlaceholderText('Paste a HitList link').props.value).toBe('');
+  });
+
+  // S9-07 review B#3: one word is not a token (it would reach redeem_invite and the preview)
+  it("a single word reads \"That isn't a HitList link\" and calls nothing", async () => {
+    signIn([]);
+    await renderTab();
+
+    await pasteAndOpen('downtown');
+
+    expect(screen.getByText("That isn't a HitList link")).toBeOnTheScreen();
+    expect(redeemInvite).not.toHaveBeenCalled();
+    expect(previewLink).not.toHaveBeenCalled();
+  });
+
+  // S9-07 review B#1: with the keyboard up, the first tap on Open must open, not only close the keyboard
+  it('taps land while the keyboard is up (the list keeps handled taps)', async () => {
+    signIn([]);
+    await renderTab();
+
+    expect(screen.UNSAFE_getByType(SectionList).props.keyboardShouldPersistTaps).toBe('handled');
+  });
+
+  // S9-07 review B#5: a join waits for a whole sync; Open says it is working
+  it("Open reads 'Opening…' and is busy while the link opens", async () => {
+    signIn([]);
+    let finish: (v: string) => void = () => {};
+    jest.mocked(redeemInvite).mockImplementation(() => new Promise((resolve) => (finish = resolve)));
+    await renderTab();
+
+    await pasteAndOpen(LINK);
+
+    const open = screen.getByRole('button', { name: 'Open the link' });
+    expect(open.props.accessibilityState).toMatchObject({ busy: true, disabled: true });
+    expect(screen.getByText('Opening…')).toBeOnTheScreen();
+    await act(async () => finish('L-downtown'));
+    expect(screen.getByRole('button', { name: 'Open the link' }).props.accessibilityState).toMatchObject({
+      busy: false,
+    });
   });
 
   it("text that isn't a link reads \"That isn't a HitList link\" and calls nothing", async () => {

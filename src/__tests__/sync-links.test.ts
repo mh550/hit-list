@@ -238,16 +238,20 @@ describe('listMyLinks', () => {
   });
 });
 
+/** A pasted token is 22 base64url chars, like newToken()'s. */
+const TOK = 'tok_tok_tok_tok_tok_tk';
+
 describe('previewLink', () => {
-  it('GETs share-preview with the token and answers its kind', async () => {
+  // D96 (S9-07 review A#8): the token goes in a POST body, never the URL, so no request log keeps it
+  it('POSTs the token to share-preview as the body (never in the URL) and answers its kind', async () => {
     fake.invokeHandlers['share-preview'] = () => ({
       data: { kind: 'send', spots: [{}, {}], sender: { username: 'ana', display_name: null }, expires_at: null },
       error: null,
     });
 
-    const preview = await previewLink(client(), 'tok');
+    const preview = await previewLink(client(), TOK);
 
-    expect(fake.invokes).toEqual([{ name: 'share-preview?t=tok', options: { method: 'GET' } }]);
+    expect(fake.invokes).toEqual([{ name: 'share-preview', options: { method: 'POST', body: TOK } }]);
     expect(preview).toEqual({ kind: 'send', count: 2, sender: 'ana' });
   });
 
@@ -256,21 +260,21 @@ describe('previewLink', () => {
       data: { kind: 'invite', list_name: 'Downtown', inviter: { username: 'ana', display_name: null } },
       error: null,
     });
-    expect(await previewLink(client(), 'tok')).toEqual({ kind: 'invite', listName: 'Downtown', inviter: 'ana' });
+    expect(await previewLink(client(), TOK)).toEqual({ kind: 'invite', listName: 'Downtown', inviter: 'ana' });
   });
 
   it('a 404 gone is LinkGoneError; another failure (a 404 without the gone body too) is a plain error', async () => {
     fake.invokeHandlers['share-preview'] = () => functionsHttpError(404, { error: 'gone' });
-    await expect(previewLink(client(), 'tok')).rejects.toBeInstanceOf(LinkGoneError);
+    await expect(previewLink(client(), TOK)).rejects.toBeInstanceOf(LinkGoneError);
 
     // the gateway's own 404: the function isn't deployed
     fake.invokeHandlers['share-preview'] = () => functionsHttpError(404, { message: 'Function not found' });
-    const missing = previewLink(client(), 'tok');
+    const missing = previewLink(client(), TOK);
     await expect(missing).rejects.toThrow();
     await expect(missing).rejects.not.toBeInstanceOf(LinkGoneError);
 
     fake.invokeHandlers['share-preview'] = () => functionsHttpError(500, { error: 'unavailable' });
-    const failure = previewLink(client(), 'tok');
+    const failure = previewLink(client(), TOK);
     await expect(failure).rejects.toThrow();
     await expect(failure).rejects.not.toBeInstanceOf(LinkGoneError);
   });
@@ -282,10 +286,10 @@ describe('redeemInvite', () => {
   });
 
   it('redeems the token of a pasted URL, then syncs, and resolves the list id', async () => {
-    const id = await redeemInvite(db, client(), ME, 'https://x.test/share/#t=tok');
+    const id = await redeemInvite(db, client(), ME, `https://x.test/share/#t=${TOK}`);
 
     expect(id).toBe(LIST);
-    expect(rpcArgs('redeem_invite')).toEqual([{ p_token: 'tok' }]);
+    expect(rpcArgs('redeem_invite')).toEqual([{ p_token: TOK }]);
     expect(syncNow).toHaveBeenCalledWith(db);
     expect(jest.mocked(syncNow).mock.invocationCallOrder[0]).toBeGreaterThan(
       fake.rpc.mock.invocationCallOrder[fake.rpc.mock.calls.findIndex(([fn]) => fn === 'redeem_invite')],
@@ -294,13 +298,13 @@ describe('redeemInvite', () => {
 
   it('a failed sync after joining only warns', async () => {
     jest.mocked(syncNow).mockRejectedValue(new Error('offline'));
-    expect(await redeemInvite(db, client(), ME, 'tok')).toBe(LIST);
+    expect(await redeemInvite(db, client(), ME, TOK)).toBe(LIST);
     expect(warn).toHaveBeenCalled();
   });
 
   it('42501 (invalid invite) is LinkGoneError and nothing syncs', async () => {
     fake.failNext('rpc', { message: 'invalid invite', code: '42501' }, 'redeem_invite');
-    await expect(redeemInvite(db, client(), ME, 'tok')).rejects.toBeInstanceOf(LinkGoneError);
+    await expect(redeemInvite(db, client(), ME, TOK)).rejects.toBeInstanceOf(LinkGoneError);
     expect(syncNow).not.toHaveBeenCalled();
   });
 
@@ -311,23 +315,23 @@ describe('redeemInvite', () => {
 
   it('another error throws as it is', async () => {
     fake.failNext('rpc', { message: 'boom', code: 'XX000' }, 'redeem_invite');
-    const failure = redeemInvite(db, client(), ME, 'tok');
+    const failure = redeemInvite(db, client(), ME, TOK);
     await expect(failure).rejects.toThrow('boom');
     await expect(failure).rejects.not.toBeInstanceOf(LinkGoneError);
   });
 
   it('null without a session, or on a phone whose rows are another account’s', async () => {
     fake.setSession(null);
-    expect(await redeemInvite(db, client(), ME, 'tok')).toBeNull();
+    expect(await redeemInvite(db, client(), ME, TOK)).toBeNull();
     fake.setSession(fakeSession({ userId: BEN }));
-    expect(await redeemInvite(db, client(), BEN, 'tok')).toBeNull();
+    expect(await redeemInvite(db, client(), BEN, TOK)).toBeNull();
     expect(fake.rpcs).toEqual([]);
   });
 
   it('two redeems of one token at once share one call', async () => {
     const [a, b] = await Promise.all([
-      redeemInvite(db, client(), ME, 'tok'),
-      redeemInvite(db, client(), ME, 'https://x.test/share/#t=tok'),
+      redeemInvite(db, client(), ME, TOK),
+      redeemInvite(db, client(), ME, `https://x.test/share/#t=${TOK}`),
     ]);
     expect([a, b]).toEqual([LIST, LIST]);
     expect(rpcArgs('redeem_invite')).toHaveLength(1);

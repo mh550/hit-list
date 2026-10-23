@@ -2,7 +2,7 @@
 -- docs/plans/2026-10-22-s9-links.md "Server"). The old columns stay as they were; the hash never shows; only the
 -- creator lists a link; anon can't call it.
 begin;
-select plan(9);
+select plan(10);
 
 select set_config('t.owner', tests.create_user('owner9@test.local', 'owner9')::text, true);
 select set_config('t.ben', tests.create_user('ben9@test.local', 'ben9')::text, true);
@@ -48,6 +48,11 @@ reset role;
 select ok(not has_function_privilege('anon', 'public.list_my_links(text)', 'execute'), 'anon can''t list links');
 select ok(has_function_privilege('authenticated', 'public.list_my_links(text)', 'execute'),
           'a signed-in rider can list their links');
+
+-- S9-07 review A#1: single use under concurrency rests on the row lock (two redeems at once: the second waits, then
+-- reads used_at and is refused); src/__integration__/links-function.test.ts races it for real, this keeps the lock.
+select ok(pg_get_functiondef('public.redeem_invite(text)'::regprocedure) ~* 'for\s+update',
+          'redeem_invite locks the link row (for update), so one token joins one rider');
 
 select * from finish();
 rollback;

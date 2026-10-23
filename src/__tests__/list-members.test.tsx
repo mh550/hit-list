@@ -379,6 +379,8 @@ describe('Members screen as a member', () => {
 });
 
 describe('Members screen invite links (S9-03)', () => {
+  // S9-07 review B#4: each Revoke names its link, so VoiceOver can tell several apart
+  const REVOKE_ACTIVE = 'Revoke Invite link · Can add spots · Active until Oct 30';
   beforeEach(() => signIn());
 
   it("the owner sees 'Invite link' and this list's links, loaded on mount; another list's are not shown", async () => {
@@ -391,12 +393,6 @@ describe('Members screen invite links (S9-03)', () => {
     expect(screen.getByText('Invite link · Can add spots · Expired')).toBeOnTheScreen();
     expect(screen.getByText('Invite link · View only · Revoked')).toBeOnTheScreen();
     expect(screen.queryByText('Invite link · Can add spots · Active until Oct 29')).toBeNull();
-  });
-
-  it('only the active link has Revoke (none on used, expired or revoked rows)', async () => {
-    jest.mocked(listMyLinks).mockResolvedValue(LINKS);
-    await renderScreen();
-    expect(screen.getAllByRole('button', { name: 'Revoke' })).toHaveLength(1);
   });
 
   it("a used link with no username reads 'Used'", async () => {
@@ -452,6 +448,39 @@ describe('Members screen invite links (S9-03)', () => {
     expect(useToastStore.getState().text).toBeNull();
   });
 
+  // S9-07 review B#2: the link exists once made; a failed copy must not read as a failed link
+  it("a failed copy lists the new link and offers 'Copy again' (no second link)", async () => {
+    jest.mocked(Clipboard.setStringAsync).mockRejectedValueOnce(new Error('pasteboard'));
+    await renderScreen();
+    jest
+      .mocked(listMyLinks)
+      .mockClear()
+      .mockResolvedValue([link({ id: 'k-new' })]);
+    fireEvent.press(screen.getByRole('button', { name: 'Invite link' }));
+    await pressAlertButton('Can add spots');
+
+    const [title, , buttons] = lastAlert();
+    expect(title).toBe("Couldn't copy the link");
+    expect(buttons?.map((b) => b.text)).toEqual(['Copy again', 'Cancel']);
+    expect(listMyLinks).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('Invite link · Can add spots · Active until Oct 30')).toBeOnTheScreen();
+    expect(warn).toHaveBeenCalled();
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(URL_ADD);
+
+    await pressAlertButton('Copy again');
+    expect(createInviteLink).toHaveBeenCalledTimes(1);
+    expect(Clipboard.setStringAsync).toHaveBeenCalledTimes(2);
+    expect(Clipboard.setStringAsync).toHaveBeenLastCalledWith(URL_ADD);
+    expect(useToastStore.getState().text).toBe('Link copied · works once, 7 days');
+  });
+
+  it('only the active link has Revoke (none on used, expired or revoked rows), named after its link', async () => {
+    jest.mocked(listMyLinks).mockResolvedValue(LINKS);
+    await renderScreen();
+    expect(screen.getAllByRole('button', { name: /^Revoke/ })).toHaveLength(1);
+    expect(screen.getByRole('button', { name: REVOKE_ACTIVE })).toBeOnTheScreen();
+  });
+
   it('a second role choice while a link is being made does nothing', async () => {
     let finish: (v: string) => void = () => {};
     jest.mocked(createInviteLink).mockReturnValue(new Promise<string>((resolve) => (finish = resolve)));
@@ -475,7 +504,7 @@ describe('Members screen invite links (S9-03)', () => {
   it("Revoke confirms 'Revoke this invite link?' / 'Nobody can join with it now.', then revokes and reloads", async () => {
     jest.mocked(listMyLinks).mockResolvedValue(LINKS);
     await renderScreen();
-    fireEvent.press(screen.getByRole('button', { name: 'Revoke' }));
+    fireEvent.press(screen.getByRole('button', { name: REVOKE_ACTIVE }));
     const [title, message, buttons] = lastAlert();
     expect(title).toBe('Revoke this invite link?');
     expect(message).toBe('Nobody can join with it now.');
@@ -491,14 +520,14 @@ describe('Members screen invite links (S9-03)', () => {
     expect(revokeLink).toHaveBeenCalledWith(mockFake, ME, 'k-active');
     expect(listMyLinks).toHaveBeenCalledTimes(1);
     expect(screen.getByText('Invite link · Can add spots · Revoked')).toBeOnTheScreen();
-    expect(screen.queryByRole('button', { name: 'Revoke' })).toBeNull();
+    expect(screen.queryByRole('button', { name: REVOKE_ACTIVE })).toBeNull();
   });
 
   it('a failed revoke alerts "Couldn\'t revoke the link. Try again."', async () => {
     jest.mocked(listMyLinks).mockResolvedValue(LINKS);
     jest.mocked(revokeLink).mockRejectedValueOnce(new Error('boom'));
     await renderScreen();
-    fireEvent.press(screen.getByRole('button', { name: 'Revoke' }));
+    fireEvent.press(screen.getByRole('button', { name: REVOKE_ACTIVE }));
     await pressAlertButton('Revoke');
     expect(lastAlert()[0]).toBe("Couldn't revoke the link. Try again.");
   });

@@ -91,12 +91,54 @@ describe('web/share files', () => {
 });
 
 describe('a send link', () => {
-  it('fetches share-preview with the fragment token and no headers', async () => {
+  // D96 (S9-07 review A#8): the token goes in a text/plain POST body (a simple CORS request, no preflight), never
+  // in the function's URL, so no request log keeps it
+  it('POSTs the fragment token to share-preview as the body, with no headers and nothing in the URL', async () => {
     stubFetch({ status: 200, body: sendBody([spot()]) });
     await openPage(`/share/#t=${TOKEN}`);
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(fetchMock.mock.calls[0][0]).toBe(`${FUNCTIONS_URL}/share-preview?t=${TOKEN}`);
-    expect(fetchMock.mock.calls[0][1]?.headers).toBeUndefined();
+    expect(fetchMock.mock.calls[0][0]).toBe(`${FUNCTIONS_URL}/share-preview`);
+    expect(fetchMock.mock.calls[0][1]).toEqual({ method: 'POST', body: TOKEN });
+  });
+
+  // S9-07 review A#4: pasting another link into the same tab only changes the fragment (no reload)
+  it('a new fragment in the same tab loads the new link', async () => {
+    const OTHER = 'ZyXwVuTsRqPoNmLkJiHgFe';
+    stubFetch({ status: 200, body: sendBody([spot()]) });
+    expect(await openPage(`/share/#t=${TOKEN}`)).toBe('send');
+    stubFetch({ status: 200, body: sendBody([spot(), spot({ name: 'Second' })]) });
+    window.location.hash = `#t=${OTHER}`;
+    for (let i = 0; i < 50 && document.querySelector('h1')?.textContent !== '2 spots from @ana'; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect(fetchMock).toHaveBeenCalledWith(`${FUNCTIONS_URL}/share-preview`, { method: 'POST', body: OTHER });
+    expect(document.querySelector('h1')?.textContent).toBe('2 spots from @ana');
+    expect(document.querySelectorAll('[data-testid="spot"]')).toHaveLength(2);
+  });
+
+  it('an older answer that arrives after a newer link never replaces it', async () => {
+    const OTHER = 'ZyXwVuTsRqPoNmLkJiHgFe';
+    let releaseFirst: () => void = () => {};
+    fetchMock = jest.fn((_url: string, init: { body: string }) => {
+      const answer = (body: unknown) => ({ ok: true, status: 200, json: async () => body });
+      if (init.body === TOKEN) {
+        return new Promise((resolve) => (releaseFirst = () => resolve(answer(sendBody([spot()])))));
+      }
+      return Promise.resolve(answer(sendBody([spot(), spot()])));
+    });
+    (globalThis as { fetch?: unknown }).fetch = fetchMock;
+    window.history.replaceState(null, '', `/share/#t=${TOKEN}`);
+    const parsed = new DOMParser().parseFromString(HTML, 'text/html');
+    document.replaceChild(document.importNode(parsed.documentElement, true), document.documentElement);
+    new Function(SCRIPT)();
+    window.location.hash = `#t=${OTHER}`;
+    for (let i = 0; i < 50 && !document.body.dataset.state; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect(document.querySelector('h1')?.textContent).toBe('2 spots from @ana');
+    releaseFirst();
+    for (let i = 0; i < 10; i++) await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(document.querySelector('h1')?.textContent).toBe('2 spots from @ana');
   });
 
   it('renders the heading, one card per spot, tags, notes, photos, map links and the expiry', async () => {
@@ -198,6 +240,22 @@ describe('a send link', () => {
     expect(text()).toContain('<b>bold</b>');
   });
 
+  // S9-07 review A#6: every text field, not only name and notes
+  it('renders hostile text in every send field as text', async () => {
+    const X = '<img src=x onerror=alert(1)>';
+    stubFetch({
+      status: 200,
+      body: sendBody([spot({ name: null, generated_name: X, feature_types: [X], notes: null, photo_urls: [] })], {
+        sender: { username: null, display_name: X },
+      }),
+    });
+    await openPage(`/share/#t=${TOKEN}`);
+    expect(document.querySelector('h1')?.textContent).toBe(`1 spot from ${X}`);
+    expect(document.querySelector('h2')?.textContent).toBe(`Untitled · ${X}`);
+    expect(text().split(X).length - 1).toBeGreaterThanOrEqual(3);
+    expect(document.querySelectorAll('img')).toHaveLength(0);
+  });
+
   it('never sets a link or image from a non-http(s) URL or a non-number location', async () => {
     stubFetch({
       status: 200,
@@ -227,7 +285,7 @@ describe('a send link', () => {
   it('reads ?t= when the fragment has none', async () => {
     stubFetch({ status: 200, body: sendBody([spot()]) });
     await openPage(`/share/?t=${TOKEN}`);
-    expect(fetchMock.mock.calls[0][0]).toBe(`${FUNCTIONS_URL}/share-preview?t=${TOKEN}`);
+    expect(fetchMock.mock.calls[0]).toEqual([`${FUNCTIONS_URL}/share-preview`, { method: 'POST', body: TOKEN }]);
     expect(document.body.dataset.state).toBe('send');
   });
 });
@@ -249,6 +307,19 @@ describe('an invite link', () => {
     expect(Array.from(document.querySelectorAll('button')).map((b) => b.textContent)).not.toContain(
       'Save to my spots',
     );
+  });
+});
+
+describe('an invite link with hostile text', () => {
+  it('renders the list name and inviter as text', async () => {
+    const X = '<img src=x onerror=alert(1)>';
+    stubFetch({
+      status: 200,
+      body: { kind: 'invite', list_name: X, inviter: { username: null, display_name: X }, expires_at: null },
+    });
+    expect(await openPage(`/share/#t=${TOKEN}`)).toBe('invite');
+    expect(text()).toContain(`${X} invited you to ${X} on HitList`);
+    expect(document.querySelectorAll('img')).toHaveLength(0);
   });
 });
 

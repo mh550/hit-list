@@ -20,6 +20,55 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 · S10-03 · passes
+Docs only. New `docs/plans/2026-10-22-sharing-what-michael-will-see.md` (the 8-step two-rider walk, 'If something is off', links to S1/S2/S4–S9 files). `docs/plans/2026-10-22-live-checklist.md` gains 'Cloud rollout, in order' (create project, link, push dry run, functions, auth/SMTP, env values, hosting, each with check and undo; 'Later' items kept). Spec §2/§9 checked: every D52–D96 appears in both. Verified: check.sh green, 2088 tests (unchanged). No questions beyond §9.
+Defaults the run added for Michael to overrule (spec §2/§9), one line each:
+| D52 | **One set of filters, search, sort and List | Map for every view** *default* | The Spots tab, each hit list's screen and the list picker read and write the same `useSpotsStore` fields; only the set of spots differs. A filter set on a list is still on back on the Spots tab (the Filter count shows it). | S1 plan (`docs/plans/2026-10-22-s1-hit-lists.md`): simplest, no per-list state (§9 Q13) |
+- D53 An area list ignores spots with no location
+- D54 An area's place name is the rider's search text or 'my location'
+- D55 The area picker uses the shared filters (D52)
+- D56 Area radius: default 2 mi / 2 km; a saved radius is never resized
+- D57 A shared-list invitation is a member row with `status = 'invited'`
+- D58 A display name is at most 50 characters
+- D59 Blocking hides the blocked rider's sends to you; your own pending sends to them stay
+- D60 An invite link lets any signed-in rider who holds it join once; it dies with the list's sharing
+- D61 The session is stored in the iOS keychain, large sessions encrypted
+- D62 Sign out in S4 is plain; the Keep / Remove prompt (D38) arrives with S5
+- D63 A display name is optional
+- D64 The username screen has a Sign out
+- D65 The unused `sync_queue` table is dropped
+- D66 A different account signing in removes the previous account's local rows after its data was pushed
+- D67 Keep after Delete account makes the spots phone-only again
+- D68 "Older details" stay on the phone
+- D69 Sign out backs up first; Remove only when nothing is waiting
+- D70 Spots deleted before the first sign-in stay on the phone only
+- D71 Delete account keeps the phone's spots first, then asks
+- D72 Friends' names are kept on the phone
+- D73 A request you sent shows the name only on the phone you sent it from
+- D74 Friends has a 'Blocked' section with Unblock
+- D75 Opening the Inbox marks everything in it seen
+- D76 A send to several friends is one send per friend, each with its own photo copy
+- D77 A send's photos are copied before the send exists
+- D78 Sending needs the spots backed up
+- D79 At most 100 spots per send
+- D80 The sender's name on a send is the server's, and "From @name" is frozen
+- D81 Saving some of a send's spots finishes it
+- D82 A dismissed send reads "Waiting" to its sender
+- D83 An invitee sees a shared list's name, owner and spot count, no spots, until Join
+- D84 A shared list's member count is its joined members plus the owner
+- D85 Sharing a list needs it backed up
+- D86 Others' spots leave the phone when you sign out
+- D87 Send never sends someone else's spot onward
+- D88 One role per Share batch
+- D89 Save a copy downloads the photos first; ones that fail are left out
+- D90 The first-add confirmation is once per shared list on this phone
+- D91 Others' photos download when first shown and live in the phone's cache
+- D92 The link base URL defaults to `http://localhost:8080/share/`
+- D93 Revoking a send link also takes back its spots
+- D94 Each Copy link is its own send
+- D95 A pasted send link opens its web page
+- D96 A link's page asks for it with a POST
+
 ### 2026-10-23 · S10-02 · passes
 Docs only. APP_SPECIFICATIONS.md: new '## Accounts and sharing (2026-10-22)' (vocabulary, two verbs, ownership, server model + RLS rule, D48 sync, D44/D45 links, pointer) after the simplified-model section; the three [FUTURE] sharing headings retitled [SUPERSEDED] with a pointer; Sync Strategy 'Built as' note. README Status dated 2026-10-22 with the summary line and what Michael needs. CLAUDE.md: intro, Stack deps, Docker pointer, append-only SQL rule, pgTAP/integration/fake-supabase testing line. RUNNING-ON-PHONE: short 'With accounts' summary, Studio, `git switch main`.
 Verified: check.sh green, 2088 tests (unchanged). No questions.

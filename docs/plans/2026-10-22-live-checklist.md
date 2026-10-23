@@ -287,3 +287,31 @@ has been run.
          with no `t=` (the token is in the fragment and never reaches the host).
       **Undo:** `npx wrangler pages project delete hitlist-share`; links already sent then fail to load (the app is
       unaffected); revert `EXPO_PUBLIC_SHARE_BASE_URL`.
+
+## Cloud rollout, in order (consolidates §10; each step has its check and its undo)
+
+Do these after the local walk in `2026-10-22-sharing-what-michael-will-see.md` works. Nothing here has been run.
+
+- [ ] **1. Create the cloud project** (dashboard → New project, free tier; name `hit-list`, pick a region near you, save
+      the database password in your password manager). Check: the project's Settings → API shows a URL
+      `https://<ref>.supabase.co` and an `anon` key. **Undo:** Settings → General → Delete project.
+- [ ] **2. Link:** `npx supabase login`, `npx supabase link --project-ref <ref>`. Check: `npx supabase migration list`.
+      **Undo:** `npx supabase unlink`.
+- [ ] **3. Push the schema** in stages: `npx supabase db push --dry-run` (only `supabase/migrations/*`), then
+      `npx supabase db push`. Check: Studio tables all RLS-enabled, bucket `photos` private (S3 section above).
+      **Undo:** before real users, delete the project; after, a new migration.
+- [ ] **4. Deploy the functions:** `npx supabase functions deploy share-preview account-delete`. Check the two `curl`
+      lines in S9 (404 `{"error":"gone"}`, 401). **Undo:** `npx supabase functions delete share-preview` / `account-delete`.
+- [ ] **5. Auth settings:** Authentication → Email: OTP length 6; "Magic Link" and "Confirm signup" templates contain
+      `{{ .Token }}`. **Custom SMTP before real users** (Authentication → SMTP Settings; the built-in sender is rate
+      limited and only reaches team members). Check: sign in with an address that is not yours; the code arrives.
+- [ ] **6. Point the app at it:** in `.env.local` set `EXPO_PUBLIC_SUPABASE_URL=https://<ref>.supabase.co`,
+      `EXPO_PUBLIC_SUPABASE_ANON_KEY=<anon key>` and `EXPO_PUBLIC_SHARE_BASE_URL=https://<domain>/share/`; restart
+      Metro. Check: sign in on the phone, Profile shows Backed up, Studio `spots` has your rows.
+      **Undo:** delete `.env.local` (the app is local-only again).
+- [ ] **7. Host `web/share/`:** the S9 "Host `web/share/`" steps (hosted copy with the meta tag
+      `hitlist-functions-url` = `https://<ref>.supabase.co/functions/v1`; the URL of the hosting goes in
+      `EXPO_PUBLIC_SHARE_BASE_URL`). Check: a copied link opens in Safari, Revoke makes it say "gone".
+      **Undo:** delete the hosting project; revert the env value.
+- [ ] **8. Later, with a dev build / TestFlight (unchanged from the spec):** Apple sign-in, the `hitlist://` scheme +
+      universal links for "Open in HitList", push notifications for the Inbox.

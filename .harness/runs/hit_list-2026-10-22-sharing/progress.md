@@ -20,6 +20,14 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 23:00 · S7-08 · passes
+
+- Two Opus reviews of `reviews/s7.diff` (7795 lines, `46ece42..HEAD`): 5 Important, 0 Critical, all fixed RED `918b14b` (8 fail) → GREEN `b28ffb5`: an offline Save all could use up a send on copies with no photos (now marks nothing; retries download failed photos again); a sync after a lost save answer dropped the 'Try again' row (kept now); SendSheet tapped silently with no username (line + `refreshProfile`); the sheet couldn't be cancelled during the pre-send backup (now it can, nothing goes); lines announced for VoiceOver. Minor fixes: dedupe ids, stable select-bar keys, D34 regexes any case.
+- `refactor:` `e3e2417` (`serverError` → errors.ts, `createTickets()` in new `src/sync/tickets.ts`). Docs: CLAUDE.md D34 Conventions bullet + helpers, README 'Send spots to friends (S7)', live checklist 'Two phones (S7-08)'. Review table + 7 written answers in `docs/plans/2026-10-22-s7-send.md` 'Review (S7-08)'.
+- Tests 1676 → 1684. Verified: `check.sh` green 1684; `npx jest --ci` 0 `console.error`; `grep -n Share src/components/SendSheet.tsx` prints nothing. No server change, so pgTAP/integration not re-run.
+- Next: S7 done; S8 should filter others' spots at the select/list/area Send entry points (proposed change in the S7 plan).
+- Questions for Michael: none new. Proposed changes: none to feature_list.
+
 ### 2026-10-23 20:00 · S7-07 · passes
 
 - New `docs/plans/2026-10-22-s7-what-michael-will-see.md`: from-scratch renders (temporary Jest tests, deleted; `git status` clean) of the Send sheet (signed out, unconfigured, no friends, two friends + 3 spots with the exact D34 sentence, 1 spot), the Inbox send row + Pick spots sheet, the Sent screen (three statuses, empty, signed out) and a saved copy's detail ('From @ana'); 'What to tap' with two riders (one spot, multi-select, a list, frozen copy after rename, withdraw before saving).

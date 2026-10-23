@@ -21,6 +21,7 @@ import { countPending, resetFailed } from '@/src/db/sync';
 import { syncNow } from '@/src/sync/engine';
 import { deleteAccountAndRelease, removeLocalAccountData, removeReleasedRows } from '@/src/sync/adopt';
 import { INITIAL_SYNC, useSyncStore } from '@/src/stores/sync-store';
+import { useFriendsStore } from '@/src/stores/friends-store';
 
 jest.mock('@/src/sync/engine', () => ({ syncNow: jest.fn().mockResolvedValue(undefined) }));
 jest.mock('@/src/db/sync', () => ({
@@ -860,5 +861,48 @@ describe('Profile sign out and delete: Keep / Remove from this phone (S5-06, D38
 
     expect(alert).toHaveBeenCalledTimes(1);
     expect(useAuthStore.getState()).toMatchObject(ANA);
+  });
+});
+
+describe('Profile Friends row (S6-03)', () => {
+  let router: { push: jest.Mock };
+
+  beforeEach(() => {
+    router = { push: jest.fn() };
+    jest.mocked(useRouter).mockReturnValue(router as never);
+    useFriendsStore.getState().clearFriends();
+  });
+
+  const friend = (id: string, username: string) => ({
+    friendshipId: `f-${id}`,
+    created_at: '2026-10-20T10:00:00.000Z',
+    profile: { id, username, display_name: null },
+  });
+
+  it("signed in shows 'Friends · 2' that opens /friends", () => {
+    useAuthStore.setState(ANA);
+    useFriendsStore.getState().applyFriends('user-ana', {
+      friends: [friend('id-ben', 'ben'), friend('id-cal', 'cal')],
+      incoming: [],
+      outgoing: [],
+      blocked: [],
+    });
+    render(<ProfileScreen />);
+
+    fireEvent.press(screen.getByRole('button', { name: 'Friends · 2' }));
+    expect(router.push).toHaveBeenCalledWith('/friends');
+  });
+
+  it("with no friends loaded the row reads 'Friends'", () => {
+    useAuthStore.setState(ANA);
+    render(<ProfileScreen />);
+
+    expect(screen.getByRole('button', { name: 'Friends' })).toBeOnTheScreen();
+  });
+
+  it('signed out has no Friends row', () => {
+    render(<ProfileScreen />);
+
+    expect(screen.queryByRole('button', { name: /^Friends/ })).toBeNull();
   });
 });

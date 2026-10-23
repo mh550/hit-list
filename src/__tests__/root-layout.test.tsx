@@ -100,6 +100,14 @@ describe('RootLayout: sign-in screens', () => {
   });
 });
 
+describe('RootLayout: friends (S6-03)', () => {
+  it("registers friends/index titled 'Friends'", () => {
+    render(<RootLayout />);
+
+    expect(screen.UNSAFE_getAllByProps({ name: 'friends/index' })[0].props.options).toEqual({ title: 'Friends' });
+  });
+});
+
 describe("gesture-handler's jest setup", () => {
   it('lets a test drive a gesture through jest-utils', () => {
     const onEnd = jest.fn();

@@ -1,9 +1,17 @@
+import { RefreshControl } from 'react-native';
 import { act, render, screen, fireEvent } from '@testing-library/react-native';
+import { useSQLiteContext } from 'expo-sqlite';
 import { useHitListsStore, useMediaStore, useSpotsStore } from '@/src/stores';
 import { DEFAULT_FILTERS } from '@/src/types';
 import { CITIES, createTestHitList, createTestSpot } from './factories';
 
+import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
+import { INITIAL_SYNC, useSyncStore } from '@/src/stores/sync-store';
+import { syncNow } from '@/src/sync/engine';
+
 import SpotsScreen from '@/app/(tabs)/index';
+
+jest.mock('@/src/sync/engine', () => ({ syncNow: jest.fn().mockResolvedValue(undefined) }));
 
 const spots = [
   createTestSpot({ name: 'Pier 57 rail', location: CITIES.seattle }),
@@ -171,5 +179,39 @@ describe('Spots tab list picker', () => {
     expect(screen.getByRole('tab', { name: 'My spots' }).props.accessibilityState).toMatchObject({ selected: true });
     expect(screen.getByText('Library ledge')).toBeTruthy();
     expect(screen.queryByRole('tab', { name: 'Downtown' })).toBeNull();
+  });
+});
+
+describe('Spots tab pull-to-refresh', () => {
+  beforeEach(() => {
+    useSpotsStore.setState({ spots, filters: { ...DEFAULT_FILTERS }, searchQuery: '', viewMode: 'list' });
+    useMediaStore.setState({ mediaBySpot: {} });
+    useHitListsStore.setState({ lists: [], membershipBySpot: {}, activeListId: null });
+    useSyncStore.setState(INITIAL_SYNC);
+    jest.mocked(syncNow).mockClear();
+  });
+  afterEach(() => useAuthStore.setState(SIGNED_OUT));
+
+  it('signed in, the list has a RefreshControl that syncs, refreshing while a sync runs', () => {
+    useAuthStore.setState({ status: 'signed_in', userId: 'rider-me', email: null, username: 'me', displayName: null });
+    render(<SpotsScreen />);
+
+    const control = screen.UNSAFE_getByType(RefreshControl);
+    expect(control.props.refreshing).toBe(false);
+    act(() => control.props.onRefresh());
+    expect(syncNow).toHaveBeenCalledWith(useSQLiteContext());
+
+    act(() => useSyncStore.setState({ syncing: true }));
+    expect(screen.UNSAFE_getByType(RefreshControl).props.refreshing).toBe(true);
+  });
+
+  it('signed out (or unconfigured) the list has no RefreshControl', () => {
+    useAuthStore.setState(SIGNED_OUT);
+    const { rerender } = render(<SpotsScreen />);
+    expect(screen.UNSAFE_queryByType(RefreshControl)).toBeNull();
+
+    act(() => useAuthStore.setState({ ...SIGNED_OUT, status: 'unconfigured' }));
+    rerender(<SpotsScreen />);
+    expect(screen.UNSAFE_queryByType(RefreshControl)).toBeNull();
   });
 });

@@ -17,6 +17,12 @@ import { SESSION_STORAGE_KEY, sessionStorage } from '@/src/sync/session-storage'
 import { useSettingsStore } from '@/src/stores/settings-store';
 import { UnitSystem } from '@/src/types';
 import { saveUserSettings } from '@/src/db';
+import { resetFailed } from '@/src/db/sync';
+import { syncNow } from '@/src/sync/engine';
+import { INITIAL_SYNC, useSyncStore } from '@/src/stores/sync-store';
+
+jest.mock('@/src/sync/engine', () => ({ syncNow: jest.fn().mockResolvedValue(undefined) }));
+jest.mock('@/src/db/sync', () => ({ resetFailed: jest.fn().mockResolvedValue(undefined) }));
 
 jest.mock('expo-sqlite', () => ({
   useSQLiteContext: () => ({
@@ -476,5 +482,76 @@ describe('Profile account section (S4-05)', () => {
       finish({ data: { ok: true }, error: null });
     });
     expect(useAuthStore.getState()).toMatchObject(SIGNED_OUT);
+  });
+});
+
+describe('Profile backup status (S5-05)', () => {
+  const minutesAgo = (n: number) => new Date(Date.now() - n * 60_000).toISOString();
+
+  beforeEach(() => {
+    useSettingsStore.setState({ units: UnitSystem.Imperial, batch_import_radius: 50 });
+    useSyncStore.setState(INITIAL_SYNC);
+    jest.mocked(syncNow).mockClear();
+    jest.mocked(resetFailed).mockClear();
+  });
+
+  it("signed in and just synced: 'Backed up · just now', no failed line", () => {
+    useAuthStore.setState(ANA);
+    useSyncStore.setState({ userId: ANA.userId, lastSyncAt: minutesAgo(0) });
+    render(<ProfileScreen />);
+
+    expect(screen.getByText('Backed up · just now')).toBeTruthy();
+    expect(screen.queryByText(/not backed up/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Retry' })).toBeNull();
+  });
+
+  it("'Backed up · 3 min ago' from lastSyncAt", () => {
+    useAuthStore.setState(ANA);
+    useSyncStore.setState({ userId: ANA.userId, lastSyncAt: minutesAgo(3) });
+    render(<ProfileScreen />);
+
+    expect(screen.getByText('Backed up · 3 min ago')).toBeTruthy();
+  });
+
+  it("before the first sync (or one of another rider): 'Not backed up yet'", () => {
+    useAuthStore.setState(ANA);
+    render(<ProfileScreen />);
+    expect(screen.getByText('Not backed up yet')).toBeTruthy();
+
+    act(() => useSyncStore.setState({ userId: 'user-bo', lastSyncAt: minutesAgo(1), failedCount: 2 }));
+    expect(screen.getByText('Not backed up yet')).toBeTruthy();
+    expect(screen.queryByText(/changes? not backed up/)).toBeNull();
+  });
+
+  it("failedCount > 0: '3 changes not backed up' with Retry, which resets the failed rows then syncs", async () => {
+    useAuthStore.setState(ANA);
+    useSyncStore.setState({ userId: ANA.userId, lastSyncAt: minutesAgo(3), failedCount: 3 });
+    render(<ProfileScreen />);
+
+    expect(screen.getByText('3 changes not backed up')).toBeTruthy();
+    await act(async () => {
+      fireEvent.press(screen.getByRole('button', { name: 'Retry' }));
+    });
+
+    expect(resetFailed).toHaveBeenCalledTimes(1);
+    expect(syncNow).toHaveBeenCalledTimes(1);
+    expect(jest.mocked(resetFailed).mock.invocationCallOrder[0]).toBeLessThan(
+      jest.mocked(syncNow).mock.invocationCallOrder[0],
+    );
+  });
+
+  it("one failed row reads '1 change not backed up'", () => {
+    useAuthStore.setState(ANA);
+    useSyncStore.setState({ userId: ANA.userId, failedCount: 1 });
+    render(<ProfileScreen />);
+
+    expect(screen.getByText('1 change not backed up')).toBeTruthy();
+  });
+
+  it('signed out shows no backup line', () => {
+    useSyncStore.setState({ userId: ANA.userId, lastSyncAt: minutesAgo(0), failedCount: 3 });
+    render(<ProfileScreen />);
+
+    expect(screen.queryByText(/backed up ·|not backed up/i)).toBeNull();
   });
 });

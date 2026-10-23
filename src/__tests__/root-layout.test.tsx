@@ -31,6 +31,10 @@ jest.mock('@/src/components/DBInitializer', () => ({
 let mockFake: FakeSupabase;
 jest.mock('@/src/sync/client', () => ({ getSupabase: () => mockFake, isConfigured: () => true }));
 
+// The sync hook needs the DB connection; here it only reports that it mounted.
+const mockUseSync = jest.fn();
+jest.mock('@/src/hooks/use-sync', () => ({ useSync: () => mockUseSync() }));
+
 import { createFakeSupabase, type FakeSupabase } from './helpers/fake-supabase';
 import { useAuthStore, SIGNED_OUT } from '@/src/stores/auth-store';
 
@@ -144,5 +148,17 @@ describe('RootLayout: auth', () => {
 
     expect(mockFake.auth.getSession).not.toHaveBeenCalled();
     expect(useAuthStore.getState().status).toBe('unconfigured');
+  });
+
+  it('mounts useSync once the DB is ready, and not before', () => {
+    mockUseSync.mockClear();
+    mockDbReady = false;
+    const { unmount } = render(<RootLayout />);
+    expect(mockUseSync).not.toHaveBeenCalled();
+    unmount();
+
+    mockDbReady = true;
+    render(<RootLayout />);
+    expect(mockUseSync).toHaveBeenCalled();
   });
 });

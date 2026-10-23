@@ -64,7 +64,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
     await migrateDb(db);
 
     expect(await getSchemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
-    expect(await tables(db)).toEqual(['media', 'spots', 'sync_queue', 'user_settings']);
+    expect(await tables(db)).toEqual(['hit_list_spots', 'hit_lists', 'media', 'spots', 'sync_queue', 'user_settings']);
     // A fresh install has nothing to migrate: an empty v3 spots table.
     expect(await getSpots(db)).toEqual([]);
     const columns = (await db.getAllAsync<{ name: string }>('PRAGMA table_info(spots)')).map((c) => c.name);
@@ -242,7 +242,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
 
       await migrateDb(db);
 
-      expect(await getSchemaVersion(db)).toBe(3);
+      expect(await getSchemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
       const row = await v3Row(db, full.id);
       expect(row).toMatchObject({ feature_types_json: '[]', stopped: 1, natural_speed: 3, notes: 'hello' });
       expect(JSON.parse(row?.legacy_json ?? 'null')).toEqual(FULL_LEGACY);
@@ -314,7 +314,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
 
       await migrateDb(db);
 
-      expect(await getSchemaVersion(db)).toBe(3);
+      expect(await getSchemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
       const row = await v3Row(db, odd.id);
       expect(row).toMatchObject({ feature_types_json: '[]', stopped: 0, natural_speed: 4, notes: 'still here' });
       expect(JSON.parse(row?.legacy_json ?? 'null')).toEqual({ raw_feature: 'not json' });
@@ -365,7 +365,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
 
       await migrateDb(db);
 
-      expect(await getSchemaVersion(db)).toBe(3);
+      expect(await getSchemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
       const columns = (await db.getAllAsync<{ name: string }>('PRAGMA table_info(media)')).map((c) => c.name);
       expect(columns).toContain('uploaded_by'); // migration 2 ran
       expect(await getSpot(db, spot.id)).toMatchObject({
@@ -388,7 +388,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
 
       await migrateDb(db);
 
-      expect(await getSchemaVersion(db)).toBe(3);
+      expect(await getSchemaVersion(db)).toBe(LATEST_SCHEMA_VERSION);
       expect(await db.getAllAsync('SELECT * FROM spots ORDER BY id')).toEqual(before);
     });
 
@@ -488,6 +488,161 @@ describe('migrateDb (PRAGMA user_version)', () => {
       ).map((r) => r.name);
       expect(indexes).toContain('idx_spots_deleted_at');
       expect(indexes).not.toContain('idx_spots_status');
+    });
+  });
+
+  describe('migration 4 (hit_lists, hit_list_spots)', () => {
+    /** A DB as the builds before hit lists left it: at version 3. */
+    const v3Db = async () => {
+      const db = createTestDb();
+      await migrateDb(db, MIGRATIONS.slice(0, 3));
+      expect(await getSchemaVersion(db)).toBe(3);
+      return db;
+    };
+    const columnNames = async (db: SQLiteDatabase, table: string) =>
+      (await db.getAllAsync<{ name: string }>(`PRAGMA table_info(${table})`)).map((c) => c.name);
+    const counts = async (db: SQLiteDatabase) =>
+      Object.fromEntries(
+        await Promise.all(
+          ['spots', 'media', 'hit_lists', 'hit_list_spots'].map(async (t) => [
+            t,
+            (await db.getFirstAsync<{ n: number }>(`SELECT COUNT(*) AS n FROM ${t}`))?.n,
+          ]),
+        ),
+      );
+
+    it('is the last migration', () => {
+      expect(MIGRATIONS).toHaveLength(4);
+      expect(LATEST_SCHEMA_VERSION).toBe(4);
+    });
+
+    it('a v3 DB gains hit_lists and hit_list_spots with exactly these columns, and keeps its spots', async () => {
+      const db = await v3Db();
+      const spot = createTestSpot({ name: 'kept' });
+      await insertSpot(db, spot);
+
+      await migrateDb(db);
+
+      expect(await getSchemaVersion(db)).toBe(4);
+      expect(await columnNames(db, 'hit_lists')).toEqual([
+        'id',
+        'owner_id',
+        'name',
+        'kind',
+        'area_center_lat',
+        'area_center_lng',
+        'area_radius_m',
+        'area_filters_json',
+        'area_place',
+        'shared',
+        'created_at',
+        'updated_at',
+        'deleted_at',
+      ]);
+      expect(await columnNames(db, 'hit_list_spots')).toEqual(['list_id', 'spot_id', 'added_by', 'added_at']);
+      expect(await getSpots(db)).toEqual([spot]);
+    });
+
+    it('creates the deleted_at and spot_id indexes', async () => {
+      const db = await v3Db();
+
+      await migrateDb(db);
+
+      const indexes = (
+        await db.getAllAsync<{ name: string }>(
+          `SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name IN ('hit_lists', 'hit_list_spots')`,
+        )
+      ).map((r) => r.name);
+      expect(indexes).toEqual(expect.arrayContaining(['idx_hit_lists_deleted_at', 'idx_hit_list_spots_spot_id']));
+    });
+
+    it('defaults kind to manual and shared to 0, and both foreign keys cascade', async () => {
+      const db = await v3Db();
+      await migrateDb(db);
+
+      await db.runAsync(
+        `INSERT INTO hit_lists (id, name, created_at, updated_at) VALUES ('L', 'Downtown', 'x', 'x')`,
+      );
+      expect(await db.getFirstAsync('SELECT kind, shared, owner_id FROM hit_lists')).toEqual({
+        kind: 'manual',
+        shared: 0,
+        owner_id: null,
+      });
+      const fks = await db.getAllAsync<{ table: string; on_delete: string }>(
+        'PRAGMA foreign_key_list(hit_list_spots)',
+      );
+      expect(fks.map((f) => [f.table, f.on_delete]).sort()).toEqual([
+        ['hit_lists', 'CASCADE'],
+        ['spots', 'CASCADE'],
+      ]);
+    });
+
+    it('the v2 fixture rows migrate 2 → 3 → 4 with their spots and media intact', async () => {
+      const db = createTestDb();
+      await migrateDb(db, MIGRATIONS.slice(0, 2));
+      const asColumns = (old: { status: string; feature: object; inRun: object; landing: object; metadata: object }): OldColumns => ({
+        status: old.status,
+        feature: JSON.stringify(old.feature),
+        inRun: JSON.stringify(old.inRun),
+        landing: JSON.stringify(old.landing),
+        metadata: JSON.stringify(old.metadata),
+      });
+      const full = createTestSpot({ name: 'full' });
+      const empty = createTestSpot({ name: 'empty' });
+      await insertOldSpot(db, full, asColumns(V2_SPOTS.full));
+      await insertOldSpot(db, empty, asColumns(V2_SPOTS.empty));
+      const photo = createTestMedia({ spot_id: full.id });
+      await db.runAsync(
+        'INSERT INTO media (id, spot_id, file_path, created_at) VALUES (?, ?, ?, ?)',
+        photo.id,
+        photo.spot_id,
+        photo.file_path,
+        photo.created_at,
+      );
+
+      await migrateDb(db);
+
+      expect(await getSchemaVersion(db)).toBe(4);
+      expect((await getSpots(db)).map((s) => s.name).sort()).toEqual(['empty', 'full']);
+      expect(await getSpot(db, full.id)).toMatchObject({ stopped: true, natural_speed: 3, notes: 'hello' });
+      expect(await getSpotLegacy(db, full.id)).toEqual(V2_SPOTS.fullLegacy);
+      expect(await getMediaForSpot(db, full.id)).toEqual([photo]);
+      expect(await db.getAllAsync('PRAGMA foreign_key_check')).toEqual([]);
+    });
+
+    it('migrating a v4 DB again changes nothing', async () => {
+      const db = await v3Db();
+      const spot = createTestSpot();
+      await insertSpot(db, spot);
+      await migrateDb(db);
+      await db.runAsync(
+        `INSERT INTO hit_lists (id, name, created_at, updated_at) VALUES ('L', 'Downtown', 'x', 'x')`,
+      );
+      await db.runAsync(`INSERT INTO hit_list_spots (list_id, spot_id, added_at) VALUES ('L', ?, 'x')`, spot.id);
+      const before = {
+        lists: await db.getAllAsync('SELECT * FROM hit_lists'),
+        members: await db.getAllAsync('SELECT * FROM hit_list_spots'),
+        counts: await counts(db),
+      };
+
+      await migrateDb(db);
+
+      expect(await getSchemaVersion(db)).toBe(4);
+      expect({
+        lists: await db.getAllAsync('SELECT * FROM hit_lists'),
+        members: await db.getAllAsync('SELECT * FROM hit_list_spots'),
+        counts: await counts(db),
+      }).toEqual(before);
+    });
+
+    it('a v3 DB that already holds an empty hit_lists table (IF NOT EXISTS) still upgrades', async () => {
+      // A crashed or downgraded build may have left the table behind; the upgrade must not wedge on it.
+      const db = await v3Db();
+      await MIGRATIONS[3](db);
+
+      await expect(migrateDb(db)).resolves.toBeUndefined();
+
+      expect(await getSchemaVersion(db)).toBe(4);
     });
   });
 

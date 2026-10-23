@@ -30,7 +30,7 @@
         "src/types/index.ts exports HitList and HitListSpot as the plan states; src/db/index.ts re-exports the new functions; src/__tests__/factories.ts gains createTestHitList(overrides).",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S1-03",

@@ -20,6 +20,15 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-22 20:40 · S1-02 · passes
+
+- Migration 4 (`src/db/schema.ts`, `IF NOT EXISTS`): `hit_lists` (13 columns, area + owner reserved) and `hit_list_spots` (PK list_id+spot_id, both FKs `ON DELETE CASCADE`) + `idx_hit_lists_deleted_at`, `idx_hit_list_spots_spot_id`. Only the `MIGRATIONS` array line changed; migrations 1–3 untouched.
+- New `src/db/hit-lists.ts` (insertHitList, getHitLists, updateHitList, softDeleteHitList, addSpotsToList, removeSpotFromList, getListMemberships), re-exported from `src/db/index.ts`; `HitList`, `HitListKind`, `HitListSpot`, `HitListUpdate` in `src/types/index.ts`; `createTestHitList` in `factories.ts` (fixed 2026-10-01T12:00Z stamps).
+- Tests 656 → 680: new `db-hit-lists.test.ts` (17 cases: round-trip incl. area columns, idempotent add keeps first added_at, two lists, remove, soft delete keeps spots, both cascades, FK rejects unknown spot, rename bumps updated_at, deleted list not updatable, soft-deleted spot keeps its row, bad area_filters_json → warn) + 7 migration-4 cases in `db-migrate.test.ts`. Watched RED (missing factory/migration), then GREEN; `check.sh` green (680 tests, 0 console.error).
+- Plan correction: four existing migration-3 cases pinned `toBe(3)` and the fresh-DB table list, so they now use `LATEST_SCHEMA_VERSION` / include the two tables (the plan said none needed editing).
+- Next (S1-03): `softDeleteHitList`/`addSpotsToList` take an optional ISO stamp (default now) so the hook can pass the store's stamp; `getListMemberships` ignores deleted lists but not deleted spots.
+- Proposed changes: S1-02 step 1 "additions only" can't hold literally (the `MIGRATIONS = [...]` line must change); read it as "migrations 1–3 unchanged".
+
 ### 2026-10-22 20:10 · S1-01 · passes
 
 - New `docs/plans/2026-10-22-s1-hit-lists.md`: decisions, Types, Migration 4 (exact SQL, `IF NOT EXISTS`, two indexes `idx_hit_lists_deleted_at`, `idx_hit_list_spots_spot_id`), DB API, Store, Hook (revert table), SpotsBrowser, Tab bar, Screens, Copy, a RED test list per feature S1-02…S1-09, risks. Docs only; tests 656 → 656.

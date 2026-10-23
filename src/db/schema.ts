@@ -279,8 +279,42 @@ async function migration3(db: SQLiteDatabase): Promise<void> {
   `);
 }
 
+/**
+ * Version 4: hit lists (S1). A list holds many spots and a spot sits in many lists (hit_list_spots). The area
+ * columns are reserved for area lists (S2) and owner_id / added_by for accounts, so neither adds a migration.
+ * IF NOT EXISTS so a table left behind by a crashed launch can't wedge the upgrade.
+ */
+async function migration4(db: SQLiteDatabase): Promise<void> {
+  await db.execAsync(`
+    CREATE TABLE IF NOT EXISTS hit_lists (
+      id TEXT PRIMARY KEY NOT NULL,
+      owner_id TEXT,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL DEFAULT 'manual',
+      area_center_lat REAL,
+      area_center_lng REAL,
+      area_radius_m INTEGER,
+      area_filters_json TEXT,
+      area_place TEXT,
+      shared INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      deleted_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS hit_list_spots (
+      list_id TEXT NOT NULL REFERENCES hit_lists(id) ON DELETE CASCADE,
+      spot_id TEXT NOT NULL REFERENCES spots(id) ON DELETE CASCADE,
+      added_by TEXT,
+      added_at TEXT NOT NULL,
+      PRIMARY KEY (list_id, spot_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_hit_lists_deleted_at ON hit_lists(deleted_at);
+    CREATE INDEX IF NOT EXISTS idx_hit_list_spots_spot_id ON hit_list_spots(spot_id);
+  `);
+}
+
 /** MIGRATIONS[i] takes the DB from version i to i + 1. */
-export const MIGRATIONS: readonly Migration[] = [migration1, migration2, migration3];
+export const MIGRATIONS: readonly Migration[] = [migration1, migration2, migration3, migration4];
 export const LATEST_SCHEMA_VERSION = MIGRATIONS.length;
 
 export async function getSchemaVersion(db: SQLiteDatabase): Promise<number> {

@@ -70,6 +70,36 @@ export interface Media {
   uploaded_by?: string; // the account that added it; unset until accounts exist (spec: User, [FUTURE])
 }
 
+export type HitListKind = 'manual' | 'area';
+
+/** A named group of spots (many-to-many: a spot can sit in several lists). Deleting a list never deletes its spots. */
+export interface HitList {
+  id: string;
+  name: string;
+  kind: HitListKind; // 'manual' in S1; 'area' from S2
+  owner_id?: string; // undefined until accounts (S5)
+  shared: boolean; // false in S1; S8
+  member_count?: number; // computed in S8, never stored
+  area_center?: GeoPoint; // S2; both lat and lng NULL → undefined
+  area_radius_m?: number; // S2, whole metres like batch_import_radius
+  area_filters?: SpotFilters; // S2, area_filters_json
+  area_place?: string; // S2, "Capitol Hill"
+  created_at: string; // ISO 8601
+  updated_at: string; // ISO 8601
+  deleted_at?: string; // ISO 8601
+}
+
+/** One spot in one list (hit_list_spots). */
+export interface HitListSpot {
+  list_id: string;
+  spot_id: string;
+  added_by?: string; // undefined until accounts
+  added_at: string; // ISO 8601
+}
+
+/** A patch for a list; undefined keeps the stored value (S2 adds the area fields). */
+export type HitListUpdate = Partial<Pick<HitList, 'name' | 'shared' | 'updated_at'>>;
+
 export interface UserSettings {
   units: UnitSystem;
   batch_import_radius: number; // meters

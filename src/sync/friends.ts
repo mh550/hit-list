@@ -137,7 +137,7 @@ async function fetchFriends(
   );
   const other = (row: FriendshipRow) => (row.user_a === uid ? row.user_b : row.user_a);
   const returned = await readProfiles(client, [...new Set(rows.map(other))]);
-  const byId = new Map(returned.map((p) => [p.id, { id: p.id, username: p.username, display_name: p.display_name }]));
+  const byId = new Map(returned.map((p) => [p.id, p]));
 
   // a block that landed between the two reads: the rider shows as blocked only (block_user removed the friendship)
   const blockedIds = new Set(blocks.map((b) => b.blocked));

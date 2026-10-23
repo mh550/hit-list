@@ -14,7 +14,7 @@ import { useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { AccountsNotSetUp, Button } from '@/src/components';
+import { AccountsNotSetUp, Button, confirmBlock } from '@/src/components';
 import { palette, radius, spacing, typography } from '@/src/constants/theme';
 import { useAuthStore } from '@/src/stores/auth-store';
 import { useFriendsStore } from '@/src/stores/friends-store';
@@ -42,7 +42,6 @@ const HINT = "Friends are added by exact username or by an invite link. There's 
 const INVALID = 'Usernames are 3–20 letters, numbers, _ or .';
 const NETWORK = "Couldn't reach the server. Try again.";
 const LOAD_FAILED = "Couldn't reach the server. Pull to try again.";
-const BLOCK_MESSAGE = "They won't be told. They can't send to you or invite you.";
 
 type Line = { text: string; tone: 'ok' | 'error' };
 
@@ -187,22 +186,16 @@ function FriendsBody({ client, uid }: { client: SupabaseClient; uid: string }) {
     setRefreshing(false);
   };
 
-  const confirmBlock = (row: Row) => {
-    const handle = handleOf(row.profile, 'this rider');
-    Alert.alert(`Block ${handle}?`, BLOCK_MESSAGE, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Block',
-        style: 'destructive',
-        onPress: () =>
-          void runAction(
-            row.key,
-            () => block(client, uid, row.profile.id),
-            () => useFriendsStore.getState().noteBlocked(uid, row.profile),
-          ),
-      },
-    ]);
-  };
+  const askBlock = (row: Row) =>
+    confirmBlock(
+      handleOf(row.profile, 'this rider'),
+      () =>
+        void runAction(
+          row.key,
+          () => block(client, uid, row.profile.id),
+          () => useFriendsStore.getState().noteBlocked(uid, row.profile),
+        ),
+    );
 
   const remove = (row: Row) => {
     const friendshipId = row.friendshipId;
@@ -217,7 +210,7 @@ function FriendsBody({ client, uid }: { client: SupabaseClient; uid: string }) {
   const friendMenu = (row: Row) => {
     Alert.alert(handleOf(row.profile, UNKNOWN.friend), undefined, [
       { text: 'Remove friend', onPress: () => remove(row) },
-      { text: `Block ${handleOf(row.profile, 'this rider')}`, style: 'destructive', onPress: () => confirmBlock(row) },
+      { text: `Block ${handleOf(row.profile, 'this rider')}`, style: 'destructive', onPress: () => askBlock(row) },
       { text: 'Cancel', style: 'cancel' },
     ]);
   };
@@ -280,7 +273,7 @@ function FriendsBody({ client, uid }: { client: SupabaseClient; uid: string }) {
         ]}
         onAccessibilityAction={(event) => {
           if (event.nativeEvent.actionName === 'remove') remove(item);
-          else if (event.nativeEvent.actionName === 'block') confirmBlock(item);
+          else if (event.nativeEvent.actionName === 'block') askBlock(item);
         }}>
         {label}
         {busyMark}

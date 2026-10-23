@@ -1,7 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 
 import { getAllMedia, getHitLists, getListMemberships, getSpots } from '@/src/db';
-import { countFailed, countPending, getSyncState, lastOutboxId, setSyncState } from '@/src/db/sync';
+import { countFailed, countPending, getSyncState, lastOutboxId, lastSyncKey, setSyncState } from '@/src/db/sync';
 import { useHitListsStore, useMediaStore, useSpotsStore } from '@/src/stores';
 import { useSyncStore } from '@/src/stores/sync-store';
 import { getSupabase } from './client';
@@ -50,8 +50,6 @@ export function syncNow(db: SQLiteDatabase): Promise<void> {
   current = entry;
   return entry.promise;
 }
-
-const lastSyncKey = (uid: string) => `last_sync_at:${uid}`;
 
 async function sessionRider(db: SQLiteDatabase): Promise<string | null> {
   const client = getSupabase();

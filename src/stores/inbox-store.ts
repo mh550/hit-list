@@ -1,7 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { create } from 'zustand';
 
-import { getSyncState, setSyncState } from '@/src/db/sync';
+import { getSyncState, inboxSeenKey, setSyncState } from '@/src/db/sync';
 import type { FriendProfile } from '@/src/types';
 import { useAuthStore } from './auth-store';
 
@@ -50,8 +50,6 @@ export interface InboxState {
 
 const CLEARED = { userId: null, items: [], seenAt: undefined };
 
-export const seenKey = (uid: string) => `inbox_seen_at:${uid}`;
-
 const isShown = (uid: string) => useAuthStore.getState().userId === uid;
 
 /** The later of ISO timestamps (one shape, so they compare as strings); null when none is set. */
@@ -79,7 +77,7 @@ export const useInboxStore = create<InboxState>((set, get) => ({
   },
 
   loadSeen: async (db, uid) => {
-    const stored = (await getSyncState(db, seenKey(uid))) ?? null;
+    const stored = (await getSyncState(db, inboxSeenKey(uid))) ?? null;
     if (!isShown(uid)) return;
     const s = get();
     if (s.userId !== uid) set({ userId: uid, items: [], seenAt: stored });
@@ -91,10 +89,10 @@ export const useInboxStore = create<InboxState>((set, get) => ({
     if (s.userId !== uid || !isShown(uid)) return;
     const newest = latest(...s.items.map((i) => i.created_at));
     if (newest === null || (s.seenAt != null && s.seenAt >= newest)) return;
-    const stored = (await getSyncState(db, seenKey(uid))) ?? null;
+    const stored = (await getSyncState(db, inboxSeenKey(uid))) ?? null;
     const next = latest(stored, get().seenAt, newest);
     if (get().userId !== uid || !isShown(uid) || next === null) return;
-    if (next !== stored) await setSyncState(db, seenKey(uid), next);
+    if (next !== stored) await setSyncState(db, inboxSeenKey(uid), next);
     if (get().userId === uid) set({ seenAt: latest(get().seenAt, next) });
   },
 

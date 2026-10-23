@@ -15,7 +15,7 @@ import { useIsFocused, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-import { AccountsNotSetUp, Button } from '@/src/components';
+import { AccountsNotSetUp, Button, confirmBlock } from '@/src/components';
 import { palette, spacing, typography } from '@/src/constants/theme';
 import { useAuthStore } from '@/src/stores/auth-store';
 import { INBOX_KINDS, useInboxStore, type FriendRequestItem, type InboxItem, type InboxKind } from '@/src/stores/inbox-store';
@@ -30,7 +30,6 @@ import { block, refreshFriends, respond } from '@/src/sync/friends';
  */
 
 const EMPTY_BODY = 'Spots friends send you, hit list invitations and friend requests show up here.';
-const BLOCK_MESSAGE = "They won't be told. They can't send to you or invite you.";
 
 const SECTION_TITLES: Record<InboxKind, string> = {
   friend_request: 'Friend requests',
@@ -110,16 +109,8 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
     setRefreshing(false);
   };
 
-  const confirmBlock = (item: FriendRequestItem, handle: string) => {
-    Alert.alert(`Block ${handle}?`, BLOCK_MESSAGE, [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Block',
-        style: 'destructive',
-        onPress: () => void runAction(item, () => block(client, uid, item.from.id)),
-      },
-    ]);
-  };
+  const askBlock = (item: FriendRequestItem, handle: string) =>
+    confirmBlock(handle, () => void runAction(item, () => block(client, uid, item.from.id)));
 
   const renderRequest = (item: FriendRequestItem) => {
     const handle = item.from.username ? `@${item.from.username}` : 'this rider';
@@ -131,7 +122,7 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
           style={({ pressed }) => [styles.rowText, pressed && styles.rowPressed]}
           onLongPress={() =>
             Alert.alert(item.from.username ? handle : 'A rider', undefined, [
-              { text: `Block ${handle}`, style: 'destructive', onPress: () => confirmBlock(item, handle) },
+              { text: `Block ${handle}`, style: 'destructive', onPress: () => askBlock(item, handle) },
               { text: 'Cancel', style: 'cancel' },
             ])
           }
@@ -141,7 +132,7 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
           accessibilityHint="Long press to block"
           accessibilityActions={[{ name: 'block', label: `Block ${handle}` }]}
           onAccessibilityAction={(event) => {
-            if (event.nativeEvent.actionName === 'block') confirmBlock(item, handle);
+            if (event.nativeEvent.actionName === 'block') askBlock(item, handle);
           }}>
           <Text style={styles.title} numberOfLines={2}>
             {line}

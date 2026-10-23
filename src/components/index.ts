@@ -17,3 +17,4 @@ export { ListPickerChips } from './ListPickerChips';
 export { HeaderTextButton } from './HeaderTextButton';
 export { FilterHeaderButton } from './FilterHeaderButton';
 export { ACCOUNTS_NOT_SET_UP, AuthScreen, AccountsNotSetUp, AuthError } from './AuthScreen';
+export { confirmBlock } from './confirm-block';

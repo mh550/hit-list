@@ -185,6 +185,18 @@ export async function setSyncState(db: SQLiteDatabase, key: string, value: strin
   await db.runAsync('INSERT OR REPLACE INTO sync_state (key, value) VALUES (?, ?)', key, value);
 }
 
+/** Per-account keys: when that account last backed up ('Backed up'), and its Inbox seen mark. */
+export const lastSyncKey = (uid: string) => `last_sync_at:${uid}`;
+export const inboxSeenKey = (uid: string) => `inbox_seen_at:${uid}`;
+
+/** No account on this phone any more (`user_id`), and `uid`'s own keys gone. Run inside the caller's transaction. */
+export async function forgetAccount(db: SQLiteDatabase, uid: string | undefined): Promise<void> {
+  await setSyncState(db, 'user_id', null);
+  if (uid === undefined) return;
+  await setSyncState(db, lastSyncKey(uid), null);
+  await setSyncState(db, inboxSeenKey(uid), null);
+}
+
 const cursorKey = (table: SyncTable) => `cursor:${table}`;
 
 /** The highest server `rev` pulled for `table`; 0 before the first pull. */

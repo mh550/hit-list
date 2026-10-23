@@ -20,6 +20,18 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 01:45 · S1-11 · passes
+
+- Opus review of `git diff 4aa5326..HEAD -- src app` (`reviews/s1.diff`, 4,851 lines). No Critical findings. Two Important ones, each fixed with a RED test watched failing in the same commit:
+  - **I1 `e82e658`:** the open Add-to-list sheet now keeps the ids it opened with. Before, unticking the picker's active list pruned the selection to `[]`, so a re-tick added nothing.
+  - **I2 `e218b59`:** `addSpotsToList` is one `INSERT OR IGNORE … SELECT FROM json_each(?)`. Before, a non-exclusive BEGIN/COMMIT on the shared connection meant two adds at once collided. This also covers S1-07's flag.
+- The findings, all six answers and the minors not fixed (with reasons) are under 'Review' in `docs/plans/2026-10-22-s1-hit-lists.md`. S1-09's rollback flag (a) is kept as Minor.
+- `refactor:` `f6e0e0d`: new `HeaderTextButton` (Filter, Select/Cancel, Rename), `EMPTY_LIST_COPY`, one alert path in `AddToListSheet`, unused React import removed, migration 4 comment corrected.
+- Docs: CLAUDE.md Layout and a 'Hit lists' convention bullet; README 'Hit lists (S1)' bullet.
+- Tests 807 → 814. `check.sh` green, `npx jest --ci` 64 suites with 0 console.error, `npx expo export --platform ios` exit 0. `spots-sort-search` and `spots-import-action` diffs are empty since `4aa5326`; `spots-view-mode` changed only imports and gained a new describe.
+- **Next:** S1 is complete, so the S1 PR is due. Then S2-01. Note for S2: `selectListSpots` goes by membership only (S1-09 note).
+- Questions for Michael: none new. Proposed changes: none.
+
 ### 2026-10-23 01:05 · S1-10 · passes
 
 - New `docs/plans/2026-10-22-s1-what-michael-will-see.md`: the Lists tab (two lists), the list screen (two spots), the spot detail 'In lists' row (one chip), the Spots tab in select mode (two selected) and the picker row, each with every visible text, role, label, hint and state in rendered order, plus 'What to tap', 'Known limits' and the commands run. Renders came from a temporary `walkthrough-s1.test.tsx`, deleted; `git status` shows no `src/__tests__/walkthrough*`.

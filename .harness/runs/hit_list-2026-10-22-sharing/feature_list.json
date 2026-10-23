@@ -162,7 +162,7 @@
         "CLAUDE.md Layout lists app/(tabs)/lists.tsx, app/list/[id]/, SpotsBrowser, AddToListSheet, NameListSheet, ListPickerChips, src/db/hit-lists.ts, the hit-lists store and hook, and Conventions gains a 'Hit lists' bullet (many-to-many, deleting a list never deletes spots, area columns reserved); README Status gains a 'Hit lists (S1)' bullet.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S2-01",

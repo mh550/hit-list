@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { geocodeAsync, type LocationGeocodedLocation } from 'expo-location';
-import MapView, { Circle, Marker, type Region } from 'react-native-maps';
+import MapView, { Circle, Marker, type Details, type Region } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Button, Chip, HeaderTextButton } from '@/src/components';
@@ -54,18 +54,21 @@ export default function AreaPicker() {
     const { latitude, longitude } = initialRegion(spots, null);
     return { center: { latitude, longitude } };
   });
-  // react-native-maps reads initialRegion on mount; a new object later could move the camera before the map is ready.
-  const [mapStart] = useState(() => circleRegion(start.center, nearestStep(DEFAULT_AREA_RADIUS_M, units)));
   const [center, setCenter] = useState(start.center);
   const [place, setPlace] = useState(start.place);
   const [radiusM, setRadiusM] = useState(() => nearestStep(DEFAULT_AREA_RADIUS_M, units));
+  // react-native-maps reads initialRegion on mount; a new object later could move the camera before the map is ready.
+  const [mapStart] = useState(() => circleRegion(start.center, radiusM));
   const [searchText, setSearchText] = useState('');
   const [notFound, setNotFound] = useState(false);
   const [filterVisible, setFilterVisible] = useState(false);
   const [choosing, setChoosing] = useState(false);
   const mapRef = useRef<MapView | null>(null);
-  // Counts submits, so a geocode answer that lands after a newer search is dropped.
+  // A geocode answer applies only if nothing has moved the centre or changed the text since its submit: every such
+  // action bumps this counter.
   const searchSeq = useRef(0);
+  // The radius a late geocode answer must fit the camera to (the one in its closure may be stale).
+  const radiusRef = useRef(radiusM);
 
   const areaSpots = useMemo(
     () => selectAreaSpots(spots, center, radiusM, filters),
@@ -73,28 +76,43 @@ export default function AreaPicker() {
   );
   const activeFilterCount = selectActiveFilterCount(filters);
 
+  const cancelSearch = () => {
+    searchSeq.current += 1;
+  };
+
   const moveTo = (point: GeoPoint, placeName: string) => {
     setCenter(point);
     setPlace({ name: placeName, center: point });
-    mapRef.current?.animateToRegion(circleRegion(point, radiusM));
+    mapRef.current?.animateToRegion(circleRegion(point, radiusRef.current));
   };
 
-  // Never geocodes: only a submitted search does.
-  const onRegionChangeComplete = ({ latitude, longitude }: Region) => {
+  // Never geocodes: only a submitted search does. A drag wins over a search still in flight.
+  const onRegionChangeComplete = ({ latitude, longitude }: Region, details?: Details) => {
+    if (details?.isGesture) cancelSearch();
     const next = { latitude, longitude };
     setCenter(next);
     if (place && !keepsPlace(place.center, next, radiusM)) setPlace(undefined);
   };
 
   const pickRadius = (step: number) => {
+    // An unchanged region would leave the native map ignoring region changes until the next one (react-native-maps).
+    if (step === radiusM) return;
+    radiusRef.current = step;
     setRadiusM(step);
     mapRef.current?.animateToRegion(circleRegion(center, step));
+  };
+
+  const goToMyLocation = () => {
+    if (!currentLocation) return;
+    cancelSearch();
+    moveTo(currentLocation, MY_LOCATION);
   };
 
   const search = async () => {
     const text = searchText.trim();
     if (text === '') return;
-    const seq = ++searchSeq.current;
+    cancelSearch();
+    const seq = searchSeq.current;
     let results: LocationGeocodedLocation[];
     try {
       results = await geocodeAsync(text); // Apple's geocoder: the typed text goes to Apple
@@ -102,7 +120,8 @@ export default function AreaPicker() {
       results = []; // offline or rate-limited reads the same as no match
     }
     if (seq !== searchSeq.current) return;
-    const hit = results[0];
+    // The native geocoder returns null coordinates for a placemark without a location, whatever the types say.
+    const hit = results.find((r) => Number.isFinite(r.latitude) && Number.isFinite(r.longitude));
     if (!hit) {
       setNotFound(true);
       return;
@@ -112,6 +131,7 @@ export default function AreaPicker() {
   };
 
   const onSearchTextChange = (text: string) => {
+    cancelSearch();
     setSearchText(text);
     setNotFound(false);
   };
@@ -150,7 +170,7 @@ export default function AreaPicker() {
           variant="secondary"
           size="sm"
           disabled={currentLocation == null}
-          onPress={() => currentLocation && moveTo(currentLocation, MY_LOCATION)}
+          onPress={goToMyLocation}
         />
       </View>
       {notFound ? <Text style={styles.notFound}>No place found</Text> : null}

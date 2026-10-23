@@ -191,6 +191,14 @@ describe('Area picker: radius chips', () => {
     expect(mockMapMethods.animateToRegion).toHaveBeenCalledWith(circleRegion(CITIES.seattle, 8047));
   });
 
+  it('re-tapping the selected chip leaves the camera alone', () => {
+    renderPicker();
+
+    fireEvent.press(screen.getByRole('radio', { name: '2 mi' }));
+
+    expect(mockMapMethods.animateToRegion).not.toHaveBeenCalled();
+  });
+
   it('keeps the map\'s initialRegion as it was on mount (a new one could snap the camera back while loading)', () => {
     useLocationStore.setState({ currentLocation: CITIES.seattle });
     renderPicker();
@@ -305,6 +313,73 @@ describe('Area picker: place search', () => {
 
     await act(async () => resolveFirst([first]));
     expect(circle().center).toEqual(second);
+  });
+});
+
+describe('Area picker: a search still in flight', () => {
+  const hit = { latitude: 47.625, longitude: -122.3214 };
+  /** Submits 'Capitol Hill' with a geocode answer the test hands over later. */
+  function submitPending() {
+    let answer: (r: GeoPoint[]) => void = () => {};
+    jest.mocked(geocodeAsync).mockImplementationOnce(() => new Promise((resolve) => (answer = resolve)));
+    const field = screen.getByLabelText('Search a place');
+    fireEvent.changeText(field, 'Capitol Hill');
+    fireEvent(field, 'submitEditing');
+    return (r: GeoPoint[]) => act(async () => answer(r));
+  }
+
+  it('fits the camera to the radius picked while it was pending', async () => {
+    useLocationStore.setState({ currentLocation: CITIES.seattle });
+    renderPicker();
+    const answer = submitPending();
+
+    fireEvent.press(screen.getByRole('radio', { name: '25 mi' }));
+    await answer([hit]);
+
+    expect(circle().center).toEqual(hit);
+    expect(mockMapMethods.animateToRegion).toHaveBeenLastCalledWith(circleRegion(hit, 40234));
+  });
+
+  it("is dropped after 'Use my location'", async () => {
+    useLocationStore.setState({ currentLocation: CITIES.seattle });
+    renderPicker();
+    const answer = submitPending();
+
+    fireEvent.press(screen.getByRole('button', { name: 'Use my location' }));
+    await answer([hit]);
+
+    expect(circle().center).toEqual(CITIES.seattle);
+  });
+
+  it('is dropped after the rider drags the map', async () => {
+    renderPicker();
+    const answer = submitPending();
+
+    moveMap(CITIES.spokane);
+    await answer([hit]);
+
+    expect(circle().center).toEqual(CITIES.spokane);
+  });
+
+  it("is dropped after an edit, so a late empty answer doesn't bring back 'No place found'", async () => {
+    renderPicker();
+    const answer = submitPending();
+
+    fireEvent.changeText(screen.getByLabelText('Search a place'), 'Capitol Hil');
+    await answer([]);
+
+    expect(screen.queryByText('No place found')).toBeNull();
+  });
+
+  it('skips a result with no coordinates (the native geocoder can return nulls)', async () => {
+    useLocationStore.setState({ currentLocation: CITIES.seattle });
+    renderPicker();
+    const answer = submitPending();
+
+    await answer([{ latitude: null, longitude: null } as unknown as GeoPoint]);
+
+    expect(screen.getByText('No place found')).toBeTruthy();
+    expect(circle().center).toEqual(CITIES.seattle);
   });
 });
 

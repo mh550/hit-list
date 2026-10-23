@@ -20,6 +20,14 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 10:30 · S6-05 · passes
+
+- Added `src/__integration__/friends.test.ts` (6 cases, riders ana/ben/cal, each with a node:sqlite phone whose `sync_state.user_id` is theirs): 'BEN' finds ben + one pending request (and a direct uppercase `find_profile`), ben sees it incoming, ana's mirror and friends store keep ben's name, ben's Inbox gets the item; accept → both list the other; ana+cal friends, cal blocks ana → friendship gone both sides, cal's profile unreadable and absent from ana's `find_profile` (not ben's), `addFriend` → `{ found: false }`, a direct send answers `P0002` like an unknown name; 'nobody_…' → not found, own name → self; remove, unblock, ask again. Plan gains "As built (S6-05)". Jest default suite 1487 → 1487 (integration is separate: 29 → 35).
+- Verified: `db:start` → `db:reset` → `test:db` Files=9 Tests=569 PASS → `test:integration` 3 suites 35 passed, twice, `auth.users` 0 after each → `db:stop`; `docker ps` = the same 7 dj-*/n8n-* containers, no `supabase_*`. `check.sh` green 1487.
+- No RED commit: the code (S6-02) existed and the first run was green. Instead, mutations: incoming/outgoing swap fails 6/6, no mirror write fails 1, `find_profile` without its block check fails 1, case-sensitive `find_profile` fails 1 (the last two only after I added the direct-rpc assertions). Unmapped `P0002` on send survives (race-only path, unit-tested).
+- Next session (S6-06): integration count for the doc is 35 (accounts 17, sync 12, friends 6).
+- Questions for Michael: none new (D72–D75, §9 Q33–Q36 still open). Proposed changes: S6-05 step 1's 'cal blocks ana' runs after ana and cal are friends (plan review #5, so the block has something to hide); 'nobody' is `nobody_<8 hex>` so it can't collide with a real rider.
+
 ### 2026-10-23 09:40 · S6-04 · passes
 
 - Added `src/stores/inbox-store.ts` (kind-tagged items, `InboxKind` = friend_request | send | invite; `setItems` per kind, `removeItem`, `loadSeen`/`markSeen` on `sync_state` `inbox_seen_at:<uid>` = newest server `created_at` seen, never backwards; `selectUnseenCount`, 0 until the mark loads; emptied on every rider change) and `app/(tabs)/inbox.tsx` (Friend requests with Accept / Decline, single-flight, long press or VoiceOver Block + confirm, empty copy, signed out / unconfigured lines, marks seen while focused **and** AppState active, refresh on focus and pull). Tabs: Spots · Lists · Inbox (`tray.fill` → 'inbox') · Profile, badge from `selectUnseenCount`. `loadAndApplyFriends` fills the Inbox; adopt/Remove/release clear the mark; Friends' 'N friend requests in Inbox' is a link (`router.dismissTo('/inbox')`). Tests 1436 → 1487.

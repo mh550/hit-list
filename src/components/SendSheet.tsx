@@ -42,6 +42,7 @@ const FAILED = "Couldn't send. Try again.";
 const PROFILE_FAILED = "Couldn't load your profile. Try again.";
 const LOAD_FAILED = "Couldn't load your friends.";
 const LINK_FAILED = "Couldn't make the link. Try again.";
+const COPY_FAILED = "Couldn't copy the link. Try again.";
 /** D44, verbatim. */
 const LINK_SENTENCE = 'Anyone with the link can see these spots until it expires. No account needed to look.';
 const EXPIRIES: { value: LinkExpiry; label: string }[] = [
@@ -183,6 +184,8 @@ function SendBody({
   };
   // Checked synchronously: a second tap before the re-render must not send twice.
   const busy = useRef(false);
+  /** A link made whose copy failed: the next tap copies it again rather than making a second (cleared by an expiry). */
+  const madeUrl = useRef<string | null>(null);
 
   const loaded = friendsUid === uid;
   // The friends load with every sync; a sheet opened before the first one asks for it.
@@ -256,8 +259,32 @@ function SendBody({
     }
   };
 
+  /** Copies a link that exists; false (and the line says so) when the copy failed. */
+  const copyMade = async (url: string): Promise<boolean> => {
+    try {
+      await Clipboard.setStringAsync(url);
+    } catch {
+      // never the error itself: it may hold the link
+      console.warn('[send sheet] copying the link failed');
+      madeUrl.current = url;
+      setLine(COPY_FAILED);
+      return false;
+    }
+    madeUrl.current = null;
+    showToast('Link copied');
+    onClose();
+    return true;
+  };
+
   const copyLink = async () => {
     if (busy.current) return;
+    if (madeUrl.current) {
+      busy.current = true;
+      setLine(null);
+      await copyMade(madeUrl.current);
+      busy.current = false;
+      return;
+    }
     if (!username) {
       setLine(PROFILE_FAILED);
       await refreshProfile(client, uid);
@@ -277,9 +304,7 @@ function SendBody({
         expiry,
       });
       if (url) {
-        await Clipboard.setStringAsync(url);
-        showToast('Link copied');
-        onClose();
+        await copyMade(url);
         return;
       }
       setLine(LINK_FAILED);
@@ -404,10 +429,13 @@ function SendBody({
               <Chip
                 key={e.value}
                 label={e.label}
-                role="button"
+                role="radio"
                 selected={expiry === e.value}
                 disabled={!idle}
-                onPress={() => setExpiry(e.value)}
+                onPress={() => {
+                  madeUrl.current = null;
+                  setExpiry(e.value);
+                }}
               />
             ))}
           </ChipGroup>

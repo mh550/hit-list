@@ -561,6 +561,9 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
     <>
       <SectionList
         style={styles.container}
+        // the paste field's keyboard must not swallow the first tap on Open
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
         sections={sections}
         keyExtractor={(item) => `${item.kind}:${item.id}`}
         renderItem={renderItem}
@@ -594,9 +597,10 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
                   accessibilityLabel="HitList link"
                 />
                 <Button
-                  title="Open"
+                  title={opening ? 'Opening…' : 'Open'}
                   size="sm"
                   disabled={opening}
+                  busy={opening}
                   accessibilityLabel="Open the link"
                   onPress={() => void openPasted()}
                 />

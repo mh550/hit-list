@@ -239,12 +239,26 @@ export default function MembersScreen() {
     ]);
   };
 
+  /** Copies a link that exists already; a failed copy offers Copy again, never a second link. */
+  const copyInviteLink = async (url: string): Promise<void> => {
+    try {
+      await Clipboard.setStringAsync(url);
+      showToast('Link copied · works once, 7 days');
+    } catch {
+      // never the error itself: it may hold the link
+      console.warn('[members] copying the invite link failed');
+      Alert.alert("Couldn't copy the link", undefined, [
+        { text: 'Copy again', onPress: () => copyInviteLink(url) },
+        { text: 'Cancel', style: 'cancel' },
+      ]);
+    }
+  };
+
   const makeLink = (role: MemberRole) =>
     run(async () => {
       const url = await createInviteLink(client, uid, list.id, role);
       if (!url) return false;
-      await Clipboard.setStringAsync(url);
-      showToast('Link copied · works once, 7 days');
+      await copyInviteLink(url);
       void loadLinks();
       return true;
     }, "Couldn't make the link. Try again.");
@@ -284,7 +298,13 @@ export default function MembersScreen() {
         <View key={link.id} style={styles.row}>
           <Text style={styles.linkText}>{linkText(link)}</Text>
           {link.status === 'active' ? (
-            <Button title="Revoke" size="sm" variant="secondary" onPress={() => confirmRevoke(link)} />
+            <Button
+              title="Revoke"
+              size="sm"
+              variant="secondary"
+              accessibilityLabel={`Revoke ${linkText(link)}`}
+              onPress={() => confirmRevoke(link)}
+            />
           ) : null}
         </View>
       ))

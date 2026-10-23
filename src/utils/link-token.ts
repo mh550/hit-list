@@ -34,9 +34,12 @@ export async function tokenHash(token: string): Promise<string> {
 /** The link for `token` under `base`, used verbatim (the default ends in '/'). */
 export const linkUrl = (base: string, token: string): string => `${base}#t=${token}`;
 
-/** The token in a pasted link (`…#t=`, `…?t=`, `…&t=`) or a bare token; null for anything else. */
+/**
+ * The token in a pasted link (`…#t=`, `…?t=`, `…&t=`) or a bare token, always 22 characters as `newToken` makes them;
+ * null for anything else (a pasted word never reaches the server).
+ */
 export function parseToken(text: string): string | null {
   const trimmed = text.trim();
-  if (/^[A-Za-z0-9_-]+$/.test(trimmed)) return trimmed;
-  return /[#?&]t=([A-Za-z0-9_-]+)/.exec(trimmed)?.[1] ?? null;
+  if (TOKEN_RE.test(trimmed)) return trimmed;
+  return /[#?&]t=([A-Za-z0-9_-]{22})(?![A-Za-z0-9_-])/.exec(trimmed)?.[1] ?? null;
 }

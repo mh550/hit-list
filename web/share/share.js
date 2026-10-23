@@ -1,6 +1,6 @@
 // HitList share page (S9-04, D44/D45; plan docs/plans/2026-10-22-s9-links.md "Page"). No build, no framework.
 // Reads the link's token from the fragment (#t=, so the static host never sees it; ?t= as a fallback), asks the
-// share-preview Edge Function for the link's JSON and renders a send's frozen spots, an invite's one line, or the gone
+// share-preview Edge Function for the link's JSON (a POST whose text/plain body is the token, D96: never in a URL) and renders a send's frozen spots, an invite's one line, or the gone
 // line. Every field from the answer goes in with textContent; URLs only from http(s) values and numbers.
 (function () {
   'use strict';
@@ -169,13 +169,21 @@
     show('invite', [el('h1', inviter + ' invited you to ' + list + ' on HitList — open the app to join')]);
   }
 
+  // Only the newest load renders: a link pasted into the same tab changes only the fragment (no reload).
+  const runs = { latest: 0 };
+
   function main() {
+    const mine = ++runs.latest;
+    const current = function () {
+      return mine === runs.latest;
+    };
     const token = readToken();
     if (!token) return Promise.resolve(show('gone', [el('h1', GONE)]));
     // A missing or relative functions URL would send the token to this page's own host: never fetch then.
     const base = functionsUrl();
     if (!isHttpUrl(base)) return Promise.resolve(show('error', [el('h1', FAILED)]));
-    return fetch(base + '/share-preview?t=' + token)
+    // a simple CORS request (text/plain body, no headers): no preflight
+    return fetch(base + '/share-preview', { method: 'POST', body: token })
       .then(function (res) {
         // Only the function's own {"error":"gone"} 404 is gone; the gateway's 404 (a wrong URL, not deployed) is not.
         if (res.status === 404) {
@@ -188,14 +196,16 @@
         return res.json();
       })
       .then(function (body) {
+        if (!current()) return;
         if (body && body.kind === 'send') renderSend(body);
         else if (body && body.kind === 'invite') renderInvite(body);
         else show('gone', [el('h1', GONE)]);
       })
       .catch(function () {
-        show('error', [el('h1', FAILED)]);
+        if (current()) show('error', [el('h1', FAILED)]);
       });
   }
 
+  window.addEventListener('hashchange', main);
   main();
 })();

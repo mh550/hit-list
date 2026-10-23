@@ -175,8 +175,10 @@ async function goneBody(context: { json?: () => Promise<unknown> } | undefined):
  * an answer that is neither kind) and a plain error for anything else (offline, a 500).
  */
 export async function previewLink(client: SupabaseClient, token: string): Promise<LinkPreview> {
-  const { data, error, response } = await client.functions.invoke<PreviewBody>(`share-preview?t=${token}`, {
-    method: 'GET',
+  // D96: the token is the body (never the URL, which request logs keep)
+  const { data, error, response } = await client.functions.invoke<PreviewBody>('share-preview', {
+    method: 'POST',
+    body: token,
   });
   if (error) {
     const context = (error as { context?: { status?: unknown; json?: () => Promise<unknown> } }).context;

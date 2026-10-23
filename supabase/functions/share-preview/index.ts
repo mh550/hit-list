@@ -1,6 +1,7 @@
 // share-preview (S9-02, D44/D45, spec §3.6; plan docs/plans/2026-10-22-s9-links.md "share-preview"): what a link
 // shows to anyone holding it, with no account. Deployed with verify_jwt = false (config.toml), so a browser calls it
-// with a plain GET and no Authorization header: `GET ?t=<token>`.
+// with no Authorization header: `POST` with the token as a text/plain body (D96: a simple CORS request, no preflight,
+// and never in the URL, so no gateway or platform request log keeps it; `GET ?t=` answers 405).
 // - A live send link: 200 { kind: 'send', spots, sender, expires_at }. The spots are the send's frozen payload (D40),
 //   by an allow-list of fields (never the payload's spot id), each with photo_urls signed for 600 s. Only objects
 //   listed under sends/<send_id>/ that a payload photo names get a URL; a path as the sender wrote it is never signed
@@ -20,11 +21,13 @@ const SIGNED_URL_SECONDS = 600;
 const PAGE = 1000;
 /** 16 random bytes as base64url (the app's newToken). */
 const TOKEN_RE = /^[A-Za-z0-9_-]{22}$/;
+/** More than a token and its whitespace is never read. */
+const MAX_BODY = 256;
 const MEDIA_FILE_RE = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jpg$/;
 
 const HEADERS = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, OPTIONS',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
   'Content-Type': 'application/json',
   'Cache-Control': 'no-store',
   'Referrer-Policy': 'no-referrer',
@@ -143,9 +146,10 @@ async function sendSpots(admin: SupabaseClient, row: PreviewRow, publicOrigin: s
 
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: HEADERS });
-  if (req.method !== 'GET') return json(405, JSON.stringify({ error: 'method not allowed' }));
+  if (req.method !== 'POST') return json(405, JSON.stringify({ error: 'method not allowed' }));
 
-  const token = new URL(req.url).searchParams.get('t') ?? '';
+  const body = await req.text().catch(() => '');
+  const token = body.length > MAX_BODY ? '' : body.trim();
   if (!TOKEN_RE.test(token)) return gone();
 
   const url = Deno.env.get('SUPABASE_URL');

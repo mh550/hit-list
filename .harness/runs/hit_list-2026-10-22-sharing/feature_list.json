@@ -73,7 +73,7 @@
         "No '+ Area list' entry exists yet (S2 adds it); the test asserts queryByLabelText('New area list') is null.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S1-06",

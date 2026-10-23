@@ -11,3 +11,4 @@ export { AddPhotosTile } from './AddPhotosTile';
 export { SpotTagFields, type SpotTags } from './SpotTagFields';
 export { ZoomablePhoto } from './ZoomablePhoto';
 export { SpotsBrowser } from './SpotsBrowser';
+export { NameListSheet } from './NameListSheet';

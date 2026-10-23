@@ -26,6 +26,7 @@ const MAPPING = {
   'magnifyingglass': 'search',
   'xmark': 'close',
   'plus': 'add',
+  'list.bullet': 'format-list-bulleted',
 } as IconMapping;
 
 /**

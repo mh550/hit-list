@@ -54,7 +54,13 @@ three-filter list (M5), the review screens (M6) and the import radius in your un
   (and an optional display name). Profile then shows `@you`, Sign out and Delete account (removes the account, its
   photos and sends from the server; spots on the phone stay). A build without the two `EXPO_PUBLIC_SUPABASE_*` values
   says 'Accounts aren't set up in this build' and works as before. The backend is the local Supabase stack only
-  (`supabase/README.md`); nothing is backed up or shared yet (S5 on).
+  (`supabase/README.md`).
+- Backup and sync (S5): signing in adopts every spot, photo and hit list already on the phone into the account and
+  uploads them (photos as JPEGs, long edge ≤ 2048 px; the originals on the phone stay). Changes back up on launch, when
+  the app comes to the foreground, every 5 minutes and on pull-to-refresh on the Spots tab; a second phone of the same
+  rider gets them, and the newer edit wins. Profile shows 'Backed up · 3 min ago', or 'N changes not backed up' with
+  Retry. Sign out backs up first, then asks Keep / Remove from this phone (Remove only when nothing is pending); a
+  different account signing in never sees the previous account's spots. Nothing is shared with other riders yet (S6 on).
 
 ## Run it
 
@@ -75,7 +81,7 @@ npx expo export --platform ios --output-dir /tmp/hl-export
 
 - Moving a spot's pin in the edit screen.
 - Spots saved without GPS can't be placed on the map yet (they stay in the list).
-- Cloud sync and backup, sharing, crews, folders; a cloud Supabase project; video; offline map tiles (needs a dev build).
+- Sharing, crews, folders; a cloud Supabase project; video; offline map tiles (needs a dev build).
 - A build that runs without the desktop (an EAS preview or production build through TestFlight, or
   EAS Update; a dev build still loads from Metro); today the app needs Metro running on the desktop.
 

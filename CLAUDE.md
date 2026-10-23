@@ -119,6 +119,7 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   `spots.ts`: `getSpots`/`getSpot` select the explicit `SPOT_COLUMNS` (never `legacy_json`); `getSpotLegacy(db, id)` is
   the only reader of the archive (rejects on unreadable JSON, `null` for JSON that is not an object); detail's `OlderDetails` calls it once on mount (effect
   keyed on `[db, spotId]`, not on store updates), `.catch` → `console.warn`, and hides the disclosure when it has no rows.
+- `src/sync/` backup and sync (S5, details in the `src/db/` paragraph above): the outbox lives in `src/db/sync.ts` (filled by the migration 5 triggers), `push.ts` (outbox → server), `photos.ts` (re-encode into the cache, upload, download), `pull.ts` (server → SQLite by `rev`, LWW), `adopt.ts` (sign-in adoption, account switch, Remove, release), `engine.ts` (`syncNow`, `runExclusive`), `account.ts` (`maySync`), `owner.ts`, `time.ts`; accounts (S4) are `client.ts`, `auth.ts`, `session-storage.ts`.
 - `src/stores/` zustand: spots (+ the Filter sheet's three filters: What's here `types` (any of), Skate stopped
   `stopped` (undefined = Any, true, false), Natural speed `natural_speed_min`/`_max` (inclusive range, unrated spots kept;
   `selectActiveFilterCount` counts each set filter once, 0–3), a separate `searchQuery`, sort, `viewMode`; filtering and sorting live in its selectors), media (`mediaBySpot`), settings, location,
@@ -198,6 +199,7 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   Apple; ≤ 10 sequential backfills per launch).
 - expo-router 57 has no `@react-navigation/*` dependencies; import from `expo-router` /
   `expo-router/js-tabs`.
+- **Sync (S5)**: every owned write goes through the `src/db/` functions, so the trigger appends its outbox row in the same statement; never write `spots`/`media`/`hit_lists`/`hit_list_spots` rows from a screen or hook directly, and never write `rev` outside `src/sync/` (a pull write changes `rev`, so it queues no outbox row: no echo loop). `owner_id` NULL = phone-only, not adopted (never synced); a non-NULL owner other than `sync_state.user_id` is another account's row (never queued). New rows take `currentOwnerId()`. Server timestamps go through `toIso`.
 - **Accounts are optional**: every screen that needs a session checks `useAuthStore` status and shows a one-line
   Sign in prompt, never a disabled control; an unconfigured build (no `EXPO_PUBLIC_SUPABASE_*`) shows 'Accounts
   aren't set up in this build' and everything local still works.

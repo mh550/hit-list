@@ -91,3 +91,37 @@ Works from S4-05 on (sign-in, username, Profile). Nothing here touches a cloud p
 - [ ] **Later, for a cloud project** (not before the §10 cloud step): in the dashboard, Authentication → Email: OTP
       length **6**, and the "Magic Link" and "Confirm signup" templates must contain `{{ .Token }}` (the app asks for a
       code, never a link); `npx supabase functions deploy account-delete`; check a request without a token gets 401.
+
+## S5 — backup and sync (local stack over Tailscale)
+
+Works from S5-06 on. Same setup as S4 (stack up, `.env.local`, `npm run start:tailscale`). Plan:
+`docs/plans/2026-10-22-s5-sync.md`; the screens and alerts: `docs/plans/2026-10-22-s5-what-michael-will-see.md`.
+
+- [ ] **Server side first:** `npm run test:integration`. Check: `Tests: 29 passed` (S4's 17 + the two-phone sync 12).
+- [ ] **Before signing in, count what the phone has:** on the Spots tab, note the number of spots, one spot with
+      several photos (its name and photo count) and the hit lists on the Lists tab.
+- [ ] **First sync:** sign in (S4 steps) with those spots on the phone. Check: within a few seconds Profile shows
+      "Backed up · just now"; the Spots tab still shows every spot (adoption never deletes).
+- [ ] **What to check in Studio after that first sync** (`http://100.88.90.97:54323`, Table editor, schema `public`):
+      - `spots`: one row per spot on the phone, `owner_id` = your user id (Authentication → Users), `rev` filled,
+        `updated_at` set, `deleted_at` empty; `feature_types` an array like `{rail,ledge}`; a spot with no GPS has
+        `lat`/`lng` = 0. SQL editor: `select count(*) from spots where owner_id = '<your id>' and deleted_at is null;`
+        equals the phone's count.
+      - `media`: one row per photo, `storage_path` = `<your id>/<spot id>/<media id>.jpg`, `spot_id` matches.
+      - `hit_lists`: one row per list (`kind` `manual` or `area`, `shared` false); `hit_list_spots`: one row per spot in
+        a manual list, `added_by` = your id; area lists have none (computed on the phone).
+      - Storage → `photos` → `<your id>/`: one folder per spot with photos; open one file: a JPEG, long edge ≤ 2048 px.
+      - The photos on the phone are untouched (same count on the spot you noted; full resolution in the viewer).
+- [ ] **Edits travel:** rename a spot on the phone, wait for "Backed up · just now" (or pull down on the Spots tab).
+      Check: Studio `spots.name` changed and `rev` went up. Delete a spot: `deleted_at` is set (the row stays).
+- [ ] **Offline:** Airplane mode on, add a spot with a photo. Check: Profile keeps the old time. Airplane off, pull down
+      on the Spots tab. Check: the row and its file appear in Studio; Profile "Backed up · just now".
+- [ ] **Server → phone:** in Studio edit a `spots.name` of yours and set `updated_at` to now (`now()` in the SQL editor:
+      `update spots set name = 'From Studio', updated_at = now() where id = '<id>';`), pull down on the Spots tab.
+      Check: the phone shows "From Studio". Set an older `updated_at` instead: the phone keeps its name.
+- [ ] **Sign out / switch** (S5-08 steps 6–8): Keep keeps the spots; a second email signs in to an empty Spots tab;
+      the first rider's spots and photos return after signing back in. Check in Studio: the second rider's rows have
+      the second id; nobody's rows changed owner.
+- [ ] **Stop:** `npm run db:stop`. **Undo:** Profile → Sign out → Remove from this phone, then sign in again (everything
+      downloads from the account); `npm run db:reset` wipes the server side. A phone that should forget the account
+      entirely: Sign out → Keep leaves the rows owned by that account; Delete account (S4) makes them phone-only.

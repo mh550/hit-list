@@ -20,7 +20,11 @@
 
   const GONE = "This link doesn't work any more.";
   const FAILED = "Couldn't load this link. Try again.";
-  const SAVE_HELP = 'You need HitList and an account to save these. Open the app, then Inbox → Paste a link.';
+  // A pasted send link only opens this page again (D95), so saving goes through a friend's send for now.
+  function saveHelp(from) {
+    return "Saving from a link isn't in the app yet. Ask " + (from || 'the sender') + ' to send these to you as a friend in HitList.';
+  }
+  const JOIN_HELP = 'Copy this link, then in HitList open Inbox → Paste a link.';
   /** 16 random bytes as base64url (the app's newToken). */
   const TOKEN_RE = /^[A-Za-z0-9_-]{22}$/;
 
@@ -155,7 +159,7 @@
     save.setAttribute('aria-expanded', 'false');
     save.addEventListener('click', function () {
       if (footer.querySelector('p')) return;
-      footer.appendChild(el('p', SAVE_HELP));
+      footer.appendChild(el('p', saveHelp(from)));
       save.setAttribute('aria-expanded', 'true');
     });
     footer.appendChild(save);
@@ -166,7 +170,7 @@
   function renderInvite(body) {
     const inviter = who(body.inviter) || 'Someone';
     const list = str(body.list_name) || 'a hit list';
-    show('invite', [el('h1', inviter + ' invited you to ' + list + ' on HitList — open the app to join')]);
+    show('invite', [el('h1', inviter + ' invited you to ' + list + ' on HitList — open the app to join'), el('p', JOIN_HELP)]);
   }
 
   // Only the newest load renders: a link pasted into the same tab changes only the fragment (no reload).

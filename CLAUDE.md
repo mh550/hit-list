@@ -46,7 +46,10 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
 - `app/` expo-router screens: tabs Spots · Lists · Inbox · Profile (D49; the Inbox badge is `selectUnseenCount`). `(tabs)/index.tsx` Spots (List | Map via `SpotsBrowser`, a
   `ListPickerChips` row ('My spots' + every hit list) scoping both views, multi-select: long press or 'Select' →
   checkbox rows, '<N> selected', 'Add to list (N)' → `AddToListSheet`; select mode never navigates),
-  `(tabs)/inbox.tsx` (S6-04, see `src/sync/`), `friends/` (`app/friends/index.tsx`, S6-03, from Profile's 'Friends · N' row:
+  `(tabs)/inbox.tsx` (S6-04, see `src/sync/`; S7-05 send rows: thumbnail via `createSignedUrl`, Save all / Save into a
+  new hit list / Pick spots (`PickSpotsSheet`) / Dismiss, labels name the sender, a save's line at the top (this visit
+  only, announced), only 'Try again' while `hasPendingSave`), `sent/` (`app/sent/index.tsx`, S7-05, Profile's 'Sent'
+  row: `useSentSends`, Waiting + Withdraw · Saved · Withdrawn), `friends/` (`app/friends/index.tsx`, S6-03, from Profile's 'Friends · N' row:
   Add by exact @username, Friends / Requests sent (Cancel) / Blocked (Unblock), long press Remove friend / Block),
   `(tabs)/lists.tsx` 'My hit lists' (rows with live spot counts, '+ New hit list' → `NameListSheet` → `/list/<id>`),
   `list/[id]/` one list (`SpotsBrowser` scoped to its spots, Rename, long-press 'Remove from list', 'Delete list',

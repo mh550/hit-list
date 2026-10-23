@@ -20,6 +20,15 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 16:30 · S7-05 · passes
+
+- Inbox send rows in `app/(tabs)/inbox.tsx` (thumbnail via signed URL, Save all / Save into a new hit list / Pick spots → new `src/components/PickSpotsSheet.tsx` / Dismiss confirm, a save's line at the top, sends load on focus + pull to refresh); new `app/sent/index.tsx` ('Sent', Withdraw); Profile 'Sent' row (`FriendsRow` → `LinkRow`); `sends.ts` gains `hasPendingSave` and a load ticket before `removeItem`; `useSentSends().refresh({ quiet })`.
+- Tests 1634 → 1676 (inbox-tab +22, sent-screen 14, sync-sends +3, profile/inbox-store/spot-detail +1 each). RED commits f741d52, 68d2677 first. The badge and saved-copy detail cases passed on first run (earlier features already did it).
+- Verified: `check.sh` green 1676; `npx jest --ci` 3 runs × 0 `console.error` (a FlatList 50 ms batch timer made sent-screen warn under load; its afterEach now flushes it in act); `npx expo export --platform ios` exit 0 (5.2 MB).
+- Opus review: 2 Important (a retry after a lost mark answer silently ignored a new Pick/new-list choice → only 'Try again' while `hasPendingSave`; the saved line wasn't spoken on iOS → announced) + 9 Minor, all fixed RED first; table in the S7 plan 'As built (S7-05)'. Live checklist gains 'Inbox edges (S7-05)'.
+- Next (S7-06): the integration test can call `saveSend(db, client, uid, item, opts, nodeIO)` and `withdrawSend(client, uid, { id, photoPaths })` as the screens do; Inbox button names are 'Save all spots from @ana' etc.
+- Proposed changes: S7-05 step 1 writes `saveSend(id)` / `saveSend(id, { newList })`; built to the plan's `saveSend(db, client, uid, item, opts)`. Questions for Michael: none new.
+
 ### 2026-10-23 13:30 · S7-04 · passes
 
 - New `src/components/SendSheet.tsx`, `src/components/ToastHost.tsx`, `src/stores/toast-store.ts`; Send on spot detail (paper-plane, hidden on another rider's spot), the select bar 'Send (N)', a list's 'Send these spots · one-time copy of N spots' row (+ empty `ShareListSlot`), the area picker 'Send these N spots'; `ToastHost` in `app/_layout.tsx` and in the area picker.

@@ -812,7 +812,7 @@
         "The saved copies: spot detail for a spot with from_username 'ana' shows 'From @ana' and is otherwise a normal owned spot (Edit present); the inbox badge counts unseen sends (inbox-store test).",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S7-06",

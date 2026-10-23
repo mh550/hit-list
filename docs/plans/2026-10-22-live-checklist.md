@@ -185,6 +185,12 @@ Works from S7-05 on (the server migration lands in S7-03). Same setup as S6: sta
       the spots are in B's Spots tab with 'From @A' on detail, photos included, and Edit works.
 - [ ] **Pick and new list:** on the list send: 'Pick spots' → untick one → Save; on another: 'Save into a new hit
       list' → a list 'From @A' appears on Lists.
+- [ ] **Inbox edges (S7-05):** as B with a send waiting: Dismiss → "Dismiss these spots?" · "@A won't be told." →
+      Dismiss. Check: the row goes and A's Sent still reads 'Waiting' (D82). On another send, tap Save all and turn on
+      Airplane mode at once. Check: "Couldn't save these spots. Try again." and the row offers **only 'Try again'**
+      when the save may have reached the server (otherwise the four buttons come back); Airplane off → Try again →
+      'Saved N spots', no second set of copies. With VoiceOver on, Save all. Check: 'Saved N spots' is spoken once and
+      each button names the sender ('Save all spots from @A'). The first spot's photo shows as the row's thumbnail.
 - [ ] **Withdraw:** as A, send one more spot; Profile → Sent → Withdraw before B saves. Switch to B: it's gone from
       the Inbox. As A, Sent shows the saved one as 'Saved' with no Withdraw ('Saved copies are theirs').
 - [ ] **Offline:** Airplane mode, try Send. Check: "Couldn't send. Try again." (or the not-backed-up line) and

@@ -15,22 +15,32 @@ import { geocodeAsync, type LocationGeocodedLocation } from 'expo-location';
 import MapView, { Circle, Marker, type Details, type Region } from 'react-native-maps';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { Button, Chip, EmptyState, HeaderTextButton, NameListCard, useGuardedSubmit } from '@/src/components';
+import {
+  Button,
+  Chip,
+  EmptyState,
+  FilterHeaderButton,
+  HeaderTextButton,
+  NameListCard,
+  useGuardedSubmit,
+} from '@/src/components';
 import { FilterSheet } from '@/src/components/FilterSheet';
 import { palette, radius, spacing } from '@/src/constants/theme';
 import { useCurrentLocation } from '@/src/hooks/use-current-location';
 import { useHitListActions } from '@/src/hooks/use-hit-list-actions';
-import { selectActiveFilterCount, selectAreaSpots, useHitListsStore, useSpotsStore } from '@/src/stores';
+import { selectAreaSpots, useHitListsStore, useSpotsStore } from '@/src/stores';
 import { useLocationStore } from '@/src/stores/location-store';
 import { useSettingsStore } from '@/src/stores/settings-store';
-import type { GeoPoint, HitList } from '@/src/types';
+import type { GeoPoint } from '@/src/types';
 import {
   DEFAULT_AREA_RADIUS_M,
   RADIUS_STEPS_M,
   circleRegion,
+  isAreaList,
   keepsPlace,
   nearestStep,
   radiusLabel,
+  type AreaList,
 } from '@/src/utils/area';
 import { initialRegion } from '@/src/utils/map-region';
 import { spotCountLabel } from '@/src/utils/spot-name';
@@ -44,10 +54,6 @@ interface Place {
 const MY_LOCATION = 'my location';
 const CIRCLE_FILL = `${palette.blue[500]}1F`; // ~12% of the primary blue
 const CIRCLE_STROKE = `${palette.blue[500]}B3`;
-
-type AreaList = HitList & { kind: 'area'; area_center: GeoPoint; area_radius_m: number };
-const isAreaList = (list: HitList | undefined): list is AreaList =>
-  list?.kind === 'area' && list.area_center !== undefined && list.area_radius_m !== undefined;
 
 /**
  * Pick an area: a circle on the map around a fixed centre pin (drag the map to move it), radius chips in the rider's
@@ -90,27 +96,28 @@ function AreaPickerBody({ editList }: { editList?: AreaList }) {
   const { createList, addSpotsToList, deleteList, updateHitList } = useHitListActions();
 
   // The start is fixed on mount: a fix that arrives later only enables 'Use my location', the map doesn't jump.
-  const [start] = useState<{ center: GeoPoint; place?: Place; radiusM: number }>(() => {
+  const [start] = useState(() => {
+    const at = (center: GeoPoint, radiusM: number, place?: Place) => ({
+      center,
+      place,
+      radiusM,
+      // react-native-maps reads initialRegion on mount; a new object later could move the camera before it's ready.
+      region: circleRegion(center, radiusM),
+    });
     if (editList) {
       const { area_center, area_place, area_radius_m } = editList;
-      return {
-        center: area_center,
-        place: area_place === undefined ? undefined : { name: area_place, center: area_center },
-        radiusM: area_radius_m, // kept as saved, even off this unit's chips (D56)
-      };
+      // The radius is kept as saved, even off this unit's chips (D56).
+      const place = area_place === undefined ? undefined : { name: area_place, center: area_center };
+      return at(area_center, area_radius_m, place);
     }
     const radiusM = nearestStep(DEFAULT_AREA_RADIUS_M, units);
-    if (currentLocation) {
-      return { center: currentLocation, place: { name: MY_LOCATION, center: currentLocation }, radiusM };
-    }
+    if (currentLocation) return at(currentLocation, radiusM, { name: MY_LOCATION, center: currentLocation });
     const { latitude, longitude } = initialRegion(spots, null);
-    return { center: { latitude, longitude }, radiusM };
+    return at({ latitude, longitude }, radiusM);
   });
   const [center, setCenter] = useState(start.center);
   const [place, setPlace] = useState(start.place);
   const [radiusM, setRadiusM] = useState(start.radiusM);
-  // react-native-maps reads initialRegion on mount; a new object later could move the camera before the map is ready.
-  const [mapStart] = useState(() => circleRegion(start.center, radiusM));
   const [searchText, setSearchText] = useState('');
   const [notFound, setNotFound] = useState(false);
   const [filterVisible, setFilterVisible] = useState(false);
@@ -129,7 +136,6 @@ function AreaPickerBody({ editList }: { editList?: AreaList }) {
     () => selectAreaSpots(spots, center, radiusM, filters),
     [spots, center, radiusM, filters],
   );
-  const activeFilterCount = selectActiveFilterCount(filters);
 
   // D55: editing an area list loads its filters into the shared ones (the Filter badge shows them); once per list,
   // before the first paint so the count doesn't open on the Spots tab's filters. Closing the picker (Save or
@@ -270,14 +276,7 @@ function AreaPickerBody({ editList }: { editList?: AreaList }) {
           headerLeft: () => (
             <HeaderTextButton onPress={() => !savingAreaRef.current && router.back()}>Cancel</HeaderTextButton>
           ),
-          headerRight: () => (
-            <HeaderTextButton
-              onPress={() => setFilterVisible(true)}
-              accessibilityLabel={`Filter spots${activeFilterCount > 0 ? `, ${activeFilterCount} active` : ''}`}
-              emphasized={activeFilterCount > 0}>
-              {`Filter${activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}`}
-            </HeaderTextButton>
-          ),
+          headerRight: () => <FilterHeaderButton onPress={() => setFilterVisible(true)} />,
         }}
       />
       <View style={styles.searchRow}>
@@ -308,7 +307,7 @@ function AreaPickerBody({ editList }: { editList?: AreaList }) {
         <MapView
           ref={mapRef}
           style={StyleSheet.absoluteFill}
-          initialRegion={mapStart}
+          initialRegion={start.region}
           onRegionChangeComplete={onRegionChangeComplete}>
           <Circle
             center={center}

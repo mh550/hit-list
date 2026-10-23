@@ -9,7 +9,7 @@ import { useHitListActions } from '@/src/hooks/use-hit-list-actions';
 import { selectListCounts, selectListsByName, useHitListsStore, useSpotsStore } from '@/src/stores';
 import { useSettingsStore } from '@/src/stores/settings-store';
 import type { HitList } from '@/src/types';
-import { areaLabel } from '@/src/utils/area';
+import { areaLabel, isAreaList } from '@/src/utils/area';
 import { spotCountLabel } from '@/src/utils/spot-name';
 
 export default function ListsScreen() {
@@ -43,7 +43,7 @@ export default function ListsScreen() {
   const renderItem = ({ item }: { item: HitList }) => {
     const count = spotCountLabel(counts[item.id] ?? 0);
     // No place on the row: rows are tight (the list's own header has it).
-    const area = item.kind === 'area' && item.area_radius_m !== undefined ? areaLabel(item.area_radius_m, units) : null;
+    const area = isAreaList(item) ? areaLabel(item.area_radius_m, units) : null;
     return (
       <Pressable
         style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}

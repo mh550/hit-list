@@ -15,7 +15,7 @@ import { useLocationStore } from '@/src/stores/location-store';
 import { useSettingsStore } from '@/src/stores/settings-store';
 import { SpotListItem } from '@/src/components/SpotListItem';
 import { EmptyState } from '@/src/components/EmptyState';
-import { HeaderTextButton } from '@/src/components/HeaderTextButton';
+import { FilterHeaderButton } from '@/src/components/FilterHeaderButton';
 import { FilterSheet } from '@/src/components/FilterSheet';
 import { SegmentedControl } from '@/src/components/SegmentedControl';
 import { SpotMap } from '@/src/components/SpotMap';
@@ -172,14 +172,7 @@ export function SpotsBrowser({
       ? { label: 'Reset filters', run: resetFilters }
       : undefined;
 
-  const filterButton = (
-    <HeaderTextButton
-      onPress={() => setFilterVisible(true)}
-      accessibilityLabel={`Filter spots${activeFilterCount > 0 ? `, ${activeFilterCount} active` : ''}`}
-      emphasized={activeFilterCount > 0}>
-      {`Filter${activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}`}
-    </HeaderTextButton>
-  );
+  const filterButton = <FilterHeaderButton onPress={() => setFilterVisible(true)} />;
 
   return (
     <View style={styles.container}>

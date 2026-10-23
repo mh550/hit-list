@@ -1,4 +1,5 @@
 import {
+  isAreaList,
   RADIUS_STEPS_M,
   DEFAULT_AREA_RADIUS_M,
   spotsInCircle,
@@ -10,7 +11,7 @@ import {
 } from '@/src/utils/area';
 import { NO_LOCATION, distanceMeters } from '@/src/utils/geo';
 import { UnitSystem, type GeoPoint } from '@/src/types';
-import { CITIES, createTestSpot } from './factories';
+import { CITIES, createTestHitList, createTestSpot } from './factories';
 
 const { Imperial, Metric } = UnitSystem;
 
@@ -144,5 +145,15 @@ describe('keepsPlace (D54)', () => {
     expect(keepsPlace(place, place, 3219)).toBe(true);
     expect(keepsPlace(place, north(place, 0.2 * 3219), 3219)).toBe(true);
     expect(keepsPlace(place, north(place, 0.3 * 3219), 3219)).toBe(false);
+  });
+});
+
+describe('isAreaList', () => {
+  it('is true only for an area list with its centre and radius set', () => {
+    expect(isAreaList(createTestHitList({ kind: 'area', area_center: CITIES.seattle, area_radius_m: 3219 }))).toBe(true);
+    expect(isAreaList(createTestHitList({ kind: 'area', area_center: CITIES.seattle }))).toBe(false);
+    expect(isAreaList(createTestHitList({ kind: 'area', area_radius_m: 3219 }))).toBe(false);
+    expect(isAreaList(createTestHitList({ kind: 'manual', area_center: CITIES.seattle, area_radius_m: 3219 }))).toBe(false);
+    expect(isAreaList(undefined)).toBe(false);
   });
 });

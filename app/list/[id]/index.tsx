@@ -9,7 +9,7 @@ import { palette, spacing } from '@/src/constants/theme';
 import { useHitListActions } from '@/src/hooks/use-hit-list-actions';
 import { selectListSpots, useHitListsStore, useSpotsStore } from '@/src/stores';
 import { useSettingsStore } from '@/src/stores/settings-store';
-import { areaLabel } from '@/src/utils/area';
+import { areaLabel, isAreaList } from '@/src/utils/area';
 import { getSpotDisplayName } from '@/src/utils/spot-name';
 
 /**
@@ -100,21 +100,17 @@ export default function ListScreen() {
   };
 
   const isArea = list.kind === 'area';
-  const areaTitle =
-    isArea && list.area_radius_m !== undefined ? (
-      <View
-        style={styles.title}
-        accessible
-        accessibilityRole="header"
-        accessibilityLabel={`${list.name}, ${areaLabel(list.area_radius_m, units, list.area_place)}`}>
-        <Text style={styles.titleName} numberOfLines={1}>
-          {list.name}
-        </Text>
-        <Text style={styles.titleArea} numberOfLines={1}>
-          {areaLabel(list.area_radius_m, units, list.area_place)}
-        </Text>
-      </View>
-    ) : undefined;
+  const area = isAreaList(list) ? areaLabel(list.area_radius_m, units, list.area_place) : undefined;
+  const areaTitle = area ? (
+    <View style={styles.title} accessible accessibilityRole="header" accessibilityLabel={`${list.name}, ${area}`}>
+      <Text style={styles.titleName} numberOfLines={1}>
+        {list.name}
+      </Text>
+      <Text style={styles.titleArea} numberOfLines={1}>
+        {area}
+      </Text>
+    </View>
+  ) : undefined;
 
   const renameButton = (
     <HeaderTextButton onPress={() => setRenaming(true)} accessibilityLabel="Rename list">

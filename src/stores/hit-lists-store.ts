@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { DEFAULT_FILTERS, type GeoPoint, type HitList, type HitListUpdate, type Spot, type SpotFilters } from '@/src/types';
-import { spotsInCircle } from '@/src/utils/area';
+import { isAreaList, spotsInCircle } from '@/src/utils/area';
 import { selectFilteredSpots } from './spots-store';
 
 interface HitListsState {
@@ -107,7 +107,7 @@ export function selectListSpots(
   membershipBySpot: Record<string, string[]>,
 ): Spot[] {
   if (list.kind === 'area') {
-    if (list.area_center === undefined || list.area_radius_m === undefined) return [];
+    if (!isAreaList(list)) return [];
     return selectAreaSpots(spots, list.area_center, list.area_radius_m, list.area_filters ?? DEFAULT_FILTERS);
   }
   return spots.filter((s) => s.deleted_at === undefined && membershipBySpot[s.id]?.includes(list.id));

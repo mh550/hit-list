@@ -437,7 +437,8 @@ describe('Area picker: filters', () => {
     renderPicker();
     expect(screen.queryByText('Filters')).toBeNull();
 
-    pressHeader('headerRight', 'Filter spots');
+    const filter = headerOptions().headerRight!() as ReactElement<{ onPress: () => void }>;
+    act(() => filter.props.onPress());
 
     expect(screen.getByText('Filters')).toBeTruthy();
   });
@@ -468,8 +469,9 @@ describe('Area picker: filters', () => {
     useSpotsStore.setState({ filters: { ...DEFAULT_FILTERS, types: [FeatureType.Rail] } });
     renderPicker();
 
-    expect(() => pressHeader('headerRight', 'Filter spots, 1 active')).not.toThrow();
-    expect((headerOptions().headerRight!().props as { children: string }).children).toBe('Filter (1)');
+    const header = render(headerOptions().headerRight!());
+    expect(header.getByRole('button', { name: 'Filter spots, 1 active' })).toBeTruthy();
+    expect(header.getByText('Filter (1)')).toBeTruthy();
   });
 });
 

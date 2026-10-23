@@ -1,5 +1,5 @@
 import type { Region } from 'react-native-maps';
-import { UnitSystem, type GeoPoint, type Spot } from '@/src/types';
+import { UnitSystem, type GeoPoint, type HitList, type Spot } from '@/src/types';
 import { distanceMeters, isKnownLocation } from '@/src/utils/geo';
 
 const METERS_PER_MILE = 1609.344;
@@ -15,6 +15,13 @@ export const RADIUS_STEPS_M: Record<UnitSystem, readonly number[]> = {
   imperial: [402, 805, 1609, 3219, 8047, 16093, 40234], // 0.25, 0.5, 1, 2, 5, 10, 25 mi (Math.round(mi × 1609.344))
   metric: [500, 1000, 2000, 5000, 10000, 25000, 50000], // 0.5, 1, 2, 5, 10, 25, 50 km
 };
+
+/** An area list with its circle set: the only kind whose spots can be computed. */
+export type AreaList = HitList & { kind: 'area'; area_center: GeoPoint; area_radius_m: number };
+
+export function isAreaList(list: HitList | undefined): list is AreaList {
+  return list?.kind === 'area' && list.area_center !== undefined && list.area_radius_m !== undefined;
+}
 
 /** 2 mi; metric riders get nearestStep(3219, metric) = 2000. */
 export const DEFAULT_AREA_RADIUS_M = 3219;

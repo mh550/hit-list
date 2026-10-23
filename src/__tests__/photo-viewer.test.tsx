@@ -29,6 +29,8 @@ jest.mock('@/src/hooks/use-media-actions', () => ({
 }));
 
 import PhotoViewerScreen from '@/app/spot/[id]/photos';
+import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
+import { fakeFs } from './helpers/fake-fs';
 
 const back = jest.fn();
 const { width } = Dimensions.get('window');
@@ -440,6 +442,42 @@ describe('Photo viewer: long-press options', () => {
     expect(buttons(0).map((b) => b.text)).toEqual(['Set as primary', 'Remove photo', 'Cancel']);
     expect(buttons(0)[1].style).toBe('destructive');
     expect(buttons(0)[2].style).toBe('cancel');
+  });
+
+  it("another rider's spot (S8, D47): photos from the cache, no options on a long press or for VoiceOver", async () => {
+    useAuthStore.setState({ status: 'signed_in', userId: 'u-me', username: 'me' });
+    const spot = createTestSpot({ owner_id: 'u-ana' });
+    const theirs = [0, 1].map((i) =>
+      createTestMedia({
+        id: `a${i}`,
+        spot_id: spot.id,
+        owner_id: 'u-ana',
+        created_at: at(i + 1),
+        file_path: `cache/photos/${spot.id}/a${i}.jpg`,
+      }),
+    );
+    fakeFs.__resetFs();
+    for (const m of theirs) fakeFs.__putFile(`file:///data/Caches/photos/${spot.id}/${m.id}.jpg`);
+    useSpotsStore.setState({ spots: [spot] });
+    useMediaStore.setState({ mediaBySpot: {} });
+    useMediaStore.getState().setAll(theirs);
+    jest.mocked(useLocalSearchParams).mockReturnValue({ id: spot.id } as never);
+    render(
+      <SafeAreaProvider initialMetrics={METRICS}>
+        <PhotoViewerScreen />
+      </SafeAreaProvider>,
+    );
+    await flush();
+
+    expect((screen.UNSAFE_getAllByType(Image)[0].props.source as { uri: string }).uri).toBe(
+      `file:///data/Caches/photos/${spot.id}/a0.jpg`,
+    );
+    await longPress(0);
+    expect(alert).not.toHaveBeenCalled();
+    const page = screen.getByLabelText('Photo 1 of 2');
+    expect(page.props.accessibilityActions).toBeUndefined();
+    expect(page.props.accessibilityHint).toBeUndefined();
+    act(() => useAuthStore.setState(SIGNED_OUT));
   });
 
   it('tells VoiceOver users each page has options', () => {

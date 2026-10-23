@@ -1,6 +1,6 @@
 import type { ReactElement } from 'react';
 import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { Image, StyleSheet } from 'react-native';
+import { Alert, Image, StyleSheet } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { getSpotLegacy } from '@/src/db';
@@ -12,6 +12,12 @@ import { FeatureType, UnitSystem, type Media, type Spot } from '@/src/types';
 import { CITIES, createTestHitList, createTestMedia, createTestSpot } from './factories';
 
 import SpotDetailScreen from '@/app/spot/[id]/index';
+import { saveCopy } from '@/src/sync/copy';
+import { clearToast, useToastStore } from '@/src/stores/toast-store';
+
+jest.mock('@/src/sync/copy', () => ({ saveCopy: jest.fn() }));
+const mockClient = { fake: 'client' };
+jest.mock('@/src/sync/client', () => ({ getSupabase: () => mockClient, isConfigured: () => true }));
 
 jest.mock('@/src/db', () => ({ ...jest.requireActual('@/src/db'), getSpotLegacy: jest.fn() }));
 const legacyMock = jest.mocked(getSpotLegacy);
@@ -25,12 +31,14 @@ jest.mock('@/src/components/SendSheet', () => ({
 }));
 
 const push = jest.fn();
+const replace = jest.fn();
 
 beforeEach(() => {
   legacyMock.mockReset();
   legacyMock.mockResolvedValue(null);
   push.mockReset();
-  jest.mocked(useRouter).mockReturnValue({ push, back: jest.fn(), replace: jest.fn() } as never);
+  replace.mockReset();
+  jest.mocked(useRouter).mockReturnValue({ push, back: jest.fn(), replace } as never);
   useSettingsStore.getState().setUnits(UnitSystem.Imperial);
   useHitListsStore.setState({ lists: [], membershipBySpot: {}, activeListId: null });
 });
@@ -462,5 +470,105 @@ describe("Spot detail: 'In lists' row", () => {
     act(() => useHitListsStore.getState().addMemberships(bridges.id, ['spot-1']));
 
     expect(screen.getByRole('button', { name: 'Bridges' })).toBeOnTheScreen();
+  });
+});
+
+describe("Spot detail: another rider's spot (S8, D47)", () => {
+  const crew = createTestHitList({ id: 'L-crew', name: 'Crew', owner_id: 'u-ana', shared: true });
+  const headerRight = () =>
+    (screen.UNSAFE_getByType('Stack.Screen' as never).props as { options: { headerRight: () => ReactElement } })
+      .options.headerRight;
+
+  async function renderTheirs(overrides: Partial<Spot> = {}, media: Media[] = []) {
+    useAuthStore.setState({ status: 'signed_in', userId: 'u-me', username: 'me' });
+    useHitListsStore.setState({ lists: [crew], membershipBySpot: { 'anas-spot': [crew.id] } });
+    return renderDetail(
+      { id: 'anas-spot', name: 'Courthouse ledge', owner_id: 'u-ana', owner_username: 'ana', ...overrides },
+      media,
+    );
+  }
+
+  beforeEach(() => {
+    jest.mocked(saveCopy).mockReset();
+    clearToast();
+  });
+  afterEach(() => act(() => useAuthStore.setState(SIGNED_OUT)));
+
+  it("shows '@ana's spot' under the title, no Edit, no Send, and a 'Save a copy' button", async () => {
+    await renderTheirs();
+
+    expect(screen.getByText("@ana's spot")).toBeOnTheScreen();
+    const order = texts();
+    expect(order.indexOf('Courthouse ledge')).toBeLessThan(order.indexOf("@ana's spot"));
+    expect(screen.getByRole('button', { name: 'Save a copy' })).toBeOnTheScreen();
+    const header = render(headerRight()());
+    expect(header.queryByText('Edit')).toBeNull();
+    expect(header.queryByRole('button', { name: 'Send this spot' })).toBeNull();
+    header.unmount();
+  });
+
+  it("reads 'A friend's spot' while the owner's name isn't mirrored", async () => {
+    await renderTheirs({ owner_username: undefined });
+    expect(screen.getByText("A friend's spot")).toBeOnTheScreen();
+  });
+
+  it("'In lists' is read-only text naming the lists that hold it: no chips, no '+ Add to hit list'", async () => {
+    await renderTheirs();
+
+    expect(screen.getByText('In lists')).toBeOnTheScreen();
+    expect(screen.getByText('Crew')).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: 'Crew' })).toBeNull();
+    expect(screen.queryByText('+ Add to hit list')).toBeNull();
+  });
+
+  it('with no photos there is no Add photos tile', async () => {
+    await renderTheirs();
+    expect(screen.queryByRole('button', { name: /add photos/i })).toBeNull();
+  });
+
+  it("Save a copy asks first, then saves the copy, opens it in place and says so", async () => {
+    jest.mocked(saveCopy).mockResolvedValue({ spotId: 'copy-1', missingPhotos: 0 });
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const spot = await renderTheirs();
+
+    fireEvent.press(screen.getByRole('button', { name: 'Save a copy' }));
+    expect(alert).toHaveBeenCalledWith('Save a copy of this spot?', 'It becomes your own private spot.', [
+      expect.objectContaining({ text: 'Cancel', style: 'cancel' }),
+      expect.objectContaining({ text: 'Save' }),
+    ]);
+    expect(saveCopy).not.toHaveBeenCalled();
+    const buttons = alert.mock.calls[0][2]!;
+    await act(async () => buttons[1].onPress!());
+
+    expect(saveCopy).toHaveBeenCalledWith(expect.anything(), mockClient, 'u-me', spot.id);
+    expect(replace).toHaveBeenCalledWith('/spot/copy-1');
+    expect(useToastStore.getState().text).toBe('Saved a copy');
+    alert.mockRestore();
+  });
+
+  it("a copy that left a photo out says so; a failed copy stays here and says it couldn't", async () => {
+    jest.mocked(saveCopy).mockResolvedValueOnce({ spotId: 'copy-2', missingPhotos: 1 });
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    await renderTheirs();
+    fireEvent.press(screen.getByRole('button', { name: 'Save a copy' }));
+    await act(async () => alert.mock.calls[0][2]![1].onPress!());
+    expect(useToastStore.getState().text).toBe("Saved a copy · 1 photo couldn't be copied");
+
+    jest.mocked(saveCopy).mockRejectedValueOnce(new Error('disk full'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    replace.mockReset();
+    fireEvent.press(screen.getByRole('button', { name: 'Save a copy' }));
+    await act(async () => alert.mock.calls[1][2]![1].onPress!());
+    expect(replace).not.toHaveBeenCalled();
+    expect(useToastStore.getState().text).toBe("Couldn't save a copy");
+    warn.mockRestore();
+    alert.mockRestore();
+  });
+
+  it("the rider's own spot has no Save a copy and no owner line", async () => {
+    useAuthStore.setState({ status: 'signed_in', userId: 'u-me', username: 'me' });
+    await renderDetail({ name: 'Mine', owner_id: 'u-me' });
+    expect(screen.queryByRole('button', { name: 'Save a copy' })).toBeNull();
+    expect(screen.queryByText(/'s spot$/)).toBeNull();
   });
 });

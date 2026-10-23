@@ -13,6 +13,7 @@ import { assertOwn, currentOwnerId, riderId } from '@/src/sync/owner';
 import type { HitList, HitListUpdate, NewHitList } from '@/src/types';
 import { newId } from '@/src/utils/id';
 import { myRole } from '@/src/utils/members';
+import { isForeign } from '@/src/utils/ownership';
 
 const findList = (id: string) => useHitListsStore.getState().lists.find((l) => l.id === id);
 const listsOf = (spotId: string) => useHitListsStore.getState().membershipBySpot[spotId] ?? [];
@@ -26,6 +27,21 @@ function assertCanAdd(list: HitList | undefined): void {
   if (list.kind === 'area') throw new Error("an area list's spots are its circle's");
   const role = myRole(list, riderId());
   if (role !== 'owner' && role !== 'add') throw new Error('not your list');
+}
+
+/**
+ * Spots leave a list by hand as on the list screen (D42): the owner takes out any, a member with 'Can add spots' only
+ * their own, a view-only member none; an area list's are its circle's (S8-09 review A#6).
+ */
+function assertCanRemove(list: HitList | undefined, spotId: string): void {
+  if (!list) return;
+  if (list.kind === 'area') throw new Error("an area list's spots are its circle's");
+  const uid = riderId();
+  const role = myRole(list, uid);
+  if (role === 'owner') return;
+  if (role !== 'add') throw new Error('not your list');
+  const spot = useSpotsStore.getState().spots.find((s) => s.id === spotId);
+  if (spot && isForeign(spot, uid)) throw new Error('not your spot');
 }
 
 /**
@@ -162,6 +178,7 @@ export function useHitListActions() {
 
   const removeSpotFromList = useCallback(
     async (listId: string, spotId: string) => {
+      assertCanRemove(findList(listId), spotId);
       const wasIn = listsOf(spotId).includes(listId);
       removeMemberships(listId, [spotId]);
       try {

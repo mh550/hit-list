@@ -14,6 +14,8 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useSpotsStore, useMediaStore } from '@/src/stores';
 import { useSpotActions } from '@/src/hooks/use-spot-actions';
 import { useMediaActions, type NewPhoto } from '@/src/hooks/use-media-actions';
+import { useRiderId } from '@/src/hooks/use-rider-id';
+import { isForeign } from '@/src/utils/ownership';
 import { primaryPhoto, spotPhotos } from '@/src/utils/spot-photos';
 import { getSpotDisplayName } from '@/src/utils/spot-name';
 import { importPhotoFromAsset } from '@/src/utils/exif';
@@ -39,6 +41,7 @@ export default function EditSpotScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const spot = useSpotsStore((s) => s.spots.find((sp) => sp.id === id));
+  const riderUid = useRiderId();
   const { updateSpot, removeSpot } = useSpotActions();
   const { removePhotos, savePhotos } = useMediaActions();
   const media = useMediaStore((s) => (spot ? s.mediaBySpot[spot.id] : undefined));
@@ -238,7 +241,13 @@ export default function EditSpotScreen() {
           text: 'Delete',
           style: 'destructive',
           onPress: async () => {
-            await removeSpot(spot.id);
+            try {
+              await removeSpot(spot.id);
+            } catch {
+              // useSpotActions logged it (or refused: not the rider's spot); the spot stays, so does the screen
+              Alert.alert("Couldn't delete", 'Please try again.');
+              return;
+            }
             router.dismissAll();
           },
         },
@@ -250,6 +259,14 @@ export default function EditSpotScreen() {
     return (
       <View style={styles.centered}>
         <Text>Spot not found</Text>
+      </View>
+    );
+  }
+  // Another rider's spot is read-only (D47): detail offers no Edit, but a link can still open this route.
+  if (isForeign(spot, riderUid)) {
+    return (
+      <View style={styles.centered}>
+        <Text>{"This spot isn't yours to edit."}</Text>
       </View>
     );
   }

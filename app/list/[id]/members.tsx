@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
@@ -53,6 +53,14 @@ export default function MembersScreen() {
   const [left, setLeft] = useState(false);
   // One server call at a time: a second tap before the answer does nothing.
   const busy = useRef(false);
+  // Stop sharing ends after a server call: a Back pressed meanwhile already left, so back() would pop the list too.
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const listSpots = useMemo(
     () => (list ? selectListSpots(list, spots, membershipBySpot) : []),
@@ -151,7 +159,7 @@ export default function MembersScreen() {
         onPress: async () => {
           if (await run(() => stopSharing(db, client, uid, list.id), "Couldn't stop sharing. Try again.")) {
             showToast(`Stopped sharing ${list.name}`);
-            router.back();
+            if (mountedRef.current) router.back();
           }
         },
       },

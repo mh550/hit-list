@@ -139,6 +139,14 @@ export default function SpotDetailScreen() {
   const sendIds = useMemo(() => (id ? [id] : []), [id]);
   const db = useSQLiteContext();
   const copying = useRef(false);
+  // Save a copy downloads first (D89): a rider who left meanwhile gets the toast, and no other screen is replaced.
+  const mountedRef = useRef(false);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   const handleEdit = useCallback(() => {
     router.push(`/spot/${id}/edit` as `/spot/${string}/edit`);
@@ -169,7 +177,7 @@ export default function SpotDetailScreen() {
     copying.current = true;
     try {
       const { spotId, missingPhotos } = await saveCopy(db, getSupabase(), userId, spot.id);
-      router.replace(`/spot/${spotId}` as `/spot/${string}`);
+      if (mountedRef.current) router.replace(`/spot/${spotId}` as `/spot/${string}`);
       const missing = missingPhotos === 1 ? '1 photo' : `${missingPhotos} photos`;
       showToast(missingPhotos > 0 ? `Saved a copy · ${missing} couldn't be copied` : 'Saved a copy');
     } catch (err) {

@@ -22,7 +22,7 @@ import { useAuthStore } from '@/src/stores/auth-store';
 import { useSettingsStore } from '@/src/stores/settings-store';
 import type { HitList } from '@/src/types';
 import { areaLabel, isAreaList } from '@/src/utils/area';
-import { initialOf, joinedMembers, memberCount, myRole } from '@/src/utils/members';
+import { initialOf, isShared, joinedMembers, memberCount, myRole } from '@/src/utils/members';
 import { isForeign } from '@/src/utils/ownership';
 import { getSpotDisplayName, spotCountLabel } from '@/src/utils/spot-name';
 
@@ -228,7 +228,8 @@ export default function ListScreen() {
       </View>
     </Pressable>
   ) : null;
-  const strip = list.shared ? (
+  // isShared, as the badges: a joined list whose flag hasn't arrived still opens Members (Leave; S8-09 review B#6)
+  const strip = isShared(list) ? (
     <MemberStrip
       list={list}
       uid={uid}

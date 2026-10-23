@@ -51,15 +51,24 @@ type Row = Record<string, unknown>;
 /** Takes a commit's changes to the screens. */
 const reload = (db: SQLiteDatabase) => reloadStoresQuietly(db);
 
-/** Runs `write` on the sync queue in one transaction (no pull sees it half done), then deletes the cached photos. */
+/**
+ * Runs `write` on the sync queue in one transaction (no pull sees it half done), then deletes the cached photos. The
+ * server has already answered, so a local failure only warns: the transaction leaves every row, and the next pull's
+ * reconciliation removes them (a retry would get 42501 and read as a refusal; S8-09 review A#5).
+ */
 async function removeLocally(db: SQLiteDatabase, uid: string, write: () => Promise<void>): Promise<void> {
   let removed: string[] = [];
-  await runExclusive(() =>
-    db.withTransactionAsync(async () => {
-      await write();
-      removed = await removeUnheldForeignSpots(db, uid);
-    }),
-  );
+  try {
+    await runExclusive(() =>
+      db.withTransactionAsync(async () => {
+        await write();
+        removed = await removeUnheldForeignSpots(db, uid);
+      }),
+    );
+  } catch (err) {
+    removed = [];
+    console.warn('[lists] the local removal failed; the next sync removes the rows:', errorMessage(err));
+  }
   deleteCachedPhotos(removed);
   await reload(db);
 }

@@ -64,16 +64,23 @@ export function useDbInit(): { isReady: boolean; upgradeFailed: boolean } {
       } catch (err) {
         console.error('[useDbInit] Failed to initialize database (settings):', err);
       }
+      // The phone's account before the app is usable: the session may not be read yet, and until one of them is
+      // known every row would read as the rider's own, so others' spots would show Edit (S8-09 review B#1).
+      let phoneUid: string | null | undefined;
+      try {
+        phoneUid = (await getSyncState(db, 'user_id')) ?? null;
+        useSyncStore.setState({ phoneUserId: phoneUid });
+      } catch (err) {
+        console.warn("[useDbInit] couldn't read the phone's account:", err);
+      }
       setIsReady(true); // even after an error, so the splash screen never strands the app
       // In the background, after the app is usable: towns for untitled spots (D4), only the phone's account's own
-      // (another rider's spot is read-only here, and its place never goes to Apple; S8). The session may not be read
-      // yet, so the account is the phone's (sync_state), not the auth store's.
-      void getSyncState(db, 'user_id')
-        .then((uid) => {
-          useSyncStore.setState({ phoneUserId: uid ?? null });
-          return backfillTowns(selectMySpots(spots, uid), setTown);
-        })
-        .catch((err: unknown) => console.warn('[useDbInit] town backfill skipped:', err));
+      // (another rider's spot is read-only here, and its place never goes to Apple; S8). Not when the account is unknown.
+      if (phoneUid !== undefined) {
+        void backfillTowns(selectMySpots(spots, phoneUid), setTown).catch((err: unknown) =>
+          console.warn('[useDbInit] town backfill skipped:', err),
+        );
+      }
     })();
     // All stable, so this still runs once.
   }, [db, setSpots, setTown, setAllMedia, setLists, setMemberships, loadSettings]);

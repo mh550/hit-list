@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { File } from 'expo-file-system';
 import type { SQLiteDatabase } from 'expo-sqlite';
 
-import { getMediaForSpot, getSpot, insertMedia, insertSpot } from '@/src/db';
+import { getMediaForSpot, getSpot, insertMedia, insertSpot, updateSpot } from '@/src/db';
 import type { Media, Spot } from '@/src/types';
 import { newId } from '@/src/utils/id';
 import { isForeign } from '@/src/utils/ownership';
@@ -93,17 +93,30 @@ export async function saveCopy(
     owner_id: uid,
     from_username: source.owner_username,
   };
-  let inserted = 0;
   try {
     await insertSpot(db, spot);
-    for (const photo of photos) {
-      await insertMedia(db, photo);
-      inserted += 1;
-    }
   } catch (err) {
     // the files no row points at
-    for (const photo of photos.slice(inserted)) io.remove(photo.file_path);
+    for (const photo of photos) io.remove(photo.file_path);
     throw err;
+  }
+  // The copy exists (and is queued): a photo row that fails is left out and counted like a failed download, so the
+  // toast is true and a retry doesn't make a second copy (S8-09 review A#7).
+  let primaryLost = false;
+  for (const photo of photos) {
+    try {
+      await insertMedia(db, photo);
+    } catch (err) {
+      missingPhotos += 1;
+      io.remove(photo.file_path);
+      if (photo.id === primary) primaryLost = true;
+      console.warn(`[copy] could not save photo ${photo.id}:`, errorMessage(err));
+    }
+  }
+  if (primaryLost) {
+    await updateSpot(db, id, { primary_photo_id: null }).catch((err: unknown) =>
+      console.warn('[copy] could not clear the primary photo:', errorMessage(err)),
+    );
   }
   await reloadStoresQuietly(db);
   return { spotId: id, missingPhotos };

@@ -3,7 +3,7 @@
 -- land only under the writer's own spot or send. Rows are inserted into storage.objects as the users, as the Storage
 -- API does. §3.3 cases; the Case table in docs/plans/2026-10-22-s3-backend.md names each test.
 begin;
-select plan(42);
+select plan(46);
 
 -- People ----------------------------------------------------------------------------------------------------------
 select set_config('t.owner', tests.create_user('owner@test.local', 'owner')::text, true);
@@ -33,23 +33,33 @@ values ('00000000-0000-0000-0000-0000000000d1', '00000000-0000-0000-0000-0000000
         current_setting('t.owner')::uuid);
 insert into public.hit_list_members (list_id, user_id, role, status)
 values ('00000000-0000-0000-0000-0000000000d1', current_setting('t.member')::uuid, 'add', 'member');
--- Sends: e1 sender → recipient (live), e2 sender → recipient (withdrawn).
-insert into public.sends (id, sender, recipient, payload, withdrawn_at)
+-- Sends: e1 sender → recipient (live), e2 sender → recipient (withdrawn), e3 sender → recipient (saved).
+insert into public.sends (id, sender, recipient, payload, withdrawn_at, saved_at)
 values ('00000000-0000-0000-0000-0000000000e1', current_setting('t.sender')::uuid, current_setting('t.rec')::uuid,
-        '{}', null),
+        '{}', null, null),
        ('00000000-0000-0000-0000-0000000000e2', current_setting('t.sender')::uuid, current_setting('t.rec')::uuid,
-        '{}', now());
--- Objects written past the policies (as postgres): a photo of the withdrawn send, and a stray object under the
--- stranger's prefix that names the owner's spot.
+        '{}', now(), null),
+       ('00000000-0000-0000-0000-0000000000e3', current_setting('t.sender')::uuid, current_setting('t.rec')::uuid,
+        '{}', null, now());
+-- Objects written past the policies (as postgres): photos of the withdrawn and the saved send, a stray object under the
+-- stranger's prefix that names the owner's spot, a four-segment name under the owner's prefix that would parse as
+-- c1's photo, and the owner's path in another bucket.
 insert into storage.objects (bucket_id, name)
 values ('photos', 'sends/00000000-0000-0000-0000-0000000000e2/00000000-0000-0000-0000-0000000000f2.jpg'),
+       ('photos', 'sends/00000000-0000-0000-0000-0000000000e3/00000000-0000-0000-0000-0000000000f6.jpg'),
        ('photos', current_setting('t.stranger') || '/00000000-0000-0000-0000-0000000000b1/'
-                  || '00000000-0000-0000-0000-0000000000c1.jpg');
+                  || '00000000-0000-0000-0000-0000000000c1.jpg'),
+       ('photos', current_setting('t.owner') || '/00000000-0000-0000-0000-0000000000b1/'
+                  || '00000000-0000-0000-0000-0000000000c1.jpg/x');
 insert into storage.buckets (id, name, public) values ('zz_other', 'zz_other', false);
+insert into storage.objects (bucket_id, name)
+values ('zz_other', current_setting('t.owner') || '/00000000-0000-0000-0000-0000000000b1/'
+                    || '00000000-0000-0000-0000-0000000000c1.jpg');
 
 -- The bucket -------------------------------------------------------------------------------------------------------
-select results_eq($$ select public from storage.buckets where id = 'photos' $$, $$ values (false) $$,
-                  'the photos bucket exists and is private');
+select results_eq($$ select public, file_size_limit, allowed_mime_types from storage.buckets where id = 'photos' $$,
+                  $$ values (false, 10485760::bigint, array['image/jpeg']) $$,
+                  'the photos bucket exists, private, JPEG only, 10 MB');
 
 -- The path parser: exactly '<uuid>/<uuid>/<uuid>.jpg' or 'sends/<uuid>/<uuid>.jpg'.
 select results_eq(
@@ -60,9 +70,12 @@ select results_eq(
        ('00000000-0000-0000-0000-0000000000c1.jpg'),
        ('00000000-0000-0000-0000-0000000000a1/00000000-0000-0000-0000-0000000000b1/x/00000000-0000-0000-0000-0000000000c1.jpg'),
        ('00000000-0000-0000-0000-0000000000a1/00000000-0000-0000-0000-0000000000b1/00000000-0000-0000-0000-0000000000c1.png'),
+       ('00000000-0000-0000-0000-0000000000a1/00000000-0000-0000-0000-0000000000b1/00000000-0000-0000-0000-0000000000c1.jpg/x'),
        ('00000000-0000-0000-0000-0000000000a1/00000000-0000-0000-0000-0000000000b1/photo.jpg'),
        ('00000000-0000-0000-0000-0000000000a1/spot/00000000-0000-0000-0000-0000000000c1.jpg'),
        ('owner/00000000-0000-0000-0000-0000000000b1/00000000-0000-0000-0000-0000000000c1.jpg'),
+       ('00000000-0000-0000-0000-0000000000A1/00000000-0000-0000-0000-0000000000b1/00000000-0000-0000-0000-0000000000c1.jpg'),
+       ('SENDS/00000000-0000-0000-0000-0000000000e1/00000000-0000-0000-0000-0000000000c1.jpg'),
        ('00000000-0000-0000-0000-0000000000a1/00000000-0000-0000-0000-0000000000b1/'),
        (''),
        (null)
@@ -74,13 +87,16 @@ select results_eq(
        ('00000000-0000-0000-0000-0000000000c1.jpg', false),
        ('00000000-0000-0000-0000-0000000000a1/00000000-0000-0000-0000-0000000000b1/x/00000000-0000-0000-0000-0000000000c1.jpg', false),
        ('00000000-0000-0000-0000-0000000000a1/00000000-0000-0000-0000-0000000000b1/00000000-0000-0000-0000-0000000000c1.png', false),
+       ('00000000-0000-0000-0000-0000000000a1/00000000-0000-0000-0000-0000000000b1/00000000-0000-0000-0000-0000000000c1.jpg/x', false),
        ('00000000-0000-0000-0000-0000000000a1/00000000-0000-0000-0000-0000000000b1/photo.jpg', false),
        ('00000000-0000-0000-0000-0000000000a1/spot/00000000-0000-0000-0000-0000000000c1.jpg', false),
        ('owner/00000000-0000-0000-0000-0000000000b1/00000000-0000-0000-0000-0000000000c1.jpg', false),
+       ('00000000-0000-0000-0000-0000000000A1/00000000-0000-0000-0000-0000000000b1/00000000-0000-0000-0000-0000000000c1.jpg', false),
+       ('SENDS/00000000-0000-0000-0000-0000000000e1/00000000-0000-0000-0000-0000000000c1.jpg', false),
        ('00000000-0000-0000-0000-0000000000a1/00000000-0000-0000-0000-0000000000b1/', false),
        ('', false),
        (null::text, false) $$,
-  'photo_path_ok accepts only three-segment <uuid>/<uuid>/<uuid>.jpg and sends/<uuid>/<uuid>.jpg paths'
+  'photo_path_ok accepts only three-segment <uuid>/<uuid>/<uuid>.jpg and sends/<uuid>/<uuid>.jpg paths, lowercase'
 );
 select is(public.try_uuid('not a uuid'), null, 'try_uuid returns NULL for text that is not a uuid');
 
@@ -108,6 +124,12 @@ select throws_ok(
 );
 select throws_ok(
   $$ insert into storage.objects (bucket_id, name)
+     values ('photos', current_setting('t.stranger') || '/00000000-0000-0000-0000-0000000000b1/'
+                       || '00000000-0000-0000-0000-0000000000c8.jpg') $$,
+  '42501', null, 'owner cannot upload under someone else''s prefix, even for their own spot'
+);
+select throws_ok(
+  $$ insert into storage.objects (bucket_id, name)
      values ('photos', current_setting('t.owner') || '/00000000-0000-0000-0000-0000000000c8.jpg') $$,
   '42501', null, 'a path with fewer than three segments is refused'
 );
@@ -130,6 +152,36 @@ select throws_ok(
                   || '00000000-0000-0000-0000-0000000000c3.jpg' $$,
   '42501', null, 'owner cannot move a photo object under someone else''s prefix'
 );
+select throws_ok(
+  $$ update storage.objects set name = current_setting('t.owner') || '/00000000-0000-0000-0000-0000000000b3/'
+                                       || '00000000-0000-0000-0000-0000000000c3.jpg'
+     where name = current_setting('t.owner') || '/00000000-0000-0000-0000-0000000000b2/'
+                  || '00000000-0000-0000-0000-0000000000c3.jpg' $$,
+  '42501', null, 'owner cannot move a photo object to a spot they do not own'
+);
+select results_eq(
+  $$ insert into storage.objects (bucket_id, name, metadata)
+     values ('photos', current_setting('t.owner') || '/00000000-0000-0000-0000-0000000000b1/'
+                       || '00000000-0000-0000-0000-0000000000c1.jpg', '{"v": 1}')
+     on conflict (bucket_id, name collate "C", version) do update set metadata = excluded.metadata
+     returning metadata $$,
+  $$ values ('{"v": 1}'::jsonb) $$,
+  'owner overwrites their own photo object (upsert)'
+);
+select results_eq(
+  $$ update storage.objects set name = current_setting('t.owner') || '/00000000-0000-0000-0000-0000000000b2/'
+                                       || '00000000-0000-0000-0000-0000000000c9.jpg'
+     where name = current_setting('t.owner') || '/00000000-0000-0000-0000-0000000000b1/'
+                  || '00000000-0000-0000-0000-0000000000c9.jpg'
+     returning name $$,
+  $$ values (current_setting('t.owner') || '/00000000-0000-0000-0000-0000000000b2/'
+             || '00000000-0000-0000-0000-0000000000c9.jpg') $$,
+  'owner moves a photo object between their own spots'
+);
+update storage.objects set name = current_setting('t.owner') || '/00000000-0000-0000-0000-0000000000b1/'
+                                  || '00000000-0000-0000-0000-0000000000c9.jpg'
+where name = current_setting('t.owner') || '/00000000-0000-0000-0000-0000000000b2/'
+             || '00000000-0000-0000-0000-0000000000c9.jpg';
 
 select tests.authenticate_as(current_setting('t.stranger')::uuid);
 select throws_ok(
@@ -235,15 +287,17 @@ select throws_ok(
 select results_eq(
   $$ select name from storage.objects order by name $$,
   $$ values ('sends/00000000-0000-0000-0000-0000000000e1/00000000-0000-0000-0000-0000000000f1.jpg'),
-            ('sends/00000000-0000-0000-0000-0000000000e2/00000000-0000-0000-0000-0000000000f2.jpg') $$,
+            ('sends/00000000-0000-0000-0000-0000000000e2/00000000-0000-0000-0000-0000000000f2.jpg'),
+            ('sends/00000000-0000-0000-0000-0000000000e3/00000000-0000-0000-0000-0000000000f6.jpg') $$,
   'the sender reads their sends'' photo objects, a withdrawn one''s included'
 );
 
 select tests.authenticate_as(current_setting('t.rec')::uuid);
 select results_eq(
-  $$ select name from storage.objects $$,
-  $$ values ('sends/00000000-0000-0000-0000-0000000000e1/00000000-0000-0000-0000-0000000000f1.jpg') $$,
-  'the recipient reads the send''s photo object and none of a withdrawn send'
+  $$ select name from storage.objects order by name $$,
+  $$ values ('sends/00000000-0000-0000-0000-0000000000e1/00000000-0000-0000-0000-0000000000f1.jpg'),
+            ('sends/00000000-0000-0000-0000-0000000000e3/00000000-0000-0000-0000-0000000000f6.jpg') $$,
+  'the recipient reads the photo objects of live and saved sends and none of a withdrawn send'
 );
 select throws_ok(
   $$ insert into storage.objects (bucket_id, name)
@@ -259,6 +313,33 @@ select throws_ok(
   $$ insert into storage.objects (bucket_id, name)
      values ('photos', 'sends/00000000-0000-0000-0000-0000000000e1/00000000-0000-0000-0000-0000000000f5.jpg') $$,
   '42501', null, 'a third user cannot upload into someone else''s send'
+);
+
+-- Send photos are write-once (D40: the recipient keeps what they were sent): no overwrite, and nothing new or
+-- deleted once the recipient saved.
+select tests.authenticate_as(current_setting('t.sender')::uuid);
+select set_config('storage.allow_delete_query', 'true', true);
+select is_empty($$ update storage.objects set metadata = '{"x": 1}'
+                   where name like 'sends/00000000-0000-0000-0000-0000000000e1/%' returning name $$,
+                'the sender cannot overwrite a send photo object');
+select is_empty($$ update storage.objects set metadata = '{"x": 1}'
+                   where name like 'sends/00000000-0000-0000-0000-0000000000e2/%' returning name $$,
+                'the sender cannot overwrite a withdrawn send''s photo object');
+select is_empty($$ update storage.objects set metadata = '{"x": 1}'
+                   where name like 'sends/00000000-0000-0000-0000-0000000000e3/%' returning name $$,
+                'the sender cannot overwrite a saved send''s photo object');
+select throws_ok(
+  $$ insert into storage.objects (bucket_id, name)
+     values ('photos', 'sends/00000000-0000-0000-0000-0000000000e3/00000000-0000-0000-0000-0000000000f7.jpg') $$,
+  '42501', null, 'the sender cannot upload into a saved send'
+);
+select is_empty($$ delete from storage.objects where name like 'sends/00000000-0000-0000-0000-0000000000e3/%'
+                   returning name $$,
+                'the sender cannot delete a saved send''s photo object');
+select results_eq(
+  $$ delete from storage.objects where name like 'sends/00000000-0000-0000-0000-0000000000e2/%' returning name $$,
+  $$ values ('sends/00000000-0000-0000-0000-0000000000e2/00000000-0000-0000-0000-0000000000f2.jpg') $$,
+  'the sender deletes a withdrawn send''s photo object'
 );
 
 -- D50: once the recipient blocks the sender, the send's photos go with the send.

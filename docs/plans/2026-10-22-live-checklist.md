@@ -28,8 +28,9 @@ The migrations in `supabase/migrations/` are the whole server schema. Pushing th
 - [ ] **Dry run:** `npx supabase db push --dry-run`. Check: it lists exactly the files in `supabase/migrations/`, in
       order, and nothing else (`seed.sql` is never pushed).
 - [ ] **Push:** `npx supabase db push`. Check in the dashboard: Table editor shows the ten tables, each with "RLS
-      enabled"; Storage shows a private bucket `photos`; Database → Functions lists `can_read_spot`, `find_profile`
-      and the others from `docs/plans/2026-10-22-s3-backend.md`.
+      enabled"; Storage shows a private bucket `photos` (allowed MIME `image/jpeg`, 10 MB limit) whose Policies tab
+      lists `photos_select`, `photos_insert`, `photos_update`, `photos_delete`; Database → Functions lists
+      `can_read_spot`, `find_profile`, `create_send` and the others from `docs/plans/2026-10-22-s3-backend.md`.
 - [ ] **Smoke test with two throwaway accounts** (Auth → Add user): as user A in the SQL editor
       `select set_config('request.jwt.claims', '{"sub":"<A id>","role":"authenticated"}', true); set local role
       authenticated; select count(*) from spots;` returns only A's rows; as B, A's spot is not returned.

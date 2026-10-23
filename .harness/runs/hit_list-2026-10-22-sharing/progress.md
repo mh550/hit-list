@@ -20,6 +20,15 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 04:20 · S3-06 · passes
+
+- Changed: `supabase/migrations/20261023031134_sends_storage.sql` (sends policy, `can_read_send`, `create_send` (pair lock, friends only, payload = JSON object ≤ 1 MB), `withdraw_send`, `mark_send_saved`, `dismiss_send`; private `photos` bucket (JPEG, 10 MB); `try_uuid`, `photo_path_ok`, `can_read_photo`, `can_write_photo` + four `storage.objects` policies). New `060-sends-rls` (60) and `070-storage-rls` (46); `010` 39 → 38. RED commit `a3194cd` (060 died at test 1, 070 in setup). Jest 924 → 924; pgTAP 317 → 422.
+- Verified: `db:reset` → `test:db`: `Files=7, Tests=422, Result: PASS` → `db:stop`; `docker ps` = the same 7 n8n-*/dj-* containers. 50 hand mutations (`mut.py`, scratch): 48 killed, 2 equivalent. `race.sh`: a send racing `block_user` waited 1.6 s and was refused (0 rows); without the lock it went in after 0.07 s. `check.sh` green (924).
+- Opus review: 1 Important, fixed test-first (9 of 12 new assertions failed on the pre-review SQL). A sender could overwrite or delete send photos after Save; send photos are now write-once. Minor: payload bound, bucket `on conflict do update`, positive upsert/move tests. The full table is under Review in the S3 plan.
+- Next sessions must know: storage paths are lowercase `<uuid>/<uuid>/<uuid>.jpg` or `sends/<uuid>/<uuid>.jpg`. Members read a photo only while its media row is live. A direct DELETE on `storage.objects` needs `set_config('storage.allow_delete_query','true',true)`. Use `on conflict (bucket_id, name collate "C", version)` for upserts. S4: account deletion must remove `sends/<id>/` objects. S5: upload with `contentType: 'image/jpeg'`. S7: Save = `mark_send_saved` before the photo copy.
+- Questions for Michael: **D59 *default*** (spec §9 Q20). Blocking hides the blocked rider's sends to you, but your own pending sends to them stay until you withdraw them. Unblocking brings their pending sends back. OK?
+- Proposed changes: S3-06's step 3 says the bucket insert is `on conflict do nothing`. It is `on conflict (id) do update` (private, limits), so a bucket made earlier as public is corrected (review Minor).
+
 ### 2026-10-23 03:30 · S3-05 · passes
 
 - Changed: `supabase/migrations/20261023025214_friends_rls.sql` (profiles/friendships/blocks policies; `can_read_profile`, `find_profile`, `send_friend_request`, `respond_friend_request`, `block_user`, `unblock_user`, `lock_user_pair`; triggers `t05_keep_identity` on profiles, `t05_block_guard` on hit_list_members, `t30_withdraw_invitations` on friendships; display_name ≤ 50). `supabase/tests/050-friends-rls.test.sql` has 91 assertions; `010` 42 → 39. RED commit `5370167` (13/16 failed, died at test 17). Jest 924 → 924; pgTAP 229 → 317.

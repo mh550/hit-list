@@ -2,7 +2,7 @@
 -- haven't blocked the sender, its recipient; every write goes through create_send / withdraw_send / mark_send_saved /
 -- dismiss_send. §3.3 cases; the Case table in docs/plans/2026-10-22-s3-backend.md names each test.
 begin;
-select plan(52);
+select plan(60);
 
 -- People ----------------------------------------------------------------------------------------------------------
 select set_config('t.sender', tests.create_user('sender@test.local', 'sender')::text, true);
@@ -12,15 +12,20 @@ select set_config('t.nofriend', tests.create_user('nofriend@test.local', 'nofrie
 select set_config('t.blocker', tests.create_user('blocker@test.local', 'blocker')::text, true);
 select set_config('t.blockee', tests.create_user('blockee@test.local', 'blockee')::text, true);
 select set_config('t.later', tests.create_user('later@test.local', 'later')::text, true);
+select set_config('t.asked', tests.create_user('asked@test.local', 'asked')::text, true);
 
 -- Accepted friendships with the sender: recipient, third's friend is the recipient (so third can call create_send
 -- at all), later (blocks the sender after a send). blocker and blockee also have a friendship row next to a block:
 -- block_user deletes it, so this is the state a send racing a block would see, and create_send must still refuse.
+-- The sender has only asked 'asked' (pending).
 insert into public.friendships (user_a, user_b, status, requested_by)
 select least(a, b), greatest(a, b), 'accepted', a
 from (select current_setting('t.' || x)::uuid as a, current_setting('t.' || y)::uuid as b
       from (values ('sender', 'rec'), ('sender', 'later'), ('third', 'rec'), ('sender', 'blocker'),
                    ('sender', 'blockee')) as v(x, y)) p;
+insert into public.friendships (user_a, user_b, status, requested_by)
+select least(a, b), greatest(a, b), 'pending', a
+from (select current_setting('t.sender')::uuid as a, current_setting('t.asked')::uuid as b) p;
 insert into public.blocks (blocker, blocked)
 values (current_setting('t.blocker')::uuid, current_setting('t.sender')::uuid),
        (current_setting('t.sender')::uuid, current_setting('t.blockee')::uuid);
@@ -44,6 +49,9 @@ select lives_ok($$ select public.create_send('00000000-0000-0000-0000-0000000005
 select throws_ok($$ select public.create_send('00000000-0000-0000-0000-0000000005f1',
                                               current_setting('t.nofriend')::uuid, '{}') $$,
                  '42501', 'you can only send to friends', 'create_send to someone who is not a friend raises');
+select throws_ok($$ select public.create_send('00000000-0000-0000-0000-0000000005f8',
+                                              current_setting('t.asked')::uuid, '{}') $$,
+                 '42501', 'you can only send to friends', 'create_send to someone who has not accepted yet raises');
 select throws_ok($$ select public.create_send('00000000-0000-0000-0000-0000000005f2',
                                               current_setting('t.blocker')::uuid, '{}') $$,
                  '42501', 'you can only send to friends', 'blocked sender cannot create_send');
@@ -56,6 +64,12 @@ select throws_ok($$ select public.create_send('00000000-0000-0000-0000-000000000
 select throws_ok($$ select public.create_send('00000000-0000-0000-0000-0000000005f5', current_setting('t.rec')::uuid,
                                               null) $$,
                  '22023', null, 'create_send refuses a NULL payload');
+select throws_ok($$ select public.create_send('00000000-0000-0000-0000-0000000005f9', current_setting('t.rec')::uuid,
+                                              '[{"name": "x"}]') $$,
+                 '22023', null, 'create_send refuses a payload that is not a JSON object');
+select throws_ok($$ select public.create_send('00000000-0000-0000-0000-0000000005fa', current_setting('t.rec')::uuid,
+                                              jsonb_build_object('notes', repeat('x', 1048577))) $$,
+                 '22023', null, 'create_send refuses a payload over 1 MB');
 select throws_ok(
   $$ insert into public.sends (id, sender, recipient, payload)
      values ('00000000-0000-0000-0000-0000000005f6', current_setting('t.sender')::uuid, current_setting('t.rec')::uuid,
@@ -117,7 +131,8 @@ select throws_ok($$ select public.create_send('00000000-0000-0000-0000-000000000
 reset role;
 select ok(not has_function_privilege('anon', p, 'execute'), 'anon cannot execute ' || p)
 from unnest(array['public.create_send(uuid, uuid, jsonb)', 'public.withdraw_send(uuid)',
-                  'public.mark_send_saved(uuid)', 'public.dismiss_send(uuid)']) as p;
+                  'public.mark_send_saved(uuid)', 'public.dismiss_send(uuid)', 'public.can_read_send(uuid)',
+                  'public.can_read_photo(text)', 'public.can_write_photo(text, text)']) as p;
 
 -- No direct writes ------------------------------------------------------------------------------------------------
 select tests.authenticate_as(current_setting('t.rec')::uuid);

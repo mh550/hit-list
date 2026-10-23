@@ -108,6 +108,7 @@ it can **Save a copy** (it becomes their own private spot, with "From @name" on 
 | D56 | **Area radius: default 2 mi / 2 km; a saved radius is never resized** *default* | Stored in whole metres, one of the chip steps of the unit it was picked in; after a units switch the label converts it ('Area · 3.2 km') and no chip is selected until one is tapped | S2 plan (§9 Q17) |
 | D57 | **A shared-list invitation is a member row with `status = 'invited'`** *default* | `hit_list_members.status` is `'invited'` \| `'member'`; Join flips it to `'member'` (sets `joined_at`), Decline deletes it. An invitee sees the list's name and owner only; only `'member'` reads its spots. | S3 plan (`docs/plans/2026-10-22-s3-backend.md`): §3.5's Join / Decline needs an invited state that §3.2 didn't have (§9 Q18) |
 | D58 | **A display name is at most 50 characters** *default* | A `profiles` check constraint; usernames stay 3–20 (D39). Removing a friend also withdraws pending list invitations between the two (an invitation needs a friendship). | S3-05 Opus review: an unbounded display name is downloaded by every friend, co-member and `find_profile` caller (§9 Q19) |
+| D59 | **Blocking hides the blocked rider's sends to you; your own pending sends to them stay** *default* | When you block someone, the sends *they* sent you disappear from your Inbox (and can't be saved), and come back unchanged if you unblock them while they are still pending. Sends *you* had sent them stay readable by them until you withdraw them (Sent → Withdraw). Unfriending without a block leaves sends alone. | S3-06 Opus review: the simplest reading of D50 (§9 Q20) |
 
 ---
 
@@ -360,6 +361,10 @@ it stops at a milestone boundary; S9 (links) is last among the features because 
 19. **Display name length (D58).** Default: up to 50 characters. Longer or shorter? (Also: a blocked rider who tries to
     take your exact username learns it exists while `find_profile` hides you; unavoidable with unique names unless
     username changes go through a rate-limited function. OK to accept?)
+20. **Blocking and sends (D59).** Default: blocking someone hides the sends they sent you (they come back if you
+    unblock while they're still pending), but the sends you had sent *them* stay visible to them until you withdraw
+    them. Should blocking also withdraw your own pending sends to that person, and should unblocking keep their old
+    sends hidden?
 
 ---
 

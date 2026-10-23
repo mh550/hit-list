@@ -20,6 +20,61 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 verify S1
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| S1-01 | 1 | read docs/plans/2026-10-22-s1-hit-lists.md headings | Types, Migration 4, DB API, Store, Hook, SpotsBrowser, Tab bar (D49), Screens, Copy, Test list all present | yes |
+| S1-01 | 2 | read plan lines 18-20 | area columns made in migration 4 for S2; sync_queue left alone until S5 | yes |
+| S1-01 | 3 | read plan lines 173-205 | shared store filters scoped by spot set; lists the six tests that must pass unchanged | yes |
+| S1-01 | 4 | `check.sh`; `npx expo lint && npx tsc --noEmit && npx jest --silent` | green | yes |
+| S1-02 | 1 | `git diff 4aa5326..HEAD src/db/schema.ts`; grep LATEST_SCHEMA_VERSION | 37 additions, 1 deletion (only the MIGRATIONS array line); LATEST = MIGRATIONS.length = 4 | yes |
+| S1-02 | 2 | db-migrate.test.ts migration 4 block (7 tests), column list asserts | exact hit_lists/hit_list_spots columns; v2 fixture 2→3→4 intact; v4 re-migrate no change | yes |
+| S1-02 | 3 | db-hit-lists.test.ts (20 tests) | round-trip, idempotent add, two lists, remove, soft delete keeps spots, FK cascade, rename bumps updated_at, soft-deleted-spot membership kept | yes |
+| S1-02 | 4 | grep src/types, src/db/index.ts, factories.ts | HitList/HitListSpot exported, hit-lists re-exported, createTestHitList present | yes |
+| S1-02 | 5 | `check.sh`; `npx expo lint && npx tsc --noEmit && npx jest --silent` | green, 0 console.error | yes |
+| S1-03 | 1 | hit-lists-store.test.ts (10 tests); stores/index.ts export | selectors and activeListId default null verified | yes |
+| S1-03 | 2 | use-hit-list-actions.test.ts passes | create/rename/delete/add/remove, store-first, revert+reject on DB failure | yes |
+| S1-03 | 3 | db-init.test.ts 'loads hit lists…', 'getHitLists throws', 'getListMemberships throws'; separate try/catch in use-db-init.ts | isReady stays true | yes |
+| S1-03 | 4 | `check.sh`; `npx expo lint && npx tsc --noEmit && npx jest --silent` | green | yes |
+| S1-04 | 1 | read SpotsBrowser props; components/index.ts | props present (plus extras); exported | yes |
+| S1-04 | 2 | git diff --stat on the six named tests | only spots-view-mode changed (import lines + new describe); others empty; all pass | yes |
+| S1-04 | 3 | spots-browser.test.tsx passes | rows, empty title, search/clear, Map segment | yes |
+| S1-04 | 4 | `check.sh`; `npx expo lint && npx tsc --noEmit && npx jest --silent` | green | yes |
+| S1-05 | 1 | tabs-layout.test.tsx (2 tests); _layout.tsx | Spots, Lists (list.bullet), Profile in order | yes |
+| S1-05 | 2 | lists-tab.test.tsx lines 59-73, 117-121, 130 | empty copy, My hit lists, counts ignore deleted, no Shared with me, push /list/<id> | yes |
+| S1-05 | 3 | lists-tab.test.tsx lines 140-150, 230 | New hit list sheet, create pushes /list/L-new, double tap guarded | yes |
+| S1-05 | 4 | lists-tab.test.tsx:122 | queryByLabelText('New area list') is null | yes |
+| S1-05 | 5 | `check.sh`; `npx expo lint && npx tsc --noEmit && npx jest --silent` | green | yes |
+| S1-06 | 1 | list-screen.test.tsx; _layout.tsx:49 | two rows, title, Map scoped, filter applies; Stack.Screen registered | yes |
+| S1-06 | 2 | list-screen.test.tsx:153 and rename test | Rename sheet, empty copy exactly as written | yes |
+| S1-06 | 3 | list-screen.test.tsx:255-256 | Delete Downtown? / Spots stay in your library.; remove-from-list alert | yes |
+| S1-06 | 4 | list-screen.test.tsx:308,327 | 'This list is gone' for unknown and deleted ids | yes |
+| S1-06 | 5 | `check.sh`; `npx expo lint && npx tsc --noEmit && npx jest --silent` | green | yes |
+| S1-07 | 1 | add-to-list-sheet.test.tsx passes | checked states, add/remove calls, two-id case | yes |
+| S1-07 | 2 | spot-detail.test.tsx:43,92,284 block | In lists row, only add chip when no lists, chip push /list/<id> | yes |
+| S1-07 | 3 | `check.sh`; `npx expo lint && npx tsc --noEmit && npx jest --silent` | green | yes |
+| S1-08 | 1 | spots-select.test.tsx passes | long press selects, counts, cancel, no navigation | yes |
+| S1-08 | 2 | spots-select.test.tsx:183-203, 251-256 | select-bar 'Add to list (2)', sheet with both ids, mode ends; no /Send/ | yes |
+| S1-08 | 3 | components.test.tsx:131-142 | checkbox role only when selectable | yes |
+| S1-08 | 4 | spots-select.test.tsx:109,176 | Add new spot absent in select mode, back after | yes |
+| S1-08 | 5 | `check.sh`; `npx expo lint && npx tsc --noEmit && npx jest --silent` | green | yes |
+| S1-09 | 1 | list-picker-chips.test.tsx passes | tab roles, selected state, press calls setActiveListId, null with no lists | yes |
+| S1-09 | 2 | spots-view-mode.test.tsx:99,128 | only the list's spots in List and Map; empty copy | yes |
+| S1-09 | 3 | hit-lists-store.test.ts removeList test | activeListId reset to null | yes |
+| S1-09 | 4 | `check.sh`; `npx expo lint && npx tsc --noEmit && npx jest --silent` | green | yes |
+| S1-10 | 1 | read docs/plans/2026-10-22-s1-what-michael-will-see.md; ls src/__tests__ | grep walk; git status | five sections in order; no walkthrough test file; tree clean | yes |
+| S1-10 | 2 | read sections What to tap, Known limits | both present with the required steps | yes |
+| S1-10 | 3 | read lines 84-86 | jest counts, export exit 0, 4.3 MB bundle recorded | yes |
+| S1-10 | 4 | `check.sh`; `npx expo lint && npx tsc --noEmit && npx jest --silent` | green | yes |
+| S1-11 | 1 | wc -l reviews/s1.diff; read plan Review section; git show --stat e82e658 e218b59 | 4851-line diff; table with severities; both fixes commit tests with fix | yes |
+| S1-11 | 2 | read the six written answers in plan Review | all six answered, backed by named tests (db-migrate IF NOT EXISTS case, inFlight, spots-select) | yes |
+| S1-11 | 3 | git log 4aa5326..HEAD | grep refactor: | f6e0e0d refactor: commit with the simplification pass | yes |
+| S1-11 | 4 | grep CLAUDE.md, README.md | Layout entries, Hit lists convention bullet, README 'Hit lists (S1)' present | yes |
+| S1-11 | 5 | `check.sh`; `npx expo lint && npx tsc --noEmit && npx jest --silent` | green | yes |
+
+All 11 S1 features hold; no passes flag changed.
+
 ### 2026-10-23 01:45 · S1-11 · passes
 
 - Opus review of `git diff 4aa5326..HEAD -- src app` (`reviews/s1.diff`, 4,851 lines). No Critical findings. Two Important ones, each fixed with a RED test watched failing in the same commit:

@@ -20,6 +20,14 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 12:10 · S6-07 · passes
+
+- Review of S6 (`reviews/s6.diff`, 4279 lines, two Opus reviewers: data path, screens): 1 Important fixed (Friends: Remove / Cancel / Block / Unblock left the row live until the queued friends load, maybe minutes behind a backup; now the friends store's `dropFriendship` / `noteBlocked` / `noteUnblocked` take it off at once, a failed action keeps it), RED `5595ba9` (8 fail) → GREEN `b6a45b9`. 6 Minor left with reasons in the plan's new 'Review (S6-07)' section (with the RED-first table and five written answers, proving tests checked by grep).
+- `refactor:` `526dd6f`: one `confirmBlock` for Friends and Inbox; `lastSyncKey`/`inboxSeenKey`/`forgetAccount` in `src/db/sync.ts` replace adopt's three resets. Docs: CLAUDE.md layout (Inbox tab, app/friends/, profiles.ts, the new helpers), README 'Friends and Inbox (S6)'.
+- Verified: `check.sh` green, tests 1487 → 1495, `npx jest --ci` 0 `console.error`. No stack run (no server code changed).
+- Next session (S7-01): S6 is complete; the S6 PR is the harness's. Minor left open worth a look in S7: an empty Friends/Inbox while the D66 switch confirm is pending (no line says why).
+- Questions for Michael: none new (D72–D75, §9 Q33–Q36 still open). Proposed changes: none.
+
 ### 2026-10-23 11:00 · S6-06 · passes
 
 - Added `docs/plans/2026-10-22-s6-what-michael-will-see.md`: Friends signed out / unconfigured / two friends + one sent request, all seven Add result lines, Inbox signed out / empty / two requests, tab bar with badge '2', 'What to tap' with two riders (add, accept, block, vanishes from find), verification record. Renders came from temporary Jest tests (deleted; tree walk of text, labels, roles).

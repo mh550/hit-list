@@ -741,7 +741,7 @@
         "CLAUDE.md Layout gains app/friends/, app/(tabs)/inbox.tsx, src/sync/friends.ts, the friends and inbox stores, src/db/profiles.ts; README Status gains 'Friends and Inbox (S6)'.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S7-01",

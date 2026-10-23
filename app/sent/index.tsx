@@ -95,6 +95,8 @@ function SentBody({ client, uid }: { client: SupabaseClient; uid: string }) {
     } catch (err) {
       console.warn('[Sent] revoking a link failed:', errorMessage(err));
       Alert.alert("Couldn't reach the server", 'Try again.');
+      // the send may be withdrawn already (the link dead) with only the revoke missing: the load reads it Revoked
+      void refresh({ quiet: true });
     }
     busyIds.current.delete(link.id);
     setBusy(new Set(busyIds.current));

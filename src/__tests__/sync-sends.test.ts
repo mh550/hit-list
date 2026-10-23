@@ -940,6 +940,19 @@ describe('link sends (S9, D94)', () => {
     expect(rpcArgs('withdraw_send')).toEqual([{ p_id: rpcArgs('create_send')[0].p_id }]);
   });
 
+  it('makeSendLink warns when the session ends before its link (null): the send can’t be withdrawn then', async () => {
+    const one = await backedUpSpot('One');
+    fake.rpcHandlers.create_link = () => {
+      fake.setSession(null);
+      return { data: null, error: { message: 'not signed in', code: '42501' } };
+    };
+    fake.rpcHandlers.withdraw_send = () => ({ data: null, error: null });
+
+    expect(await makeSendLink(db, client(), ME, { spotIds: [one.spot.id], sender: SENDER, expiry: '7d' })).toBeNull();
+    // withdrawSend needs the session too: the send is left for account-delete, and a warning says so
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('left without a link'), expect.anything());
+  });
+
   describe('listSentLinks and revokeSentLink', () => {
     const LINK_SEND = '00000000-0000-4000-8000-000000000701';
     const OLD_SEND = '00000000-0000-4000-8000-000000000702';

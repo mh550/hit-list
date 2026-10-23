@@ -3,7 +3,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { MemberRole } from '@/src/types';
 import { linkUrl, newToken, tokenHash } from '@/src/utils/link-token';
 import { signedInAs } from './account';
-import { serverError } from './errors';
+import { serverError, type ServerError } from './errors';
+import { NotAllowedError } from './lists';
 import { toIso } from './time';
 
 /*
@@ -11,7 +12,7 @@ import { toIso } from './time';
  * browser until it expires, and an invite link (7 days, one use) that joins a shared list. The server keeps only the
  * token's SHA-256 (create_link, revoke_link, list_my_links; preview_link behind the share-preview function); the
  * plain token lives only in the URL's fragment. Every call takes the client and the rider and does nothing (null)
- * without a session for that rider. Redeeming an invite is `redeemInvite` in join.ts (it syncs after).
+ * without a session for that rider; a 42501 with the session there is NotAllowedError. Redeeming an invite is `redeemInvite` in join.ts (it syncs after).
  */
 
 /** D92 *default*: where links point when EXPO_PUBLIC_SHARE_BASE_URL is unset (web/share/ served on the box). */
@@ -39,6 +40,18 @@ const INVITE_DAYS = 7;
 
 const daysFromNow = (days: number) => new Date(Date.now() + days * DAY_MS).toISOString();
 
+/**
+ * A refusal: null when the session ended meanwhile (42501 is also "not signed in"), NotAllowedError for another 42501
+ * (not the list's owner any more), else the server error with its code.
+ */
+async function refusal(client: SupabaseClient, uid: string, error: ServerError): Promise<null> {
+  if (error.code === '42501') {
+    if (!(await signedInAs(client, uid))) return null;
+    throw new NotAllowedError();
+  }
+  throw serverError(error);
+}
+
 /** create_link with a new token; the URL carries the plain token, the server gets its hash. */
 async function createLink(
   client: SupabaseClient,
@@ -48,7 +61,7 @@ async function createLink(
   if (!(await signedInAs(client, uid))) return null;
   const token = newToken();
   const { error } = await client.rpc('create_link', { ...args, p_token_sha256: await tokenHash(token) });
-  if (error) throw serverError(error);
+  if (error) return refusal(client, uid, error);
   return linkUrl(shareBaseUrl(), token);
 }
 
@@ -68,7 +81,7 @@ export const createInviteLink = (client: SupabaseClient, uid: string, listId: st
 export async function revokeLink(client: SupabaseClient, uid: string, linkId: string): Promise<true | null> {
   if (!(await signedInAs(client, uid))) return null;
   const { error } = await client.rpc('revoke_link', { p_id: linkId });
-  if (error) throw serverError(error);
+  if (error) return refusal(client, uid, error);
   return true;
 }
 
@@ -101,12 +114,15 @@ interface LinkRow {
 }
 
 /** Revoked wins over used, used over expired. */
-function statusOf(row: LinkRow, now: number): LinkStatus {
+function statusOf(row: LinkRow, expiresAt: string | null, now: number): LinkStatus {
   if (row.revoked_at) return 'revoked';
   if (row.used_at) return 'used';
-  if (row.expires_at !== null && Date.parse(row.expires_at) <= now) return 'expired';
+  if (expiresAt !== null && Date.parse(expiresAt) <= now) return 'expired';
   return 'active';
 }
+
+/** A server timestamp as the app's ISO (Hermes' Date.parse rejects Postgres' shapes). */
+const serverTime = (value: string) => toIso(value) ?? value;
 
 /** The rider's links of `kind`, newest first. Null without a session; throws when the server can't be read. */
 export async function listMyLinks(client: SupabaseClient, uid: string, kind: LinkKind): Promise<MyLink[] | null> {
@@ -114,17 +130,20 @@ export async function listMyLinks(client: SupabaseClient, uid: string, kind: Lin
   const { data, error } = await client.rpc('list_my_links', { p_kind: kind });
   if (error) throw serverError(error);
   const now = Date.now();
-  return ((data ?? []) as LinkRow[]).map((row) => ({
-    id: row.id,
-    kind: row.kind,
-    sendId: row.send_id,
-    listId: row.list_id,
-    role: row.role,
-    createdAt: toIso(row.created_at) ?? row.created_at,
-    expiresAt: row.expires_at === null ? null : (toIso(row.expires_at) ?? row.expires_at),
-    usedBy: row.used_by ? { id: row.used_by, username: row.used_by_username } : null,
-    status: statusOf(row, now),
-  }));
+  return ((data ?? []) as LinkRow[]).map((row) => {
+    const expiresAt = row.expires_at === null ? null : serverTime(row.expires_at);
+    return {
+      id: row.id,
+      kind: row.kind,
+      sendId: row.send_id,
+      listId: row.list_id,
+      role: row.role,
+      createdAt: serverTime(row.created_at),
+      expiresAt,
+      usedBy: row.used_by ? { id: row.used_by, username: row.used_by_username } : null,
+      status: statusOf(row, expiresAt, now),
+    };
+  });
 }
 
 /** What a live link holds, as far as the app needs it (the page shows the rest). */
@@ -143,17 +162,26 @@ type PreviewBody = {
 const usernameOf = (who: { username?: unknown } | null | undefined) =>
   typeof who?.username === 'string' ? who.username : null;
 
+async function goneBody(context: { json?: () => Promise<unknown> } | undefined): Promise<boolean> {
+  try {
+    return ((await context?.json?.()) as { error?: unknown } | undefined)?.error === 'gone';
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Asks share-preview what a token is (no account needed there). Throws LinkGoneError for the function's 404 (or an
- * answer that is neither kind) and a plain error for anything else (offline, a 500).
+ * Asks share-preview what a token is (no account needed there). Throws LinkGoneError for the function's 404 gone (or
+ * an answer that is neither kind) and a plain error for anything else (offline, a 500).
  */
 export async function previewLink(client: SupabaseClient, token: string): Promise<LinkPreview> {
   const { data, error, response } = await client.functions.invoke<PreviewBody>(`share-preview?t=${token}`, {
     method: 'GET',
   });
   if (error) {
-    const status = (error as { context?: { status?: unknown } }).context?.status ?? response?.status;
-    if (status === 404) throw new LinkGoneError();
+    const context = (error as { context?: { status?: unknown; json?: () => Promise<unknown> } }).context;
+    // only the function's own gone body: the gateway also answers 404 when the function isn't there
+    if ((context?.status ?? response?.status) === 404 && (await goneBody(context))) throw new LinkGoneError();
     throw error instanceof Error ? error : new Error(String(error));
   }
   if (data?.kind === 'send') {

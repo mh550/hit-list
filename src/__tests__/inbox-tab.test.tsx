@@ -1090,6 +1090,43 @@ describe('Inbox tab: Paste a link (S9-03)', () => {
     expect(screen.getByText("That link doesn't work any more")).toBeOnTheScreen();
   });
 
+  it('a live invite the redeem calls gone (used by another rider) reads "That link doesn\'t work any more"', async () => {
+    signIn([]);
+    jest.mocked(redeemInvite).mockRejectedValue(new LinkGoneError());
+    jest.mocked(previewLink).mockResolvedValue({ kind: 'invite', listName: 'Downtown', inviter: 'ana' });
+    const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+    await renderTab();
+
+    await pasteAndOpen(LINK);
+
+    expect(screen.getByText("That link doesn't work any more")).toBeOnTheScreen();
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it('a send link still opens when no join is possible right now (the redeem has no session)', async () => {
+    signIn([]);
+    jest.mocked(redeemInvite).mockResolvedValue(null);
+    jest.mocked(previewLink).mockResolvedValue({ kind: 'send', count: 3, sender: 'ana' });
+    const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(true);
+    await renderTab();
+
+    await pasteAndOpen(LINK);
+
+    expect(open).toHaveBeenCalledWith(`http://localhost:8080/share/#t=${TOKEN}`);
+  });
+
+  it('a page that does not open never logs the token (the error names the URL)', async () => {
+    signIn([]);
+    jest.mocked(previewLink).mockResolvedValue({ kind: 'send', count: 3, sender: 'ana' });
+    jest.spyOn(Linking, 'openURL').mockRejectedValue(new Error(`Unable to open URL: http://localhost:8080/share/#t=${TOKEN}`));
+    await renderTab();
+
+    await pasteAndOpen(LINK);
+
+    expect(screen.getByText("Couldn't open the link. Try again.")).toBeOnTheScreen();
+    expect(JSON.stringify(warn.mock.calls)).not.toContain(TOKEN);
+  });
+
   it("a send link opens its page (shareBaseUrl()#t=<token>) and clears the field", async () => {
     signIn([]);
     jest.mocked(previewLink).mockResolvedValue({ kind: 'send', count: 3, sender: 'ana' });
@@ -1115,7 +1152,13 @@ describe('Inbox tab: Paste a link (S9-03)', () => {
 
   it.each([
     ['the redeem fails', () => jest.mocked(redeemInvite).mockRejectedValue(new Error('offline'))],
-    ['the redeem has no session', () => jest.mocked(redeemInvite).mockResolvedValue(null)],
+    [
+      'the redeem has no session and the link is a live invite',
+      () => {
+        jest.mocked(redeemInvite).mockResolvedValue(null);
+        jest.mocked(previewLink).mockResolvedValue({ kind: 'invite', listName: 'Downtown', inviter: 'ana' });
+      },
+    ],
     ['the preview fails', () => jest.mocked(previewLink).mockRejectedValue(new Error('offline'))],
     [
       'the page does not open',

@@ -261,10 +261,17 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
   const followLink = async (text: string, token: string): Promise<Notice | null> => {
     const liveList = (id: string) => useHitListsStore.getState().lists.find((l) => l.id === id && l.deleted_at === undefined);
     const before = new Map(useHitListsStore.getState().lists.map((l) => [l.id, l]));
+    // null: no join possible right now (the phone isn't this rider's yet); a send link still opens
+    let listId: string | null = null;
+    let inviteGone = false;
     try {
       // awaits the sync that brings the list
-      const listId = await redeemInvite(db, client, uid, text);
-      if (listId === null) return { text: OPEN_FAILED };
+      listId = await redeemInvite(db, client, uid, text);
+    } catch (err) {
+      if (!(err instanceof LinkGoneError)) throw err;
+      inviteGone = true;
+    }
+    if (listId !== null) {
       setPasted('');
       const had = before.get(listId);
       const name = liveList(listId)?.name ?? had?.name;
@@ -272,18 +279,22 @@ function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
         return { text: `${name} is already in your lists`, list: { id: listId, name: had.name } };
       }
       return { text: name ? `Joined ${name}` : 'Joined the list', list: { id: listId, name: name ?? 'the list' } };
-    } catch (err) {
-      if (!(err instanceof LinkGoneError)) throw err;
     }
     try {
       const preview = await previewLink(client, token);
       // a live invite the redeem calls gone is one this rider can't use
-      if (preview.kind !== 'send') return { text: LINK_GONE };
+      if (preview.kind !== 'send') return { text: inviteGone ? LINK_GONE : OPEN_FAILED };
     } catch (err) {
       if (err instanceof LinkGoneError) return { text: LINK_GONE };
       throw err;
     }
-    await Linking.openURL(linkUrl(shareBaseUrl(), token));
+    try {
+      await Linking.openURL(linkUrl(shareBaseUrl(), token));
+    } catch {
+      // never the error itself: its message holds the URL, and so the token
+      console.warn('[Inbox] the link’s page could not be opened');
+      return { text: OPEN_FAILED };
+    }
     setPasted('');
     return null;
   };

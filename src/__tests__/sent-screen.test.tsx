@@ -403,6 +403,17 @@ describe('Sent screen', () => {
       expect(screen.getByRole('button', { name: 'Revoke the link to 3 spots' })).toBeOnTheScreen();
     });
 
+    it('a revoke that withdrew the send but failed on the link re-reads the links, which then read Revoked', async () => {
+      signIn([], [ACTIVE]);
+      jest.mocked(revokeSentLink).mockRejectedValue(new Error('offline'));
+      await renderScreen();
+      jest.mocked(listSentLinks).mockResolvedValue([{ ...ACTIVE, status: 'revoked' }]);
+
+      await confirmRevoke();
+
+      expect(await screen.findByText('Link · 3 spots · Revoked')).toBeOnTheScreen();
+    });
+
     it('a revoke that finds no session (signed out meanwhile) alerts nothing and keeps the row Active', async () => {
       signIn([], [ACTIVE]);
       jest.mocked(revokeSentLink).mockResolvedValue(null);

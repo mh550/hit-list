@@ -220,7 +220,10 @@ export async function makeSendLink(
   const made = await createLinkSend(db, client, uid, send);
   if (!made) return null;
   try {
-    return await createSendLink(client, uid, made.sendId, send.expiry);
+    const url = await createSendLink(client, uid, made.sendId, send.expiry);
+    // the session ended in between: the send can't be withdrawn now either (account-delete removes its photos)
+    if (url === null) console.warn('[sends] a link-only send was left without a link:', made.sendId);
+    return url;
   } catch (err) {
     try {
       await withdrawSend(client, uid, { id: made.sendId, photoPaths: made.photoPaths });

@@ -11,6 +11,7 @@ import { ME, adoptPhoneFor } from './helpers/outbox';
 
 import { syncNow } from '@/src/sync/engine';
 import { redeemInvite } from '@/src/sync/join';
+import { NotAllowedError } from '@/src/sync/lists';
 import {
   createInviteLink,
   createSendLink,
@@ -101,6 +102,17 @@ describe('createSendLink', () => {
   it('throws the server error with its code', async () => {
     fake.failNext('rpc', { message: 'this send was withdrawn', code: '55000' }, 'create_link');
     await expect(createSendLink(client(), ME, SEND, '7d')).rejects.toMatchObject({ code: '55000' });
+  });
+
+  it('42501 is NotAllowedError while the session lasts, and null once it ended', async () => {
+    fake.failNext('rpc', { message: 'not the list owner', code: '42501' }, 'create_link');
+    await expect(createInviteLink(client(), ME, LIST, 'add')).rejects.toBeInstanceOf(NotAllowedError);
+
+    fake.rpcHandlers.create_link = () => {
+      fake.setSession(null);
+      return { data: null, error: { message: 'not signed in', code: '42501' } };
+    };
+    expect(await createSendLink(client(), ME, SEND, '7d')).toBeNull();
   });
 
   it('does nothing without a session for the rider', async () => {
@@ -195,6 +207,29 @@ describe('listMyLinks', () => {
     expect(links![1].expiresAt).toBeNull();
   });
 
+  it('reads the server’s timestamp shapes through toIso (Hermes’ Date.parse takes only ISO with Z)', async () => {
+    const parse = Date.parse;
+    const hermesParse = jest
+      .spyOn(Date, 'parse')
+      .mockImplementation((text: string) => (/^\d{4}-\d\d-\d\dT[\d:.]+Z$/.test(text) ? parse(text) : NaN));
+    try {
+      fake.rpcHandlers.list_my_links = () => ({
+        data: [
+          row({ id: 'expired', expires_at: '2020-10-22 09:00:00.123456+00' }),
+          row({ id: 'active', expires_at: '2999-10-22T09:00:00.123456+00:00' }),
+        ],
+        error: null,
+      });
+      const links = await listMyLinks(client(), ME, 'invite');
+      expect(links!.map((l) => [l.id, l.status, l.expiresAt])).toEqual([
+        ['expired', 'expired', '2020-10-22T09:00:00.123Z'],
+        ['active', 'active', '2999-10-22T09:00:00.123Z'],
+      ]);
+    } finally {
+      hermesParse.mockRestore();
+    }
+  });
+
   it('throws when the server can’t be read; null without a session', async () => {
     fake.failNext('rpc', { message: 'boom' }, 'list_my_links');
     await expect(listMyLinks(client(), ME, 'send')).rejects.toThrow('boom');
@@ -224,9 +259,15 @@ describe('previewLink', () => {
     expect(await previewLink(client(), 'tok')).toEqual({ kind: 'invite', listName: 'Downtown', inviter: 'ana' });
   });
 
-  it('a 404 is LinkGoneError; another failure is a plain error', async () => {
+  it('a 404 gone is LinkGoneError; another failure (a 404 without the gone body too) is a plain error', async () => {
     fake.invokeHandlers['share-preview'] = () => functionsHttpError(404, { error: 'gone' });
     await expect(previewLink(client(), 'tok')).rejects.toBeInstanceOf(LinkGoneError);
+
+    // the gateway's own 404: the function isn't deployed
+    fake.invokeHandlers['share-preview'] = () => functionsHttpError(404, { message: 'Function not found' });
+    const missing = previewLink(client(), 'tok');
+    await expect(missing).rejects.toThrow();
+    await expect(missing).rejects.not.toBeInstanceOf(LinkGoneError);
 
     fake.invokeHandlers['share-preview'] = () => functionsHttpError(500, { error: 'unavailable' });
     const failure = previewLink(client(), 'tok');

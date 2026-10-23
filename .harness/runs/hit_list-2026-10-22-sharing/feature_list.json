@@ -771,7 +771,7 @@
         "src/db/schema.ts exports MIGRATIONS of length 7 (spots gain copied_from_send and from_username; migrations 1–6 unchanged); db-migrate covers v6 → v7; getSpots returns from_username and the Spot type has copied_from_send?: string and from_username?: string; the detail screen shows 'From @ana' under the title when set (spot-detail.test.tsx).",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S7-03",

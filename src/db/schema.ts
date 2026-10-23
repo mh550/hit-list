@@ -428,6 +428,18 @@ async function migration6(db: SQLiteDatabase): Promise<void> {
   `);
 }
 
+/**
+ * Version 7: a received send (S7, docs/plans/2026-10-22-s7-send.md "Migration 7"). A spot saved from a friend's send
+ * remembers the send and the sender's frozen @username ('From @ana', D80). Both are written once by insertSpot; the
+ * migration 5 triggers name no columns, so they need no rebuild.
+ */
+async function migration7(db: SQLiteDatabase): Promise<void> {
+  await db.execAsync(`
+    ALTER TABLE spots ADD COLUMN copied_from_send TEXT;
+    ALTER TABLE spots ADD COLUMN from_username TEXT;
+  `);
+}
+
 /** MIGRATIONS[i] takes the DB from version i to i + 1. */
 export const MIGRATIONS: readonly Migration[] = [
   migration1,
@@ -436,6 +448,7 @@ export const MIGRATIONS: readonly Migration[] = [
   migration4,
   migration5,
   migration6,
+  migration7,
 ];
 export const LATEST_SCHEMA_VERSION = MIGRATIONS.length;
 

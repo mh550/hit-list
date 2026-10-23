@@ -142,6 +142,7 @@ export default function SpotDetailScreen() {
         />
 
         <Text style={styles.title}>{displayName}</Text>
+        {spot.from_username ? <Text style={styles.from}>{`From @${spot.from_username}`}</Text> : null}
 
         {hasTags ? (
           <ChipGroup>
@@ -191,6 +192,11 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: '700',
     color: palette.gray[900],
+  },
+  from: {
+    marginTop: -spacing.sm,
+    fontSize: 15,
+    color: palette.gray[500],
   },
   editButton: {
     fontSize: 17,

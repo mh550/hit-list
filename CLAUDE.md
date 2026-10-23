@@ -118,6 +118,8 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   owner of new spots/lists; `useSpotActions.setTown` keeps `updated_at`. Profile Sign out: last backup (10 s) →
   Keep / Remove / Cancel, or 'N changes aren't backed up yet' (Cancel / Sign out anyway).
   `profiles.ts` (migration 6, S6-02): `upsertProfiles`/`getProfiles`, the local mirror of friend names (D72).
+  Migration 7 (S7-02): `spots.copied_from_send`/`from_username` (a saved send's copy, 'From @ana' under the detail title),
+  written only by `insertSpot`, never by `updateSpot`.
   `hit-lists.ts` (migration 4): `insertHitList`, `getHitLists` (live only), `updateHitList`, `softDeleteHitList`,
   `addSpotsToList` (one `INSERT OR IGNORE … FROM json_each(?)`, idempotent; no `withTransactionAsync` for app writes: it is a
   plain BEGIN/COMMIT on the shared connection, so two writes at once collide), `removeSpotFromList`, `getListMemberships` (`{ spotId: listId[] }`, live lists).
@@ -143,7 +145,10 @@ for 0 rows); a pull keeps the local row on an `updated_at` tie while a change of
   photo-storage, reverse-geocode, spot-name (D4 label), map-region, import-clustering, nearby-spots (`nearbySpots`:
   live known-location spots within a radius, nearest first; `nearbyLabel` 'Near <name> · 16 ft'), area (`src/utils/area.ts`, S2:
   `RADIUS_STEPS_M` per unit in whole metres, `DEFAULT_AREA_RADIUS_M`, `spotsInCircle` (boundary inclusive, never
-  `NO_LOCATION`), `nearestStep`, `radiusLabel`/`areaLabel` 'Area · 2 mi of Capitol Hill', `circleRegion`, `keepsPlace`, `isAreaList` (the one "area list with a circle" guard)), gallery-gestures (the viewer's
+  `NO_LOCATION`), `nearestStep`, `radiusLabel`/`areaLabel` 'Area · 2 mi of Capitol Hill', `circleRegion`, `keepsPlace`, `isAreaList` (the one "area list with a circle" guard)), send-payload (`src/utils/send-payload.ts`, S7-02: `freezeSend` (frozen fields only, D40; photos primary first,
+  `captured_at` as the day, D46), `parseSendPayload(json, sendId)` (throws on a non-send, lenient on content, drops a
+  photo whose path isn't `sends/<sendId>/<uuid>.jpg`), `thawSend(payload, { sendId, uid, now, newId, spotIds })` → owned
+  spots + media drafts + downloads), gallery-gestures (the viewer's
   pure maths: `clampScale`, `toggleZoom`, `clampPan`, `pagingEnabled`, `shouldClose`, `focalZoom`, `pinchPan`, `doubleTapZoom`,
   `dragDown`), legacy-details (`formatLegacyDetails(legacy, units)` →
   labelled 'Older details' rows: fixed key order, lengths in the user's units, unknown keys humanised, never throws).

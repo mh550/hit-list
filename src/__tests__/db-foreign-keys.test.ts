@@ -74,7 +74,9 @@ describe('foreign keys', () => {
           legacy_json TEXT,
           primary_photo_id TEXT,
           owner_id TEXT,
-          rev INTEGER
+          rev INTEGER,
+          copied_from_send TEXT,
+          from_username TEXT
         );
         INSERT INTO spots_new SELECT * FROM spots;
         DROP TABLE spots;

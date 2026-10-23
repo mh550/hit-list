@@ -830,19 +830,30 @@ describe('migrateDb (PRAGMA user_version)', () => {
       await migrateDb(db, MIGRATIONS.slice(0, 5));
 
       expect(await getSchemaVersion(db)).toBe(5);
+      expect(await db.getAllAsync('PRAGMA foreign_key_check')).toEqual([]);
+      expect(await db.getFirstAsync('SELECT COUNT(*) AS n FROM sync_outbox')).toEqual({ n: 0 });
+      // today's readers select the later migrations' columns too
+      await migrateDb(db);
       expect((await getSpots(db)).map((s) => s.name).sort()).toEqual(['empty', 'full']);
       expect(await getSpot(db, full.id)).toMatchObject({ stopped: true, natural_speed: 3, notes: 'hello' });
       expect(await getSpotLegacy(db, full.id)).toEqual(V2_SPOTS.fullLegacy);
       expect(await getMediaForSpot(db, full.id)).toEqual([photo]);
-      expect(await db.getAllAsync('PRAGMA foreign_key_check')).toEqual([]);
-      expect(await db.getFirstAsync('SELECT COUNT(*) AS n FROM sync_outbox')).toEqual({ n: 0 });
     });
 
     it('migrating a v5 DB again changes nothing (rows, outbox and sync state stay)', async () => {
       const db = await v4Db();
       await migrateDb(db, MIGRATIONS.slice(0, 5));
       await db.runAsync("INSERT INTO sync_state (key, value) VALUES ('user_id', 'u1')");
-      await insertSpot(db, createTestSpot({ owner_id: 'u1' }));
+      const spot = createTestSpot();
+      await db.runAsync(
+        `INSERT INTO spots (id, latitude, longitude, created_at, updated_at, feature_types_json, stopped, owner_id)
+         VALUES (?, ?, ?, ?, ?, '[]', 0, 'u1')`,
+        spot.id,
+        spot.location.latitude,
+        spot.location.longitude,
+        spot.created_at,
+        spot.updated_at,
+      );
       const snapshot = async () => ({
         spots: await db.getAllAsync('SELECT * FROM spots'),
         outbox: await db.getAllAsync('SELECT * FROM sync_outbox'),

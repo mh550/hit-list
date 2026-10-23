@@ -19,10 +19,12 @@ interface SpotRow {
   notes: string | null;
   primary_photo_id: string | null;
   owner_id: string | null;
+  copied_from_send: string | null;
+  from_username: string | null;
 }
 
 const SPOT_COLUMNS =
-  'id, name, generated_name, latitude, longitude, created_at, updated_at, deleted_at, feature_types_json, stopped, natural_speed, notes, primary_photo_id, owner_id';
+  'id, name, generated_name, latitude, longitude, created_at, updated_at, deleted_at, feature_types_json, stopped, natural_speed, notes, primary_photo_id, owner_id, copied_from_send, from_username';
 
 /** Only the app writes this column, but one unreadable row must not take the whole list down with it. */
 function parseFeatureTypes(row: SpotRow): FeatureType[] {
@@ -52,14 +54,19 @@ function rowToSpot(row: SpotRow): Spot {
     notes: row.notes ?? undefined,
     primary_photo_id: row.primary_photo_id ?? undefined,
     owner_id: row.owner_id ?? undefined,
+    copied_from_send: row.copied_from_send ?? undefined,
+    from_username: row.from_username ?? undefined,
   };
 }
 
-/** An owned spot (owner_id = the phone's account) gets its outbox row from migration 5's trigger. */
+/**
+ * An owned spot (owner_id = the phone's account) gets its outbox row from migration 5's trigger. The send fields (S7)
+ * are written here only; updateSpot never changes them.
+ */
 export async function insertSpot(db: SQLiteDatabase, spot: Spot): Promise<void> {
   await db.runAsync(
     `INSERT INTO spots (${SPOT_COLUMNS})
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     spot.id,
     spot.name ?? null,
     spot.generated_name ?? null,
@@ -74,6 +81,8 @@ export async function insertSpot(db: SQLiteDatabase, spot: Spot): Promise<void> 
     spot.notes ?? null,
     spot.primary_photo_id ?? null,
     spot.owner_id ?? null,
+    spot.copied_from_send ?? null,
+    spot.from_username ?? null,
   );
 }
 

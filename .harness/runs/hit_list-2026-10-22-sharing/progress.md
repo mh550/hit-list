@@ -20,6 +20,14 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 07:00 · S7-02 · passes
+
+- New `src/utils/send-payload.ts` (`freezeSend`, `parseSendPayload(json, sendId)`, `thawSend(payload, { sendId, uid, now, newId, spotIds })`, `MAX_SEND_SPOTS` 100, `sendPhotoPath`); local migration 7 (`spots.copied_from_send`, `from_username`; `insertSpot`/`getSpots` carry them, `SpotUpdate` excludes them); detail shows 'From @ana' under the title. `photoRelativePath` now exported from photo-storage.
+- Tests 1495 → 1538: new `send-payload.test.ts` (36), migration 7 block in `db-migrate`, +2 `db-spots`, +2 `spot-detail`. RED commit `0f7e1eb` first (module not found + 6 failing). Two migration-5 tests and the `db-foreign-keys` rebuild helper changed because today's readers/columns now include migration 7's.
+- Verified: `check.sh` green (1538), `npx jest --ci` 0 `console.error` lines.
+- Next (S7-03): pull's spot upsert and push's `sendSpot` (`push.ts:203`) don't map the two columns yet (plan: S7-03 with the server migration); `saveSend` must drop photos whose download failed and reset `primary_photo_id` (thaw sets the first photo's new id).
+- Proposed changes: step 1 names `thawSend(payload, uid, now, newId)` positionally and lists the frozen fields without `id`; built to the plan's signature (needs `sendId`) and with the sender's spot `id` (for Pick spots), as the S7-01 plan's "Proposed changes" says.
+
 ### 2026-10-23 06:00 · S7-01 · passes
 
 - New `docs/plans/2026-10-22-s7-send.md`: Payload (`src/utils/send-payload.ts` v1, frozen fields only), Photo copy (copy each photo to `sends/<id>/` before `create_send`, client `newId()`, failure removes copies; server-side copy function rejected), Migration 7, Send sheet, Entry points, Inbox save flows, Sent, Copy table, integration design, RED test list per feature, Opus plan review (1 Critical, 6 Important: all folded in).

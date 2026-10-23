@@ -20,6 +20,50 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 · verify S4
+
+All 8 features hold (37 steps). Limit: the build-only policy forbids containers, so the integration suite was not re-run, only read.
+
+| Feature | Step | What you ran or read | What you saw | Holds |
+|---|---|---|---|---|
+| S4-01 | 1 | `package.json deps, `git log` chore commit 803a4fa, `npx expo export --platform ios` to scratch dir; plan line 42 on url-polyfill` | supabase-js, secure-store, async-storage present; own chore commit; export exit 0; polyfill not installed and the plan says why | yes |
+| S4-01 | 2 | `cat .env.example, .gitignore, `git ls-files '.env*'`` | both EXPO_PUBLIC_ keys empty plus status comment; .env, .env.*, !.env.example; only .env.example tracked | yes |
+| S4-01 | 3 | `headings of docs/plans/2026-10-22-s4-accounts.md; spec §2 D61-D63` | Client, Session storage (D61), Auth store, Screens, Profile, Sign out (D62), Delete account, Fake, Integration harness, Test list all present | yes |
+| S4-01 | 4 | `grep live-checklist for 100.88.90.97, .env.local, 54324` | lines 59-66 give the .env.local step with the Tailscale URL, start:tailscale and the Mailpit :54324 code | yes |
+| S4-01 | 5 | `check.sh: lint + tsc + jest` | green, 1069 tests | yes |
+| S4-02 | 1 | `npx jest --ci <the S4 suites> (157 tests, 10 suites) sync-client.test.ts` | 5/5; null when unset, one createClient with the options, AppState start/stop | yes |
+| S4-02 | 2 | `npx jest --ci <the S4 suites> (157 tests, 10 suites) session-storage.test.ts` | 15/15; 100-byte SecureStore only, 5000-byte encrypted into AsyncStorage, removeItem clears both, missing key null | yes |
+| S4-02 | 3 | `npx jest --ci <the S4 suites> (157 tests, 10 suites) auth-store.test.ts` | 18/18; unconfigured, signed_out, needs_username, signed_in, SIGNED_OUT, unsubscribe on unmount | yes |
+| S4-02 | 4 | `npx jest --ci <the S4 suites> (157 tests, 10 suites) root-layout.test.tsx` | 9/9; useAuthInit starts only once the DB is ready | yes |
+| S4-02 | 5 | `check.sh` | green | yes |
+| S4-03 | 1 | `npx jest --ci <the S4 suites> (157 tests, 10 suites) auth-sign-in.test.tsx; grep copy in app/auth/sign-in.tsx` | 13/13; heading, body copy, '@' gating, signInWithOtp with shouldCreateUser, in-place alert error | yes |
+| S4-03 | 2 | `npx jest --ci <the S4 suites> (157 tests, 10 suites) auth-code.test.tsx; grep code.tsx for number-pad, maxLength` | 15/15; copy, auto-verify, error copy, resend 'Sent', username route vs dismiss | yes |
+| S4-03 | 3 | `tests 'shows only Accounts aren't set up' in both files` | pass in both | yes |
+| S4-03 | 4 | `check.sh` | green | yes |
+| S4-04 | 1 | `npx jest --ci <the S4 suites> (157 tests, 10 suites) username.test.ts` | 15/15; normalize and all four error strings as written | yes |
+| S4-04 | 2 | `npx jest --ci <the S4 suites> (157 tests, 10 suites) auth-username.test.tsx; app/_layout.tsx:66` | 24/24 incl. 23505 'That username is taken'; headerBackVisible false and gestureEnabled false | yes |
+| S4-04 | 3 | `npx jest --ci <the S4 suites> (157 tests, 10 suites) tabs-layout.test.tsx` | 6/6; redirect on needs_username, none for signed_in | yes |
+| S4-04 | 4 | `check.sh` | green | yes |
+| S4-05 | 1 | `npx jest --ci <the S4 suites> (157 tests, 10 suites) profile.test.tsx (S4-05 block); grep copy in profile.tsx` | all states and copy strings found in source and asserted; Units and Import radius tests still pass | yes |
+| S4-05 | 2 | `profile.test 'Sign out signs out ... no Keep/Remove prompt'` | passes | yes |
+| S4-05 | 3 | `profile.test delete cases; grep alert copy in profile.tsx` | alert copy exact; Delete invokes account-delete then signs out; error copy shown and no sign out | yes |
+| S4-05 | 4 | `read supabase/functions/account-delete and integration 401 cases; ls _shared/cors.ts` | function and cors exist; 401 without JWT, uid from getUser only (plan records the deno check) | yes |
+| S4-05 | 5 | `check.sh` | green | yes |
+| S4-06 | 1 | `ls config/script; scripts/supabase-env.mjs; package.json testPathIgnorePatterns` | files exist; exit(2) with 'Start the stack first: npm run db:start'; script matches; __integration__ ignored by default jest | yes |
+| S4-06 | 2 | `read src/__integration__/helpers.ts` | createRider/deleteRider; generateLink magiclink -> email_otp -> verifyOtp; types.d.ts cited | yes |
+| S4-06 | 3 | `read accounts.test.ts (not run: build-only policy forbids starting containers); record says 17 passed` | cases cover distinct ids, session, signOut+new OTP, 23505, account-delete ok:true, getUserById, find_profile; live run not repeated | yes |
+| S4-06 | 4 | ``docker ps -a` supabase_ count; record in what-michael-will-see` | 0 supabase_ containers left; the db:reset/test:db/integration pass is from the record, not rerun | yes |
+| S4-06 | 5 | `check.sh` | green | yes |
+| S4-07 | 1 | `read docs/plans/2026-10-22-s4-what-michael-will-see.md` | covers Profile three states, sign-in, code, username screens | yes |
+| S4-07 | 2 | `same file lines 51-61` | What to tap, Mailpit :54324, Delete account behaviour | yes |
+| S4-07 | 3 | `same file lines 64-68` | jest counts, integration 17 passed, export exit 0 5.0 MB (my own export also exit 0) | yes |
+| S4-07 | 4 | `check.sh` | green | yes |
+| S4-08 | 1 | `ls reviews/s4.diff (3918 lines); Review (S4-08) section of the plan` | diff exists; findings with severity, file:line, RED/GREEN commits | yes |
+| S4-08 | 2 | ``git grep eyJ` and `git ls-files '.env*'`; plan answers 1-6; sync tests` | grep hits only the harness feature_list copy of the command (self-referential, noted in progress); only .env.example tracked; six answers backed by tests | yes |
+| S4-08 | 3 | `git log for refactor:` | f47c502 refactor: S4 simplification pass | yes |
+| S4-08 | 4 | `grep CLAUDE.md, README.md, docs/RUNNING-ON-PHONE.md` | Layout, test:integration, Accounts-optional and .env rules present; README Accounts (S4) bullet; RUNNING-ON-PHONE section | yes |
+| S4-08 | 5 | `check.sh` | green | yes |
+
 ### 2026-10-23 07:40 · S4-08 · passes
 
 - Opus review of the whole S4 diff (`reviews/s4.diff`, 3918 lines): 0 Critical, 1 Important fixed: the username screen had no way out (no back, no swipe, tabs redirect back) → ghost `Sign out` (D64 *default*). Minors fixed: signed out on a launch-redirected username screen left a stack with no tabs (→ `Back to Profile`, dismissTo/replace); JSON/parse-error/empty `signInWithOtp` messages → fixed copy. RED `f42b395` (8 fail) → GREEN `df32e18`. Left (in the plan): delete that timed out but worked gets 401 on retry, offline-expired launch shows signed out until refresh, two tiny races.

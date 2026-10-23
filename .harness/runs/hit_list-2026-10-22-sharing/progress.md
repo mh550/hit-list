@@ -20,6 +20,13 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 20:10 · S8-08 · passes
+
+- New `docs/plans/2026-10-22-s8-what-michael-will-see.md`: renders from scratch (temporary Jest test, deleted) of the Share sheet (D34 sentence), list screen actions + member strip, members screen as owner/member with the Leave and Stop sharing alerts, Lists tab (shared badge, 'Shared with me'), Add-to-list sheet (shared/view-only/area), first-add alert, a foreign spot's detail, Inbox invitation. 'What to tap' for two riders.
+- Verified: `npx jest --ci` 103 suites, 1924 tests (unchanged), 0 console.error; `npx expo export` exit 0, 5,429,837 bytes; check.sh green. Integration count (5 suites, 54) is carried from S8-07: I did not restart the stack this session.
+- Surprise: a member's view of another rider's spot reads 'A friend' until the owner's name is mirrored.
+- Next: S8 is done; next milestone is S9. No questions. Proposed change: none.
+
 ### 2026-10-23 19:10 · S8-07 · passes
 
 - New `src/__integration__/shared-list.test.ts` (10 cases, riders A/B/C, three node:sqlite phones). B and C get invites (5 spots) and join. B sees L in `selectSharedWithMe` with 5 foreign spots, and a cached photo has the fixture's bytes. A's 6th spot, and an old spot filed into L, reach B. B's add pushes. C's view-only add is parked ('not a member who can add to this list', 42501). B leaves: no L, none of A's spots, cache gone, download refused. D43 shows on A and C. Stop sharing clears C. Also covered: removeMember and an unfriended invitation. pgTAP 110 gains the owner-blocks-invitee case (S8-02 review #9).

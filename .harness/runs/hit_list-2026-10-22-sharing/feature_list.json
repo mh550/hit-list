@@ -977,7 +977,7 @@
       "after": [
         "S8-07"
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S8-09",

@@ -681,6 +681,12 @@ describe("List screen: 'Share list' and the member strip (S8-04)", () => {
       expect(screen.getByText('one-time copy of 1 spot')).toBeTruthy();
     });
 
+    it("a joined list whose shared flag hasn't arrived still has the strip, so Members (Leave) is reachable (S8-09 review)", () => {
+      setList({ ...anas, shared: false }, [mineIn, hers]);
+      renderList();
+      expect(screen.getByRole('button', { name: '3 in this list. Show members' })).toBeTruthy();
+    });
+
     it("long press offers 'Remove from list' on my own spot only", () => {
       const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
       setList(anas, [mineIn, hers]);

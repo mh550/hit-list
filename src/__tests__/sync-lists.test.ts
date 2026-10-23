@@ -336,6 +336,19 @@ describe('leave', () => {
     expect(await ids('spots')).toEqual(['ana-1', 'ana-2', 'mine']);
     expect(fakeFs.__fileExists(`${CACHE}photos/ana-1/ana-1-photo.jpg`)).toBe(true);
   });
+
+  it('removes the rows in one transaction: a failure partway leaves every row and cached photo (S8-09)', async () => {
+    // the list goes first, the spots last: a spot delete that fails must bring the list back
+    await db.execAsync("CREATE TRIGGER fail_spot_delete BEFORE DELETE ON spots BEGIN SELECT RAISE(ABORT, 'disk full'); END");
+
+    await expect(leave(db, client(), ME, 'list-1')).rejects.toThrow('disk full');
+
+    expect(await ids('hit_lists')).toEqual(['list-1', 'list-2']);
+    expect(await memberships()).toEqual(['list-1/ana-1', 'list-1/ana-2', 'list-1/mine', 'list-2/ana-2']);
+    expect(await ids('hit_list_members', "list_id || '/' || user_id")).toHaveLength(3);
+    expect(await ids('spots')).toEqual(['ana-1', 'ana-2', 'mine']);
+    expect(fakeFs.__fileExists(`${CACHE}photos/ana-1/ana-1-photo.jpg`)).toBe(true);
+  });
 });
 
 describe('stopSharing', () => {

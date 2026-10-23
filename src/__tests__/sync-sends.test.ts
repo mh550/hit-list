@@ -14,7 +14,11 @@ import { upsertProfiles } from '@/src/db/profiles';
 import { clearOutbox, enqueue } from '@/src/db/sync';
 import {
   NotBackedUpError,
+  createLinkSend,
   createSend,
+  listSentLinks,
+  makeSendLink,
+  revokeSentLink,
   dismissSend,
   hasPendingSave,
   listSent,
@@ -875,5 +879,181 @@ describe('listSent', () => {
     await expect(listSent(db, client(), ME)).rejects.toThrow('offline');
     fake.setSession(null);
     expect(await listSent(db, client(), ME)).toBeNull();
+  });
+});
+
+describe('link sends (S9, D94)', () => {
+  it('createLinkSend copies the photos, then makes one create_send with no recipient', async () => {
+    const one = await backedUpSpot('Library rail', 2);
+
+    const made = await createLinkSend(db, client(), ME, { spotIds: [one.spot.id, one.spot.id], sender: SENDER });
+
+    expect(kinds()).toEqual(['copy', 'copy', 'rpc create_send']);
+    const [args] = rpcArgs('create_send');
+    expect(args.p_recipient).toBeNull();
+    expect(made).toEqual({
+      sendId: args.p_id,
+      photoPaths: one.media.map((m) => `sends/${String(args.p_id)}/${m.id}.jpg`),
+    });
+  });
+
+  it('createLinkSend throws on a spot not backed up, and on a failed create_send (removing its copies)', async () => {
+    const one = await backedUpSpot('One');
+    await enqueue(db, 'spot', one.spot.id, 'upsert');
+    await expect(createLinkSend(db, client(), ME, { spotIds: [one.spot.id], sender: SENDER })).rejects.toBeInstanceOf(
+      NotBackedUpError,
+    );
+    expect(fake.calls).toEqual([]);
+
+    await clearOutbox(db);
+    fake.failNext('rpc', { message: 'boom' }, 'create_send');
+    await expect(createLinkSend(db, client(), ME, { spotIds: [one.spot.id], sender: SENDER })).rejects.toThrow('boom');
+    expect(kinds()).toEqual(['copy', 'rpc create_send', 'remove']);
+  });
+
+  it('createLinkSend is null without a session', async () => {
+    const one = await backedUpSpot('One');
+    fake.setSession(null);
+    expect(await createLinkSend(db, client(), ME, { spotIds: [one.spot.id], sender: SENDER })).toBeNull();
+    expect(fake.calls).toEqual([]);
+  });
+
+  it('makeSendLink makes the link-only send, then its link with the expiry, and returns the URL', async () => {
+    const one = await backedUpSpot('One');
+
+    const url = await makeSendLink(db, client(), ME, { spotIds: [one.spot.id], sender: SENDER, expiry: '30d' });
+
+    expect(kinds()).toEqual(['copy', 'rpc create_send', 'rpc create_link']);
+    const [link] = rpcArgs('create_link');
+    expect(link).toMatchObject({ p_kind: 'send', p_target: rpcArgs('create_send')[0].p_id });
+    expect(url).toMatch(/#t=[A-Za-z0-9_-]{22}$/);
+  });
+
+  it('makeSendLink withdraws the send (and its photos) when the link can’t be made, then throws', async () => {
+    const one = await backedUpSpot('One');
+    fake.failNext('rpc', { message: 'boom' }, 'create_link');
+
+    await expect(
+      makeSendLink(db, client(), ME, { spotIds: [one.spot.id], sender: SENDER, expiry: '7d' }),
+    ).rejects.toThrow('boom');
+    expect(kinds()).toEqual(['copy', 'rpc create_send', 'rpc create_link', 'rpc withdraw_send', 'remove']);
+    expect(rpcArgs('withdraw_send')).toEqual([{ p_id: rpcArgs('create_send')[0].p_id }]);
+  });
+
+  describe('listSentLinks and revokeSentLink', () => {
+    const LINK_SEND = '00000000-0000-4000-8000-000000000701';
+    const OLD_SEND = '00000000-0000-4000-8000-000000000702';
+    const GONE_SEND = '00000000-0000-4000-8000-000000000703';
+    const future = () => new Date(Date.now() + 864e5).toISOString();
+    const past = () => new Date(Date.now() - 1000).toISOString();
+    const link = (id: string, sendId: string, over: Record<string, unknown> = {}) => ({
+      id,
+      kind: 'send',
+      send_id: sendId,
+      list_id: null,
+      role: null,
+      created_at: '2026-10-22T10:00:00+00:00',
+      expires_at: future(),
+      revoked_at: null,
+      used_at: null,
+      used_by: null,
+      used_by_username: null,
+      ...over,
+    });
+
+    beforeEach(() => {
+      const send = (id: string, row: Record<string, unknown> = {}) =>
+        fake.tables.sends.push({
+          id,
+          sender: ME,
+          recipient: null,
+          payload: payloadFor(id),
+          created_at: '2026-10-22 09:00:00+00',
+          saved_at: null,
+          dismissed_at: null,
+          withdrawn_at: null,
+          ...row,
+        });
+      send(LINK_SEND);
+      send(OLD_SEND);
+      send(GONE_SEND, { withdrawn_at: '2026-10-22 11:00:00+00' });
+      // a send to a friend has no link row
+      send('00000000-0000-4000-8000-000000000704', { recipient: ANA });
+    });
+
+    it('pairs each send link with its link-only send: count, status, expiry, photos; newest first as listed', async () => {
+      fake.rpcHandlers.list_my_links = () => ({
+        data: [
+          link('link-active', LINK_SEND),
+          link('link-expired', OLD_SEND, { expires_at: past() }),
+          link('link-revoked', LINK_SEND, { revoked_at: past() }),
+          link('link-never', LINK_SEND, { expires_at: null }),
+        ],
+        error: null,
+      });
+
+      const links = await listSentLinks(client(), ME);
+
+      expect(rpcArgs('list_my_links')).toEqual([{ p_kind: 'send' }]);
+      expect(links?.map((l) => [l.id, l.status, l.count])).toEqual([
+        ['link-active', 'active', 2],
+        ['link-expired', 'expired', 2],
+        ['link-revoked', 'revoked', 2],
+        ['link-never', 'active', 2],
+      ]);
+      expect(links?.[0]).toMatchObject({
+        sendId: LINK_SEND,
+        createdAt: '2026-10-22T10:00:00.000Z',
+        photoPaths: [PHOTO_A1, PHOTO_A2, PHOTO_B1].map((p) => `sends/${LINK_SEND}/${p}.jpg`),
+      });
+      expect(links?.[3].expiresAt).toBeNull();
+      const select = fake.selects.find((s) => s.table === 'sends');
+      expect(select?.filters).toEqual(expect.arrayContaining([['eq', 'sender', ME], ['is', 'recipient', null]]));
+    });
+
+    it('a link whose send was withdrawn reads revoked and its revoke is retried quietly', async () => {
+      fake.rpcHandlers.list_my_links = () => ({ data: [link('link-half', GONE_SEND)], error: null });
+
+      const links = await listSentLinks(client(), ME);
+
+      expect(links?.map((l) => l.status)).toEqual(['revoked']);
+      await new Promise((done) => setImmediate(done));
+      expect(rpcArgs('revoke_link')).toEqual([{ p_id: 'link-half' }]);
+    });
+
+    it('a link whose send the rider can’t read is left out', async () => {
+      fake.rpcHandlers.list_my_links = () => ({
+        data: [link('link-x', '00000000-0000-4000-8000-000000000799'), link('link-active', LINK_SEND)],
+        error: null,
+      });
+      expect((await listSentLinks(client(), ME))?.map((l) => l.id)).toEqual(['link-active']);
+    });
+
+    it('is null without a session; throws when the server can’t be read', async () => {
+      fake.failNext('rpc', { message: 'offline' }, 'list_my_links');
+      await expect(listSentLinks(client(), ME)).rejects.toThrow('offline');
+      fake.setSession(null);
+      expect(await listSentLinks(client(), ME)).toBeNull();
+    });
+
+    it('revokeSentLink withdraws the link-only send (removing its photos) first, then revokes the link (D93)', async () => {
+      const paths = [`sends/${LINK_SEND}/${PHOTO_A1}.jpg`];
+
+      expect(await revokeSentLink(client(), ME, { id: 'link-active', sendId: LINK_SEND, photoPaths: paths })).toBe(true);
+
+      expect(kinds()).toEqual(['rpc withdraw_send', 'remove', 'rpc revoke_link']);
+      expect(rpcArgs('withdraw_send')).toEqual([{ p_id: LINK_SEND }]);
+      expect(rpcArgs('revoke_link')).toEqual([{ p_id: 'link-active' }]);
+    });
+
+    it('revokeSentLink throws when the withdraw fails, and calls nothing without a session', async () => {
+      fake.failNext('rpc', { message: 'boom' }, 'withdraw_send');
+      await expect(
+        revokeSentLink(client(), ME, { id: 'link-active', sendId: LINK_SEND, photoPaths: [] }),
+      ).rejects.toThrow('boom');
+      expect(rpcArgs('revoke_link')).toEqual([]);
+      fake.setSession(null);
+      expect(await revokeSentLink(client(), ME, { id: 'link-active', sendId: LINK_SEND, photoPaths: [] })).toBeNull();
+    });
   });
 });

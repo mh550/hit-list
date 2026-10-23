@@ -6,6 +6,13 @@ jest.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light', Medium: 'medium', Heavy: 'heavy' },
 }));
 
+// expo-clipboard is native (build/Clipboard.d.ts: setStringAsync(text, options?) → Promise<boolean>); a test reads
+// what was copied from the mock's calls.
+jest.mock('expo-clipboard', () => ({
+  setStringAsync: jest.fn(async (_text: string) => true),
+  getStringAsync: jest.fn(async () => ''),
+}));
+
 // Mock expo-router
 // useRouter / useLocalSearchParams are jest.fn so a test can override them with
 // jest.mocked(useLocalSearchParams).mockReturnValue(...).
@@ -114,6 +121,15 @@ jest.mock('expo-crypto', () => {
     randomUUID: jest.fn(() => nodeCrypto.randomUUID()),
     getRandomValues: jest.fn((array: Uint8Array<ArrayBuffer>) => nodeCrypto.getRandomValues(array)),
     getRandomBytes: jest.fn((byteCount: number) => new Uint8Array(nodeCrypto.randomBytes(byteCount))),
+    // Crypto.types.d.ts: the digest of the UTF-8 string, hex (the default) or base64 per options.encoding.
+    CryptoDigestAlgorithm: { SHA1: 'SHA-1', SHA256: 'SHA-256', SHA384: 'SHA-384', SHA512: 'SHA-512', MD5: 'MD5' },
+    CryptoEncoding: { HEX: 'hex', BASE64: 'base64' },
+    digestStringAsync: jest.fn(async (algorithm: string, data: string, options?: { encoding: 'hex' | 'base64' }) =>
+      nodeCrypto
+        .createHash(algorithm.replace('-', '').toLowerCase())
+        .update(data, 'utf8')
+        .digest(options?.encoding ?? 'hex'),
+    ),
     // AES-GCM (expo-crypto/build/aes/index.d.ts, ExpoCryptoAES.d.ts): a string input is base64;
     // combined = iv (12) ‖ ciphertext ‖ tag (16), the native default.
     ...mockAes(nodeCrypto),

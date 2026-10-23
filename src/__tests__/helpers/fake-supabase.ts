@@ -23,7 +23,8 @@
 // Every upsert, update, delete, upload, copy, remove and rpc is logged in `calls`, in the order the app awaited them (the push
 // and send tests read the order there). Selects answer from `tables`, `profiles` from the `profiles` map (filters, order and limit applied;
 // each select logged in `selects`); `readableProfiles` (a set of ids, null = all) mimics the profiles RLS. rpc calls
-// are logged in `rpcs` and answered by `rpcHandlers[fn]` (no handler: { data: null, error: null }); storage downloads
+// are logged in `rpcs` and answered by `rpcHandlers[fn]` (no handler: { data: null, error: null }); functions.invoke is
+// logged in `invokes` and answered by `invokeHandlers[name]` (`functionsHttpError(404, body)` for a non-2xx); storage downloads
 // answer from `objects`. An update on a table other than `profiles` changes the matching rows of `tables[table]`
 // (`.select(cols)` answers them; `updateAnswers[table]` overrides what it answers, e.g. [] for RLS hiding the row).
 import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
@@ -79,6 +80,26 @@ export interface FakeRpc {
   args: Record<string, unknown> | undefined;
 }
 
+type InvokeOptions = { body?: unknown; method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'; headers?: Record<string, string> };
+type InvokeResult = { data: unknown; error: unknown };
+/** One functions.invoke call, as the app made it. */
+export interface FakeInvoke {
+  name: string;
+  options?: InvokeOptions;
+}
+
+/**
+ * What functions.invoke answers for a non-2xx status (functions-js types.d.ts: a FunctionsHttpError whose `context` is
+ * the Response: `status`, `json()`).
+ */
+export function functionsHttpError(status: number, body: unknown): InvokeResult {
+  const error = Object.assign(new Error('Edge Function returned a non-2xx status code'), {
+    name: 'FunctionsHttpError',
+    context: { status, json: async () => body },
+  });
+  return { data: null, error };
+}
+
 export function fakeSession({ userId = 'user-ana', email = 'ana@example.com' } = {}): Session {
   return {
     access_token: `access-${userId}`,
@@ -106,6 +127,9 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
   const selects: FakeSelect[] = [];
   const rpcs: FakeRpc[] = [];
   const rpcHandlers: Record<string, (args: Record<string, unknown> | undefined) => RpcResult> = {};
+  const invokes: FakeInvoke[] = [];
+  /** Answers by function name (before any `?`); no handler: { data: { ok: true } }. */
+  const invokeHandlers: Record<string, (name: string, options?: InvokeOptions) => InvokeResult> = {};
   /** The server's rows per table (not `profiles`), as PostgREST returns them. */
   const tables: Record<string, Row[]> = {};
   /** Storage objects by `<bucket>/<path>`. */
@@ -398,10 +422,12 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
       })),
     },
     functions: {
-      invoke: jest.fn(async (_name: string, _options?: { body?: unknown }) => {
+      invoke: jest.fn(async (name: string, options?: InvokeOptions): Promise<InvokeResult> => {
+        invokes.push({ name, options });
         const error = takeFailure('invoke');
         if (error) return { data: null, error };
-        return { data: { ok: true }, error: null };
+        // the handler of the function's name; a query string (`share-preview?t=…`) is the handler's to read
+        return invokeHandlers[name.split('?')[0]]?.(name, options) ?? { data: { ok: true }, error: null };
       }),
     },
 
@@ -411,6 +437,8 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
     selects,
     rpcs,
     rpcHandlers,
+    invokes,
+    invokeHandlers,
     tables,
     updateAnswers,
     /** The profile ids this session may read (the profiles RLS); null = every profile. */

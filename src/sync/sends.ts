@@ -18,6 +18,7 @@ import { maySync, signedInAs } from './account';
 import { errorMessage, serverError } from './errors';
 import { createTickets } from './tickets';
 import { readProfiles } from './friends';
+import { createSendLink, listMyLinks, revokeLink, type LinkExpiry } from './links';
 import { blobBytes, defaultPhotoIO, PHOTOS_BUCKET, storagePath, type PhotoIO } from './photos';
 import { runExclusive } from './queue';
 import { reloadStoresQuietly } from './reload';
@@ -110,57 +111,124 @@ export async function createSend(
   uid: string,
   send: { spotIds: string[]; recipientIds: string[]; sender: SendSender },
 ): Promise<SendResult | null> {
-  // a spot or friend given twice goes once (a second copy of a photo would collide in Storage)
-  const spotIds = [...new Set(send.spotIds)];
+  const spotIds = sendSpotIds(send.spotIds);
+  // a friend given twice gets one send
   const recipientIds = [...new Set(send.recipientIds)];
   const { sender } = send;
-  if (spotIds.length === 0) throw new Error('a send needs at least one spot');
-  if (spotIds.length > MAX_SEND_SPOTS) throw new Error(`a send has at most ${MAX_SEND_SPOTS} spots`);
   if (recipientIds.length === 0) throw new Error('a send needs at least one friend');
   if (!(await signedInAs(client, uid))) return null;
 
-  const spots = await readySpots(db, uid, spotIds);
-  const mediaBySpot = Object.fromEntries(
-    await Promise.all(spots.map(async (spot) => [spot.id, await getMediaForSpot(db, spot.id)] as const)),
-  );
+  const { spots, mediaBySpot } = await sendContents(db, uid, spotIds);
   const recipients = await friendProfiles(db, recipientIds);
-  const bucket = client.storage.from(PHOTOS_BUCKET);
   const result: SendResult = { sentTo: [] };
 
   for (const to of recipients) {
-    const sendId = newId();
-    const payload = freezeSend({ sendId, sender, spots, mediaBySpot });
-    const copied: string[] = [];
-    let failure: string | null = null;
-    try {
-      for (const spot of payload.spots) {
-        for (const photo of spot.photos) {
-          const { error } = await bucket.copy(storagePath(uid, { id: photo.media_id, spot_id: spot.id }), photo.path);
-          if (error) throw serverError(error);
-          copied.push(photo.path);
-        }
-      }
-    } catch (err) {
-      failure = errorMessage(err);
-      await removeObjects(client, copied);
-    }
-    if (failure === null) {
-      const { error } = await client.rpc('create_send', { p_id: sendId, p_recipient: to.id, p_payload: payload });
-      // a lost answer after the send went in: it is sent, and its photos must stay
-      const exists = error ? await sendExists(client, sendId) : true;
-      if (!exists) {
-        failure = error!.message;
-        // unknown: leave the copies (account-delete sweeps staged ones) rather than empty a send that may exist
-        if (exists === false) await removeObjects(client, copied);
-      }
-    }
-    if (failure !== null) {
-      console.warn('[sends] sending failed:', failure);
-      return { ...result, failed: { to, message: failure } };
+    const sent = await sendOnce(client, uid, { sender, spots, mediaBySpot }, to.id);
+    if ('failure' in sent) {
+      console.warn('[sends] sending failed:', sent.failure);
+      return { ...result, failed: { to, message: sent.failure } };
     }
     result.sentTo.push(to);
   }
   return result;
+}
+
+/** The checks every send makes before any call: 1–100 spots, each given once. */
+function sendSpotIds(spotIds: string[]): string[] {
+  // a spot given twice goes once (a second copy of a photo would collide in Storage)
+  const ids = [...new Set(spotIds)];
+  if (ids.length === 0) throw new Error('a send needs at least one spot');
+  if (ids.length > MAX_SEND_SPOTS) throw new Error(`a send has at most ${MAX_SEND_SPOTS} spots`);
+  return ids;
+}
+
+/**
+ * One send of `spots` to `recipient` (null: a link-only send, S9): a new send id, every photo copied server-side to
+ * sends/<id>/ (D77), then create_send. A failure removes that send's copies when the send surely isn't there.
+ */
+async function sendOnce(
+  client: SupabaseClient,
+  uid: string,
+  { sender, spots, mediaBySpot }: { sender: SendSender; spots: Spot[]; mediaBySpot: Record<string, Media[]> },
+  recipient: string | null,
+): Promise<{ sendId: string; photoPaths: string[] } | { failure: string }> {
+  const bucket = client.storage.from(PHOTOS_BUCKET);
+  const sendId = newId();
+  const payload = freezeSend({ sendId, sender, spots, mediaBySpot });
+  const copied: string[] = [];
+  try {
+    for (const spot of payload.spots) {
+      for (const photo of spot.photos) {
+        const { error } = await bucket.copy(storagePath(uid, { id: photo.media_id, spot_id: spot.id }), photo.path);
+        if (error) throw serverError(error);
+        copied.push(photo.path);
+      }
+    }
+  } catch (err) {
+    await removeObjects(client, copied);
+    return { failure: errorMessage(err) };
+  }
+  const { error } = await client.rpc('create_send', { p_id: sendId, p_recipient: recipient, p_payload: payload });
+  // a lost answer after the send went in: it is sent, and its photos must stay
+  const exists = error ? await sendExists(client, sendId) : true;
+  if (!exists) {
+    // unknown: leave the copies (account-delete sweeps staged ones) rather than empty a send that may exist
+    if (exists === false) await removeObjects(client, copied);
+    return { failure: error!.message };
+  }
+  return { sendId, photoPaths: copied };
+}
+
+/** The rider's spots for a send and their photos, re-read from SQLite (D78: NotBackedUpError otherwise). */
+async function sendContents(db: SQLiteDatabase, uid: string, spotIds: string[]) {
+  const spots = await readySpots(db, uid, spotIds);
+  const mediaBySpot = Object.fromEntries(
+    await Promise.all(spots.map(async (spot) => [spot.id, await getMediaForSpot(db, spot.id)] as const)),
+  );
+  return { spots, mediaBySpot };
+}
+
+/**
+ * A link-only send (S9, D94 *default*): one send of `spotIds` to nobody (recipient null), its photos under
+ * sends/<id>/, for a link made next. The same checks as createSend; throws on any failure (there is no friend to
+ * name). Null without a session for `uid`.
+ */
+export async function createLinkSend(
+  db: SQLiteDatabase,
+  client: SupabaseClient,
+  uid: string,
+  send: { spotIds: string[]; sender: SendSender },
+): Promise<{ sendId: string; photoPaths: string[] } | null> {
+  const spotIds = sendSpotIds(send.spotIds);
+  if (!(await signedInAs(client, uid))) return null;
+  const contents = await sendContents(db, uid, spotIds);
+  const sent = await sendOnce(client, uid, { sender: send.sender, ...contents }, null);
+  if ('failure' in sent) throw new Error(sent.failure);
+  return sent;
+}
+
+/**
+ * Copy link (S9): a link-only send of `spotIds`, then its link expiring after `expiry`. The link's URL; when the link
+ * can't be made the send is withdrawn again (best effort) and the error thrown. Null without a session.
+ */
+export async function makeSendLink(
+  db: SQLiteDatabase,
+  client: SupabaseClient,
+  uid: string,
+  send: { spotIds: string[]; sender: SendSender; expiry: LinkExpiry },
+): Promise<string | null> {
+  const made = await createLinkSend(db, client, uid, send);
+  if (!made) return null;
+  try {
+    return await createSendLink(client, uid, made.sendId, send.expiry);
+  } catch (err) {
+    try {
+      await withdrawSend(client, uid, { id: made.sendId, photoPaths: made.photoPaths });
+    } catch (cleanup) {
+      console.warn('[sends] withdrawing a send whose link failed:', errorMessage(cleanup));
+    }
+    throw err;
+  }
 }
 
 /** Whether the sender's own send `id` is on the server; null when that can't be read. */
@@ -524,7 +592,7 @@ function payloadPhotoPaths(row: SendRow): { count: number; photoPaths: string[] 
 }
 
 /**
- * The rider's sends to friends (link sends are S9), newest first, each with its friend (the server's profile, then
+ * The rider's sends to friends (link sends: listSentLinks), newest first, each with its friend (the server's profile, then
  * the phone's mirror, else nameless), spot count and status. Null without a session for `uid`; throws when the server
  * can't be read.
  */
@@ -550,4 +618,66 @@ export async function listSent(db: SQLiteDatabase, client: SupabaseClient, uid: 
       created_at: serverTime(row.created_at),
     }))
     .sort(newestFirst);
+}
+
+/** One send link the rider made, for the Sent screen's Links (D94: a link-only send each). */
+export interface SentLink {
+  /** the link's id */
+  id: string;
+  sendId: string;
+  count: number;
+  /** a link whose send was withdrawn reads 'revoked' (D93) */
+  status: 'active' | 'expired' | 'revoked';
+  createdAt: string;
+  /** null = never */
+  expiresAt: string | null;
+  /** the send's photo objects, removed on Revoke */
+  photoPaths: string[];
+}
+
+/**
+ * The rider's send links, newest first, each with its link-only send's spot count and photos. A link whose send is
+ * withdrawn but whose revoke didn't go through reads 'revoked', and the revoke is retried in the background. A link
+ * whose send can't be read is left out. Null without a session; throws when the server can't be read.
+ */
+export async function listSentLinks(client: SupabaseClient, uid: string): Promise<SentLink[] | null> {
+  const links = await listMyLinks(client, uid, 'send');
+  if (!links) return null;
+  const sends = new Map(
+    (await readSends(client, (q) => q.eq('sender', uid).is('recipient', null))).map((row) => [row.id, row]),
+  );
+  const result: SentLink[] = [];
+  for (const link of links) {
+    const send = link.sendId ? sends.get(link.sendId) : undefined;
+    if (!send) continue;
+    const halfRevoked = send.withdrawn_at !== null && link.status !== 'revoked';
+    if (halfRevoked) {
+      revokeLink(client, uid, link.id).catch((err: unknown) =>
+        console.warn('[sends] revoking a withdrawn send’s link failed:', errorMessage(err)),
+      );
+    }
+    result.push({
+      id: link.id,
+      sendId: send.id,
+      ...payloadPhotoPaths(send),
+      status: halfRevoked || link.status === 'revoked' ? 'revoked' : link.status === 'expired' ? 'expired' : 'active',
+      createdAt: link.createdAt,
+      expiresAt: link.expiresAt,
+    });
+  }
+  return result;
+}
+
+/**
+ * Revoke a send link (D93 *default*): its link-only send is withdrawn first (the preview hides a withdrawn send, so
+ * the link is dead from there; its photos go), then the link is revoked. Throws when either fails; null without a
+ * session.
+ */
+export async function revokeSentLink(
+  client: SupabaseClient,
+  uid: string,
+  link: Pick<SentLink, 'id' | 'sendId' | 'photoPaths'>,
+): Promise<true | null> {
+  if ((await withdrawSend(client, uid, { id: link.sendId, photoPaths: link.photoPaths })) === null) return null;
+  return revokeLink(client, uid, link.id);
 }

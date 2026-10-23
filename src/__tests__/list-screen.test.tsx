@@ -34,6 +34,15 @@ jest.mock('@/src/hooks/use-hit-list-actions', () => ({
   }),
 }));
 
+// The sheet is send-sheet.test.tsx's; here only that the list's row opens it with the list's spots.
+const mockSendSheet = jest.fn();
+jest.mock('@/src/components/SendSheet', () => ({
+  SendSheet: (props: unknown) => {
+    mockSendSheet(props);
+    return null;
+  },
+}));
+
 import ListScreen from '@/app/list/[id]/index';
 
 const mockPush = jest.fn();
@@ -423,5 +432,62 @@ describe('List screen: an area list (S2-04)', () => {
     expect(headerOptions().title).toBe('Downtown');
     expect(headerOptions().headerTitle).toBeUndefined();
     expect(screen.queryByRole('button', { name: 'Edit area' })).toBeNull();
+  });
+});
+
+describe("List screen: 'Send these spots' (S7-04)", () => {
+  type SheetProps = { spotIds: string[]; onClose: () => void };
+  beforeEach(() => mockSendSheet.mockClear());
+
+  it("shows 'Send these spots · one-time copy of 2 spots' and opens the Send sheet with the list's spots", () => {
+    renderList();
+    expect(screen.getByText('Send these spots')).toBeTruthy();
+    expect(screen.getByText('one-time copy of 2 spots')).toBeTruthy();
+    expect(screen.getByTestId('icon-paperplane.fill')).toBeTruthy();
+    expect(mockSendSheet).not.toHaveBeenCalled();
+
+    fireEvent.press(screen.getByRole('button', { name: 'Send these spots, one-time copy of 2 spots' }));
+    const props = mockSendSheet.mock.lastCall?.[0] as SheetProps;
+    expect([...props.spotIds].sort()).toEqual(['a', 'b']);
+
+    mockSendSheet.mockClear();
+    act(() => props.onClose());
+    expect(mockSendSheet).not.toHaveBeenCalled();
+  });
+
+  it("reads 'of 1 spot' for one, and sends all of the list even while a search hides some", () => {
+    useHitListsStore.setState({ membershipBySpot: { a: [downtown.id] } });
+    renderList();
+    expect(screen.getByText('one-time copy of 1 spot')).toBeTruthy();
+  });
+
+  it('is hidden when the list has no spots', () => {
+    useHitListsStore.setState({ membershipBySpot: {} });
+    renderList();
+    expect(screen.queryByText('Send these spots')).toBeNull();
+  });
+
+  it("an area list sends the spots inside its circle", () => {
+    const area = createTestHitList({
+      id: 'L-area',
+      name: 'Near home',
+      kind: 'area',
+      area_center: CITIES.seattle,
+      area_radius_m: 3219,
+      area_filters: {},
+    });
+    useSpotsStore.setState({
+      spots: [
+        createTestSpot({ id: 'in', location: CITIES.seattle }),
+        createTestSpot({ id: 'out', location: CITIES.portland }),
+      ],
+    });
+    useHitListsStore.setState({ lists: [area], membershipBySpot: {} });
+    jest.mocked(useLocalSearchParams).mockReturnValue({ id: area.id });
+    renderList();
+
+    expect(screen.getByText('one-time copy of 1 spot')).toBeTruthy();
+    fireEvent.press(screen.getByRole('button', { name: 'Send these spots, one-time copy of 1 spot' }));
+    expect((mockSendSheet.mock.lastCall?.[0] as SheetProps).spotIds).toEqual(['in']);
   });
 });

@@ -27,6 +27,15 @@ jest.mock('@/src/hooks/use-hit-list-actions', () => ({
   }),
 }));
 
+// The sheet is send-sheet.test.tsx's; here only that the select bar opens it with the selection.
+const mockSendSheet = jest.fn();
+jest.mock('@/src/components/SendSheet', () => ({
+  SendSheet: (props: unknown) => {
+    mockSendSheet(props);
+    return null;
+  },
+}));
+
 import SpotsScreen from '@/app/(tabs)/index';
 
 const mockPush = jest.fn();
@@ -334,5 +343,39 @@ describe('Spots tab multi-select', () => {
     expect(screen.queryByTestId('select-bar')).toBeNull();
     expect(headerOptions().headerTitle).toBeUndefined();
     expect(screen.getByText('No spots in this list yet')).toBeTruthy();
+  });
+});
+
+describe('Spots tab select bar: Send (S7-04)', () => {
+  type SheetProps = { spotIds: string[]; onClose: () => void };
+  beforeEach(() => mockSendSheet.mockClear());
+
+  it("shows 'Send (2)' next to 'Add to list (2)' and opens the Send sheet with the selection in tap order", () => {
+    render(<SpotsScreen />);
+    fireEvent(row(/Church ledge/), 'longPress');
+    fireEvent.press(row(/Alley rail/));
+
+    const bar = screen.getByTestId('select-bar');
+    const labels = within(bar)
+      .getAllByRole('button')
+      .map((b) => b.props.accessibilityLabel);
+    expect(labels).toEqual(['Send (2)', 'Add to list (2)']);
+    expect(mockSendSheet).not.toHaveBeenCalled();
+
+    fireEvent.press(within(bar).getByLabelText('Send (2)'));
+    const props = mockSendSheet.mock.lastCall?.[0] as SheetProps;
+    expect(props.spotIds).toEqual(['c', 'a']);
+
+    // Closing it ends select mode, like the list sheet.
+    mockSendSheet.mockClear();
+    act(() => props.onClose());
+    expect(mockSendSheet).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('select-bar')).toBeNull();
+  });
+
+  it("'Send (0)' is disabled with nothing checked", () => {
+    render(<SpotsScreen />);
+    pressHeader('Select spots');
+    expect(screen.getByLabelText('Send (0)').props.accessibilityState).toMatchObject({ disabled: true });
   });
 });

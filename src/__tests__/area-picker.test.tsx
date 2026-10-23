@@ -52,6 +52,15 @@ jest.mock('@/src/hooks/use-hit-list-actions', () => ({
   }),
 }));
 
+// The sheet is send-sheet.test.tsx's; here only that the bottom bar opens it with the spots inside.
+const mockSendSheet = jest.fn();
+jest.mock('@/src/components/SendSheet', () => ({
+  SendSheet: (props: unknown) => {
+    mockSendSheet(props);
+    return null;
+  },
+}));
+
 import AreaPicker from '@/app/area/index';
 
 const { mockMapMethods } = ReactNativeMaps as unknown as {
@@ -813,5 +822,60 @@ describe('Area picker: editing an area list (S2-04)', () => {
     expect(useSpotsStore.getState().filters).toEqual({ types: [], stopped: true });
     pressHeader('headerLeft', 'Cancel');
     expect(back).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Area picker: 'Send these N spots' (S7-04)", () => {
+  type SheetProps = { spotIds: string[]; onClose: () => void };
+  beforeEach(() => mockSendSheet.mockClear());
+
+  it("shows 'Send these 23 spots' left of 'Save as hit list' and opens the Send sheet with the spots inside", () => {
+    useSpotsStore.setState({ spots: [...inside, ...outside, unlocated] });
+    useLocationStore.setState({ currentLocation: CITIES.seattle });
+    renderPicker();
+
+    const labels = screen.getAllByRole('button').map((b) => b.props.accessibilityLabel);
+    const send = labels.indexOf('Send these 23 spots');
+    expect(send).toBeGreaterThanOrEqual(0);
+    expect(send).toBeLessThan(labels.indexOf('Save as hit list'));
+    expect(mockSendSheet).not.toHaveBeenCalled();
+
+    fireEvent.press(screen.getByRole('button', { name: 'Send these 23 spots' }));
+    const props = mockSendSheet.mock.lastCall?.[0] as SheetProps;
+    expect([...props.spotIds].sort()).toEqual(inside.map((s) => s.id).sort());
+
+    mockSendSheet.mockClear();
+    act(() => props.onClose());
+    expect(mockSendSheet).not.toHaveBeenCalled();
+  });
+
+  it("reads 'Send this spot' for one and is hidden at none", () => {
+    useSpotsStore.setState({ spots: [inside[0], ...outside] });
+    useLocationStore.setState({ currentLocation: CITIES.seattle });
+    renderPicker();
+    expect(screen.getByRole('button', { name: 'Send this spot' })).toBeTruthy();
+
+    moveMap(north(CITIES.seattle, 50_000));
+    expect(screen.getByText('0 spots')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /^Send/ })).toBeNull();
+  });
+
+  it('editing an area list keeps Send beside Save area', () => {
+    const list = createTestHitList({
+      id: 'L-area',
+      name: 'Near home',
+      kind: 'area',
+      area_center: CITIES.seattle,
+      area_radius_m: 3219,
+      area_filters: {},
+    });
+    useHitListsStore.setState({ lists: [list], membershipBySpot: {} });
+    useSpotsStore.setState({ spots: [...inside, ...outside] });
+    jest.mocked(useLocalSearchParams).mockReturnValue({ listId: list.id });
+    renderPicker();
+
+    expect(screen.getByRole('button', { name: 'Send these 23 spots' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Save area' })).toBeTruthy();
+    jest.mocked(useLocalSearchParams).mockReturnValue({});
   });
 });

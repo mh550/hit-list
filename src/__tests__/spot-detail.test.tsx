@@ -4,6 +4,7 @@ import { Image, StyleSheet } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { getSpotLegacy } from '@/src/db';
+import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
 import { useHitListsStore, useMediaStore, useSettingsStore, useSpotsStore } from '@/src/stores';
 import { palette } from '@/src/constants/theme';
 import { resolvePhotoUri } from '@/src/utils/photo-storage';
@@ -14,6 +15,14 @@ import SpotDetailScreen from '@/app/spot/[id]/index';
 
 jest.mock('@/src/db', () => ({ ...jest.requireActual('@/src/db'), getSpotLegacy: jest.fn() }));
 const legacyMock = jest.mocked(getSpotLegacy);
+// The sheet is send-sheet.test.tsx's; here only that the header opens it with this spot.
+const mockSendSheet = jest.fn();
+jest.mock('@/src/components/SendSheet', () => ({
+  SendSheet: (props: unknown) => {
+    mockSendSheet(props);
+    return null;
+  },
+}));
 
 const push = jest.fn();
 
@@ -293,6 +302,53 @@ describe('Spot detail: header', () => {
     header.unmount();
 
     expect(push).toHaveBeenCalledWith(`/spot/${spot.id}/edit`);
+  });
+});
+
+describe('Spot detail: Send (S7-04)', () => {
+  type SheetProps = { spotIds: string[]; onClose: () => void };
+  const headerRight = () =>
+    (screen.UNSAFE_getByType('Stack.Screen' as never).props as { options: { headerRight: () => ReactElement } })
+      .options.headerRight;
+
+  beforeEach(() => {
+    mockSendSheet.mockClear();
+    useAuthStore.setState(SIGNED_OUT);
+  });
+
+  it("the header's paper-plane 'Send this spot' opens the Send sheet with this spot, and closing it unmounts it", async () => {
+    useAuthStore.setState({ status: 'signed_in', userId: 'user-me', username: 'me' });
+    const spot = await renderDetail({ name: 'Pier 57', owner_id: 'user-me' });
+    expect(mockSendSheet).not.toHaveBeenCalled();
+
+    const header = render(headerRight()());
+    const send = header.getByRole('button', { name: 'Send this spot' });
+    expect(header.getByTestId('icon-paperplane.fill')).toBeTruthy();
+    fireEvent.press(send);
+    header.unmount();
+
+    const props = mockSendSheet.mock.lastCall?.[0] as SheetProps;
+    expect(props.spotIds).toEqual([spot.id]);
+    mockSendSheet.mockClear();
+    act(() => props.onClose());
+    expect(mockSendSheet).not.toHaveBeenCalled();
+  });
+
+  it('a phone-only spot shows Send while signed out too (the sheet asks to sign in)', async () => {
+    await renderDetail({ name: 'Pier 57' });
+    const header = render(headerRight()());
+    expect(header.getByRole('button', { name: 'Send this spot' })).toBeTruthy();
+    expect(header.getByText('Edit')).toBeTruthy();
+    header.unmount();
+  });
+
+  it("another rider's spot has no Send", async () => {
+    useAuthStore.setState({ status: 'signed_in', userId: 'user-me', username: 'me' });
+    await renderDetail({ name: 'Their rail', owner_id: 'user-other' });
+    const header = render(headerRight()());
+    expect(header.queryByRole('button', { name: 'Send this spot' })).toBeNull();
+    expect(header.queryByTestId('icon-paperplane.fill')).toBeNull();
+    header.unmount();
   });
 });
 

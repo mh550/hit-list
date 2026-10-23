@@ -58,7 +58,7 @@
         "src/__tests__/spots-browser.test.tsx passes: rendering SpotsBrowser with two spots shows two rows; with zero spots it shows emptyTitle; setting the store's searchQuery to a name shows one row and the 'No matching spots' state with 'Clear search' when nothing matches; switching the segment to Map renders the SpotMap mock with the filtered spots.",
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
       ],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S1-05",

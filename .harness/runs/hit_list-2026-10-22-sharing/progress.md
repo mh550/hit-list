@@ -20,6 +20,14 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-22 21:35 · S1-04 · passes
+
+- New `src/components/SpotsBrowser.tsx` (exported from `src/components/index.ts`): the Spots tab's whole List | Map body moved over unchanged: SegmentedControl, search, SortChips, SpotMap, both empty states, FlashList, the header Filter button (its own `<Stack.Screen options={{ headerRight }} />`) and FilterSheet. Props `spots, emptyTitle, emptyMessage, emptyActionLabel?, onEmptyAction?, aboveList?` (rendered above the mode bar) and `contentBottomInset?` (default `spacing.md`). `app/(tabs)/index.tsx` is now 90 lines: `<SpotsBrowser spots={all} …/>` + the FAB column, passing `LIST_BOTTOM_PADDING` as the inset.
+- Tests 706 → 712: new `spots-browser.test.tsx` (6: two rows, empty title/message/action, searchQuery narrows then 'No matching spots' + 'Clear search', Map hands SpotMap the filtered spots, bottom inset, aboveList). Watched RED (SpotsBrowser undefined, 6 failing), then GREEN. The six guarded files (spots-view-mode, spots-sort-search, spot-list, spot-map, filter-sheet, spots-import-action): `git diff --stat 4aa5326` on them is empty and all pass. `check.sh` green (712 tests), `npx jest --ci` 0 console.error lines. A `diff` of the old screen against SpotsBrowser shows only the props, `aboveList` and the inset.
+- Next (S1-05/06): SpotsBrowser has no `headerActions`/`onSpotPress`/`onSpotLongPress`/`selectedIds` yet (S1-06/S1-08 add them per the plan). Every SpotsBrowser sets `headerRight` itself, so a screen that wants its own header buttons must pass them through `headerActions`, not its own Stack.Screen headerRight.
+- Questions for Michael: none new.
+- Proposed changes: S1-04 step 2 says the Spots tab renders "the Filter header button"; per the S1 plan the Filter button lives in SpotsBrowser (it owns FilterSheet, and every list screen needs it too). The tab still shows it; read the step as "the tab still shows it".
+
 ### 2026-10-22 21:10 · S1-03 · passes
 
 - New `src/stores/hit-lists-store.ts` (lists, membershipBySpot, activeListId + the plan's 8 actions; pure selectors `selectListSpots(list, spots, m)`, `selectSpotLists(spotId, lists, m)` (name order), `selectListCounts`, `selectListsByName` (case-insensitive)), exported from `src/stores/index.ts`. New `src/hooks/use-hit-list-actions.ts` (createList/renameList/deleteList/addSpotsToList/removeSpotFromList: store first, DB after, on rejection `console.error('[useHitListActions] <fn> failed:')`, revert, rethrow). `useDbInit` loads `getHitLists` then `getListMemberships` after media, before settings, each in its own try/catch.

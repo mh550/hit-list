@@ -133,6 +133,19 @@ describe('loadFriends', () => {
     expect(data!.incoming.map((f) => f.friendshipId)).toEqual(['f-amy', 'f-zed']);
   });
 
+  it('a block that landed between the two reads lists the rider as blocked only, blocked sorted by name', async () => {
+    fake.tables.blocks.push(
+      { blocker: ME, blocked: ANA, created_at: '2026-10-22 00:00:00+00' },
+      { blocker: ME, blocked: 'rider-aaa', created_at: '2026-10-22 00:00:00+00' },
+    );
+
+    const data = await loadFriends(client(), ME);
+
+    expect(data!.friends).toEqual([]);
+    // ana is readable (still a friend when the profiles were read), the others are hidden: names first, then unknown
+    expect(data!.blocked.map((p) => p.id)).toEqual([ANA, 'rider-aaa', DEE]);
+  });
+
   it('asks profiles only by id (.in), for the other side of its own rows, never the whole table', async () => {
     await loadFriends(client(), ME);
 
@@ -215,6 +228,15 @@ describe('addFriend', () => {
     fake.failNext('rpc', { message: 'unblock this user first', code: '42501' }, 'send_friend_request');
 
     expect(await addFriend(client(), db, ME, 'ana')).toMatchObject({ found: true, status: 'blocked_by_me' });
+  });
+
+  it('a 42501 on send after the session ended is "not signed in": it throws', async () => {
+    fake.rpcHandlers.send_friend_request = () => {
+      fake.setSession(null);
+      return { data: null, error: { message: 'not signed in', code: '42501' } };
+    };
+
+    await expect(addFriend(client(), db, ME, 'ana')).rejects.toThrow('not signed in');
   });
 
   it('throws on any other send error', async () => {
@@ -459,6 +481,19 @@ describe('refreshFriends', () => {
 
     expect(await getProfiles(db, [ANA, ZED])).toEqual({});
     expect(useFriendsStore.getState()).toMatchObject(EMPTY_FRIENDS);
+  });
+
+  it('a session that ends after the mirror write still leaves the store alone', async () => {
+    await upsertProfiles(db, [profile(CAL, 'cal')]);
+    const realGetAll = db.getAllAsync.bind(db);
+    jest.spyOn(db, 'getAllAsync').mockImplementation(((source: string, ...params: never[]) => {
+      if (source.includes('FROM profiles WHERE id IN')) fake.setSession(null);
+      return realGetAll(source, ...params);
+    }) as typeof db.getAllAsync);
+
+    await refreshFriends(db, client(), ME);
+
+    expect(useFriendsStore.getState()).toMatchObject({ ...EMPTY_FRIENDS, userId: null });
   });
 
   it('only the newest load applies: an older load that ends later never puts an answered request back', async () => {

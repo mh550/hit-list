@@ -1,7 +1,7 @@
-import { create } from "zustand";
+import { create } from 'zustand';
 
-import type { FriendsData } from "@/src/sync/friends";
-import { useAuthStore } from "./auth-store";
+import type { FriendsData } from '@/src/sync/friends';
+import { useAuthStore } from './auth-store';
 
 // The signed-in rider's friends, requests and blocks as the last friends load left them (src/sync/friends.ts
 // refreshFriends, the sync engine). Not persisted: names survive offline in the local profiles mirror instead (D72).

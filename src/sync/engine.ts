@@ -112,8 +112,6 @@ async function syncOnce(db: SQLiteDatabase): Promise<void> {
       // the photos are already backed up; their files come next sync
       console.warn('[sync] photo download failed:', errorMessage(err));
     }
-    // friends and requests (S6); never rejects, and never makes a sync count as not backed up
-    await loadAndApplyFriends(db, client, uid);
     if (changed) await reloadStoresQuietly(db);
 
     const failedCount = await countFailed(db);
@@ -127,6 +125,9 @@ async function syncOnce(db: SQLiteDatabase): Promise<void> {
       useSyncStore.setState({ lastSyncAt });
     }
     useSyncStore.setState({ failedCount, lastError: error });
+    // friends and requests (S6), once the backup is settled: a slow friends read never holds the pulled spots or
+    // 'Backed up' back; never rejects
+    await loadAndApplyFriends(db, client, uid);
   } catch (err) {
     fail('sync', err);
     useSyncStore.setState({ lastError: error });

@@ -1,13 +1,13 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
-import type { SQLiteDatabase } from "expo-sqlite";
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { SQLiteDatabase } from 'expo-sqlite';
 
-import { getProfiles, upsertProfiles } from "@/src/db/profiles";
-import { useFriendsStore } from "@/src/stores/friends-store";
-import type { FriendProfile } from "@/src/types";
-import { maySync, signedInAs } from "./account";
-import { errorMessage } from "./errors";
-import { runExclusive } from "./queue";
-import { toIso } from "./time";
+import { getProfiles, upsertProfiles } from '@/src/db/profiles';
+import { useFriendsStore } from '@/src/stores/friends-store';
+import type { FriendProfile } from '@/src/types';
+import { maySync, signedInAs } from './account';
+import { errorMessage } from './errors';
+import { runExclusive } from './queue';
+import { toIso } from './time';
 
 /*
  * Friends (S6, docs/plans/2026-10-22-s6-friends.md "Data"): the server's functions and RLS decide everything
@@ -39,21 +39,15 @@ export interface FriendsData {
   blocked: FriendProfile[];
 }
 
-export type AddStatus =
-  | "self"
-  | "already_friends"
-  | "already_sent"
-  | "blocked_by_me"
-  | "sent"
-  | "accepted";
+export type AddStatus = 'self' | 'already_friends' | 'already_sent' | 'blocked_by_me' | 'sent' | 'accepted';
 
 /**
  * What Add by username found. 'not_found' is also a rider who blocked you, one not onboarded yet, and a block that
  * landed between find and send (D50: the blocked rider is never told, so the three read the same).
  */
 export type AddResult =
-  | { status: "invalid" }
-  | { found: false; status: "not_found" }
+  | { status: 'invalid' }
+  | { found: false; status: 'not_found' }
   | { found: true; status: AddStatus; profile: FriendProfile };
 
 /** Rows per page (PostgREST caps a response at 1000). */
@@ -61,18 +55,15 @@ const PAGE = 500;
 /** Ids per profiles select, so the URL stays short. */
 const PROFILE_CHUNK = 100;
 const USERNAME = /^[a-z0-9_.]{3,20}$/;
-const NOT_FOUND = { found: false, status: "not_found" } as const;
+const NOT_FOUND = { found: false, status: 'not_found' } as const;
 
 type ServerError = { message: string; code?: string };
-const serverError = (error: ServerError) =>
-  Object.assign(new Error(error.message), { code: error.code });
+const serverError = (error: ServerError) => Object.assign(new Error(error.message), { code: error.code });
 
 /** A typed name as the server stores it (trimmed, one leading @ dropped, lowercase), or null if it can't be one (D39). */
 export function normaliseUsername(typed: string): string | null {
   const trimmed = typed.trim();
-  const name = (
-    trimmed.startsWith("@") ? trimmed.slice(1) : trimmed
-  ).toLowerCase();
+  const name = (trimmed.startsWith('@') ? trimmed.slice(1) : trimmed).toLowerCase();
   return USERNAME.test(name) ? name : null;
 }
 
@@ -80,7 +71,7 @@ interface FriendshipRow {
   id: string;
   user_a: string;
   user_b: string;
-  status: "pending" | "accepted";
+  status: 'pending' | 'accepted';
   requested_by: string;
   created_at: string;
 }
@@ -107,32 +98,25 @@ async function readAll<T extends Record<string, unknown>>(
 }
 
 /** The profiles of `ids` the server lets the rider read, by id. */
-async function readProfiles(
-  client: SupabaseClient,
-  ids: string[],
-): Promise<FriendProfile[]> {
+async function readProfiles(client: SupabaseClient, ids: string[]): Promise<FriendProfile[]> {
   const profiles: FriendProfile[] = [];
   for (let i = 0; i < ids.length; i += PROFILE_CHUNK) {
     const { data, error } = await client
-      .from("profiles")
-      .select("id,username,display_name")
-      .in("id", ids.slice(i, i + PROFILE_CHUNK));
+      .from('profiles')
+      .select('id,username,display_name')
+      .in('id', ids.slice(i, i + PROFILE_CHUNK));
     if (error) throw serverError(error);
     profiles.push(...((data ?? []) as FriendProfile[]));
   }
   return profiles;
 }
 
-const placeholder = (id: string): FriendProfile => ({
-  id,
-  username: null,
-  display_name: null,
-});
-const newestFirst = (a: FriendRow, b: FriendRow) =>
-  b.created_at.localeCompare(a.created_at);
-const byUsername = (a: FriendRow, b: FriendRow) =>
-  (a.profile.username ?? "￿").localeCompare(b.profile.username ?? "￿") ||
-  a.profile.id.localeCompare(b.profile.id);
+const placeholder = (id: string): FriendProfile => ({ id, username: null, display_name: null });
+const newestFirst = (a: FriendRow, b: FriendRow) => b.created_at.localeCompare(a.created_at);
+/** By username, riders whose name is unknown last (by id, so the order is stable). */
+const byName = (a: FriendProfile, b: FriendProfile) =>
+  (a.username ?? '\uffff').localeCompare(b.username ?? '\uffff') || a.id.localeCompare(b.id);
+const byUsername = (a: FriendRow, b: FriendRow) => byName(a.profile, b.profile);
 
 /** loadFriends plus the profiles the server actually returned (the only ones the mirror takes). */
 async function fetchFriends(
@@ -143,49 +127,38 @@ async function fetchFriends(
   // RLS returns only rows the rider is in (friendships) or made (blocks): no filter on uid needed
   const rows = await readAll<FriendshipRow & Record<string, unknown>>(
     client,
-    "friendships",
-    "id,user_a,user_b,status,requested_by,created_at",
-    "id",
+    'friendships',
+    'id,user_a,user_b,status,requested_by,created_at',
+    'id',
   );
   const blocks = await readAll<{ blocked: string; created_at: string }>(
     client,
-    "blocks",
-    "blocked,created_at",
-    "blocked",
+    'blocks',
+    'blocked,created_at',
+    'blocked',
   );
-  const other = (row: FriendshipRow) =>
-    row.user_a === uid ? row.user_b : row.user_a;
+  const other = (row: FriendshipRow) => (row.user_a === uid ? row.user_b : row.user_a);
   const returned = await readProfiles(client, [...new Set(rows.map(other))]);
-  const byId = new Map(
-    returned.map((p) => [
-      p.id,
-      { id: p.id, username: p.username, display_name: p.display_name },
-    ]),
-  );
+  const byId = new Map(returned.map((p) => [p.id, { id: p.id, username: p.username, display_name: p.display_name }]));
 
-  const data: FriendsData = {
-    friends: [],
-    incoming: [],
-    outgoing: [],
-    blocked: [],
-  };
+  // a block that landed between the two reads: the rider shows as blocked only (block_user removed the friendship)
+  const blockedIds = new Set(blocks.map((b) => b.blocked));
+  const data: FriendsData = { friends: [], incoming: [], outgoing: [], blocked: [] };
   for (const row of rows) {
     const id = other(row);
+    if (blockedIds.has(id)) continue;
     const friend = {
       friendshipId: row.id,
       created_at: toIso(row.created_at) ?? row.created_at,
       profile: byId.get(id) ?? placeholder(id),
     };
-    if (row.status === "accepted") data.friends.push(friend);
-    else
-      (row.requested_by === uid ? data.outgoing : data.incoming).push(friend);
+    if (row.status === 'accepted') data.friends.push(friend);
+    else (row.requested_by === uid ? data.outgoing : data.incoming).push(friend);
   }
   data.friends.sort(byUsername);
   data.incoming.sort(newestFirst);
   data.outgoing.sort(newestFirst);
-  data.blocked = blocks.map(
-    (b) => byId.get(b.blocked) ?? placeholder(b.blocked),
-  );
+  data.blocked = blocks.map((b) => byId.get(b.blocked) ?? placeholder(b.blocked)).sort(byName);
   return { data, returned };
 }
 
@@ -193,28 +166,17 @@ async function fetchFriends(
  * The rider's friends, incoming and outgoing requests and blocks, straight from the server (names the server hides
  * are null). Null without a session for `uid`; throws when a table can't be read.
  */
-export async function loadFriends(
-  client: SupabaseClient,
-  uid: string,
-): Promise<FriendsData | null> {
+export async function loadFriends(client: SupabaseClient, uid: string): Promise<FriendsData | null> {
   return (await fetchFriends(client, uid))?.data ?? null;
 }
 
 /** Puts `profiles` into the mirror on the sync queue, only while the phone is `uid`'s (never another account's). */
-function mirrorProfiles(
-  db: SQLiteDatabase,
-  client: SupabaseClient,
-  uid: string,
-  profiles: FriendProfile[],
-) {
+function mirrorProfiles(db: SQLiteDatabase, client: SupabaseClient, uid: string, profiles: FriendProfile[]) {
   void runExclusive(async () => {
     try {
       if (await maySync(db, client, uid)) await upsertProfiles(db, profiles);
     } catch (err) {
-      console.warn(
-        "[friends] saving a name on the phone failed:",
-        errorMessage(err),
-      );
+      console.warn('[friends] saving a name on the phone failed:', errorMessage(err));
     }
   });
 }
@@ -231,10 +193,10 @@ export async function addFriend(
   typed: string,
 ): Promise<AddResult | null> {
   const username = normaliseUsername(typed);
-  if (!username) return { status: "invalid" };
+  if (!username) return { status: 'invalid' };
   if (!(await signedInAs(client, uid))) return null;
 
-  const found = await client.rpc("find_profile", { p_username: username });
+  const found = await client.rpc('find_profile', { p_username: username });
   if (found.error) throw serverError(found.error);
   const hit = ((found.data ?? []) as FriendProfile[])[0];
   if (!hit) return NOT_FOUND;
@@ -243,43 +205,36 @@ export async function addFriend(
     username: hit.username,
     display_name: hit.display_name,
   };
-  if (profile.id === uid) return { found: true, status: "self", profile };
+  if (profile.id === uid) return { found: true, status: 'self', profile };
   mirrorProfiles(db, client, uid, [profile]);
 
-  const [userA, userB] =
-    uid < profile.id ? [uid, profile.id] : [profile.id, uid];
+  const [userA, userB] = uid < profile.id ? [uid, profile.id] : [profile.id, uid];
   const existing = await client
-    .from("friendships")
-    .select("id,status,requested_by")
-    .eq("user_a", userA)
-    .eq("user_b", userB)
-    .maybeSingle<Pick<FriendshipRow, "id" | "status" | "requested_by">>();
+    .from('friendships')
+    .select('id,status,requested_by')
+    .eq('user_a', userA)
+    .eq('user_b', userB)
+    .maybeSingle<Pick<FriendshipRow, 'id' | 'status' | 'requested_by'>>();
   if (existing.error) throw serverError(existing.error);
-  if (existing.data?.status === "accepted")
-    return { found: true, status: "already_friends", profile };
-  if (existing.data?.requested_by === uid)
-    return { found: true, status: "already_sent", profile };
-  const blocked = await client
-    .from("blocks")
-    .select("blocked")
-    .eq("blocked", profile.id)
-    .maybeSingle();
+  if (existing.data?.status === 'accepted') return { found: true, status: 'already_friends', profile };
+  if (existing.data?.requested_by === uid) return { found: true, status: 'already_sent', profile };
+  const blocked = await client.from('blocks').select('blocked').eq('blocked', profile.id).maybeSingle();
   if (blocked.error) throw serverError(blocked.error);
-  if (blocked.data) return { found: true, status: "blocked_by_me", profile };
+  if (blocked.data) return { found: true, status: 'blocked_by_me', profile };
 
-  const sent = await client.rpc("send_friend_request", {
+  const sent = await client.rpc('send_friend_request', {
     p_username: username,
   });
   if (sent.error) {
-    if (sent.error.code === "P0002") return NOT_FOUND;
+    if (sent.error.code === 'P0002') return NOT_FOUND;
     // 'unblock this user first': a block added on another phone after the check above; 42501 is also 'not signed in'
-    if (sent.error.code === "42501" && (await signedInAs(client, uid))) {
-      return { found: true, status: "blocked_by_me", profile };
+    if (sent.error.code === '42501' && (await signedInAs(client, uid))) {
+      return { found: true, status: 'blocked_by_me', profile };
     }
     throw serverError(sent.error);
   }
   // they had asked first: the function accepted their request
-  return { found: true, status: existing.data ? "accepted" : "sent", profile };
+  return { found: true, status: existing.data ? 'accepted' : 'sent', profile };
 }
 
 /** Accept or decline a request; one already answered or withdrawn elsewhere resolves (the next load drops it). */
@@ -287,50 +242,35 @@ export async function respond(
   client: SupabaseClient,
   uid: string,
   friendshipId: string,
-  action: "accept" | "decline",
+  action: 'accept' | 'decline',
 ): Promise<void> {
   if (!(await signedInAs(client, uid))) return;
-  const { error } = await client.rpc("respond_friend_request", {
+  const { error } = await client.rpc('respond_friend_request', {
     p_id: friendshipId,
     p_action: action,
   });
   if (!error) return;
-  if (error.code === "42501" && (await signedInAs(client, uid))) return;
+  if (error.code === '42501' && (await signedInAs(client, uid))) return;
   throw serverError(error);
 }
 
 /** Remove a friend, or Cancel a sent request: either side may delete the row. */
-export async function removeFriend(
-  client: SupabaseClient,
-  uid: string,
-  friendshipId: string,
-): Promise<void> {
+export async function removeFriend(client: SupabaseClient, uid: string, friendshipId: string): Promise<void> {
   if (!(await signedInAs(client, uid))) return;
-  const { error } = await client
-    .from("friendships")
-    .delete()
-    .eq("id", friendshipId);
+  const { error } = await client.from('friendships').delete().eq('id', friendshipId);
   if (error) throw serverError(error);
 }
 
 /** Block a rider (the server also removes the friendship); one who deleted their account (P0002) is fine. */
-export async function block(
-  client: SupabaseClient,
-  uid: string,
-  userId: string,
-): Promise<void> {
+export async function block(client: SupabaseClient, uid: string, userId: string): Promise<void> {
   if (!(await signedInAs(client, uid))) return;
-  const { error } = await client.rpc("block_user", { p_user: userId });
-  if (error && error.code !== "P0002") throw serverError(error);
+  const { error } = await client.rpc('block_user', { p_user: userId });
+  if (error && error.code !== 'P0002') throw serverError(error);
 }
 
-export async function unblock(
-  client: SupabaseClient,
-  uid: string,
-  userId: string,
-): Promise<void> {
+export async function unblock(client: SupabaseClient, uid: string, userId: string): Promise<void> {
   if (!(await signedInAs(client, uid))) return;
-  const { error } = await client.rpc("unblock_user", { p_user: userId });
+  const { error } = await client.rpc('unblock_user', { p_user: userId });
   if (error) throw serverError(error);
 }
 
@@ -362,36 +302,27 @@ export async function loadAndApplyFriends(
     if (!fetched || !isNewest() || !(await maySync(db, client, uid))) return;
     const { data, returned } = fetched;
     await upsertProfiles(db, returned);
-    const hidden = [
-      ...data.outgoing.map((f) => f.profile),
-      ...data.blocked,
-    ].filter((p) => p.username === null);
+    const hidden = [...data.outgoing.map((f) => f.profile), ...data.blocked].filter((p) => p.username === null);
     const mirrored = await getProfiles(
       db,
       hidden.map((p) => p.id),
     );
-    const named = (p: FriendProfile) =>
-      p.username === null ? (mirrored[p.id] ?? p) : p;
+    const named = (p: FriendProfile) => (p.username === null ? (mirrored[p.id] ?? p) : p);
     const filled: FriendsData = {
       ...data,
       outgoing: data.outgoing.map((f) => ({ ...f, profile: named(f.profile) })),
-      blocked: data.blocked.map(named),
+      blocked: data.blocked.map(named).sort(byName),
     };
     if (!isNewest() || !(await signedInAs(client, uid))) return;
     useFriendsStore.getState().applyFriends(uid, filled);
   } catch (err) {
-    console.warn("[friends] loading friends failed:", errorMessage(err));
-    if (isNewest())
-      useFriendsStore.getState().setLoadError(uid, errorMessage(err));
+    console.warn('[friends] loading friends failed:', errorMessage(err));
+    if (isNewest()) useFriendsStore.getState().setLoadError(uid, errorMessage(err));
   }
 }
 
 /** loadAndApplyFriends on the sync queue (screens, after a mutation). A runExclusive task must never await it. */
-export function refreshFriends(
-  db: SQLiteDatabase,
-  client: SupabaseClient,
-  uid: string,
-): Promise<void> {
+export function refreshFriends(db: SQLiteDatabase, client: SupabaseClient, uid: string): Promise<void> {
   const ticket = takeTicket(uid);
   return runExclusive(() => loadAndApplyFriends(db, client, uid, ticket));
 }

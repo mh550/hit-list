@@ -20,6 +20,14 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 · S9-05 · passes
+
+- New `src/__integration__/links.test.ts` (9 cases): send link via `createLinkSend` + `createSendLink '7d'` → no-auth 200 with 2 spots; `web/share/` served by `node:http`, opened with `JSDOM.fromURL` → `2 spots from @ana_…`, two photos fetch 200; `revokeLink` and a forced-past expiry → byte-identical 404 gone; `makeSendLink` → `revokeSentLink` kills the link and its photo URLs; invite link: anon 42501, B joins and pulls Downtown's spots, B again → same id (D60), C → `LinkGoneError`, A sees it `used` by B. Jest stays 2065 (integration-only).
+- Found and fixed (RED 813ef86): **`send.test.ts` hadn't loaded since S9-03.** `links.ts` reads `EXPO_PUBLIC_SHARE_BASE_URL`, which babel turns into an ESM `expo/virtual/env` import. `jest.integration.config.js` now transforms that one file.
+- Verified: `db:reset` → `test:db` 639 passed → `test:integration` 7 suites, 77 passed (68 → 77), 0 console lines → `db:stop`; `docker ps` shows only dj-*/n8n-*. Two mutations each fail the suite. `check.sh` green (2065), `npx jest --ci` 0 `console.error`. Opus review: 1 Important + 5 Minor, all fixed but the dependency (table under "As built (S9-05)" in the plan).
+- Next sessions: integration suites that import `src/sync/links` or `sends` now load; mock `expo-crypto` with `getRandomBytes`/`digestStringAsync`/`CryptoDigestAlgorithm`/`CryptoEncoding` as `links.test.ts` does.
+- Proposed changes: S9-05 step 1 "B redeemInvite again → gone" is D60's "same list id" (as the plan's Proposed changes 4). S9-07: declare `jsdom` (+ `@types/jsdom`) as devDependencies (today only hoisted through jest-expo). No new questions.
+
 ### 2026-10-23 · S9-04 · passes
 
 - New: `web/share/index.html` (one `hitlist-functions-url` meta = `http://127.0.0.1:54321/functions/v1`, `no-referrer`, CSP meta, `share.js` deferred), `web/share/share.js` (fragment token, `?t=` fallback, `share-preview` fetch; send cards / invite line / gone / error; `textContent` only, http(s) URLs only, no map links at 0,0), `web/share/README.md` (serve with `cd web && python3 -m http.server 8080`; hosting is a live step). Test `src/__tests__/web-share.test.ts` (jsdom, 20 cases). Jest 2045 → 2065.

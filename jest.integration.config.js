@@ -5,7 +5,10 @@ module.exports = {
   rootDir: '.',
   testEnvironment: 'node',
   testMatch: ['<rootDir>/src/__integration__/**/*.test.ts'],
-  transform: { '^.+\\.ts$': ['babel-jest', { presets: ['babel-preset-expo'] }] },
+  // babel-preset-expo turns `process.env.EXPO_PUBLIC_*` (links.ts' share base URL) into an import of expo/virtual/env,
+  // an ES module: that one file is transformed too, the rest of node_modules is not.
+  transform: { '^.+\\.[jt]s$': ['babel-jest', { presets: ['babel-preset-expo'] }] },
+  transformIgnorePatterns: ['/node_modules/(?!expo/virtual/)'],
   moduleNameMapper: { '^@/(.*)$': '<rootDir>/$1' },
   testTimeout: 30000,
 };

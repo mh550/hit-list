@@ -34,7 +34,7 @@ import {
 } from '@/src/sync/links';
 import { shareList } from '@/src/sync/lists';
 import type { PhotoIO } from '@/src/sync/photos';
-import { createLinkSend } from '@/src/sync/sends';
+import { createLinkSend, listSentLinks, makeSendLink, revokeSentLink } from '@/src/sync/sends';
 import { createMigratedTestDb } from '@/src/__tests__/helpers/node-sqlite-db';
 import { FeatureType, type HitList, type Spot } from '@/src/types';
 import { newId } from '@/src/utils/id';
@@ -55,8 +55,12 @@ jest.mock('expo-crypto', () => {
   return {
     randomUUID: () => nodeCrypto.randomUUID(),
     getRandomBytes: (byteCount: number) => new Uint8Array(nodeCrypto.randomBytes(byteCount)),
-    digestStringAsync: async (_algorithm: string, data: string) =>
-      nodeCrypto.createHash('sha256').update(data).digest('hex'),
+    // honours both arguments: a tokenHash that asked for another algorithm or encoding would miss the server's hash
+    digestStringAsync: async (algorithm: string, data: string, options?: { encoding?: 'hex' | 'base64' }) =>
+      nodeCrypto
+        .createHash(algorithm.replace('-', '').toLowerCase())
+        .update(data)
+        .digest(options?.encoding ?? 'hex'),
     CryptoDigestAlgorithm: { SHA256: 'SHA-256' },
     CryptoEncoding: { HEX: 'hex', BASE64: 'base64' },
   };
@@ -147,7 +151,13 @@ const TYPES: Record<string, string> = { '.html': 'text/html; charset=utf-8', '.j
 
 function startStaticServer(functionsUrl: string): Promise<Server> {
   const server = createServer((req, res) => {
-    const pathname = decodeURIComponent((req.url ?? '/').split(/[?#]/)[0]);
+    let pathname: string;
+    try {
+      pathname = decodeURIComponent((req.url ?? '/').split(/[?#]/)[0]);
+    } catch {
+      res.writeHead(400).end();
+      return;
+    }
     const rel = normalize(pathname.endsWith('/') ? `${pathname}index.html` : pathname).replace(/^[/\\]+/, '');
     if (req.method !== 'GET' || !rel.startsWith('share/') || rel.includes('..')) {
       res.writeHead(404).end();
@@ -168,24 +178,42 @@ function startStaticServer(functionsUrl: string): Promise<Server> {
     }
     res.writeHead(200, { 'Content-Type': TYPES[extname(rel)] ?? 'application/octet-stream' }).end(body);
   });
-  return new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server)));
+  return new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => resolve(server));
+  });
 }
 
-/** Opens the page at `url` in jsdom (share.js loaded from the server, Node's fetch in the window); its rendered state. */
+/**
+ * The functions URL the served page gets: this stack's, under another name for the same host, so a page still on its
+ * built-in meta (127.0.0.1) would show in `pageFetches`.
+ */
+const pageFunctionsUrl = () => `${supabaseUrl().replace('://127.0.0.1', '://localhost')}/functions/v1`;
+
+/** Every URL the open pages fetched (share-preview), in order. */
+const pageFetches: string[] = [];
+
+/** Opens the page at `url` in jsdom (share.js loaded from the server, Node's fetch in the window) once it rendered. */
 async function openPage(url: string): Promise<JSDOM> {
+  pageFetches.length = 0;
   const dom = await JSDOM.fromURL(url, {
     runScripts: 'dangerously',
     resources: 'usable',
     pretendToBeVisual: true,
     beforeParse(window) {
       // jsdom 20 has no fetch: a browser's would do the same GET
-      (window as unknown as { fetch: typeof fetch }).fetch = fetch;
+      (window as unknown as { fetch: typeof fetch }).fetch = (input: string | URL | Request, init?: RequestInit) => {
+        pageFetches.push(String(input));
+        return fetch(input, init);
+      };
     },
   });
+  doms.push(dom);
   const { document } = dom.window;
   for (let i = 0; i < 200 && !document.body?.dataset.state; i++) {
     await new Promise((resolve) => setTimeout(resolve, 25));
   }
+  if (!document.body?.dataset.state) throw new Error(`the page never rendered: ${url.replace(/#.*/, '#…')}`);
   return dom;
 }
 
@@ -208,14 +236,15 @@ beforeAll(async () => {
   await addSpotsToList(a.db, list.id, spots.map((s) => s.id), at, a.userId);
   // D78/D85: a send and a share take only what is backed up
   await pushAll(a.db, a.client, a.userId, a.io);
-  server = await startStaticServer(`${supabaseUrl()}/functions/v1`);
+  server = await startStaticServer(pageFunctionsUrl());
 });
 
+// Riders first: whatever failed in beforeAll (no server yet), they never stay behind.
 afterAll(async () => {
-  for (const dom of doms) dom.window.close();
-  await new Promise((resolve) => server?.close(resolve));
   for (const rider of riders) await deleteRiderAndPhotos(rider.email, rider.userId);
   for (const dir of tempDirs) rmSync(dir, { recursive: true, force: true });
+  for (const dom of doms) dom.window.close();
+  if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
 });
 
 describe('a send link (D44: anyone holding it can look, no account)', () => {
@@ -254,7 +283,8 @@ describe('a send link (D44: anyone holding it can look, no account)', () => {
   it('the static page renders the live answer: "2 spots from @ana" and two photos that load', async () => {
     const { port } = server.address() as AddressInfo;
     const dom = await openPage(`http://127.0.0.1:${port}/share/#t=${token}`);
-    doms.push(dom);
+    // the fragment's token, sent to the functions URL the page was given
+    expect(pageFetches).toEqual([`${pageFunctionsUrl()}/share-preview?t=${token}`]);
     const { document } = dom.window;
     expect(document.body.dataset.state).toBe('send');
     expect(document.querySelector('h1')?.textContent).toBe(`2 spots from @${a.username}`);
@@ -298,9 +328,33 @@ describe('a send link (D44: anyone holding it can look, no account)', () => {
     // and the page says so
     const { port } = server.address() as AddressInfo;
     const dom = await openPage(`http://127.0.0.1:${port}/share/#t=${second}`);
-    doms.push(dom);
+    expect(pageFetches).toEqual([`${pageFunctionsUrl()}/share-preview?t=${second}`]);
     expect(dom.window.document.body.dataset.state).toBe('gone');
     expect(dom.window.document.body.textContent).toContain("This link doesn't work any more.");
+  });
+});
+
+describe("the app's Copy link and Revoke (D93: Revoke withdraws the link's send and removes its photos)", () => {
+  it('makeSendLink → a live link; revokeSentLink → 404 gone, and its photo URLs stop working', async () => {
+    const url = await makeSendLink(a.db, a.client, a.userId, {
+      spotIds: [spots[0].id],
+      sender: { username: a.username, display_name: null },
+      expiry: '30d',
+    });
+    const token = tokenOf(url);
+    const live = await preview(token);
+    expect(live.status).toBe(200);
+    const photoUrl = (JSON.parse(live.text) as { spots: { photo_urls: string[] }[] }).spots[0].photo_urls[0];
+    expect((await fetch(photoUrl)).status).toBe(200);
+
+    const row = (await listSentLinks(a.client, a.userId))!.find((l) => l.status === 'active');
+    expect(row).toEqual(expect.objectContaining({ count: 1, status: 'active' }));
+    expect(await revokeSentLink(a.client, a.userId, row!)).toBe(true);
+
+    const gone = await preview(token);
+    expect([gone.status, gone.text]).toEqual([404, GONE]);
+    expect((await fetch(photoUrl)).status).not.toBe(200);
+    expect((await listSentLinks(a.client, a.userId))!.find((l) => l.id === row!.id)?.status).toBe('revoked');
   });
 });
 

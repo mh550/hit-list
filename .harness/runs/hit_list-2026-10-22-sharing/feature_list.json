@@ -272,7 +272,7 @@
         "npx expo lint && npx tsc --noEmit && npx jest --silent passes (nothing but the plan and docs changed)."
       ],
       "after": [],
-      "passes": false
+      "passes": true
     },
     {
       "id": "S3-02",

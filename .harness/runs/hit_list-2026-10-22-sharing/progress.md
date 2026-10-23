@@ -20,6 +20,14 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-22 22:05 · S3-01 · passes
+
+- Changed: `supabase` CLI **2.121.0** pinned exact (devDependency, `d1d1030 chore: pin supabase CLI`); scripts `db:start`/`db:stop`/`db:reset`/`test:db`; `supabase/config.toml` (`project_id = "hit-list"`, default ports, email OTP 6 digits), `supabase/README.md` (commands + the Docker rule verbatim), `.gitignore` (`supabase/.temp/`, `.branches/`); `docs/plans/2026-10-22-s3-backend.md` (schema, functions, policies, storage, pgTAP harness, the §3.3 Case table → 8 test files with exact test names); `docs/plans/2026-10-22-live-checklist.md` (spec §10 + S3's staged `db push`). Tests 924 → 924 (docs/config only).
+- Verified: `npx supabase start` exit 0; `status` printed `http://127.0.0.1:54321`; `supabase test db` with no files → `Result: NOTESTS`, **exit 1** (recorded in the plan); a throwaway probe test passed 3/3 (pgTAP auto-installed; `set_config('role')` + claims inside a function drive `auth.uid()`); `supabase stop` exit 0, `docker ps` afterwards = the same 7 n8n-*/dj-* containers, no `supabase_*`. `check.sh` green (924), `expo-doctor` 21/21.
+- Next session must know: **`supabase/tests/` must exist before `test db`** or Docker creates it owned by root (it is now checked in with `.gitkeep`). `supabase start` leaves `supabase/snippets/` (empty, untracked). PostGIS lives in schema `extensions`, so the generated `geog` column may need `extensions.`-qualified calls.
+- Question for Michael: **D57 *default*** (spec §2, §9 Q18): a shared-list invitation is a `hit_list_members` row with `status 'invited'`; Join → `'member'`, Decline deletes it; invitees see name + owner only. OK?
+- Proposed changes: S3-03 add a case `area member reads no spot the filters exclude` (the plan applies `area_filters` server-side so members read exactly what the list shows); S3-04 add `owner cannot add a spot they do not own` (otherwise any user could expose another rider's spot by putting its id in their own shared list).
+
 ### 2026-10-22 verify S2
 
 Re-ran `check.sh` (green, 924 tests), `npx jest --ci` (67 suites, 924 tests, 0 `console.error` lines) and `npx expo export --platform ios` (exit 0, `entry-*.hbc` 4,357,679 B). Read each named test's assertions.

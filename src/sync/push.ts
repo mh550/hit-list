@@ -17,11 +17,14 @@ import { toIso } from './time';
  * Push (docs/plans/2026-10-22-s5-sync.md, "Push"): drains the outbox into Supabase in id order. Each row sends the
  * entity's **current** local state; the outbox row is deleted only after the server confirmed the write.
  *
- * 1. Fresh pass: rows with fewer than BACKOFF_AFTER_ATTEMPTS failures; the first failure stops the push (a
- *    membership must not reach the server before its spot, and an unreachable server fails everything anyway).
+ * 1. Fresh pass: rows with fewer than BACKOFF_AFTER_ATTEMPTS failures; the first failure stops the push (an
+ *    unreachable server fails everything anyway).
  * 2. Backoff pass: each row with BACKOFF_AFTER_ATTEMPTS ≤ attempts < FAILED_AFTER_ATTEMPTS once; a failure goes on.
  * 3. FAILED_AFTER_ATTEMPTS or more waits for Profile's Retry.
- * A refusal no retry can fix (RLS, a check, a photo file that is gone, a row of another account) is parked.
+ * A photo or membership whose spot (or list) still has an earlier row waiting is left untouched until that row is
+ * done: the server would refuse it with 42501 (RLS runs before the FK check), which reads like a real refusal.
+ * A refusal no retry can fix (RLS, a check, a photo file that is gone, a row of another account) is parked, unless the
+ * session ended mid-push (the anon key gets 42501 for everything): then the push stops and leaves the rows alone.
  */
 
 const PAGE = 50;
@@ -37,8 +40,8 @@ export interface PushResult {
   failed: number;
 }
 
-/** Nothing to push for this row any more (it is gone locally), or a reason to park it. */
-type Sent = 'sent' | { park: string };
+/** Sent (or gone locally: nothing to send), held back behind its parent, or a reason to park it. */
+type Sent = 'sent' | 'waiting' | { park: string };
 
 class ServerError extends Error {
   constructor(
@@ -69,20 +72,23 @@ export async function push(
 
   const tally = (outcome: Outcome) => {
     if (outcome === 'done') result.pushed += 1;
-    else result.failed += 1;
+    else if (outcome === 'failed' || outcome === 'parked') result.failed += 1;
   };
 
+  // both passes page by id: a waiting row stays in the outbox, so peeking from the start would find it again
+  let afterId = 0;
   for (;;) {
-    const rows = await peekOutbox(db, PAGE, { skipFailed: true });
+    const rows = await peekOutbox(db, PAGE, { skipFailed: true, afterId });
     if (rows.length === 0) break;
     for (const row of rows) {
       const outcome = await pushRow(db, client, uid, io, row);
       tally(outcome);
-      if (outcome === 'failed') return result;
+      if (outcome === 'failed' || outcome === 'stop') return result;
+      afterId = row.id;
     }
   }
 
-  let afterId = 0;
+  afterId = 0;
   for (;;) {
     const rows = await peekOutbox(db, PAGE, {
       minAttempts: BACKOFF_AFTER_ATTEMPTS,
@@ -91,7 +97,9 @@ export async function push(
     });
     if (rows.length === 0) break;
     for (const row of rows) {
-      tally(await pushRow(db, client, uid, io, row));
+      const outcome = await pushRow(db, client, uid, io, row);
+      if (outcome === 'stop') return result;
+      tally(outcome);
       afterId = row.id;
     }
   }
@@ -103,12 +111,28 @@ export async function push(
  * account's rows under another and park them all as RLS refusals.
  */
 async function mayPush(db: SQLiteDatabase, client: SupabaseClient, uid: string): Promise<boolean> {
-  const { data, error } = await client.auth.getSession();
-  if (error || data.session?.user.id !== uid) return false;
-  return (await getSyncState(db, 'user_id')) === uid;
+  return (await signedInAs(client, uid)) && (await getSyncState(db, 'user_id')) === uid;
 }
 
-type Outcome = 'done' | 'failed' | 'parked';
+async function signedInAs(client: SupabaseClient, uid: string): Promise<boolean> {
+  const { data, error } = await client.auth.getSession();
+  return !error && data.session?.user.id === uid;
+}
+
+/** An earlier row for this spot or list still waits (not parked): it must reach the server first. */
+async function parentWaiting(db: SQLiteDatabase, row: OutboxRow, spotId: string, listId?: string): Promise<boolean> {
+  const found = await db.getFirstAsync<{ id: number }>(
+    `SELECT id FROM sync_outbox WHERE parked = 0 AND id < ?
+       AND ((entity = 'spot' AND entity_id = ?) OR (entity = 'hit_list' AND entity_id = ?)) LIMIT 1`,
+    row.id,
+    spotId,
+    listId ?? null,
+  );
+  return found !== null;
+}
+
+/** `stop`: the session is gone, so nothing this push could say about the row is true; it is left as it was. */
+type Outcome = 'done' | 'failed' | 'parked' | 'waiting' | 'stop';
 
 async function pushRow(
   db: SQLiteDatabase,
@@ -122,8 +146,10 @@ async function pushRow(
     sent = await send(db, client, uid, io, row);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    if (err instanceof ServerError && err.code && PERMANENT_CODES.has(err.code)) sent = { park: message };
-    else {
+    if (err instanceof ServerError && err.code && PERMANENT_CODES.has(err.code)) {
+      if (!(await signedInAs(client, uid))) return 'stop';
+      sent = { park: message };
+    } else {
       console.warn(`[sync] push ${row.entity} ${row.entity_id} failed:`, message);
       await markFailed(db, row.id, message);
       return 'failed';
@@ -133,6 +159,7 @@ async function pushRow(
     await markDone(db, row.id);
     return 'done';
   }
+  if (sent === 'waiting') return 'waiting';
   console.warn(`[sync] push ${row.entity} ${row.entity_id} set aside:`, sent.park);
   await parkRow(db, row.id, sent.park);
   return 'parked';
@@ -143,7 +170,7 @@ function send(db: SQLiteDatabase, client: SupabaseClient, uid: string, io: Photo
     case 'spot':
       return sendSpot(db, client, uid, row.entity_id);
     case 'media':
-      return sendMedia(db, client, uid, io, row.entity_id);
+      return sendMedia(db, client, uid, io, row);
     case 'hit_list':
       return sendHitList(db, client, uid, row.entity_id);
     case 'hit_list_spot':
@@ -228,15 +255,16 @@ async function sendMedia(
   client: SupabaseClient,
   uid: string,
   io: PhotoIO,
-  id: string,
+  outboxRow: OutboxRow,
 ): Promise<Sent> {
   const row = await db.getFirstAsync<MediaRow>(
     `SELECT id, spot_id, owner_id, file_path, captured_at, latitude, longitude, created_at, updated_at, deleted_at
      FROM media WHERE id = ?`,
-    id,
+    outboxRow.entity_id,
   );
   if (!row) return 'sent';
   if (row.owner_id !== uid) return { park: NOT_THIS_ACCOUNT };
+  if (await parentWaiting(db, outboxRow, row.spot_id)) return 'waiting';
   if (row.deleted_at === null) {
     if (!io.exists(row.file_path)) return { park: PHOTO_MISSING };
     const prepared = await io.prepare(row.file_path);
@@ -252,7 +280,8 @@ async function sendMedia(
       spot_id: row.spot_id,
       owner_id: row.owner_id,
       storage_path: storagePath(uid, row),
-      captured_at: toIso(row.captured_at),
+      // EXIF wall-clock time without a zone (src/utils/exif.ts); unreadable → null
+      captured_at: toIso(row.captured_at, 'local'),
       lat: row.latitude,
       lng: row.longitude,
       uploaded_by: row.owner_id,
@@ -274,7 +303,6 @@ interface HitListRow {
   area_radius_m: number | null;
   area_filters_json: string | null;
   area_place: string | null;
-  shared: number;
   created_at: string;
   updated_at: string;
   deleted_at: string | null;
@@ -292,7 +320,7 @@ function areaFilters(json: string | null): unknown {
 async function sendHitList(db: SQLiteDatabase, client: SupabaseClient, uid: string, id: string): Promise<Sent> {
   const row = await db.getFirstAsync<HitListRow>(
     `SELECT id, owner_id, name, kind, area_center_lat, area_center_lng, area_radius_m, area_filters_json, area_place,
-            shared, created_at, updated_at, deleted_at FROM hit_lists WHERE id = ?`,
+            created_at, updated_at, deleted_at FROM hit_lists WHERE id = ?`,
     id,
   );
   if (!row) return 'sent';
@@ -308,7 +336,8 @@ async function sendHitList(db: SQLiteDatabase, client: SupabaseClient, uid: stri
       area_radius_m: row.area_radius_m,
       area_filters: areaFilters(row.area_filters_json),
       area_place: row.area_place,
-      shared: row.shared === 1,
+      // never `shared`: a stale false would fire the server's t30_unshare (drops every member); only the sharing
+      // functions change it
       created_at: stamp(row.created_at),
       updated_at: stamp(row.updated_at),
       deleted_at: optionalStamp(row.deleted_at),
@@ -335,6 +364,7 @@ async function sendMembership(db: SQLiteDatabase, client: SupabaseClient, uid: s
     spotId,
   );
   if (!member) return 'sent';
+  if (await parentWaiting(db, row, spotId, listId)) return 'waiting';
   check(
     await client
       .from('hit_list_spots')

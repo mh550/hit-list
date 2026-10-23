@@ -6,8 +6,12 @@
 const TIMESTAMP =
   /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?\s*(Z|[+-]\d{2}(?::?\d{2})?)?$/i;
 
-/** `YYYY-MM-DDTHH:MM:SS.sssZ` (UTC, milliseconds), or null when the value is not a readable timestamp. */
-export function toIso(value: string | null | undefined): string | null {
+/**
+ * `YYYY-MM-DDTHH:MM:SS.sssZ` (UTC, milliseconds), or null when the value is not a readable timestamp. A value without
+ * a zone is UTC (SQLite's datetime()), or with `zoneless = 'local'` the phone's wall clock (an EXIF capture time,
+ * src/utils/exif.ts).
+ */
+export function toIso(value: string | null | undefined, zoneless: 'utc' | 'local' = 'utc'): string | null {
   const m = value ? TIMESTAMP.exec(value.trim()) : null;
   if (!m) return null;
   const [year, month, day, hour, minute, second] = m.slice(1, 7).map((part) => Number(part ?? 0));
@@ -25,7 +29,14 @@ export function toIso(value: string | null | undefined): string | null {
   ) {
     return null;
   }
+  if (m[8] === undefined && zoneless === 'local') return new Date(wallClockToUtc(local)).toISOString();
   return new Date(local - offsetMinutes(m[8]) * 60_000).toISOString();
+}
+
+/** A wall-clock time (given as if it were UTC) in the phone's zone; the offset is read again at the result for DST. */
+function wallClockToUtc(wallClock: number): number {
+  const guess = wallClock + new Date(wallClock).getTimezoneOffset() * 60_000;
+  return wallClock + new Date(guess).getTimezoneOffset() * 60_000;
 }
 
 /** `Z`, none (UTC), `+02`, `+02:00` or `-0700` in minutes east of UTC. */

@@ -39,10 +39,23 @@ export async function preparePhoto(localUri: string): Promise<{ uri: string; byt
       images.push(image);
     }
     const saved = await image.saveAsync({ compress: UPLOAD_JPEG_QUALITY, format: SaveFormat.JPEG });
-    return { uri: saved.uri, bytes: await new File(saved.uri).bytes() };
+    try {
+      return { uri: saved.uri, bytes: await new File(saved.uri).bytes() };
+    } catch (err) {
+      deleteCopy(saved.uri);
+      throw err;
+    }
   } finally {
     for (const image of images) image.release();
     context.release();
+  }
+}
+
+function deleteCopy(uri: string): void {
+  try {
+    new File(uri).delete();
+  } catch (err) {
+    console.warn('[sync] could not delete the upload copy', err);
   }
 }
 
@@ -52,13 +65,7 @@ export const defaultPhotoIO: PhotoIO = {
     const prepared = await preparePhoto(resolvePhotoUri(filePath));
     return {
       ...prepared,
-      cleanup: () => {
-        try {
-          new File(prepared.uri).delete();
-        } catch (err) {
-          console.warn('[sync] could not delete the upload copy', err);
-        }
-      },
+      cleanup: () => deleteCopy(prepared.uri),
     };
   },
 };

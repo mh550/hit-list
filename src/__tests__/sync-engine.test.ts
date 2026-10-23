@@ -13,6 +13,7 @@ jest.mock('@/src/sync/push', () => ({ push: jest.fn() }));
 jest.mock('@/src/sync/pull', () => ({ pull: jest.fn() }));
 jest.mock('@/src/sync/photos', () => ({ ...jest.requireActual('@/src/sync/photos'), downloadMissingPhotos: jest.fn() }));
 
+import * as dbModule from '@/src/db';
 import { addSpotsToList, insertHitList, insertMedia, insertSpot } from '@/src/db';
 import { enqueue, getSyncState, setSyncState } from '@/src/db/sync';
 import { push } from '@/src/sync/push';
@@ -102,9 +103,7 @@ describe('syncNow', () => {
     expect(useSpotsStore.getState().spots).toEqual([]);
   });
 
-  it('records lastSyncAt, the rider, failedCount from countFailed and no error', async () => {
-    for (const id of ['a', 'b', 'c']) await enqueue(db, 'spot', id, 'upsert');
-    await db.runAsync("UPDATE sync_outbox SET attempts = 10 WHERE entity_id IN ('a', 'b')");
+  it('records lastSyncAt (kept per rider in sync_state), the rider and no error after a sync that went through', async () => {
     const before = Date.now();
 
     await syncNow(db);
@@ -112,11 +111,65 @@ describe('syncNow', () => {
     const state = useSyncStore.getState();
     expect(state.userId).toBe(ME);
     expect(state.syncing).toBe(false);
-    expect(state.failedCount).toBe(2);
+    expect(state.failedCount).toBe(0);
     expect(state.lastError).toBeNull();
     expect(Date.parse(state.lastSyncAt ?? '')).toBeGreaterThanOrEqual(before);
     // kept on the phone, so a relaunch still knows when it last backed up
     expect(await getSyncState(db, `last_sync_at:${ME}`)).toBe(state.lastSyncAt);
+  });
+
+  it('records failedCount from countFailed; rows still waiting mean not backed up', async () => {
+    for (const id of ['a', 'b', 'c']) await enqueue(db, 'spot', id, 'upsert');
+    await db.runAsync("UPDATE sync_outbox SET attempts = 10 WHERE entity_id IN ('a', 'b')");
+
+    await syncNow(db);
+
+    const state = useSyncStore.getState();
+    expect(state.failedCount).toBe(2);
+    expect(state.lastSyncAt).toBeNull();
+    expect(state.lastError).not.toBeNull();
+  });
+
+  it('a change saved while the sync runs does not stop it counting as a backup', async () => {
+    mockPull.mockImplementationOnce(async () => {
+      await enqueue(db, 'spot', 'saved-meanwhile', 'upsert');
+      return { changed: false };
+    });
+
+    await syncNow(db);
+
+    expect(useSyncStore.getState().lastSyncAt).not.toBeNull();
+  });
+
+  it('a session that ended during the sync is not a backup (push and pull quietly did nothing)', async () => {
+    mockPush.mockImplementationOnce(async () => {
+      await mockFake!.auth.signOut();
+      return { pushed: 0, failed: 0 };
+    });
+
+    await syncNow(db);
+
+    expect(useSyncStore.getState().lastSyncAt).toBeNull();
+    expect(await getSyncState(db, `last_sync_at:${ME}`)).toBeUndefined();
+  });
+
+  it('a reload never overwrites a local change made while it read the DB: it reads again', async () => {
+    await insertSpot(db, createTestSpot({ id: 'spot-1', name: 'Courthouse rail' }));
+    mockPull.mockResolvedValueOnce({ changed: true });
+    const realGetSpots = dbModule.getSpots;
+    const getSpotsSpy = jest.spyOn(dbModule, 'getSpots').mockImplementationOnce(async (d) => {
+      const stale = await realGetSpots(d);
+      // the rider saves a spot now: the action hook puts it in the store, then in the DB
+      const added = createTestSpot({ id: 'spot-2', name: 'Saved meanwhile' });
+      useSpotsStore.getState().addSpot(added);
+      await insertSpot(db, added);
+      return stale;
+    });
+
+    await syncNow(db);
+
+    expect(getSpotsSpy).toHaveBeenCalledTimes(2);
+    expect(useSpotsStore.getState().spots.map((s) => s.id).sort()).toEqual(['spot-1', 'spot-2']);
   });
 
   it('shows the stored lastSyncAt of this rider before a sync that fails', async () => {
@@ -218,7 +271,45 @@ describe('syncNow', () => {
   });
 });
 
+describe('syncNow while a sync runs', () => {
+  it('a call after the running sync has started gets one more sync after it (Retry, pull-to-refresh)', async () => {
+    let releasePush!: () => void;
+    mockPush.mockImplementationOnce(
+      () => new Promise((resolve) => (releasePush = () => resolve({ pushed: 0, failed: 0 }))),
+    );
+
+    const first = syncNow(db);
+    await new Promise((r) => setImmediate(r));
+    expect(mockPush).toHaveBeenCalledTimes(1);
+    const second = syncNow(db);
+    const third = syncNow(db);
+    releasePush();
+    await Promise.all([first, second, third]);
+
+    expect(mockPush).toHaveBeenCalledTimes(2);
+    expect(mockPull).toHaveBeenCalledTimes(2);
+    expect(useSyncStore.getState().syncing).toBe(false);
+  });
+});
+
 describe('runExclusive', () => {
+  it('a task may ask for a sync without awaiting it: the sync runs after the task', async () => {
+    const order: string[] = [];
+    mockPush.mockImplementation(async () => {
+      order.push('push');
+      return { pushed: 0, failed: 0 };
+    });
+
+    let asked!: Promise<void>;
+    await runExclusive(async () => {
+      asked = syncNow(db);
+      order.push('task');
+    });
+    await asked;
+
+    expect(order).toEqual(['task', 'push']);
+  });
+
   it('never overlaps a sync: a task queued while one runs starts after it, and a sync asked during the task waits', async () => {
     const order: string[] = [];
     let releasePush!: () => void;

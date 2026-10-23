@@ -540,6 +540,32 @@ describe('Profile backup status (S5-05)', () => {
     );
   });
 
+  it('Retry is disabled while a sync runs', () => {
+    useAuthStore.setState(ANA);
+    useSyncStore.setState({ userId: ANA.userId, failedCount: 3, syncing: true });
+    render(<ProfileScreen />);
+
+    fireEvent.press(screen.getByRole('button', { name: 'Retry' }));
+
+    expect(resetFailed).not.toHaveBeenCalled();
+  });
+
+  it('a Retry whose reset fails warns and does not sync', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    jest.mocked(resetFailed).mockRejectedValueOnce(new Error('disk full'));
+    useAuthStore.setState(ANA);
+    useSyncStore.setState({ userId: ANA.userId, failedCount: 3 });
+    render(<ProfileScreen />);
+
+    await act(async () => {
+      fireEvent.press(screen.getByRole('button', { name: 'Retry' }));
+    });
+
+    expect(warn).toHaveBeenCalled();
+    expect(syncNow).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
   it("one failed row reads '1 change not backed up'", () => {
     useAuthStore.setState(ANA);
     useSyncStore.setState({ userId: ANA.userId, failedCount: 1 });

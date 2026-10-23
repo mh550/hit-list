@@ -66,7 +66,7 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   trailing '+' tile (`AddPhotosTile`, shared by detail and edit), taps by index), `SpotTagFields` (controlled What's here chips + 'Skate stopped' switch + SpeedScale).
   Hit lists (S1): `SpotsBrowser` (the List | Map body with search, sort, filter, FAB; takes the `spots` to show plus
   `aboveList`, `headerActions`, `headerTitle`/`headerLeft`, `onSpotPress`/`onSpotLongPress`, `selectedIds`),
-  `NameListSheet` (create/rename a list), `HeaderTextButton` (the blue header text button: Filter, Select, Rename), `AddToListSheet` (a checkbox per manual list, checked when every given spot
+  `NameListSheet` (create/rename a list), `HeaderTextButton` (the blue header text button: Filter, Select, Rename), `FilterHeaderButton` ('Filter (2)' from the shared filters; SpotsBrowser and the picker), `AddToListSheet` (a checkbox per manual list, checked when every given spot
   is in it, '+ New hit list'), `ListPickerChips` (store-connected, `null` with no lists).
 - `src/db/` SQLite access. `schema.ts` holds `MIGRATIONS` (versioned by `PRAGMA user_version`):
   **append a migration, never edit a shipped one**; per-connection pragmas (e.g. `foreign_keys`) go
@@ -92,7 +92,7 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck and tests on every branch p
   photo-storage, reverse-geocode, spot-name (D4 label), map-region, import-clustering, nearby-spots (`nearbySpots`:
   live known-location spots within a radius, nearest first; `nearbyLabel` 'Near <name> · 16 ft'), area (S2:
   `RADIUS_STEPS_M` per unit in whole metres, `DEFAULT_AREA_RADIUS_M`, `spotsInCircle` (boundary inclusive, never
-  `NO_LOCATION`), `nearestStep`, `radiusLabel`/`areaLabel` 'Area · 2 mi of Capitol Hill', `circleRegion`, `keepsPlace`), gallery-gestures (the viewer's
+  `NO_LOCATION`), `nearestStep`, `radiusLabel`/`areaLabel` 'Area · 2 mi of Capitol Hill', `circleRegion`, `keepsPlace`, `isAreaList` (the one "area list with a circle" guard)), gallery-gestures (the viewer's
   pure maths: `clampScale`, `toggleZoom`, `clampPan`, `pagingEnabled`, `shouldClose`, `focalZoom`, `pinchPan`, `doubleTapZoom`,
   `dragDown`), legacy-details (`formatLegacyDetails(legacy, units)` →
   labelled 'Older details' rows: fixed key order, lengths in the user's units, unknown keys humanised, never throws).

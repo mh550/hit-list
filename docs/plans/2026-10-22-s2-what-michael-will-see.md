@@ -63,7 +63,7 @@ Far ledge is not shown (outside the circle). 'Edit area' pushes `/area?listId=<i
 5. Back out, Spots tab → Quick Add (+) a spot while standing inside the circle (or a photo geotagged inside it). Open the list: the new spot is there with no further step.
 6. On the list screen tap 'Edit area' → pick '5 mi' → 'Save area'. The subtitle now says 'Area · 5 mi' and the count grows.
 
-Check on the phone (the tests can't): `router.replace` from the full-screen picker to the list; the chooser → name card swap with the keyboard up; after 'Use my location' on an unchanged map, whether the next short drag still moves the circle.
+Check on the phone (the tests can't): `router.replace` from the full-screen picker to the list; the chooser → name card swap with the keyboard up; after 'Use my location' on an unchanged map, whether the next short drag still moves the circle; at 25 mi over all your spots, whether a drag stutters (one pin per spot, not clustered; S2-06 m5); 'Edit area' then Cancel leaves the Spots tab's own filters as they were.
 
 ## Checks recorded
 

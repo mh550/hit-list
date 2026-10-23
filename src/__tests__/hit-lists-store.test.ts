@@ -35,6 +35,17 @@ describe('hit-lists store', () => {
     expect(useHitListsStore.getState().activeListId).toBeNull();
   });
 
+  // S10-01 review U3: a list that leaves through a reload (Leave, removed, Stop sharing, deleted elsewhere)
+  it('setLists clears the active list when it is no longer among the live lists', () => {
+    const { setLists, setActiveListId } = useHitListsStore.getState();
+    setLists([createTestHitList({ id: 'L1' }), createTestHitList({ id: 'L2' })]);
+    setActiveListId('L1');
+    setLists([createTestHitList({ id: 'L1' })]);
+    expect(useHitListsStore.getState().activeListId).toBe('L1');
+    setLists([createTestHitList({ id: 'L1', deleted_at: '2026-10-23T00:00:00.000Z' }), createTestHitList({ id: 'L2' })]);
+    expect(useHitListsStore.getState().activeListId).toBeNull();
+  });
+
   it('setLists, addList, updateList and removeList', () => {
     const a = createTestHitList({ id: 'A', name: 'Downtown' });
     const b = createTestHitList({ id: 'B', name: 'Night' });

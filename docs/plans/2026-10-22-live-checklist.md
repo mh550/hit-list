@@ -35,6 +35,11 @@ The migrations in `supabase/migrations/` are the whole server schema. Pushing th
       `select set_config('request.jwt.claims', '{"sub":"<A id>","role":"authenticated"}', true); set local role
       authenticated; select count(*) from spots;` returns only A's rows; as B, A's spot is not returned.
       Delete both users afterwards.
+- [ ] **Links are service-role only** (S3-07): in the SQL editor `select has_function_privilege('anon',
+      'public.preview_link(text)', 'execute'), has_function_privilege('authenticated', 'public.preview_link(text)',
+      'execute');` returns `false, false`, and `select count(*) from public.links;` as an authenticated user (as in
+      the smoke test) returns 0. The service-role key that `share-preview` (S9) uses to call `preview_link` is a
+      function secret only: never in the app, `.env.local` or the repo.
 - **Undo:** migrations only go forward. Before any real user exists, the clean undo is to delete the cloud project
   and create a new one (nothing else depends on it). After real users exist, undo is a new migration that reverses
   the change; never edit a pushed file.

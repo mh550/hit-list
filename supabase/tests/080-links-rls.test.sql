@@ -3,7 +3,7 @@
 -- role (the share-preview Edge Function, S9), redeem_invite joins a shared list once. §3.3 cases; the Case table in
 -- docs/plans/2026-10-22-s3-backend.md names each test.
 begin;
-select plan(92);
+select plan(116);
 
 -- People ----------------------------------------------------------------------------------------------------------
 select set_config('t.sender', tests.create_user('sender@test.local', 'sender')::text, true);
@@ -105,9 +105,6 @@ select throws_ok($$ select public.create_link('send', '00000000-0000-0000-0000-0
 select throws_ok($$ select public.create_link('send', '00000000-0000-0000-0000-0000000008d1', 'my-secret-token',
                                               null) $$,
                  '22023', null, 'create_link refuses a plain token (only a hash is stored, D45)');
-select throws_ok($$ select public.create_link('page', '00000000-0000-0000-0000-0000000008d1',
-                                              current_setting('t.sha_refused'), null) $$,
-                 '22023', null, 'create_link takes only send or invite');
 select throws_ok($$ select public.create_link('send', '00000000-0000-0000-0000-0000000008d1',
                                               current_setting('t.sha_send_live'), null) $$,
                  '23505', null, 'create_link cannot reuse a token hash');
@@ -136,6 +133,12 @@ select lives_ok($$ select public.create_link('invite', '00000000-0000-0000-0000-
 select lives_ok($$ select public.create_link('invite', '00000000-0000-0000-0000-0000000008e1',
                                              current_setting('t.sha_inv_long'), now() + interval '30 days', 'view') $$,
                 'the owner asks for a 30-day invite link');
+select throws_ok($$ select public.create_link('page', '00000000-0000-0000-0000-0000000008e1',
+                                              current_setting('t.sha_refused'), now() + interval '1 day', 'add') $$,
+                 '22023', null, 'create_link takes only send or invite');
+select throws_ok($$ select public.create_link('invite', '00000000-0000-0000-0000-0000000008e1',
+                                              current_setting('t.sha_refused'), now(), 'add') $$,
+                 '22023', null, 'create_link refuses a link that expires now');
 select throws_ok($$ select public.create_link('invite', '00000000-0000-0000-0000-0000000008e1',
                                               current_setting('t.sha_refused'), now() + interval '7 days') $$,
                  '22023', null, 'an invite link needs a role');
@@ -186,6 +189,8 @@ select results_eq(
 );
 select is((select expires_at from public.links where token_sha256 = current_setting('t.sha_inv_long')),
           now() + interval '7 days', 'an invite link lasts at most 7 days (D44)');
+select is((select expires_at from public.links where token_sha256 = current_setting('t.sha_inv_unshare')),
+          now() + interval '1 day', 'a shorter invite expiry is kept');
 select is((select count(*)::int from public.links where token_sha256 = current_setting('t.sha_refused')), 0,
           'no refused link left a row');
 select is((select count(*)::int from public.links), 15, 'fifteen links were made');
@@ -229,21 +234,25 @@ select throws_ok($$ select public.revoke_link('00000000-0000-0000-0000-000000000
                  'revoking an unknown link raises the same error');
 select tests.authenticate_as(current_setting('t.sender')::uuid);
 select lives_ok($$ select public.revoke_link(current_setting('t.link_revoked')::uuid) $$, 'the creator revokes a link');
-select set_config('t.revoked_at', (select revoked_at::text from public.list_my_links('send')
-                                   where id = current_setting('t.link_revoked')::uuid), true);
+select is((select revoked_at from public.list_my_links('send') where id = current_setting('t.link_revoked')::uuid),
+          now(), 'list_my_links shows the revoked link with revoked_at set');
+-- An earlier revoke (the clock can't move inside a test): revoking again keeps that time.
+reset role;
+update public.links set revoked_at = '2026-10-01T00:00:00Z' where id = current_setting('t.link_revoked')::uuid;
+select tests.authenticate_as(current_setting('t.sender')::uuid);
 select lives_ok($$ select public.revoke_link(current_setting('t.link_revoked')::uuid) $$, 'revoking again is harmless');
-select is((select revoked_at::text from public.list_my_links('send') where id = current_setting('t.link_revoked')::uuid),
-          current_setting('t.revoked_at'), 'list_my_links shows the revoke; revoking again keeps the first time');
-select isnt(current_setting('t.revoked_at', true), null, 'the revoked link has revoked_at set');
+select is((select revoked_at from public.list_my_links('send') where id = current_setting('t.link_revoked')::uuid),
+          '2026-10-01T00:00:00Z'::timestamptz, 'revoking again keeps the first time');
 select lives_ok($$ select public.withdraw_send('00000000-0000-0000-0000-0000000008d2') $$, 'the sender withdraws a linked send');
 
 -- Expire two links and revoke one invite (as postgres: the clock can't move inside a test).
 reset role;
 update public.links set expires_at = now() - interval '1 second'
 where token_sha256 in (current_setting('t.sha_send_expired'), current_setting('t.sha_inv_expired'));
+select set_config('t.link_inv_revoked',
+                  (select id::text from public.links where token_sha256 = current_setting('t.sha_inv_revoked')), true);
 select tests.authenticate_as(current_setting('t.owner')::uuid);
-select lives_ok(format('select public.revoke_link(%L)',
-                       (select id from public.links where token_sha256 = current_setting('t.sha_inv_revoked'))),
+select lives_ok($$ select public.revoke_link(current_setting('t.link_inv_revoked')::uuid) $$,
                 'the owner revokes an invite link');
 select lives_ok($$ select public.stop_sharing('00000000-0000-0000-0000-0000000008e4') $$, 'the owner stops sharing e4');
 select lives_ok($$ update public.hit_lists set deleted_at = now(), updated_at = now()
@@ -253,16 +262,27 @@ select is((select count(*)::int from public.links
            where token_sha256 in (current_setting('t.sha_inv_unshare'), current_setting('t.sha_inv_deleted'))
              and revoked_at is not null), 2,
           'stopping sharing or deleting a list revokes its invite links');
+select is((select count(*)::int from public.links
+           where revoked_at is not null
+             and token_sha256 not in (current_setting('t.sha_inv_unshare'), current_setting('t.sha_inv_deleted'),
+                                      current_setting('t.sha_inv_revoked'), current_setting('t.sha_send_revoked'))), 0,
+          'it leaves other lists'' invite links and send links alone');
 update public.hit_lists set shared = true where id = '00000000-0000-0000-0000-0000000008e4';
+-- Live invite links to the unshared e2 and the deleted e3, as only the service role could make them.
+insert into public.links (kind, token_sha256, list_id, role, created_by, expires_at)
+select 'invite', encode(extensions.digest(tok, 'sha256'), 'hex'), list_id::uuid, 'add',
+       current_setting('t.owner')::uuid, now() + interval '1 day'
+from (values ('inv_private', '00000000-0000-0000-0000-0000000008e2'),
+             ('inv_gone', '00000000-0000-0000-0000-0000000008e3')) as v(tok, list_id);
 
 -- preview_link (the service role) ---------------------------------------------------------------------------------
 select tests.authenticate_as_service_role();
 select results_eq(
-  $$ select kind, payload, list_name, sender_username::text, sender_display_name, expires_at
+  $$ select kind, send_id, payload, list_name, sender_username::text, sender_display_name, expires_at
      from public.preview_link(current_setting('t.sha_send_live')) $$,
-  $$ values ('send', '{"spots": [{"name": "Library rail"}]}'::jsonb, null::text, 'sender', 'Sam Sender',
-             now() + interval '30 days') $$,
-  'preview_link returns a live send link''s kind, payload, sender and expiry'
+  $$ values ('send', '00000000-0000-0000-0000-0000000008d1'::uuid, '{"spots": [{"name": "Library rail"}]}'::jsonb,
+             null::text, 'sender', 'Sam Sender', now() + interval '30 days') $$,
+  'preview_link returns a live send link''s kind, send id (photos are signed only under sends/<id>/), payload, sender and expiry'
 );
 select results_eq(
   $$ select kind, expires_at from public.preview_link(current_setting('t.sha_send_never')) $$,
@@ -270,9 +290,9 @@ select results_eq(
   'a send link that never expires previews'
 );
 select results_eq(
-  $$ select kind, payload, list_name, sender_username::text, sender_display_name, expires_at
+  $$ select kind, send_id, payload, list_name, sender_username::text, sender_display_name, expires_at
      from public.preview_link(encode(extensions.digest('abc', 'sha256'), 'hex')) $$,
-  $$ values ('invite', null::jsonb, 'Downtown rails', 'owner', 'Olive Owner', now() + interval '7 days') $$,
+  $$ values ('invite', null::uuid, null::jsonb, 'Downtown rails', 'owner', 'Olive Owner', now() + interval '7 days') $$,
   'preview_link returns a live invite link''s kind, list name and inviter'
 );
 select is_empty($$ select * from public.preview_link(current_setting('t.sha_send_expired')) $$,
@@ -293,6 +313,10 @@ select is_empty($$ select * from public.preview_link(current_setting('t.sha_inv_
                 'an invite link of a list that stopped sharing previews nothing, even shared again');
 select is_empty($$ select * from public.preview_link(current_setting('t.sha_inv_deleted')) $$,
                 'an invite link of a deleted list previews nothing');
+select is_empty($$ select * from public.preview_link(encode(extensions.digest('inv_private', 'sha256'), 'hex'))
+                   union all
+                   select * from public.preview_link(encode(extensions.digest('inv_gone', 'sha256'), 'hex')) $$,
+                'an unrevoked invite link of an unshared or deleted list previews nothing');
 reset role;
 select set_config('role', 'service_role', true);
 select set_config('request.jwt.claims', '{"role": "authenticated"}', true);
@@ -333,6 +357,10 @@ select is(public.redeem_invite('abc'), '00000000-0000-0000-0000-0000000008e1'::u
 select tests.authenticate_as(current_setting('t.joiner2')::uuid);
 select throws_ok($$ select public.redeem_invite('abc') $$, '42501', 'invalid invite', 'second redeem raises invalid invite');
 reset role;
+select tests.authenticate_as_service_role();
+select is_empty($$ select * from public.preview_link(encode(extensions.digest('abc', 'sha256'), 'hex')) $$,
+                'a used invite link previews nothing');
+reset role;
 select is((select count(*)::int from public.hit_list_members
            where list_id = '00000000-0000-0000-0000-0000000008e1'
              and user_id in (current_setting('t.joiner')::uuid, current_setting('t.joiner2')::uuid)), 1,
@@ -352,6 +380,8 @@ select results_eq(
             (current_setting('t.invitee')::uuid, 'add', 'member', true) $$,
   'a view link makes a view member; an invitee''s row becomes a member with the link''s role'
 );
+select is((select used_by from public.links where token_sha256 = current_setting('t.sha_inv_invitee')),
+          current_setting('t.invitee')::uuid, 'an invitee joining by link uses the link up');
 
 select tests.authenticate_as(current_setting('t.owner')::uuid);
 select is(public.redeem_invite('inv_owner'), '00000000-0000-0000-0000-0000000008e1'::uuid,
@@ -382,6 +412,10 @@ select throws_ok($$ select public.redeem_invite('inv_deleted') $$, '42501', 'inv
                  'an invite to a deleted list raises invalid invite');
 select throws_ok($$ select public.redeem_invite('send_live') $$, '42501', 'invalid invite',
                  'a send link is not an invite');
+select throws_ok($$ select public.redeem_invite('inv_private') $$, '42501', 'invalid invite',
+                 'an unrevoked invite to an unshared list raises invalid invite');
+select throws_ok($$ select public.redeem_invite('inv_gone') $$, '42501', 'invalid invite',
+                 'an unrevoked invite to a deleted list raises invalid invite');
 select throws_ok($$ select public.redeem_invite(null) $$, '42501', 'invalid invite', 'a NULL token raises invalid invite');
 select throws_ok(format('select public.redeem_invite(%L)', encode(extensions.digest('abc', 'sha256'), 'hex')),
                  '42501', 'invalid invite', 'redeem_invite takes the token, not its hash');
@@ -406,6 +440,16 @@ select throws_ok($$ select public.redeem_invite('abc') $$, '42501', 'invalid inv
                  'a redeemer who left cannot rejoin with the used link');
 select tests.clear_auth();
 select throws_ok($$ select public.redeem_invite('inv_long') $$, '42501', null, 'anon cannot redeem');
+reset role;
+select set_config('role', 'authenticated', true);
+select set_config('request.jwt.claims', '{"role": "authenticated"}', true);
+select throws_ok($$ select public.redeem_invite('inv_long') $$, '42501', 'not signed in',
+                 'redeem_invite refuses a token without a user');
+select throws_ok($$ select public.create_link('send', '00000000-0000-0000-0000-0000000008d1',
+                                              current_setting('t.sha_refused'), null) $$, '42501', 'not signed in',
+                 'create_link refuses a token without a user');
+select throws_ok($$ select public.revoke_link(current_setting('t.link_revoked')::uuid) $$, '42501', 'not signed in',
+                 'revoke_link refuses a token without a user');
 
 -- Privileges ------------------------------------------------------------------------------------------------------
 reset role;

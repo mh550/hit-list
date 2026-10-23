@@ -20,6 +20,15 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 05:10 · S3-07 · passes
+
+- Changed: `supabase/migrations/20261023041500_links.sql` (`create_link`, `revoke_link`, `list_my_links`, `preview_link` (service role only, invoker, JWT claim checked), `redeem_invite` (pgcrypto SHA-256 hex, link `for update`, pair lock, block → `'invalid invite'`), trigger `t30_revoke_invite_links`, three links indexes; links keep RLS on with no policies). New `080-links-rls` (116). RED commit `8ddadb5` (died at test 1). Jest 924 → 924; pgTAP 422 → 538.
+- Verified: `db:reset` → `test:db`: `Files=8, Tests=538, Result: PASS` → `db:stop`; `docker ps` = the same 7 n8n-*/dj-* containers. 49 hand mutations (`mut7.sh`, scratch): all killed except 5 equivalents, listed in the plan. Two-session races: two redeems of one token → 1 member (2 without `for update`); `create_link` vs `stop_sharing` → 0 live links (1 without `for share`). Local PostgREST: service role previews, anon gets 42501 on both RPCs and `[]` from `links`. `check.sh` green (924).
+- Opus review: 1 Important, fixed test-first. `preview_link` now returns `send_id`, so S9 never signs a photo path taken from the payload. Minors fixed: the create-vs-unshare lock, the redeem re-check under the pair lock, indexes, comments, 6 gap tests. Table under Review in the S3 plan. Every §3.3 case in the Case table is done.
+- Next session (S3-08) must know: S9's `share-preview` signs only `sends/<send_id>/…` objects that pass `photo_path_ok`. `sends.link_id` is never set (S9: set it or drop it). Keep `t30_revoke_invite_links` sorting before `t30_unshare` (see the comment in `redeem_invite`).
+- Questions for Michael: **D60 *default*** (spec §9 Q21): anyone signed in who holds an invite link joins once, no friendship needed; stopping sharing or deleting the list kills its links. OK? The invite preview shows the list name to someone not signed in (the S3-07 step asks for it; D44 says invite links show nothing without an account). Which one is right? A send to a friend can also be turned into a public link. Is that OK?
+- Proposed changes: S3-07's step says "a second redeem of the same token raises". It does for anyone else. The rider who used the link gets the list id back on a retry, and so do the owner and existing members, and the link stays as it is.
+
 ### 2026-10-23 04:20 · S3-06 · passes
 
 - Changed: `supabase/migrations/20261023031134_sends_storage.sql` (sends policy, `can_read_send`, `create_send` (pair lock, friends only, payload = JSON object ≤ 1 MB), `withdraw_send`, `mark_send_saved`, `dismiss_send`; private `photos` bucket (JPEG, 10 MB); `try_uuid`, `photo_path_ok`, `can_read_photo`, `can_write_photo` + four `storage.objects` policies). New `060-sends-rls` (60) and `070-storage-rls` (46); `010` 39 → 38. RED commit `a3194cd` (060 died at test 1, 070 in setup). Jest 924 → 924; pgTAP 317 → 422.

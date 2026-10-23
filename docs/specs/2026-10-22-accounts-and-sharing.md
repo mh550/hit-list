@@ -109,6 +109,7 @@ it can **Save a copy** (it becomes their own private spot, with "From @name" on 
 | D57 | **A shared-list invitation is a member row with `status = 'invited'`** *default* | `hit_list_members.status` is `'invited'` \| `'member'`; Join flips it to `'member'` (sets `joined_at`), Decline deletes it. An invitee sees the list's name and owner only; only `'member'` reads its spots. | S3 plan (`docs/plans/2026-10-22-s3-backend.md`): §3.5's Join / Decline needs an invited state that §3.2 didn't have (§9 Q18) |
 | D58 | **A display name is at most 50 characters** *default* | A `profiles` check constraint; usernames stay 3–20 (D39). Removing a friend also withdraws pending list invitations between the two (an invitation needs a friendship). | S3-05 Opus review: an unbounded display name is downloaded by every friend, co-member and `find_profile` caller (§9 Q19) |
 | D59 | **Blocking hides the blocked rider's sends to you; your own pending sends to them stay** *default* | When you block someone, the sends *they* sent you disappear from your Inbox (and can't be saved), and come back unchanged if you unblock them while they are still pending. Sends *you* had sent them stay readable by them until you withdraw them (Sent → Withdraw). Unfriending without a block leaves sends alone. | S3-06 Opus review: the simplest reading of D50 (§9 Q20) |
+| D60 | **An invite link lets any signed-in rider who holds it join once; it dies with the list's sharing** *default* | No friendship is needed to join by link (holding it is the owner's consent; the in-app invite still needs a friend). The owner, or someone already a member, opening the link changes nothing and doesn't use it up. Stopping sharing or deleting the list revokes its open invite links, so sharing again later doesn't bring them back. An invite link asked for longer than 7 days is cut to 7 (D44). | S3-07 (§9 Q21) |
 
 ---
 
@@ -365,6 +366,9 @@ it stops at a milestone boundary; S9 (links) is last among the features because 
     unblock while they're still pending), but the sends you had sent *them* stay visible to them until you withdraw
     them. Should blocking also withdraw your own pending sends to that person, and should unblocking keep their old
     sends hidden?
+21. **Invite links (D60).** Default: anyone with an account who has the link can join the list once (they don't
+    have to be your friend first), and stopping sharing or deleting the list kills its open invite links. Should an
+    invite link work only for your friends?
 
 ---
 

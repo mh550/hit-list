@@ -161,7 +161,7 @@ Works from S7-05 on (the server migration lands in S7-03). Same setup as S6: sta
 `npm run start:tailscale`, two riders A and B who are friends (S6). Plan: `docs/plans/2026-10-22-s7-send.md`.
 
 - [ ] **Server side first:** `npm run db:reset && npm run test:db && npm run test:integration`. Check: the send suite
-      passes (counts in the S7 plan's 'As built').
+      passes (counts in the S7 plan's 'As built': S7-06 ran Files=10 Tests=604 and 4 suites, 44 tests).
 - [ ] **Deploy order (cloud, later):** `npx supabase db push` the S7 migration **before** installing a build that
       sends spots (an older server without `spots.from_username` stalls every backup), then
       `npx supabase functions deploy account-delete` (it calls `staged_send_objects`, which the migration adds: deployed

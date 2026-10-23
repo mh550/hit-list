@@ -20,6 +20,15 @@ lockfile changes in their own `chore:` commit. Every live step goes into
 default, recorded as `D<n> *default*` in the spec's §2 (next free number, D52 onward) and asked in §9;
 never park. MERGE_POLICY is `pr`: open PRs, merge nothing.
 
+### 2026-10-23 19:00 · S7-06 · passes
+
+- New `src/__integration__/send.test.ts` (8 cases: D40 frozen copy after rename + delete, Save → owned copies with photos + backup + second phone, ana can't read them, withdraw before save (RLS refuses while the object exists, then removed), 55000 on a saved send, forged sender (D80), staged photo (D77), failed `create_send` leaves no copies). `src/__integration__/phones.ts` = helpers moved out of `sync.test.ts` unchanged. Jest stays at 1676 (integration is separate): `test:integration` 36 → 44.
+- Verified: `npm run db:start` → `db:reset` → `test:db` Files=10 Tests=604 PASS → `test:integration` 4 suites 44 passed, 0 `console.error` → `db:stop`; `docker ps` lists only the 7 dj-*/n8n-* containers. `check.sh` green 1676; `npx jest --ci` 0 `console.error`.
+- Not RED first: S7-03…05 already built the behaviour, so the test passed on its first run. A mutation run (no photo cleanup after a refused `create_send` or in `withdrawSend`) failed cases 4 and 8; the source was restored.
+- Opus review of the test: 1 Important (the withdraw check was passing only because of the delete, not RLS) and 7 Minor, all fixed. Table in the S7 plan under 'As built (S7-06)'.
+- Next (S7-07): the integration counts for its file are 4 suites, 44 tests; `npx expo export` still has to be run there.
+- Questions for Michael: none new. Proposed changes: none.
+
 ### 2026-10-23 16:30 · S7-05 · passes
 
 - Inbox send rows in `app/(tabs)/inbox.tsx` (thumbnail via signed URL, Save all / Save into a new hit list / Pick spots → new `src/components/PickSpotsSheet.tsx` / Dismiss confirm, a save's line at the top, sends load on focus + pull to refresh); new `app/sent/index.tsx` ('Sent', Withdraw); Profile 'Sent' row (`FriendsRow` → `LinkRow`); `sends.ts` gains `hasPendingSave` and a load ticket before `removeItem`; `useSentSends().refresh({ quiet })`.

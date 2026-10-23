@@ -10,9 +10,9 @@
  * `prepare` hands the stored bytes over unchanged: the byte-for-byte checks prove the transport and the storage path,
  * not D46's re-encoding (on the phone the server copy is the re-encoded JPEG, tested in sync-photos.test.ts).
  */
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import * as fileSystem from 'expo-file-system';
@@ -28,15 +28,14 @@ import {
 } from '@/src/db/hit-lists';
 import { countPending, getCursor, getSyncState } from '@/src/db/sync';
 import { adopt } from '@/src/sync/adopt';
-import { defaultPhotoIO, downloadMissingPhotos, storagePath, type PhotoIO } from '@/src/sync/photos';
-import { pull } from '@/src/sync/pull';
-import { push } from '@/src/sync/push';
+import { defaultPhotoIO, storagePath, type PhotoIO } from '@/src/sync/photos';
 import { createMigratedTestDb } from '@/src/__tests__/helpers/node-sqlite-db';
 import { FeatureType, type HitList, type Spot } from '@/src/types';
 import { resolvePhotoUri } from '@/src/utils/photo-storage';
 import { newId } from '@/src/utils/id';
 
 import { createRider, deleteRiderAndPhotos, signInAgain, uniqueUsername, type Rider } from './helpers';
+import { FIXTURE, nodePhotoIO, pullAll, pushAll, sync } from './phones';
 
 // The engine (imported by adopt) reaches the app's client module, which needs React Native; these tests hand their own
 // clients to push and pull, so the app client is never used.
@@ -50,26 +49,6 @@ jest.mock('expo-crypto', () => {
 });
 
 const fakeFs = fileSystem as unknown as typeof import('../../__mocks__/expo-file-system');
-
-const FIXTURE = new Uint8Array(readFileSync(join(__dirname, '../__tests__/fixtures/photo-2kb.jpg')));
-
-/** A phone's photo folder on disk (Paths.document's stand-in): `photos/<spot>/<media>.jpg` under `root`. */
-function nodePhotoIO(root: string): PhotoIO {
-  const at = (filePath: string) => join(root, filePath);
-  return {
-    exists: (filePath) => existsSync(at(filePath)),
-    async prepare(filePath) {
-      return { uri: at(filePath), bytes: new Uint8Array(readFileSync(at(filePath))), cleanup: () => {} };
-    },
-    write(filePath, bytes) {
-      mkdirSync(dirname(at(filePath)), { recursive: true });
-      writeFileSync(at(filePath), bytes);
-    },
-    remove(filePath) {
-      rmSync(at(filePath), { force: true });
-    },
-  };
-}
 
 /** The app's PhotoIO (expo-file-system, here the in-memory fake) with the bytes uploaded as stored. */
 const appPhotoIO: PhotoIO = {
@@ -111,28 +90,6 @@ async function addPhoto(db: SQLiteDatabase, spotId: string, io: PhotoIO): Promis
   io.write(filePath, FIXTURE);
   await insertMedia(db, { id, spot_id: spotId, file_path: filePath, created_at: now() });
   return id;
-}
-
-/** A push that sent everything it tried. */
-async function pushAll(db: SQLiteDatabase, client: SupabaseClient, uid: string, io: PhotoIO): Promise<void> {
-  expect((await push(db, client, uid, io)).failed).toBe(0);
-}
-
-/** A pull that read every table. */
-async function pullAll(db: SQLiteDatabase, client: SupabaseClient, uid: string): Promise<void> {
-  expect((await pull(db, client, uid)).failed).toBeFalsy();
-}
-
-/**
- * One sync as the engine runs it (push → pull → missing photos), failing the test on anything not done; resolves how
- * many photo files it downloaded.
- */
-async function sync(db: SQLiteDatabase, client: SupabaseClient, uid: string, io: PhotoIO): Promise<number> {
-  await pushAll(db, client, uid, io);
-  await pullAll(db, client, uid);
-  const downloaded = await downloadMissingPhotos(db, client, uid, io);
-  expect(await countPending(db)).toBe(0);
-  return downloaded;
 }
 
 /** Every row id of a table, whatever its deleted_at (getSpots hides soft-deleted rows; removal must leave none). */

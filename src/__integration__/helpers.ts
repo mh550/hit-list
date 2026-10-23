@@ -110,7 +110,8 @@ async function photoPaths(admin: SupabaseClient, prefix: string): Promise<string
 /**
  * Deletes a rider and their photos the way Delete account does: a fresh session (the test may have ended with the
  * rider signed out) calls the account-delete Edge Function. When that can't run (no code, the edge runtime down), the
- * admin API removes the files under `<uid>/` and then the user. Never throws: it runs in afterAll.
+ * admin API removes the files under `<uid>/` and then the user (a send's `sends/<id>/` objects stay behind then, until
+ * the next `npm run db:reset`). Never throws: it runs in afterAll.
  */
 export async function deleteRiderAndPhotos(email: string, userId: string): Promise<void> {
   try {

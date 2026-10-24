@@ -26,6 +26,11 @@ const MAPPING = {
   'magnifyingglass': 'search',
   'xmark': 'close',
   'plus': 'add',
+  'list.bullet': 'format-list-bulleted',
+  'checkmark': 'check',
+  'tray.fill': 'inbox',
+  'photo': 'image',
+  'person.2.fill': 'group',
 } as IconMapping;
 
 /**

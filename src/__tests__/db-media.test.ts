@@ -1,6 +1,7 @@
 import type { SQLiteDatabase } from 'expo-sqlite';
 import { createMigratedTestDb } from './helpers/node-sqlite-db';
 import { insertSpot, insertMedia, getMediaForSpot, getAllMedia, deleteMedia } from '@/src/db';
+import { ME, adoptPhoneFor, outboxOps } from './helpers/outbox';
 import { createTestMedia, createTestSpot } from './factories';
 
 describe('media against real SQLite', () => {
@@ -84,5 +85,102 @@ describe('media against real SQLite', () => {
 
     expect(all).toHaveLength(3);
     expect(all.filter((m) => m.spot_id === s1.id)).toEqual([a1, a2]);
+  });
+
+  it('insertMedia writes updated_at = created_at and no deleted_at', async () => {
+    const spot = createTestSpot();
+    await insertSpot(db, spot);
+    const m = createTestMedia({ spot_id: spot.id, created_at: '2026-10-13T11:00:00.000Z' });
+
+    await insertMedia(db, m);
+
+    expect(await db.getFirstAsync('SELECT updated_at, deleted_at FROM media WHERE id = ?', m.id)).toEqual({
+      updated_at: '2026-10-13T11:00:00.000Z',
+      deleted_at: null,
+    });
+  });
+
+  it('deleteMedia is a soft delete: the row stays with deleted_at = updated_at, hidden from both readers', async () => {
+    const spot = createTestSpot();
+    await insertSpot(db, spot);
+    const m = createTestMedia({ spot_id: spot.id });
+    await insertMedia(db, m);
+
+    await deleteMedia(db, m.id);
+
+    const row = await db.getFirstAsync<{ deleted_at: string; updated_at: string }>(
+      'SELECT deleted_at, updated_at FROM media WHERE id = ?',
+      m.id,
+    );
+    expect(row?.deleted_at).toMatch(/^\d{4}-\d\d-\d\dT.*Z$/);
+    expect(row?.updated_at).toBe(row?.deleted_at);
+    expect(await getMediaForSpot(db, spot.id)).toEqual([]);
+    expect(await getAllMedia(db)).toEqual([]);
+  });
+
+  describe('outbox (migration 5 triggers)', () => {
+    beforeEach(async () => {
+      await adoptPhoneFor(db);
+    });
+
+    it("a photo takes its spot's owner; getMediaForSpot and getAllMedia return owner_id", async () => {
+      const spot = createTestSpot({ owner_id: ME });
+      const loose = createTestSpot();
+      await insertSpot(db, spot);
+      await insertSpot(db, loose);
+      const m = createTestMedia({ spot_id: spot.id });
+      const n = createTestMedia({ spot_id: loose.id });
+
+      await insertMedia(db, m);
+      await insertMedia(db, n);
+
+      expect((await getMediaForSpot(db, spot.id))[0].owner_id).toBe(ME);
+      expect((await getMediaForSpot(db, loose.id))[0].owner_id).toBeUndefined();
+      expect((await getAllMedia(db)).map((x) => x.owner_id).sort()).toEqual([ME, undefined]);
+    });
+
+    it("inserting then removing a photo of an owned spot appends media upsert, then media delete", async () => {
+      const spot = createTestSpot({ owner_id: ME });
+      await insertSpot(db, spot);
+      const m = createTestMedia({ spot_id: spot.id });
+
+      await insertMedia(db, m);
+      await deleteMedia(db, m.id);
+
+      expect(await outboxOps(db)).toEqual([
+        ['spot', spot.id, 'upsert'],
+        ['media', m.id, 'upsert'],
+        ['media', m.id, 'delete'],
+      ]);
+    });
+
+    it('removing a photo twice appends one delete', async () => {
+      const spot = createTestSpot({ owner_id: ME });
+      await insertSpot(db, spot);
+      const m = createTestMedia({ spot_id: spot.id });
+      await insertMedia(db, m);
+
+      await deleteMedia(db, m.id);
+      await deleteMedia(db, m.id);
+
+      expect((await outboxOps(db)).filter(([, , op]) => op === 'delete')).toHaveLength(1);
+    });
+
+    it('a photo of a phone-only spot appends nothing', async () => {
+      const spot = createTestSpot();
+      await insertSpot(db, spot);
+      const m = createTestMedia({ spot_id: spot.id });
+
+      await insertMedia(db, m);
+      await deleteMedia(db, m.id);
+
+      expect(await outboxOps(db)).toEqual([]);
+    });
+
+    it('a photo for a spot that does not exist is rejected and appends nothing', async () => {
+      await expect(insertMedia(db, createTestMedia({ spot_id: 'missing' }))).rejects.toThrow();
+
+      expect(await outboxOps(db)).toEqual([]);
+    });
   });
 });

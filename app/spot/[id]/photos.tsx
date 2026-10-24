@@ -15,15 +15,18 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { useMediaStore, useSpotsStore } from '@/src/stores';
+import { useRiderId } from '@/src/hooks/use-rider-id';
+import { usePhotoUri } from '@/src/hooks/use-photo-uri';
+import { isForeign } from '@/src/utils/ownership';
 import { useSpotActions } from '@/src/hooks/use-spot-actions';
 import { useMediaActions } from '@/src/hooks/use-media-actions';
 import { ZoomablePhoto } from '@/src/components';
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { resolvePhotoUri } from '@/src/utils/photo-storage';
 import { primaryPhoto, spotPhotos } from '@/src/utils/spot-photos';
 import { MIN_SCALE, pagingEnabled } from '@/src/utils/gallery-gestures';
 import { spacing } from '@/src/constants/theme';
 import type { Media } from '@/src/types';
+import type { ComponentProps } from 'react';
 
 const clampIndex = (i: number, count: number) => Math.max(0, Math.min(i, count - 1));
 const OPTIONS_ACTIONS = [{ name: 'longpress', label: 'Photo options' }];
@@ -41,7 +44,7 @@ function inViewerOrder(order: string[], current: Media[]): Media[] {
  * paging is locked while a pinch runs and while the shown photo is zoomed past 1.05×, and a swipe down at 1× goes back
  * too. Android's back button pops it through the Stack; nothing is intercepted (an iOS fullScreenModal has no swipe to
  * dismiss of its own). A long press offers Set as primary and Remove photo (confirmed); removing the last photo closes
- * the viewer.
+ * the viewer. Another rider's spot (S8, D47) has no options, and its photos come from the cache.
  */
 export default function PhotoViewerScreen() {
   const { id, index } = useLocalSearchParams<{ id: string; index?: string }>();
@@ -53,6 +56,8 @@ export default function PhotoViewerScreen() {
   const spot = useSpotsStore((s) => s.spots.find((sp) => sp.id === id));
   const media = useMediaStore((s) => (id ? s.mediaBySpot[id] : undefined));
   const current = useMemo(() => (spot ? spotPhotos(spot, media) : []), [spot, media]);
+  const userId = useRiderId();
+  const readOnly = spot !== undefined && isForeign(spot, userId);
 
   // D29: the order is fixed while the viewer is open (a new primary does not jump to page 1). Removed photos
   // drop out; photos added meanwhile go at the end.
@@ -158,25 +163,25 @@ export default function PhotoViewerScreen() {
         accessible
         accessibilityRole="image"
         accessibilityLabel={`Photo ${i + 1} of ${count}`}
-        accessibilityHint="Double-tap and hold for options"
-        accessibilityActions={OPTIONS_ACTIONS}
+        accessibilityHint={readOnly ? undefined : 'Double-tap and hold for options'}
+        accessibilityActions={readOnly ? undefined : OPTIONS_ACTIONS}
         onAccessibilityAction={(e) => {
-          if (e.nativeEvent.actionName === 'longpress') showOptions(item.id);
+          if (!readOnly && e.nativeEvent.actionName === 'longpress') showOptions(item.id);
         }}>
-        <ZoomablePhoto
-          uri={resolvePhotoUri(item.file_path)}
+        <ViewerPhoto
+          media={item}
           recyclingKey={item.id}
           width={width}
           height={height}
           onScaleChange={setZoom}
           onPinchChange={setPinching}
           onRequestClose={close}
-          onLongPress={() => showOptions(item.id)}
+          onLongPress={readOnly ? undefined : () => showOptions(item.id)}
           testIdPrefix={`viewer-${i}`}
         />
       </View>
     ),
-    [width, height, count, close, showOptions],
+    [width, height, count, close, showOptions, readOnly],
   );
 
   return (
@@ -220,6 +225,12 @@ export default function PhotoViewerScreen() {
       </View>
     </View>
   );
+}
+
+/** A page's ZoomablePhoto once its uri is known: another rider's photo may still be downloading into the cache. */
+function ViewerPhoto({ media, ...props }: Omit<ComponentProps<typeof ZoomablePhoto>, 'uri'> & { media: Media }) {
+  const { uri } = usePhotoUri(media);
+  return uri ? <ZoomablePhoto uri={uri} {...props} /> : null;
 }
 
 const styles = StyleSheet.create({

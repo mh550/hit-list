@@ -42,6 +42,47 @@ export interface Spot {
 
 ---
 
+## Accounts and sharing (2026-10-22)
+
+This section wins over the `[FUTURE]` sharing headings and the offline notes below. The full design, with the
+reasons and every decision, is [`docs/specs/2026-10-22-accounts-and-sharing.md`](docs/specs/2026-10-22-accounts-and-sharing.md).
+It is built and tested against the local Supabase stack only; nothing is deployed.
+
+| Word in the UI | What it is | Live? |
+|---|---|---|
+| **Spot** | unchanged: one rideable thing at one place | no |
+| **Hit list** | a named group of spots the rider made; a spot can be in any number of lists | no |
+| **Area list** | a hit list defined by a circle on the map: the owner's spots inside it, including ones saved there later (computed, never stored) | the rule is |
+| **Send** | a one-time copy of spots to friends in the app or as a link; later edits don't reach them | no |
+| **Share** (a hit list) | live access: members see every spot now and later until they leave, are removed, or sharing stops | yes |
+| **Friends** | riders connected by request and accept; the people you can Send to or invite directly | no |
+| **Inbox** | friend requests, spots sent to you, invitations to shared lists | no |
+
+**The two verbs (D34).** The words are never mixed: Send (paper plane) is only for copies, Share / Shared / Invite
+(two people) only for live lists. Send screens say "They get a copy of these N spots as they are now. Changes you
+make later won't reach them."; Share screens say "Everyone here sees every spot in <list>, including spots added
+later, until you remove them or stop sharing."
+
+**Ownership.** Every spot, photo and list has exactly one owner; only the owner edits or deletes it. Others who can
+see a spot can Save a copy (their own private spot, 'From @name'). Others' photos live only in the phone's cache.
+
+**Server model (Postgres, RLS on every table).** `profiles`, `spots`, `media`, `hit_lists`, `hit_list_spots`,
+`hit_list_members`, `friendships`, `blocks`, `sends`, `links`; photos in one private Storage bucket. The one-line
+RLS rule: a rider reads a spot only if they own it or belong to a shared list that holds it (a shared area list:
+the owner's spots inside its circle), writes only their own rows, and sees profiles only of friends and co-members
+(everyone else needs an exact-username lookup). Every policy and function has pgTAP cases.
+
+**Sync (D48).** Accounts are optional. Changes queue in a local outbox and push when signed in and online; pull on
+launch, on foreground, on pull-to-refresh and every 5 minutes while open; no realtime. Last write wins per row by
+`updated_at`; a spot's photos merge as a set.
+
+**Links (D44, D45).** A Send link opens a read-only preview in a browser with no login until it expires (1 day,
+7 days, 30 days or never) or the sender revokes it. An invite link needs an account, works once, lasts 7 days and
+can be revoked. A token lives in the URL fragment, only its SHA-256 is stored, and a dead link always reads the
+same 'gone' answer.
+
+---
+
 > **Document Purpose**: This is a refined version of `spot_finder_app_spec.md`. Sections that deviate from or extend the original spec are marked with:
 > - `[DEVIATION]` - Changed from original spec
 > - `[ADDITION]` - New content not in original spec
@@ -539,6 +580,10 @@ In the UI, gear and build items are displayed separately for clarity despite sha
 
 ### Sync Strategy
 
+> **Built as (2026-10-22):** outbox plus pull by server `rev`, last write wins per row, no realtime, no user prompt
+> for conflicts; see "Accounts and sharing (2026-10-22)" and decision D48 in the accounts spec. The diagram below is
+> the original plan.
+
 ```
 ┌─────────────────────────────────────────────────────────┐
 │                    OFFLINE BEHAVIOR                     │
@@ -609,7 +654,9 @@ Spots are **private by default** (visible only to creator).
 - Session tokens stored locally, long-lived (30 days)
 - If token expires while offline, queue sync and re-auth when online
 
-### `[FUTURE]` Sharing Model
+### [SUPERSEDED] `[FUTURE]` Sharing Model
+
+> Superseded by "Accounts and sharing (2026-10-22)" at the top of this file; text kept for history.
 
 ```
 Private (default)
@@ -621,14 +668,18 @@ Shared with Crew(s)
 Public (opt-in, future)
 ```
 
-### `[FUTURE]` Crews
+### [SUPERSEDED] `[FUTURE]` Crews
+
+> Superseded by "Accounts and sharing (2026-10-22)" at the top of this file (no crews were built); text kept for history.
 
 - Users create or join crews
 - Spots can be shared with one or more crews
 - Default visibility settings per crew
 - Crew admin can manage membership
 
-### `[FUTURE]` Folders/Collections
+### [SUPERSEDED] `[FUTURE]` Folders/Collections
+
+> Superseded by "Accounts and sharing (2026-10-22)" at the top of this file; text kept for history.
 
 - Organize spots into folders
 - Folders can have sharing permissions

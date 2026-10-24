@@ -1,0 +1,1155 @@
+{
+  "run": "hit_list-2026-10-22-sharing",
+  "branch": "harness/hit_list-2026-10-22-sharing",
+  "features": [
+    {
+      "id": "S1-01",
+      "milestone": "S1",
+      "kind": "plan",
+      "model": "opus",
+      "description": "docs/plans/2026-10-22-s1-hit-lists.md fixes migration 4 (hit_lists + hit_list_spots, owner nullable, area columns reserved), the HitList type, the hit-lists store and hook, the SpotsBrowser extraction, the Lists tab, the list screen, the Add-to-list sheet, multi-select and the list picker, each with its RED tests.",
+      "steps": [
+        "docs/plans/2026-10-22-s1-hit-lists.md exists with sections: Types (HitList { id, name, kind: 'manual' | 'area', owner_id?, shared: boolean, member_count?, area_center?, area_radius_m?, area_filters?, area_place?, created_at, updated_at, deleted_at? } and HitListSpot { list_id, spot_id, added_by?, added_at }), Migration 4 (the exact CREATE TABLE SQL for hit_lists (id TEXT PK, owner_id TEXT NULL, name TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'manual', area_center_lat REAL, area_center_lng REAL, area_radius_m INTEGER, area_filters_json TEXT, area_place TEXT, shared INTEGER NOT NULL DEFAULT 0, created_at, updated_at, deleted_at) and hit_list_spots (list_id REFERENCES hit_lists(id) ON DELETE CASCADE, spot_id REFERENCES spots(id) ON DELETE CASCADE, added_by TEXT NULL, added_at TEXT NOT NULL, PRIMARY KEY (list_id, spot_id)) and the two indexes), DB API (src/db/hit-lists.ts function names and signatures: insertHitList, getHitLists, updateHitList, softDeleteHitList, addSpotsToList, removeSpotFromList, getListMemberships returning Record<spotId, listId[]>), Store (src/stores/hit-lists-store.ts shape: lists, membershipBySpot, activeListId; selectors selectListSpots(list, spots, membershipBySpot), selectSpotLists(spotId, lists, membershipBySpot), selectListCounts), Hook (src/hooks/use-hit-list-actions.ts: createList, renameList, deleteList, addSpotsToList, removeSpotFromList, each optimistic with DB write and revert on failure like useSpotActions), SpotsBrowser (the component extracted from app/(tabs)/index.tsx: props spots, header slot, empty-state copy; owns the List | Map toggle, search, sort chips, FilterSheet and the FlashList/SpotMap body; the Spots tab and the list screen both render it), Screens (app/(tabs)/lists.tsx, app/list/[id]/index.tsx, src/components/AddToListSheet.tsx, multi-select on the Spots tab, the list picker chip row), Tab bar (D49: tabs Spots · Lists · Profile in S1; Inbox is added in S6), Copy (every user-visible string of S1 in one table: 'Hit lists', 'My hit lists', 'New hit list', 'Add to hit list', 'In lists', 'Remove from list', 'Delete list' with its confirm 'Spots stay in your library', 'N spots', 'Select', 'Add to list (N)'), and a Test list per feature naming each test file and its cases.",
+        "The plan records the decision that area columns are created in migration 4 (unused until S2) so S2 adds no migration, and that `sync_queue` from migration 1 is left alone until S5's migration.",
+        "The plan states how the list screen reuses the Spots tab's store filters/search/sort (shared store state, scoped by spot set) and that the Spots tab's existing tests (spots-view-mode, spots-sort-search, spot-list, spot-map, filter-sheet) must pass unchanged after the SpotsBrowser extraction.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes (nothing but the plan and docs changed)."
+      ],
+      "after": [],
+      "passes": true
+    },
+    {
+      "id": "S1-02",
+      "milestone": "S1",
+      "kind": "build",
+      "model": "opus",
+      "description": "Migration 4 adds hit_lists and hit_list_spots to the local SQLite DB and src/db/hit-lists.ts reads and writes them, with real-SQLite tests for the many-to-many, soft delete and cascade.",
+      "steps": [
+        "src/db/schema.ts exports MIGRATIONS of length 4 and LATEST_SCHEMA_VERSION === 4; migrations 1–3 are byte-for-byte unchanged (git diff src/db/schema.ts shows additions only).",
+        "src/__tests__/db-migrate.test.ts gains cases: a v3 DB migrates to v4 with PRAGMA table_info(hit_lists) listing exactly id, owner_id, name, kind, area_center_lat, area_center_lng, area_radius_m, area_filters_json, area_place, shared, created_at, updated_at, deleted_at and PRAGMA table_info(hit_list_spots) listing list_id, spot_id, added_by, added_at; the v2 fixture rows still migrate 2→3→4 with their spots and media intact; migrating a v4 DB again changes nothing.",
+        "src/__tests__/db-hit-lists.test.ts (real node:sqlite harness) passes: insertHitList then getHitLists round-trips name, kind 'manual', shared false, owner_id undefined; addSpotsToList(listId, [a, b]) twice is idempotent (INSERT OR IGNORE) and getListMemberships returns { a: [listId], b: [listId] }; a spot in two lists maps to both ids; removeSpotFromList removes one row; softDeleteHitList sets deleted_at, getHitLists no longer returns it, and the spots a, b are still returned by getSpots (deleting a list never deletes spots); with PRAGMA foreign_keys = ON a hard DELETE FROM spots cascades the hit_list_spots row; updateHitList(id, { name: 'Night mission' }) renames and bumps updated_at; the spot-side soft delete leaves the hit_list_spots row but selectListSpots (S1-03) will hide it.",
+        "src/types/index.ts exports HitList and HitListSpot as the plan states; src/db/index.ts re-exports the new functions; src/__tests__/factories.ts gains createTestHitList(overrides).",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S1-03",
+      "milestone": "S1",
+      "kind": "build",
+      "model": "opus",
+      "description": "A hit-lists zustand store with selectors and a useHitListActions hook give screens optimistic create, rename, delete, add and remove with DB writes and revert on failure, and useDbInit loads lists and memberships at launch.",
+      "steps": [
+        "src/stores/hit-lists-store.ts exists and is exported from src/stores/index.ts; src/__tests__/hit-lists-store.test.ts passes: selectListSpots returns only live (deleted_at undefined) spots whose id is mapped to the list, in the order given by the spots array; selectSpotLists(spotId) returns the HitList objects the spot is in, excluding soft-deleted lists; selectListCounts gives { [listId]: n } counting live spots only; setActiveListId / activeListId default null.",
+        "src/hooks/use-hit-list-actions.ts exists; src/__tests__/use-hit-list-actions.test.ts (real SQLite via the harness, renderHook) passes: createList('Downtown') inserts a row with newId(), kind 'manual', shared false and returns it; renameList, deleteList (soft) and addSpotsToList/removeSpotFromList update the store first and the DB after; when the DB write rejects the store is reverted and the promise rejects (same pattern as useSpotActions.updateSpot).",
+        "src/hooks/use-db-init.ts loads getHitLists and getListMemberships into the store after spots and media, each in its own try/catch so a failure logs and the app still starts; src/__tests__/db-init.test.ts asserts lists load and that a throwing getHitLists leaves isReady true.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S1-04",
+      "milestone": "S1",
+      "kind": "build",
+      "model": "opus",
+      "description": "The Spots tab's List | Map body is extracted into a SpotsBrowser component that takes the spots to show, so the list screen can reuse it; the Spots tab behaves exactly as before.",
+      "steps": [
+        "src/components/SpotsBrowser.tsx exists and is exported from src/components/index.ts with props { spots: Spot[]; emptyTitle: string; emptyMessage: string; emptyActionLabel?: string; onEmptyAction?: () => void; aboveList?: ReactNode }; it owns the SegmentedControl, the search TextInput, SortChips, FilterSheet, EmptyState, FlashList and SpotMap exactly as app/(tabs)/index.tsx did, reading filters/search/sort/viewMode from useSpotsStore.",
+        "app/(tabs)/index.tsx renders <SpotsBrowser spots={spots} …/> plus the FAB column and the Filter header button; src/__tests__/spots-view-mode.test.tsx, spots-sort-search.test.tsx, spot-list.test.tsx, spot-map.test.tsx, filter-sheet.test.tsx and spots-import-action.test.tsx pass without changes to their assertions (git diff --stat on those files shows at most import-path edits).",
+        "src/__tests__/spots-browser.test.tsx passes: rendering SpotsBrowser with two spots shows two rows; with zero spots it shows emptyTitle; setting the store's searchQuery to a name shows one row and the 'No matching spots' state with 'Clear search' when nothing matches; switching the segment to Map renders the SpotMap mock with the filtered spots.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S1-05",
+      "milestone": "S1",
+      "kind": "build",
+      "model": "opus",
+      "description": "A Lists tab sits between Spots and Profile and shows 'My hit lists' as rows with spot counts, an empty state, and '+ New hit list' that names and creates a list.",
+      "steps": [
+        "app/(tabs)/_layout.tsx declares three Tabs.Screen in order index ('Spots'), lists ('Lists', IconSymbol 'list.bullet'), profile ('Profile'); src/__tests__/tabs-layout.test.tsx renders TabLayout and asserts the three titles in that order.",
+        "app/(tabs)/lists.tsx exists; src/__tests__/lists-tab.test.tsx passes: with no lists it shows 'No hit lists yet' and 'Group spots you mean to hit: by hand, or by area'; with lists 'Downtown' (3 live spots, one soft-deleted spot) and 'Bridges' (0) it shows a section header 'My hit lists' and rows 'Downtown' with '3 spots' and 'Bridges' with '0 spots' (the count ignores the deleted spot); the 'Shared with me' section header is absent when there are no shared lists; pressing a row calls router.push('/list/<id>').",
+        "Pressing '+ New hit list' (accessibilityLabel 'New hit list') shows a name sheet (src/components/NameListSheet.tsx: TextInput placeholder 'Name', buttons Cancel and Create; Create disabled while the trimmed name is empty); Create calls createList with the trimmed name and pushes '/list/<id>'; the test uses a mocked useHitListActions.",
+        "No '+ Area list' entry exists yet (S2 adds it); the test asserts queryByLabelText('New area list') is null.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S1-06",
+      "milestone": "S1",
+      "kind": "build",
+      "model": "opus",
+      "description": "Tapping a list opens app/list/[id]: SpotsBrowser scoped to the list's spots with the same List | Map, search, sort and filters, a renamable title, 'Remove from list' on a row's long press, and 'Delete list' that keeps the spots.",
+      "steps": [
+        "app/list/[id]/index.tsx exists and app/_layout.tsx registers Stack.Screen 'list/[id]/index'; src/__tests__/list-screen.test.tsx passes: for a list 'Downtown' holding spots a and b (and spot c not in it) it renders exactly two rows and the header title 'Downtown'; the Map segment renders SpotMap with spots a and b only; with the store's filters set to types ['rail'] only the rail spot shows (the Spots tab's filters apply, scoped to the list).",
+        "A header 'Rename' button (accessibilityLabel 'Rename list') opens NameListSheet pre-filled with the name; saving calls renameList(id, 'Night mission'); the empty list state reads 'No spots in this list yet' with 'Add from a spot's page or select spots on the Spots tab'.",
+        "Long-pressing a row shows Alert.alert titled with the spot's display name and a 'Remove from list' action that calls removeSpotFromList(listId, spotId) (jest.spyOn(Alert, 'alert') and invoking the button); 'Delete list' at the bottom alerts 'Delete Downtown?' with message 'Spots stay in your library.' and a destructive 'Delete' that calls deleteList(id) then router.back().",
+        "Opening a list id that does not exist (or was deleted) renders 'This list is gone' and no crash (useLocalSearchParams mocked to an unknown id).",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S1-07",
+      "milestone": "S1",
+      "kind": "build",
+      "model": "opus",
+      "description": "The spot detail screen shows an 'In lists' row of chips and an Add-to-list sheet with checkboxes and '+ New hit list', so a spot can be filed from its own page.",
+      "steps": [
+        "src/components/AddToListSheet.tsx exists (props visible, spotIds: string[], onClose; rows = every live manual list with a checkbox reflecting whether all given spots are in it; '+ New hit list' opens NameListSheet and creates then checks the new list; Done closes); src/__tests__/add-to-list-sheet.test.tsx passes: with lists 'Downtown' (contains the spot) and 'Bridges' (does not) the rows have accessibilityState checked true and false; toggling 'Bridges' calls addSpotsToList(bridgesId, [spotId]); toggling 'Downtown' calls removeSpotFromList(downtownId, spotId); with two spotIds where only one is in 'Downtown' the row is unchecked and toggling adds both (addSpotsToList with both ids).",
+        "app/spot/[id]/index.tsx shows an 'In lists' row under the tag line: one chip per list the spot is in (text = list name) and a trailing '+ Add to hit list' chip (accessibilityLabel 'Add to hit list') that opens the sheet; with no lists the row shows only the '+ Add to hit list' chip; src/__tests__/spot-detail.test.tsx gains these cases and tapping a list chip pushes '/list/<id>'.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S1-08",
+      "milestone": "S1",
+      "kind": "build",
+      "model": "opus",
+      "description": "On the Spots tab, long-pressing a row or tapping 'Select' enters multi-select with checkboxes, a count, and a bottom bar whose 'Add to list (N)' opens the Add-to-list sheet for the selection.",
+      "steps": [
+        "src/__tests__/spots-select.test.tsx passes: long-pressing a row (fireEvent(row, 'longPress')) enters select mode with that row checked, the header shows 'Select' replaced by 'Cancel' and a title '1 selected'; tapping a second row checks it ('2 selected'); tapping a checked row unchecks it; 'Cancel' leaves select mode with nothing selected; in select mode a tap never navigates (router.push not called).",
+        "The bottom bar (testID 'select-bar') shows 'Add to list (2)' which opens AddToListSheet with both spot ids (the sheet is rendered with spotIds equal to the selection); after the sheet closes, select mode ends. No 'Send' button exists yet (S7 adds it); the test asserts queryByText(/Send/) is null.",
+        "SpotListItem accepts selectable/selected props and renders a checkbox with accessibilityRole 'checkbox' and accessibilityState { checked } only in select mode; src/__tests__/components.test.tsx covers both states.",
+        "The FAB column is hidden in select mode (queryByLabelText('Add new spot') is null while selecting).",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S1-09",
+      "milestone": "S1",
+      "kind": "build",
+      "model": "opus",
+      "description": "A list picker chip row above the Spots tab's views ('My spots' first, then every hit list) scopes both List and Map to the chosen list.",
+      "steps": [
+        "src/components/ListPickerChips.tsx exists: a horizontal ScrollView of chips, 'My spots' first (selected when activeListId is null), then one chip per live list in name order, each with accessibilityRole 'tab' and accessibilityState { selected }; src/__tests__/list-picker-chips.test.tsx passes: pressing 'Downtown' calls setActiveListId(downtownId); pressing 'My spots' calls setActiveListId(null); with no lists the row renders nothing (null), not a lone 'My spots' chip.",
+        "app/(tabs)/index.tsx passes SpotsBrowser the spots scoped by activeListId (selectListSpots when set, all spots otherwise); src/__tests__/spots-view-mode.test.tsx gains: with activeListId = downtownId only its two spots render in List and the SpotMap mock receives only those two in Map; the empty-state copy for an empty active list is 'No spots in this list yet'.",
+        "Deleting the active list (store removes it) resets activeListId to null (hit-lists-store test).",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S1-10",
+      "milestone": "S1",
+      "kind": "check",
+      "model": "sonnet",
+      "description": "docs/plans/2026-10-22-s1-what-michael-will-see.md walks the Lists tab, the list screen, the In-lists row, multi-select and the list picker as rendered in tests, so Michael knows what to expect on the phone.",
+      "steps": [
+        "docs/plans/2026-10-22-s1-what-michael-will-see.md exists and lists, in rendered order from scratch renders (a temporary test file deleted before the commit; git status shows no src/__tests__/walkthrough*): the Lists tab with two lists, the list screen for a list of two spots, the spot detail 'In lists' row with one chip, the Spots tab in select mode with two selected, and the list picker row with 'My spots' + two lists; every visible text and accessibility label is listed.",
+        "The file has a 'What to tap' section: make a list from the Lists tab, add a spot from its page, select two spots on the Spots tab and add them, open the list on the Map, rename it, delete it and confirm the spots are still on the Spots tab; and a 'Known limits' section (no area lists yet, no sharing yet, lists are local to the phone).",
+        "The file records the commands run and their results: npx jest --silent (suite and test counts, zero console.error) and npx expo export --platform ios --output-dir /tmp/hl-export (exit 0 and the bundle size).",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes."
+      ],
+      "after": [
+        "S1-09"
+      ],
+      "passes": true
+    },
+    {
+      "id": "S1-11",
+      "milestone": "S1",
+      "kind": "review",
+      "model": "opus",
+      "description": "An Opus review of the S1 diff leaves no unfixed Critical or Important finding in migration 4, the hit-lists DB/store/hook, SpotsBrowser or the new screens; simplifications are applied; CLAUDE.md and README describe hit lists.",
+      "steps": [
+        "git diff 4aa5326..HEAD -- src app > .harness/runs/hit_list-2026-10-22-sharing/reviews/s1.diff is written and the reviewer reads the diff from that file; findings are recorded in docs/plans/2026-10-22-s1-hit-lists.md under a 'Review' heading with severity (Critical/Important/Minor), file:line and the fix commit for every Critical and Important item; each such fix has a RED test committed before the GREEN fix (git log shows the test change in the same or an earlier commit).",
+        "The reviewer answers in writing: migration 4 runs inside the per-migration transaction and a v3 DB with an existing table named hit_lists (from a future-build downgrade) does not crash the app; a soft-deleted spot never counts in any list; addSpotsToList is idempotent; a double tap on Create in NameListSheet creates one list; select mode cannot navigate; the Spots tab's filter/search/sort behaviour is unchanged after the SpotsBrowser extraction (the pre-existing tests pass unmodified).",
+        "A 'refactor:' commit applies the simplification pass (shared styles between the Spots tab and the list screen, dead code left in app/(tabs)/index.tsx after the extraction, duplicated empty-state copy).",
+        "CLAUDE.md Layout lists app/(tabs)/lists.tsx, app/list/[id]/, SpotsBrowser, AddToListSheet, NameListSheet, ListPickerChips, src/db/hit-lists.ts, the hit-lists store and hook, and Conventions gains a 'Hit lists' bullet (many-to-many, deleting a list never deletes spots, area columns reserved); README Status gains a 'Hit lists (S1)' bullet.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S2-01",
+      "milestone": "S2",
+      "kind": "plan",
+      "model": "opus",
+      "description": "docs/plans/2026-10-22-s2-area.md fixes the area geometry module, the area picker screen, how an area list's spots are computed, 'Edit area', and the react-native-maps mock additions, each with RED tests.",
+      "steps": [
+        "docs/plans/2026-10-22-s2-area.md exists with sections: Geometry (src/utils/area.ts: RADIUS_STEPS_M per unit (imperial 0.25, 0.5, 1, 2, 5, 10, 25 mi; metric 0.5, 1, 2, 5, 10, 25, 50 km, all stored as whole metres), spotsInCircle(spots, center, radiusM) via haversine inclusive of the boundary, nearestStep(radiusM, units), areaLabel(radiusM, units, place?) → 'Area · 2 mi' / 'Area · 2 mi of Capitol Hill', circleRegion(center, radiusM) for the map camera), Area lists (an area list stores center/radius/place/filters in migration 4's columns and holds no hit_list_spots rows; selectListSpots for kind 'area' = spotsInCircle over the owner's live spots then selectFilteredSpots with area_filters; 'Just these N' writes a manual list with hit_list_spots rows), Picker screen (app/area/index.tsx: MapView with a fixed centre pin overlay, a Circle, radius chips, a place search field using Location.geocodeAsync, 'Use my location', the FilterSheet, the live count, bottom actions 'Save as hit list' → 'Just these N' / 'Keep it updated'; query params for editing an existing list), Mock (what __mocks__/react-native-maps.tsx must add: Circle and onRegionChangeComplete, names copied from node_modules/react-native-maps/lib/*.d.ts), Lists tab and list screen changes ('+ Area list', row subtitle 'Area · 2 mi', header 'Area · 2 mi of <place>', 'Edit area'), Add-to-list sheet (area lists shown disabled with 'Area list: spots inside its circle are in it automatically'), and a Test list per feature.",
+        "The plan records a D<n> *default* in docs/specs/2026-10-22-accounts-and-sharing.md §2 (next free number) and §9 for anything new it decides (at least: an area list ignores NO_LOCATION spots; the place name shown is the search text the rider typed or 'my location'), and says 'Send these N spots' is added to the picker in S7.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes (nothing but the plan and docs changed)."
+      ],
+      "after": [
+        "S1"
+      ],
+      "passes": true
+    },
+    {
+      "id": "S2-02",
+      "milestone": "S2",
+      "kind": "build",
+      "model": "opus",
+      "description": "src/utils/area.ts holds the pure area geometry (radius steps per unit, circle membership, labels, camera region) and the hit-lists store computes an area list's spots from the circle plus its filters.",
+      "steps": [
+        "src/__tests__/area.test.ts passes: RADIUS_STEPS_M.imperial equals [402, 805, 1609, 3219, 8047, 16093, 40234] and RADIUS_STEPS_M.metric equals [500, 1000, 2000, 5000, 10000, 25000, 50000]; spotsInCircle keeps a spot exactly on the boundary (distance == radius) and drops one 1 m outside; a NO_LOCATION spot is never inside; nearestStep(1700, imperial) is 1609; areaLabel(3219, imperial) is 'Area · 2 mi', areaLabel(2000, metric, 'Capitol Hill') is 'Area · 2 km of Capitol Hill', areaLabel(402, imperial) is 'Area · 0.25 mi'; circleRegion returns latitudeDelta/longitudeDelta that contain the circle with margin (asserted numerically for 1609 m at latitude 47.6).",
+        "src/__tests__/hit-lists-store.test.ts gains: selectListSpots for a kind 'area' list with center/radius returns the live spots inside the circle and applies area_filters (types ['rail'] drops a ledge inside the circle); a spot added to the store inside the circle appears in the next selectListSpots call with no other action; selectListCounts counts area lists the same way.",
+        "src/db/hit-lists.ts round-trips the area columns (db-hit-lists test: insert an area list with center, radius 3219, place 'Capitol Hill', filters { types: ['rail'] } and read it back equal; updateHitList can change center/radius/place).",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S2-03",
+      "milestone": "S2",
+      "kind": "build",
+      "model": "opus",
+      "description": "The area picker screen shows a map with a fixed centre pin and a drawn circle, radius chips in the rider's units, place search, 'Use my location', the filters and a live spot count.",
+      "steps": [
+        "__mocks__/react-native-maps.tsx exports Circle (renders a View with testID 'map-circle' and its props) and MapView forwards onRegionChangeComplete so a test can fire it; member names copied from node_modules/react-native-maps/lib/index.d.ts (the file path is cited in a comment).",
+        "app/area/index.tsx exists and app/_layout.tsx registers it (presentation 'fullScreenModal', title 'Pick an area'); src/__tests__/area-picker.test.tsx passes: initial centre is the current location when known, else the initialRegion of the spots; the radius chips read 0.25 mi … 25 mi for imperial and 0.5 km … 50 km for metric, with 2 mi (3219 m) selected by default; pressing '5 mi' changes the Circle's radius prop to 8047; firing onRegionChangeComplete with a new region moves the Circle's center and recomputes the count; the count text reads '23 spots' for a fixture of 23 inside and 4 outside, and '1 spot' in the singular.",
+        "A search field (accessibilityLabel 'Search a place') calls Location.geocodeAsync(text) on submit and moves the centre to the first result (expo-location mocked in jest.setup.ts; its member name is from node_modules/expo-location/build/Location.d.ts); a result-less search shows 'No place found'; 'Use my location' recentres on useLocationStore's currentLocation and is disabled with no fix.",
+        "The Filter button opens the existing FilterSheet and the count respects the store's filters (types ['rail'] lowers the count in the test).",
+        "The bottom bar shows 'Save as hit list' only (no Send yet); pressing it shows two options 'Just these 23 spots' with hint 'A normal hit list of the spots inside the circle right now' and 'Keep it updated' with hint 'An area list: your spots inside this circle, now and later'; no action is wired yet (S2-04) beyond closing the chooser.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S2-04",
+      "milestone": "S2",
+      "kind": "build",
+      "model": "opus",
+      "description": "From the picker, 'Just these N' makes a manual list and 'Keep it updated' makes an area list; the Lists tab, list screen and Add-to-list sheet show area lists correctly and 'Edit area' reopens the picker on the list's circle.",
+      "steps": [
+        "src/__tests__/area-picker.test.tsx gains: 'Just these 23 spots' opens NameListSheet and Create calls createList('Weekend', { kind: 'manual' }) then addSpotsToList with the 23 ids, then router.replace('/list/<id>'); 'Keep it updated' opens NameListSheet and Create calls createList('Weekend', { kind: 'area', area_center, area_radius_m: 3219, area_place: 'Capitol Hill', area_filters: current filters }) and no addSpotsToList.",
+        "Lists tab: '+ Area list' (accessibilityLabel 'New area list') pushes '/area'; an area list's row shows the subtitle 'Area · 2 mi' and its live count; src/__tests__/lists-tab.test.tsx covers both.",
+        "List screen for an area list: header subtitle 'Area · 2 mi of Capitol Hill', an 'Edit area' button that pushes '/area?listId=<id>'; the picker opened with listId pre-fills centre/radius/place and its single bottom action 'Save area' calls updateHitList(id, { area_center, area_radius_m, area_place, area_filters }) then router.back(); long-press 'Remove from list' is absent for area lists (its spots are computed); src/__tests__/list-screen.test.tsx covers these.",
+        "AddToListSheet shows area lists as disabled rows with the hint 'Area list: spots inside its circle are in it automatically' and never calls addSpotsToList for them; the spot detail's 'In lists' row includes an area list whose circle contains the spot (chip text = list name); tests in add-to-list-sheet.test.tsx and spot-detail.test.tsx.",
+        "End to end in src/__tests__/area-list-live.test.tsx: with an area list of radius 1609 m around CITIES.seattle, adding a spot 500 m away through useSpotActions.addSpot (real SQLite) makes the list screen render that spot on re-render with no other action; a spot 2 km away does not appear.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S2-05",
+      "milestone": "S2",
+      "kind": "check",
+      "model": "sonnet",
+      "description": "docs/plans/2026-10-22-s2-what-michael-will-see.md walks the area picker and an area list as rendered in tests.",
+      "steps": [
+        "docs/plans/2026-10-22-s2-what-michael-will-see.md exists and lists, from scratch renders (temporary test file deleted before the commit): the picker at its default state (every visible text, the chip labels in imperial and in metric, the count), the picker's 'Save as hit list' chooser, the Lists tab with one area list and one manual list, and an area list's screen with its subtitle and 'Edit area'.",
+        "The file has 'What to tap': open Lists → + Area list, drag the map, pick 1 mi, search 'Capitol Hill', Keep it updated → name it; then Quick Add a spot inside the circle and see it appear in the list; Edit area to 5 mi.",
+        "The file records npx jest --silent (counts, zero console.error) and npx expo export --platform ios --output-dir /tmp/hl-export (exit 0, bundle size).",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes."
+      ],
+      "after": [
+        "S2-04"
+      ],
+      "passes": true
+    },
+    {
+      "id": "S2-06",
+      "milestone": "S2",
+      "kind": "review",
+      "model": "opus",
+      "description": "An Opus review of the S2 diff leaves no unfixed Critical or Important finding in area.ts, the picker or the area-list wiring; simplifications are applied; docs updated.",
+      "steps": [
+        "git diff <last S1 commit>..HEAD -- src app __mocks__ > .harness/runs/hit_list-2026-10-22-sharing/reviews/s2.diff is written (the S1 boundary commit hash is named in the plan's Review section) and read by the reviewer; findings recorded under 'Review' in docs/plans/2026-10-22-s2-area.md with severity, file:line and fix commit; every Critical/Important fix has a RED test before its GREEN commit.",
+        "The reviewer answers in writing: the count never includes NO_LOCATION spots; the radius stored is always one of RADIUS_STEPS_M (whole metres) so the metric/imperial chip rows round-trip; the circle membership used by the store is the same function the picker counts with (one source of truth); geocodeAsync failures (rejects) show 'No place found' and never a console.error; the picker's map region change does not re-run geocoding.",
+        "A 'refactor:' commit applies the simplification pass.",
+        "CLAUDE.md Layout mentions app/area/, src/utils/area.ts and the area-list rule (computed, never stored); README Status gains an 'Area lists (S2)' bullet.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S3-01",
+      "milestone": "S3",
+      "kind": "plan",
+      "model": "opus",
+      "description": "The pinned Supabase CLI is a devDependency, supabase/ is initialised with project_id hit-list, the local stack starts and stops cleanly, and docs/plans/2026-10-22-s3-backend.md maps every §3.3 RLS case to a named pgTAP test before any SQL is written.",
+      "steps": [
+        "npx expo install supabase --dev -- --save-exact adds supabase (the CLI package, exact version, no caret) to devDependencies; the lockfile change is its own 'chore: pin supabase CLI' commit; package.json scripts gain \"db:start\": \"supabase start\", \"db:stop\": \"supabase stop\", \"db:reset\": \"supabase db reset\", \"test:db\": \"supabase test db\".",
+        "supabase/config.toml exists with project_id = \"hit-list\" (created by npx supabase init, then edited), default ports (54321 API, 54322 DB, 54323 Studio, 54324 Mailpit), auth email OTP enabled with a 6-digit code (config: [auth.email] enable_signup = true, double_confirm_changes left default, otp_length = 6, enable_confirmations = false), PostGIS left to the migration; .gitignore gains supabase/.temp/ and supabase/.branches/; a supabase/README.md states the Docker rule verbatim: only containers named supabase_*_hit-list belong to this project; never touch dj-*, n8n-* or any other container; never docker system prune; never docker compose in another directory.",
+        "docs/plans/2026-10-22-s3-backend.md exists with: Schema (the full §3.2 DDL plan incl. extensions postgis and citext, the sync_rev sequence and rev trigger, the updated_at guard trigger (an UPDATE whose NEW.updated_at is older than OLD.updated_at is skipped, D48), the profile-on-signup trigger, hit_list_members.status 'invited' | 'member' (needed by §3.5's Join/Decline; recorded as a D<n> *default* in the spec's §2 and §9), friendships' user_a < user_b check); Functions (can_read_spot, find_profile, send_friend_request, respond_friend_request, block_user, leave_list, remove_member, stop_sharing, create_send, withdraw_send, create_link, redeem_invite, preview_link; each with its security model and signature); Storage (bucket photos, path rules, policies); pgTAP harness (supabase/seed.sql creates schema tests with tests.create_user(email, username) returning uuid, tests.authenticate_as(uuid) setting role authenticated and request.jwt.claims, tests.clear_auth(); why seed.sql: it runs on db reset only and is never pushed by db push); the Case table mapping each §3.3 sentence to a test file and test name (stranger reads nothing; friend reads nothing not shared; member of A can't read B; view-only can't add; member can't add someone else's spot; removed/left member loses read immediately incl. storage; withdrawn send → nothing; revoked/expired/used link → nothing; blocked user can't send, invite or find you) with the S3 feature that writes it; and the live steps for Michael appended to docs/plans/2026-10-22-live-checklist.md (created now from spec §10 as a checklist with empty boxes).",
+        "The local stack was started with npx supabase start, npx supabase status printed the API URL http://127.0.0.1:54321 and npx supabase test db ran with no test files (exit 0 or 'no tests found' recorded in the plan), and npx supabase stop was run afterwards; docker ps --format '{{.Names}}' shows no supabase_* container left and never touched any container not matching supabase_*_hit-list.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes (nothing but the plan and docs changed)."
+      ],
+      "after": [],
+      "passes": true
+    },
+    {
+      "id": "S3-02",
+      "milestone": "S3",
+      "kind": "build",
+      "model": "opus",
+      "description": "supabase/migrations/<ts>_schema.sql creates every §3.2 table with RLS on and no policies (deny all), the rev and updated_at triggers, the profile trigger and the username rules, and pgTAP proves each.",
+      "steps": [
+        "supabase/tests/010-schema.test.sql passes under npx supabase test db after npx supabase db reset: has_table for profiles, spots, media, hit_lists, hit_list_spots, hit_list_members, friendships, blocks, sends, links; every one of those has RLS enabled (a query over pg_class.relrowsecurity, one ok() per table); extensions postgis and citext exist; spots.geog is a generated geography(Point) column equal to ST_MakePoint(lng, lat).",
+        "supabase/tests/020-triggers.test.sql passes: inserting then updating a spot (as the service role, RLS bypassed) bumps rev strictly (second rev > first) and rev is global across tables (a hit_lists insert gets a rev greater than the last spots rev); an UPDATE with an older updated_at than the stored one leaves the row unchanged and does not bump rev; inserting into auth.users creates a profiles row with username NULL; username 'Ab' (too short), 'a-b' (hyphen), a 21-char name and 'ABC' vs 'abc' (citext duplicate) are rejected by constraint while 'rider_1.a' is accepted.",
+        "supabase/seed.sql defines schema tests with create_user, authenticate_as and clear_auth as the plan states and 020 uses them for at least one case; supabase/migrations contains exactly one file; npm run test:db exits 0 with the two files reported.",
+        "The local stack was started with npx supabase start, the checks below were run, and npx supabase stop was run afterwards; docker ps --format '{{.Names}}' shows no supabase_* container left and never touched any container not matching supabase_*_hit-list.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S3-03",
+      "milestone": "S3",
+      "kind": "build",
+      "model": "opus",
+      "description": "can_read_spot(spot_id, uid) and the spots/media row policies make the owner, members of a manual shared list holding the spot, and members of a shared area list whose circle contains the owner's spot the only readers; writes are owner-only; pgTAP covers every reader case first.",
+      "steps": [
+        "supabase/tests/030-spots-rls.test.sql exists, was committed RED (the commit before the policies: its first run reports failures, recorded in the plan's Review section with the commit hash) and passes after: owner sees own spot and media; a stranger sees nothing (results_eq empty); a friend (accepted friendship) with nothing shared sees nothing; a member (status 'member') of shared manual list A containing the spot reads the spot and its media; the same member cannot read a spot in shared list B they are not in; a member with status 'invited' reads nothing; a member of a shared area list reads the owner's spot inside the circle (ST_DWithin on geog, radius in metres) and not one outside, and not another owner's spot inside; a soft-deleted (deleted_at set) spot is invisible to the member but visible to the owner; the member cannot UPDATE or DELETE the spot (throws_ok or 0 rows affected); the owner's INSERT with owner_id = auth.uid() succeeds and with another owner_id fails; after the owner removes the member (DELETE from hit_list_members) the next SELECT by the member is empty (loses read immediately).",
+        "supabase/migrations gains <ts>_spots_rls.sql with can_read_spot as security definer, STABLE, search_path pinned, and the policies for spots and media (media readable iff can_read_spot(media.spot_id)).",
+        "The plan's Case table marks these cases done with the test names.",
+        "The local stack was started with npx supabase start, the checks below were run, and npx supabase stop was run afterwards; docker ps --format '{{.Names}}' shows no supabase_* container left and never touched any container not matching supabase_*_hit-list.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S3-04",
+      "milestone": "S3",
+      "kind": "build",
+      "model": "opus",
+      "description": "hit_lists, hit_list_spots and hit_list_members policies plus leave_list, remove_member and stop_sharing implement D42/D43: owner does everything, 'add' members add only their own spots, view-only members add nothing, and a leaving member's spots leave with them.",
+      "steps": [
+        "supabase/tests/040-lists-rls.test.sql exists (committed RED first, hash recorded) and passes: the owner reads/renames/deletes their list and a stranger reads nothing; an invited user reads the list row (name, owner; the spot count exposure is the plan's call) but no spots; a 'member' with role 'add' inserts a hit_list_spots row for a spot they own and is rejected inserting one for a spot the owner owns ('a member can't add someone else's spot'); a role 'view' member is rejected inserting anything ('view-only member can't add'); a member deletes only hit_list_spots rows where added_by = themselves; the owner deletes any hit_list_spots row; only the owner can UPDATE hit_lists (rename/shared) or INSERT/UPDATE/DELETE hit_list_members (invite, role change, remove) and a member's attempt fails, except that a member may UPDATE their own row's status from 'invited' to 'member' (Join) or DELETE their own row (Decline/Leave); leave_list(list_id) by a member removes their membership and every hit_list_spots row they added (D43) and the owner's spots stay; remove_member(list_id, user_id) by the owner does the same for that member; stop_sharing(list_id) by the owner sets shared = false, deletes every membership and every hit_list_spots row not added by the owner; a removed member's subsequent can_read_spot is false for the list's spots.",
+        "supabase/migrations gains <ts>_lists_rls.sql with those policies and the three security-definer functions (each checks auth.uid() against the list's owner or the caller's own membership and raises on anything else).",
+        "The local stack was started with npx supabase start, the checks below were run, and npx supabase stop was run afterwards; docker ps --format '{{.Names}}' shows no supabase_* container left and never touched any container not matching supabase_*_hit-list.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S3-05",
+      "milestone": "S3",
+      "kind": "build",
+      "model": "opus",
+      "description": "profiles, friendships and blocks: a profile is readable by its user, friends and co-members; find_profile is exact-match and silent for a blocker; friend requests and blocks go through security-definer functions that respect D50.",
+      "steps": [
+        "supabase/tests/050-friends-rls.test.sql exists (RED first, hash recorded) and passes: a user reads and updates only their own profile row (username, display_name) and cannot change id; a stranger's SELECT on profiles returns nothing; an accepted friend reads the row; a co-member (both 'member' of one shared list, or the list's owner and a member) reads the row; find_profile('Ana') (mixed case) returns ana's id, username and display_name and nothing else; find_profile for a username that does not exist returns no row; find_profile by someone the target has blocked returns no row; send_friend_request('ana') inserts a friendships row with user_a < user_b, status 'pending', requested_by = caller; a second request the other way accepts instead of duplicating; respond_friend_request(id, 'accept'|'decline') is allowed only for the non-requester; a blocked user calling send_friend_request toward the blocker raises; block_user(uid) inserts the block, deletes any friendship and the blocked user's pending friend request; the blocked user can read nothing about it (blocks rows are visible only to the blocker).",
+        "supabase/migrations gains <ts>_friends_rls.sql with the policies and the functions find_profile, send_friend_request, respond_friend_request, block_user, unblock_user; profiles.username stays NULL-able until onboarding and find_profile never matches NULL.",
+        "The local stack was started with npx supabase start, the checks below were run, and npx supabase stop was run afterwards; docker ps --format '{{.Names}}' shows no supabase_* container left and never touched any container not matching supabase_*_hit-list.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S3-06",
+      "milestone": "S3",
+      "kind": "build",
+      "model": "opus",
+      "description": "sends and the private photos bucket: a send is visible to its sender and (while not withdrawn, and not blocked) its recipient; storage reads follow can_read_spot for <owner>/<spot>/<media>.jpg and sender/recipient for sends/<send>/; writes land only under the writer's own prefix.",
+      "steps": [
+        "supabase/tests/060-sends-rls.test.sql exists (RED first, hash recorded) and passes: create_send(id, recipient, payload) by the sender inserts a row and returns its id; the recipient reads it; a third user reads nothing; after withdraw_send(id) by the sender the recipient's SELECT is empty ('withdrawn send returns nothing') and the sender still sees it with withdrawn_at set; withdraw_send after the recipient set saved_at raises; mark_send_saved(id) / dismiss_send(id) are recipient-only; create_send toward a user who blocked the sender raises ('a blocked user can't send'); the recipient cannot UPDATE payload; a send with recipient NULL (link-only, S9) is readable by its sender only.",
+        "supabase/tests/070-storage-rls.test.sql exists (RED first) and passes, using inserts into storage.objects (bucket_id 'photos') as the users: the owner inserts 'uid/spotid/mediaid.jpg' and a stranger cannot insert under that prefix; a shared-list member can SELECT the object row of a spot they can read and not one they cannot; after the member is removed the SELECT is empty ('removed member loses read immediately, including photos in storage'); the sender inserts 'sends/<send_id>/<media_id>.jpg' for their own send and the recipient can SELECT it; a third user cannot; the bucket row exists with public = false.",
+        "supabase/migrations gains <ts>_sends_storage.sql: sends policies, the four functions, the bucket insert (insert into storage.buckets … on conflict do nothing) and storage.objects policies that parse the path with split_part.",
+        "The local stack was started with npx supabase start, the checks below were run, and npx supabase stop was run afterwards; docker ps --format '{{.Names}}' shows no supabase_* container left and never touched any container not matching supabase_*_hit-list.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S3-07",
+      "milestone": "S3",
+      "kind": "build",
+      "model": "opus",
+      "description": "links: no direct table access; create_link stores only a token's SHA-256, redeem_invite joins a shared list once for a signed-in user, preview_link (service-role only) returns a send's frozen payload for a live token, and expired, revoked, used or withdrawn tokens return nothing.",
+      "steps": [
+        "supabase/tests/080-links-rls.test.sql exists (RED first, hash recorded) and passes: authenticated users get no rows from SELECT on links and cannot INSERT directly; create_link('send', send_id, token_sha256, expires_at) by the send's sender and create_link('invite', list_id, sha, now() + 7 days, role) by the list's owner succeed, anyone else raises; preview_link(sha) called as service_role returns kind, payload, sender username/display_name and expires_at for a live send link (and kind, list name, inviter for an invite link), and no row when the link is expired (expires_at in the past), revoked (revoke_link by its creator), the send is withdrawn, or the sha is unknown — the four cases are indistinguishable (same empty result); preview_link called as an authenticated user raises (service role only); redeem_invite(token_plain) by a signed-in user who is not a member inserts a 'member' row with the link's role and marks the link used_by/used_at; a second redeem of the same token raises ('used link'); redeem_invite by anon raises; an expired or revoked invite link raises the same error as an unknown token; redeem by a user the owner blocked raises ('blocked user can't be invited'); two concurrent redeems (simulated with SELECT … FOR UPDATE in the function, asserted by a second call in the same test) yield one member row.",
+        "supabase/migrations gains <ts>_links.sql with the links policies (none for authenticated/anon: RLS on, no policies) and the functions create_link, revoke_link, preview_link (checks the JWT role claim is 'service_role'), redeem_invite (hashes with extensions.digest(token, 'sha256') from pgcrypto, encoded hex lowercase so the client's SHA-256 hex matches), list_my_links(kind) for the Sent and member screens (creator only; never returns the hash).",
+        "The plan's Case table is complete: every §3.3 sentence has a test file and test name, and npm run test:db lists all eight files passing.",
+        "The local stack was started with npx supabase start, the checks below were run, and npx supabase stop was run afterwards; docker ps --format '{{.Names}}' shows no supabase_* container left and never touched any container not matching supabase_*_hit-list.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S3-08",
+      "milestone": "S3",
+      "kind": "review",
+      "model": "opus",
+      "description": "An Opus review of the S3 SQL leaves no unfixed Critical or Important finding in the policies or functions; the whole pgTAP suite passes on a fresh db reset; CLAUDE.md gets the Supabase commands and the Docker rule.",
+      "steps": [
+        "git diff <last S2 commit>..HEAD -- supabase package.json .gitignore > .harness/runs/hit_list-2026-10-22-sharing/reviews/s3.diff is written and read by the reviewer; findings recorded under 'Review' in docs/plans/2026-10-22-s3-backend.md with severity, file:line and fix commit; every Critical/Important fix has a RED pgTAP test before its GREEN commit.",
+        "The reviewer answers in writing, each with the test that proves it: every security-definer function pins search_path and checks auth.uid(); no policy uses a subquery on a table whose own policy references back (no RLS recursion: profiles ↔ hit_list_members); can_read_spot is STABLE and uses an index (EXPLAIN on a shared-list lookup shows an index scan on hit_list_spots(spot_id) and hit_list_members(list_id, user_id)); the rev sequence is bumped by BEFORE triggers on INSERT and UPDATE for every synced table (spots, media, hit_lists, hit_list_spots, hit_list_members, profiles) and soft deletes bump it; anon has EXECUTE on no public function (preview_link is service role only; redeem_invite raises for anon); the storage path parser rejects a path with fewer than three segments.",
+        "npx supabase db reset followed by npm run test:db passes every file (the counts are recorded in the plan); supabase/README.md lists the commands (npm run db:start, db:stop, db:reset, test:db) and the rule that the stack is stopped after use.",
+        "CLAUDE.md Commands gains the four db scripts and a line 'need Docker; not in CI'; Layout gains supabase/ (migrations append-only, tests pgTAP, seed.sql = the tests schema only); a Conventions bullet carries the Docker rule verbatim from supabase/README.md.",
+        "The local stack was started with npx supabase start, the checks below were run, and npx supabase stop was run afterwards; docker ps --format '{{.Names}}' shows no supabase_* container left and never touched any container not matching supabase_*_hit-list.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S4-01",
+      "milestone": "S4",
+      "kind": "plan",
+      "model": "opus",
+      "description": "supabase-js and its session-storage dependencies are installed through Expo, .env.example exists, the app still bundles, and docs/plans/2026-10-22-s4-accounts.md fixes the client module, the auth store, the sign-in screens, onboarding, Profile states, the account-delete function and the integration harness, each with RED tests.",
+      "steps": [
+        "The session reads node_modules/@supabase/supabase-js/README.md and the installed package's React Native notes, then runs npx expo install @supabase/supabase-js expo-secure-store @react-native-async-storage/async-storage (plus react-native-url-polyfill only if the README for the installed version still requires it; the plan says which and why); npm dedupe if expo-modules-core nests; the lockfile change is its own 'chore:' commit; npx expo export --platform ios --output-dir /tmp/hl-export exits 0 afterwards.",
+        ".env.example exists with EXPO_PUBLIC_SUPABASE_URL= and EXPO_PUBLIC_SUPABASE_ANON_KEY= (empty values) and a comment that the local stack's values come from npx supabase status; .gitignore gains .env and .env.* with !.env.example; git ls-files shows .env.example and no other .env file.",
+        "docs/plans/2026-10-22-s4-accounts.md exists with sections: Client (src/sync/client.ts: getSupabase() returns null when either EXPO_PUBLIC_ value is missing, one createClient otherwise with auth { storage, autoRefreshToken: true, persistSession: true, detectSessionInUrl: false } and AppState-driven startAutoRefresh/stopAutoRefresh), Session storage (D<n> *default* recorded in the spec's §2 and §9: the access/refresh tokens live in expo-secure-store under one key with an AES-encrypted session blob in AsyncStorage when the JSON exceeds SecureStore's 2048-byte limit, i.e. Supabase's documented LargeSecureStore pattern, implemented in src/sync/session-storage.ts with expo-crypto for the key), Auth store (src/stores/auth-store.ts: status 'unconfigured' | 'signed_out' | 'signed_in' | 'needs_username', userId, username, displayName, email), Screens (app/auth/sign-in.tsx, app/auth/code.tsx, app/auth/username.tsx; the exact copy of every state), Profile (the three states' copy per §5.6 and §3.1), Sign out (plain sign out in S4; the D38 Keep/Remove prompt moves to S5 where the data is backed up first, recorded as a D<n> *default*), Delete account (supabase/functions/account-delete/index.ts: verifies the caller's JWT, deletes the auth user with the service-role admin client, cascades through ON DELETE CASCADE, deletes the user's storage prefix), Fake (src/__tests__/helpers/fake-supabase.ts mirroring the member names and { data, error } shapes of node_modules/@supabase/auth-js/dist/module/GoTrueClient.d.ts and postgrest-js; the .d.ts paths are cited), Integration harness (jest.integration.config.js with testMatch src/__integration__/**/*.test.ts, testEnvironment node, no jest-expo preset; scripts/supabase-env.mjs reads npx supabase status -o json and exports SUPABASE_URL, SUPABASE_ANON_KEY, SUPABASE_SERVICE_ROLE_KEY to the test process so no key is ever written to a file; npm run test:integration), and a Test list per feature.",
+        "docs/plans/2026-10-22-live-checklist.md gains the phone steps for accounts: copy .env.example to .env.local with the box's Tailscale URL http://100.88.90.97:54321 and the anon key from npx supabase status, npm run start:tailscale, sign in on the phone, read the code in Mailpit at http://100.88.90.97:54324.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes (nothing but the plan and docs changed)."
+      ],
+      "after": [
+        "S3"
+      ],
+      "passes": true
+    },
+    {
+      "id": "S4-02",
+      "milestone": "S4",
+      "kind": "build",
+      "model": "opus",
+      "description": "src/sync/client.ts builds one Supabase client only when the two EXPO_PUBLIC_ values are set, persists the session securely, and an auth store plus useAuthInit mirror the session into status/userId/username.",
+      "steps": [
+        "src/__tests__/sync-client.test.ts passes: with EXPO_PUBLIC_SUPABASE_URL unset getSupabase() returns null and isConfigured() is false; with both set it returns the same instance on every call and createClient (mocked from '@supabase/supabase-js') was called once with the URL, the key and auth options { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false } and a storage adapter; AppState 'active' calls auth.startAutoRefresh and 'background' calls auth.stopAutoRefresh.",
+        "src/__tests__/session-storage.test.ts passes with expo-secure-store and @react-native-async-storage/async-storage mocked (member names from their .d.ts, paths cited in the file): setItem of a 100-byte value stores it in SecureStore only; setItem of a 5000-byte value stores a random key in SecureStore and ciphertext in AsyncStorage, and getItem returns the original string; removeItem clears both; getItem of a missing key returns null.",
+        "src/stores/auth-store.ts and src/hooks/use-auth-init.ts exist; src/__tests__/auth-store.test.ts passes: unconfigured client → status 'unconfigured'; getSession null → 'signed_out'; a session whose profile row has username NULL → 'needs_username' with userId; a session with username 'ana' → 'signed_in' with username and displayName; onAuthStateChange SIGNED_OUT → 'signed_out' and the store's user fields cleared; the subscription is unsubscribed on unmount.",
+        "app/_layout.tsx mounts useAuthInit inside DBInitializer (after the DB is ready); src/__tests__/root-layout.test.tsx still passes with the fake client.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S4-03",
+      "milestone": "S4",
+      "kind": "build",
+      "model": "opus",
+      "description": "Sign-in is an emailed 6-digit code: app/auth/sign-in takes an email and sends the code, app/auth/code verifies it, with resend, errors shown in place and the screens asserting their copy.",
+      "steps": [
+        "src/__tests__/auth-sign-in.test.tsx passes with the fake client: the sign-in screen shows 'Sign in to HitList', 'We'll email you a 6-digit code. No password.' and an email field (accessibilityLabel 'Email'); 'Send code' is disabled until the text contains '@'; pressing it calls auth.signInWithOtp({ email, options: { shouldCreateUser: true } }) and pushes '/auth/code?email=…'; an error from the fake shows its message in a Text with accessibilityRole 'alert' and stays on the screen.",
+        "src/__tests__/auth-code.test.tsx passes: the code screen shows 'Enter the code we sent to ana@example.com', a 6-digit field (keyboardType 'number-pad', maxLength 6, accessibilityLabel 'Code'); typing six digits auto-submits auth.verifyOtp({ email, token: '123456', type: 'email' }); a verify error shows 'That code didn't work. Try again or resend.'; 'Resend code' calls signInWithOtp again and shows 'Sent' for a moment; a verified session with username NULL replaces the route with '/auth/username', with a username set it dismisses to the Profile tab (router.dismissAll or replace('/(tabs)/profile') per the plan).",
+        "Both screens render nothing but a 'Accounts aren't set up in this build' line when the client is unconfigured (test).",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S4-04",
+      "milestone": "S4",
+      "kind": "build",
+      "model": "opus",
+      "description": "After the first sign-in the rider chooses an @username (3–20 chars, a–z 0–9 _ ., unique, case-insensitive) and a display name; validation is pure and tested, and a taken name is reported in place.",
+      "steps": [
+        "src/__tests__/username.test.ts passes for src/utils/username.ts: normalizeUsername('  Ana.B_1 ') → 'ana.b_1'; validateUsername returns null for 'ana', 'a_b.c', a 20-char name and an error string for 'ab' ('At least 3 characters'), a 21-char name ('At most 20 characters'), 'an-a' ('Only letters, numbers, _ and .'), '' ('Pick a username').",
+        "src/__tests__/auth-username.test.tsx passes: the screen shows 'Pick your @username', the live validation message under the field as typed, a 'Display name' field; 'Done' is disabled while invalid; pressing it calls from('profiles').update({ username, display_name }).eq('id', userId) on the fake; a unique-violation error (code '23505') shows 'That username is taken'; success sets the auth store to 'signed_in' with the username and replaces the route to the Profile tab; the screen cannot be dismissed (no back button; gestureEnabled false in the Stack.Screen options).",
+        "While status is 'needs_username' the tabs layout redirects to /auth/username (src/__tests__/tabs-layout.test.tsx asserts the Redirect/replace with status 'needs_username' and none with 'signed_in').",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S4-05",
+      "milestone": "S4",
+      "kind": "build",
+      "model": "opus",
+      "description": "Profile shows its three states (unconfigured, signed out, signed in), signs out, and Delete account calls the account-delete Edge Function then signs out.",
+      "steps": [
+        "src/__tests__/profile.test.tsx gains: unconfigured → an 'Account' section with 'Accounts aren't set up in this build' and no Sign in button; signed out → 'Sign in to back up your spots and share them', the explanation 'Signing in uploads the spots already on this phone to your account. Nothing is deleted.' and a 'Sign in' button that pushes '/auth/sign-in'; signed in → '@ana', 'Ana B' (display name), the email, buttons 'Sign out' and 'Delete account'; the Units and Import radius sections render in every state.",
+        "'Sign out' calls auth.signOut() on the fake and the store returns to 'signed_out' (no Keep/Remove prompt in S4; the plan's D<n> default says S5 adds it).",
+        "'Delete account' alerts 'Delete your account?' with the message 'Your spots, photos, hit lists and sends are deleted from the server. Spots on this phone stay until you remove them.' and a destructive 'Delete' that calls functions.invoke('account-delete') on the fake and then auth.signOut(); an error from the function shows 'Couldn't delete the account. Try again.' and does not sign out.",
+        "supabase/functions/account-delete/index.ts exists (Deno; reads the caller's JWT from the Authorization header, resolves the user with the anon client's auth.getUser, deletes the user's storage objects under <uid>/ and sends/<their send ids>/, then auth.admin.deleteUser(uid) with the service-role client; returns { ok: true } or a 401/500 JSON); supabase/functions/_shared/cors.ts holds the CORS headers; the function is exercised for real in S4-06 (no Deno on the box is assumed; the plan records whether deno check was available).",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S4-06",
+      "milestone": "S4",
+      "kind": "build",
+      "model": "opus",
+      "description": "npm run test:integration signs up two riders against the local stack through the Auth admin API, sets usernames, signs out and back in, rejects a duplicate username, and deletes an account through the Edge Function.",
+      "steps": [
+        "jest.integration.config.js and scripts/supabase-env.mjs exist as the plan states; package.json has \"test:integration\": \"node scripts/supabase-env.mjs jest --config jest.integration.config.js --runInBand\"; the script exits 2 with 'Start the stack first: npm run db:start' when npx supabase status fails; the default jest config ignores src/__integration__ (testPathIgnorePatterns) so npx jest --ci never needs Docker.",
+        "src/__integration__/helpers.ts exports createRider(username) (admin createUser with email_confirm true, auth.admin.generateLink({ type: 'magiclink', email }) → properties.email_otp, then a fresh anon client's verifyOtp({ email, token, type: 'email' }); sets the username via the profiles update) returning { client, userId, username }, plus deleteRider(userId) for cleanup; the member names are from node_modules/@supabase/auth-js/dist/module/lib/types.d.ts (cited).",
+        "src/__integration__/accounts.test.ts passes against the running stack: two riders sign up and get distinct ids; auth.getSession() is a session for each; signOut then verifyOtp with a new email_otp restores a session with the same user id; profiles for the second rider cannot take the first's username (error code 23505); functions.invoke('account-delete') as rider two returns { ok: true } and afterwards admin.getUserById(rider two) returns null and rider one's find_profile('<rider two username>') returns no row.",
+        "The local stack was started with npx supabase start, npm run db:reset then npm run test:db and npm run test:integration both passed, and npx supabase stop was run afterwards; docker ps --format '{{.Names}}' shows no supabase_* container left and never touched any container not matching supabase_*_hit-list.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S4-07",
+      "milestone": "S4",
+      "kind": "check",
+      "model": "sonnet",
+      "description": "docs/plans/2026-10-22-s4-what-michael-will-see.md walks the sign-in, code, username and Profile screens as rendered in tests, in every state.",
+      "steps": [
+        "docs/plans/2026-10-22-s4-what-michael-will-see.md exists and lists, from scratch renders (temporary test file deleted before the commit): Profile unconfigured, signed out and signed in; the sign-in screen; the code screen; the username screen with an invalid and a valid name; every visible text and accessibility label.",
+        "The file has 'What to tap' for the phone against the box's local stack (the .env.local step from the live checklist), including where the code appears (Mailpit on port 54324) and what 'Delete account' does.",
+        "The file records npx jest --silent (counts, zero console.error), npm run test:integration's pass count, and npx expo export --platform ios --output-dir /tmp/hl-export (exit 0, bundle size).",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes."
+      ],
+      "after": [
+        "S4-06"
+      ],
+      "passes": true
+    },
+    {
+      "id": "S4-08",
+      "milestone": "S4",
+      "kind": "review",
+      "model": "opus",
+      "description": "An Opus review of the S4 diff leaves no unfixed Critical or Important finding in the client, session storage, auth screens or the account-delete function; simplifications are applied; CLAUDE.md and README describe accounts.",
+      "steps": [
+        "git diff <last S3 commit>..HEAD -- src app supabase/functions .env.example .gitignore package.json jest.integration.config.js scripts > .harness/runs/hit_list-2026-10-22-sharing/reviews/s4.diff is written and read by the reviewer; findings recorded under 'Review' in docs/plans/2026-10-22-s4-accounts.md with severity, file:line and fix commit; every Critical/Important fix has a RED test before its GREEN commit.",
+        "The reviewer answers in writing: no key or URL is committed (git grep -n 'eyJ' -- . ':!node_modules' ':!package-lock.json' prints nothing; git ls-files '.env*' prints only .env.example); the session blob never lands in AsyncStorage unencrypted; the AES key is removed on sign-out; signInWithOtp errors never leak the whole error object into the UI; account-delete rejects a request without a valid JWT (401) and never trusts a user id from the body; the username screen cannot be bypassed by navigating to a tab while 'needs_username'.",
+        "A 'refactor:' commit applies the simplification pass.",
+        "CLAUDE.md Layout gains src/sync/client.ts, session-storage, the auth store/hook, app/auth/, supabase/functions/; Commands gains npm run test:integration with 'needs the local stack'; Conventions gains 'Accounts are optional: every screen that needs a session checks useAuthStore status and shows a one-line Sign in prompt, never a disabled control' and the .env rule; README Status gains an 'Accounts (S4)' bullet; docs/RUNNING-ON-PHONE.md gains a short 'With accounts (local stack over Tailscale)' section pointing at the live checklist.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S5-01",
+      "milestone": "S5",
+      "kind": "plan",
+      "model": "opus",
+      "description": "docs/plans/2026-10-22-s5-sync.md fixes migration 5 (owner_id, sync_outbox, sync_state), the outbox write points, push and pull algorithms, photo upload through expo-image-manipulator, adoption, the Keep/Remove sign-out prompt and the two-device integration test, each with RED tests.",
+      "steps": [
+        "expo-image-manipulator is installed with npx expo install expo-image-manipulator (lockfile in its own 'chore:' commit); npx expo export --platform ios --output-dir /tmp/hl-export exits 0.",
+        "docs/plans/2026-10-22-s5-sync.md exists with sections: Migration 5 (ALTER TABLE spots/media/hit_lists ADD COLUMN owner_id TEXT; CREATE TABLE sync_outbox (id INTEGER PRIMARY KEY AUTOINCREMENT, entity TEXT, entity_id TEXT, op TEXT 'upsert' | 'delete', created_at TEXT, attempts INTEGER DEFAULT 0, last_error TEXT) and sync_state (key TEXT PRIMARY KEY, value TEXT); DROP TABLE sync_queue and its index since nothing ever read it, recorded as a D<n> *default*; hit_list_spots gets no owner column: its outbox entity_id is 'list_id/spot_id'), Outbox (which DB function appends which row, inside the same transaction, only when the entity's owner_id is set; the enqueue helper's signature), Push (src/sync/push.ts: drain in id order; per entity the upsert payload mapping local ↔ server columns (feature_types_json → text[], latitude/longitude → lat/lng, natural_speed null, deleted_at); media rows push only after their photo uploaded (src/sync/photos.ts: re-encode JPEG 0.85 long edge ≤ 2048 with expo-image-manipulator, upload to photos/<owner>/<spot>/<media>.jpg with upsert true, read bytes through an injectable reader so Node can pass a Buffer); attempt/backoff rules: attempts += 1 and last_error on failure, skipped this round after 3 failures until the next sync, surfaced on Profile after 10), Pull (src/sync/pull.ts: per table select * where rev > cursor order by rev limit 500, loop; local upsert only if the incoming updated_at ≥ local; deleted_at rows soft-delete locally; cursors in sync_state; a final readable-id reconciliation that removes local rows with owner_id ≠ me not in the server's id list (used by S8)), Engine (src/sync/engine.ts syncNow() = push then pull, single-flight; triggers: after useDbInit when signed in, AppState active, every 5 min while active, pull-to-refresh on the Spots tab; sync store: lastSyncAt, syncing, failedCount, lastError), Adoption (src/sync/adopt.ts on sign-in: if sync_state.user_id is set and ≠ new uid, delete every local row with that old owner_id and their photo files, reset cursors; then set owner_id = uid on every row with owner_id NULL (spots, media, hit_lists) and enqueue upserts, all in one transaction; then syncNow), Sign out (D38 prompt copy and what Remove deletes), Integration test design (two supabase-js clients + two node:sqlite DBs for one account; the sequence of edits and the expected convergence), and a Test list per feature.",
+        "The plan records in the spec's §2/§9 every D<n> *default* it introduces (at least the sync_queue drop and 'a different account signing in removes the previous account's local rows after its data was pushed').",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes (nothing but the plan and docs changed)."
+      ],
+      "after": [
+        "S2",
+        "S4"
+      ],
+      "passes": true
+    },
+    {
+      "id": "S5-02",
+      "milestone": "S5",
+      "kind": "build",
+      "model": "opus",
+      "description": "Migration 5 adds owner_id, sync_outbox and sync_state; src/db/sync.ts manages the outbox and cursors; every owned local write appends an outbox row in the same transaction.",
+      "steps": [
+        "src/db/schema.ts exports MIGRATIONS of length 5; migrations 1–4 unchanged (git diff additions only); db-migrate.test.ts gains: v4 → v5 adds owner_id to spots, media and hit_lists (PRAGMA table_info), creates sync_outbox and sync_state, drops sync_queue (sqlite_master has no such table), and a v2 fixture still migrates 2→5 with its rows intact.",
+        "src/__tests__/db-sync.test.ts (real SQLite) passes: enqueue(db, 'spot', id, 'upsert') then peekOutbox(db, 50) returns it in id order; markDone deletes the row; markFailed increments attempts and stores last_error; peekOutbox skips rows with attempts ≥ 3 when skipFailed is true; countFailed returns rows with attempts ≥ 10; getCursor('spots') is 0 by default and setCursor persists; getSyncState/setSyncState round-trip 'user_id'.",
+        "src/__tests__/db-spots.test.ts, db-media.test.ts and db-hit-lists.test.ts gain: inserting/updating/soft-deleting a spot, media, hit list or hit_list_spots row whose owner_id (or whose list's owner_id) is set appends exactly one outbox row ('upsert' for insert/update, 'delete' for soft delete, entity_id 'list/spot' for memberships) inside the same transaction (a failing second statement leaves no outbox row); the same writes with owner_id NULL append nothing; updateSpot on an owned spot appends 'upsert'.",
+        "getSpots/getHitLists/getAllMedia return owner_id (undefined when NULL) and the Spot/Media/HitList types carry owner_id?: string; the SyncQueueItem type is deleted from src/types/index.ts.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S5-03",
+      "milestone": "S5",
+      "kind": "build",
+      "model": "opus",
+      "description": "Push drains the outbox into Supabase in order: photos are re-encoded and uploaded before their media rows, upserts carry the client's updated_at, failures back off and nothing is dropped.",
+      "steps": [
+        "src/__tests__/sync-photos.test.ts passes with expo-image-manipulator mocked (member names from node_modules/expo-image-manipulator/build/*.d.ts, cited): preparePhoto(localUri) calls ImageManipulator with resize so the long edge is ≤ 2048 and saves JPEG compress 0.85, leaving the original file untouched (fake-fs shows no write to the original path); uploadPhoto(client, owner, media, bytes) calls storage.from('photos').upload('<owner>/<spot>/<media>.jpg', bytes, { contentType: 'image/jpeg', upsert: true }).",
+        "src/__tests__/sync-push.test.ts passes with the fake client and real SQLite: an outbox of [spot upsert, media upsert, hit_list upsert, hit_list_spots upsert, spot delete] produces, in order, from('spots').upsert(row with owner_id, lat, lng, feature_types array, stopped, natural_speed, notes, primary_photo_id, created_at, updated_at, deleted_at null), the photo upload then from('media').upsert(…), from('hit_lists').upsert(…), from('hit_list_spots').upsert(…), and from('spots').upsert({ …, deleted_at }) for the delete; each row is markDone after success; a failing upsert (fake returns error) leaves the row with attempts 1 and last_error, keeps the later rows unpushed in that round (order preserved), and the next push retries it; a media row whose photo file is missing locally is marked failed with last_error 'photo missing' and skipped; push with no session does nothing and resolves.",
+        "natural_speed 0 pushes as 0, not null (explicit test).",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S5-04",
+      "milestone": "S5",
+      "kind": "build",
+      "model": "opus",
+      "description": "Pull fetches rows newer than each table's rev cursor, writes them locally with last-write-wins on updated_at, soft-deletes what the server deleted, advances the cursors and removes local rows the rider can no longer read.",
+      "steps": [
+        "src/__tests__/sync-pull.test.ts passes with the fake client and real SQLite: pull(db, client, uid) queries from('spots').select('*').gt('rev', 0).order('rev').limit(500) (and the same for media, hit_lists, hit_list_spots) and inserts the returned rows locally with owner_id; a second pull uses the stored cursor (max rev seen); a server row with updated_at older than the local row leaves the local row unchanged; a newer one overwrites; a row with deleted_at sets deleted_at locally (spot disappears from getSpots, its hit_list_spots rows stay); feature_types text[] maps to feature_types_json; natural_speed null → undefined; a page of exactly 500 rows triggers a second page request.",
+        "After the per-table pulls, pull requests from('spots').select('id') (readable ids) and soft-deletes locally any spot with owner_id set, owner_id ≠ uid and id not in the list (and its media rows), leaving the rider's own rows alone; test with two foreign spots where one is no longer returned.",
+        "Pull writes bypass the outbox (no outbox rows are appended by a pull; asserted by counting sync_outbox after a pull of 3 rows).",
+        "pull returns { changed: boolean } so the engine (S5-05) knows whether to reload the stores.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S5-05",
+      "milestone": "S5",
+      "kind": "build",
+      "model": "opus",
+      "description": "A sync engine runs push then pull on launch, on foreground, every 5 minutes while active and on pull-to-refresh; Profile shows 'N changes not backed up' with Retry when rows have failed 10 times.",
+      "steps": [
+        "src/__tests__/sync-engine.test.ts passes: syncNow() runs push then pull once even when called twice concurrently (single-flight: the second call awaits the first; push mock called once); after a pull that changed rows the spots, media and hit-lists stores are reloaded from the DB; the sync store records lastSyncAt, syncing false after completion, failedCount from countFailed and lastError; syncNow with no session resolves without calling push or pull; an exception inside push is caught, logged with console.warn (not error) and pull still runs.",
+        "src/hooks/use-sync.ts: mounted once in app/_layout.tsx (inside DBInitializer); with fake timers, a signed-in session triggers syncNow after useDbInit's isReady, again on AppState 'active' (not on 'background'), and every 300 000 ms while active; signing out stops the interval; src/__tests__/use-sync.test.tsx covers each.",
+        "The Spots tab's FlashList has refreshControl wired to syncNow when signed in (refreshing = sync store syncing) and none when signed out; src/__tests__/spots-view-mode.test.tsx asserts the prop.",
+        "Profile (signed in) shows 'Backed up · just now' or 'Backed up · 3 min ago' from lastSyncAt (src/utils/relative-time.ts, tested) and, when failedCount > 0, '3 changes not backed up' with a 'Retry' button that resets attempts to 0 for those rows (resetFailed in db/sync.ts) and calls syncNow; src/__tests__/profile.test.tsx covers both.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S5-06",
+      "milestone": "S5",
+      "kind": "build",
+      "model": "opus",
+      "description": "First sign-in adopts every local spot, photo and hit list into the account and uploads them; signing out asks Keep / Remove from this phone; a different account signing in never sees the previous account's spots.",
+      "steps": [
+        "src/__tests__/sync-adopt.test.ts (real SQLite, fake fs, fake client) passes: with 3 spots, 4 media and 2 lists all owner_id NULL, adopt(db, uid) sets owner_id = uid on every row and appends 9 outbox upserts (3 + 4 + 2) plus one per hit_list_spots row, in one transaction (an injected failure leaves owner_id NULL everywhere and the outbox empty), and sets sync_state user_id; running adopt again changes nothing (idempotent, 0 new outbox rows).",
+        "Switching accounts: with sync_state user_id = A and rows owned by A, adopt(db, B) deletes A's spots, media (and their photo files under photos/<spotId>/ via fake-fs), hit lists and hit_list_spots rows, resets every cursor to 0, then adopts any NULL-owner rows for B; rows owned by A are gone from getSpots and the files are gone from the fake fs.",
+        "useAuthInit calls adopt then syncNow when the status becomes 'signed_in' (and when it is already signed in at launch after the DB is ready); test in auth-store.test.ts or use-auth-init.test.tsx.",
+        "Profile → 'Sign out' alerts 'Keep spots on this phone?' with message 'They're backed up in your account either way.' and buttons 'Keep' (signOut only; rows stay with their owner_id) and 'Remove from this phone' (destructive: removeLocalAccountData(db, uid) deletes the rows and photo files owned by uid and clears sync_state, then signOut); when failedCount > 0 the alert instead says '3 changes aren't backed up yet' with 'Sign out anyway' and 'Cancel' and no Remove option; src/__tests__/profile.test.tsx covers the three paths with jest.spyOn(Alert, 'alert').",
+        "Delete account (S4-05) now ends with the same Keep / Remove prompt (D51), with the message 'Your account is deleted. Keep the spots on this phone?'; test updated.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S5-07",
+      "milestone": "S5",
+      "kind": "build",
+      "model": "opus",
+      "description": "A two-device integration test proves the sync: edits on client A reach client B, deletes propagate, offline edits on both converge by updated_at, and sign-in → sign-out(Keep) → another account → back keeps each account's spots separate and loses no photo.",
+      "steps": [
+        "src/__integration__/sync.test.ts passes against the running stack, using two real supabase-js clients for one rider (two sessions) and two node:sqlite DBs through src/sync (photos read with an injected Node reader from a 2-KB test JPEG in src/__tests__/fixtures): A inserts a spot with one photo and a list containing it → push; B pulls → getSpots on B has the spot with owner_id, getMediaForSpot has the media row, storage.from('photos').download(path) on B returns the bytes; A renames the spot → push; B pulls → new name; A soft-deletes it → push; B pulls → deleted_at set; both edit the same spot's notes while 'offline' (no push) with B's updated_at later → after both push and pull, both DBs read B's notes; lists: a hit_list_spots row added on A appears on B.",
+        "Account separation in the same file: rider X's DB has 2 spots adopted and pushed; sign out (Keep) leaves them; rider Y signs in on the same DB → X's rows and photo files are removed locally, Y's pull brings Y's 1 spot; sign back in as X → Y's rows removed, X's 2 spots and their photos return via pull and download; every photo byte-for-byte equal to the fixture.",
+        "The test cleans up: both riders deleted through the admin API in afterAll, so npm run test:integration can run twice in a row.",
+        "The local stack was started with npx supabase start, npm run db:reset, npm run test:db and npm run test:integration all passed (counts recorded in docs/plans/2026-10-22-s5-sync.md), and npx supabase stop was run afterwards; docker ps --format '{{.Names}}' shows no supabase_* container left and never touched any container not matching supabase_*_hit-list.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S5-08",
+      "milestone": "S5",
+      "kind": "check",
+      "model": "sonnet",
+      "description": "docs/plans/2026-10-22-s5-what-michael-will-see.md walks sign-in adoption, the Backed up line, the not-backed-up state, pull-to-refresh and the sign-out prompt as rendered in tests.",
+      "steps": [
+        "docs/plans/2026-10-22-s5-what-michael-will-see.md exists and lists, from scratch renders (temporary test file deleted): Profile signed in with 'Backed up · just now', with '3 changes not backed up' + Retry, the Sign out alert's three variants (Keep/Remove, 'aren't backed up yet', and the Delete account variant), with every visible text.",
+        "The file has 'What to tap' for the phone against the local stack: sign in with spots already on the phone, watch Profile say Backed up, check Studio (http://100.88.90.97:54323) shows the rows and the photos bucket has the files, add a spot while Airplane mode is on and see the count, turn it off and pull to refresh; sign out with Keep, sign in as a second rider (a second email) and see an empty Spots tab, sign back as the first; and a 'How to undo' line (Remove from this phone, then sign in again).",
+        "The file records npx jest --silent (counts, zero console.error), npm run test:integration's pass count and npx expo export (exit 0, size).",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes."
+      ],
+      "after": [
+        "S5-07"
+      ],
+      "passes": true
+    },
+    {
+      "id": "S5-09",
+      "milestone": "S5",
+      "kind": "review",
+      "model": "opus",
+      "description": "An Opus review of the S5 diff leaves no unfixed Critical or Important finding in the outbox, push, pull, adoption or sign-out; the anti-goal 'a failed sync losing a spot or photo' is argued with tests; docs updated.",
+      "steps": [
+        "git diff <last S4 commit>..HEAD -- src app supabase package.json > .harness/runs/hit_list-2026-10-22-sharing/reviews/s5.diff is written and read by the reviewer; findings recorded under 'Review' in docs/plans/2026-10-22-s5-sync.md with severity, file:line and fix commit; every Critical/Important fix has a RED test before its GREEN commit.",
+        "The reviewer answers in writing with the proving test for each: an outbox row is never deleted before the server confirmed the write; a pull can never overwrite a local edit that has not been pushed yet (local updated_at newer wins, and the outbox row still pushes it); Remove from this phone is impossible while failedCount > 0; adopt is one transaction; the 5-minute timer is cleared on sign-out and unmount; photo re-encoding never writes over Paths.document/photos; the readable-id reconciliation never touches rows owned by the current user; a server error during push surfaces as console.warn, not console.error, so the Jest zero-console.error rule holds.",
+        "A 'refactor:' commit applies the simplification pass.",
+        "CLAUDE.md Layout gains src/sync/ (outbox, push, pull, photos, adopt, engine) and src/db/sync.ts; Conventions gains 'Sync: every owned write goes through the db functions so the outbox row is in the same transaction; never write spots/media/hit_lists rows from a screen directly' and the owner_id rule (NULL = not adopted); README Status gains 'Backup and sync (S5)'; docs/plans/2026-10-22-live-checklist.md gains what to check in Studio after the first phone sync.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S6-01",
+      "milestone": "S6",
+      "kind": "plan",
+      "model": "opus",
+      "description": "docs/plans/2026-10-22-s6-friends.md fixes the friends module and store, the Friends screen, the Inbox tab with its badge and the integration test, each with RED tests.",
+      "steps": [
+        "docs/plans/2026-10-22-s6-friends.md exists with sections: Data (src/sync/friends.ts: loadFriends(client, uid) → { friends, incoming, outgoing } from friendships joined to profiles via the RLS-visible rows; addFriend(username) = rpc('find_profile') then rpc('send_friend_request'); respond(id, 'accept' | 'decline'); removeFriend(id); block(uid); unblock; a friends store { friends, incoming, outgoing, loadedAt }), Local cache (profiles of friends mirrored into a local profiles table by migration 6 (id, username, display_name) so names show offline; recorded as a D<n> *default*), Screens (app/friends/index.tsx from Profile; app/(tabs)/inbox.tsx with a section Friend requests (Accept / Decline) and an item model that S7 (sends) and S8 (invitations) extend; the badge = unseen items, unseen = created after sync_state.inbox_seen_at), Copy table, Tab bar (Spots · Lists · Inbox · Profile, D49), and a Test list per feature.",
+        "The plan appends the phone steps for friends to docs/plans/2026-10-22-live-checklist.md (two riders on two emails; on one phone, sign out/in to switch).",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes (nothing but the plan and docs changed)."
+      ],
+      "after": [
+        "S4"
+      ],
+      "passes": true
+    },
+    {
+      "id": "S6-02",
+      "milestone": "S6",
+      "kind": "build",
+      "model": "opus",
+      "description": "src/sync/friends.ts and a friends store load friends and requests, add a friend by exact @username, accept, decline, remove and block through the server functions, and mirror friend profiles locally.",
+      "steps": [
+        "src/db/schema.ts exports MIGRATIONS of length 6 (adds profiles (id TEXT PK, username TEXT, display_name TEXT) locally; migrations 1–5 unchanged); db-migrate.test.ts covers v5 → v6; src/db/profiles.ts upsertProfiles/getProfiles with a real-SQLite test.",
+        "src/__tests__/sync-friends.test.ts passes with the fake client: loadFriends maps friendships rows (status accepted) to friends with username/display_name from the joined profiles, 'pending' rows requested by others to incoming and by me to outgoing; addFriend('Ana') calls rpc('find_profile', { username: 'ana' }) (normalised) and, on a hit, rpc('send_friend_request', …); with no hit it resolves { found: false } and sends nothing; respond calls rpc('respond_friend_request', { id, action }); removeFriend deletes the friendships row; block calls rpc('block_user'); after loadFriends the friend profiles are upserted into the local profiles table (real SQLite) so getProfiles(ids) returns their usernames.",
+        "The engine's pull (S5) also calls loadFriends when signed in and refreshes the friends store (sync-engine test gains one case).",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S6-03",
+      "milestone": "S6",
+      "kind": "build",
+      "model": "opus",
+      "description": "Profile → Friends lists friends, requests you sent, an 'Add by username' field, and Remove / Block from a row's long press; signed out it shows one line and a Sign in button.",
+      "steps": [
+        "app/friends/index.tsx exists and is registered in app/_layout.tsx ('Friends'); Profile (signed in) shows a 'Friends' row with the count that pushes '/friends'; src/__tests__/friends-screen.test.tsx passes: signed out → 'Sign in to add friends' and a 'Sign in' button only; signed in with friends ana and ben and one outgoing request to cal → section 'Friends' with '@ana · Ana B' and '@ben', section 'Requests sent' with '@cal' and a 'Cancel' action; the field 'Add by exact @username' with an 'Add' button calls addFriend('dee') and shows 'Request sent to @dee' on success, 'No rider named @dee' when not found, and 'Already friends' per the result (a blocked target reads 'No rider named @dee' too: D50 says they aren't told); long-pressing a friend row alerts with 'Remove friend' and 'Block @ana' (destructive, confirm text 'They won't be told. They can't send to you or invite you.') and the actions call removeFriend / block.",
+        "The hint under the field reads 'Friends are added by exact username or by an invite link. There's no search by name.'",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S6-04",
+      "milestone": "S6",
+      "kind": "build",
+      "model": "opus",
+      "description": "An Inbox tab (Spots · Lists · Inbox · Profile) shows friend requests with Accept / Decline, a badge with the unseen count, and 'Sign in to get spots from friends' when signed out.",
+      "steps": [
+        "app/(tabs)/_layout.tsx has four tabs in order Spots, Lists, Inbox (IconSymbol 'tray.fill'), Profile; src/__tests__/tabs-layout.test.tsx asserts the order and that the Inbox tab's tabBarBadge is undefined at 0 and '2' at two unseen items.",
+        "app/(tabs)/inbox.tsx exists; src/__tests__/inbox-tab.test.tsx passes: signed out → 'Sign in to get spots from friends' and a 'Sign in' button; unconfigured → 'Accounts aren't set up in this build'; signed in with two incoming requests → section 'Friend requests' with rows '@ana wants to be friends' each with Accept and Decline calling respond(id, 'accept' | 'decline'); with nothing → 'Nothing here yet' and 'Spots friends send you, hit list invitations and friend requests show up here.'; focusing the tab (useIsFocused true) marks items seen (setSyncState('inbox_seen_at', now)) so the badge drops to 0 (inbox store selectUnseenCount uses created_at > inbox_seen_at).",
+        "src/stores/inbox-store.ts exists with items typed { kind: 'friend_request' | 'send' | 'invite', id, created_at, … } so S7 and S8 add kinds without changing the badge logic; src/__tests__/inbox-store.test.ts covers selectUnseenCount.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S6-05",
+      "milestone": "S6",
+      "kind": "build",
+      "model": "opus",
+      "description": "An integration test runs the friends flow end to end against the local stack: request by username, accept, both see each other, block hides and prevents.",
+      "steps": [
+        "src/__integration__/friends.test.ts passes against the running stack: riders ana, ben, cal; ana.addFriend('BEN') finds ben (case-insensitive) and creates a pending request; ben's loadFriends shows it incoming; ben responds accept; both loadFriends return the other as a friend; cal blocks ana; ana.addFriend('cal') resolves { found: false }; ana cannot read cal's profile row; ben.addFriend('nobody') resolves { found: false }; cleanup deletes the three riders.",
+        "The local stack was started with npx supabase start, npm run db:reset, npm run test:db and npm run test:integration passed (counts recorded in the plan), and npx supabase stop was run afterwards; docker ps --format '{{.Names}}' shows no supabase_* container left and never touched any container not matching supabase_*_hit-list.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S6-06",
+      "milestone": "S6",
+      "kind": "check",
+      "model": "sonnet",
+      "description": "docs/plans/2026-10-22-s6-what-michael-will-see.md walks the Friends screen, the Inbox tab and its badge as rendered in tests.",
+      "steps": [
+        "docs/plans/2026-10-22-s6-what-michael-will-see.md exists and lists from scratch renders (temporary test deleted): Friends signed out, Friends with two friends and one sent request, the Add field's result lines, the Inbox tab empty, with two requests, and the tab bar with the badge '2'.",
+        "The file has 'What to tap' on the phone with two riders (two emails, switch by sign out / sign in): add by username, accept on the other side, block and see the username vanish from find.",
+        "The file records npx jest --silent (counts, zero console.error), npm run test:integration's pass count and npx expo export (exit 0, size).",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes."
+      ],
+      "after": [
+        "S6-05"
+      ],
+      "passes": true
+    },
+    {
+      "id": "S6-07",
+      "milestone": "S6",
+      "kind": "review",
+      "model": "opus",
+      "description": "An Opus review of the S6 diff leaves no unfixed Critical or Important finding in friends, the Inbox tab or the badge; simplifications applied; docs updated.",
+      "steps": [
+        "git diff <last S5 commit>..HEAD -- src app supabase > .harness/runs/hit_list-2026-10-22-sharing/reviews/s6.diff is written and read by the reviewer; findings under 'Review' in docs/plans/2026-10-22-s6-friends.md with severity, file:line and fix commit; every Critical/Important fix has a RED test before its GREEN commit.",
+        "The reviewer answers in writing: a username typed with spaces or capitals is normalised before find_profile; no screen enumerates riders (no select on profiles without an id filter outside the RLS-visible set); the blocked user is never told (no error text differs between 'not found' and 'blocked'); the badge never counts items the rider created; Accept/Decline are single-flight (double tap sends one rpc).",
+        "A 'refactor:' commit applies the simplification pass.",
+        "CLAUDE.md Layout gains app/friends/, app/(tabs)/inbox.tsx, src/sync/friends.ts, the friends and inbox stores, src/db/profiles.ts; README Status gains 'Friends and Inbox (S6)'.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S7-01",
+      "milestone": "S7",
+      "kind": "plan",
+      "model": "opus",
+      "description": "docs/plans/2026-10-22-s7-send.md fixes the frozen send payload, the photo copy, the Send sheet and its entry points, the Inbox save flows, the Sent screen and the integration test, each with RED tests.",
+      "steps": [
+        "docs/plans/2026-10-22-s7-send.md exists with sections: Payload (src/utils/send-payload.ts: version 1 { v: 1, sender: { username, display_name }, spots: [{ id, name, generated_name, lat, lng, feature_types, stopped, natural_speed, notes, photos: [{ media_id, path: 'sends/<send_id>/<media_id>.jpg', captured_at }] }] }, frozen fields only, D40), Photo copy (the client calls storage.from('photos').copy('<owner>/<spot>/<media>.jpg', 'sends/<send_id>/<media>.jpg') for every photo before create_send; the send id is generated client-side with newId() and passed to create_send; a failed copy aborts the send and removes any copied files; alternative considered and rejected: a server-side copy function), Migration 7 (spots gain copied_from_send TEXT and from_username TEXT; media gains nothing), Send sheet (src/components/SendSheet.tsx: props spotIds, onClose; thumbnails + 'N spots', friends with checkboxes, the D34 sentence verbatim 'They get a copy of these N spots as they are now. Changes you make later won't reach them.', Send; signed out: 'Sign in to send spots to friends' + Sign in), Entry points (spot detail 'Send' with the paper-plane icon; multi-select bar 'Send (N)'; list screen 'Send these spots · one-time copy of N spots'; area picker 'Send these N spots'), Inbox (rows '@ana sent you 3 spots' → Save all / Save into a new hit list / Pick spots / Dismiss; saving downloads each photo into Paths.document/photos/<newSpotId>/<newMediaId>.jpg, inserts owned spots with copied_from_send and from_username, enqueues outbox rows, then rpc mark_send_saved), Sent (app/sent/index.tsx from Profile: Waiting · Saved · Withdrawn and Withdraw), Copy table, and a Test list per feature.",
+        "The plan records any D<n> *default* in the spec's §2/§9 (at least: a send to several friends is one send row per recipient sharing one sends/<send_id>/ photo set, or one row per recipient with its own copy, whichever it picks and why; if one photo set is shared, the storage policy from S3-06 must be re-checked and the pgTAP test extended in this milestone).",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes (nothing but the plan and docs changed)."
+      ],
+      "after": [
+        "S5",
+        "S6"
+      ],
+      "passes": true
+    },
+    {
+      "id": "S7-02",
+      "milestone": "S7",
+      "kind": "build",
+      "model": "opus",
+      "description": "The send payload is pure and versioned: freezing spots captures exactly the shareable fields and photo paths, and thawing a payload yields owned local spot and media drafts marked 'From @name'.",
+      "steps": [
+        "src/__tests__/send-payload.test.ts passes: freezeSend({ sendId, sender, spots, mediaBySpot }) returns v 1 with one entry per spot carrying name, generated_name, lat, lng, feature_types, stopped, natural_speed (0 stays 0), notes and photos [{ media_id, path 'sends/<sendId>/<mediaId>.jpg', captured_at }], and nothing else (no updated_at, no owner_id, no legacy); a spot at NO_LOCATION freezes with lat/lng 0 and thaws back to NO_LOCATION; thawSend(payload, uid, now, newId) returns spots with fresh ids, owner_id uid, created_at now, copied_from_send sendId, from_username sender.username, primary_photo_id = the first photo's new id, and media drafts with new ids, spot_id remapped, captured_at kept, and a download list [{ path, localRelativePath }]; parseSendPayload rejects an unknown version and a non-object with a thrown Error whose message names the problem.",
+        "src/db/schema.ts exports MIGRATIONS of length 7 (spots gain copied_from_send and from_username; migrations 1–6 unchanged); db-migrate covers v6 → v7; getSpots returns from_username and the Spot type has copied_from_send?: string and from_username?: string; the detail screen shows 'From @ana' under the title when set (spot-detail.test.tsx).",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S7-03",
+      "milestone": "S7",
+      "kind": "build",
+      "model": "opus",
+      "description": "src/sync/sends.ts creates a send (copies photos server-side, then create_send), lists sent and received sends, withdraws, saves a received send into owned local spots with downloaded photos, and dismisses.",
+      "steps": [
+        "src/__tests__/sync-sends.test.ts passes with the fake client, real SQLite and fake fs: createSend(client, db, { spotIds, recipientIds }) calls storage.from('photos').copy(src, dst) once per photo per send id, then rpc('create_send', { id, recipient, payload }) per recipient; a copy error aborts before any create_send and calls storage.remove for the already-copied paths; listSent maps rows to { id, recipient username, spot count, status 'waiting' | 'saved' | 'withdrawn' from saved_at/withdrawn_at }; loadInbox returns received sends (not withdrawn, not dismissed, not saved) as inbox items of kind 'send'; saveSend(sendId, pickedSpotIds?) downloads each photo with storage.from('photos').download(path) into Paths.document/photos/<newSpotId>/<newMediaId>.jpg (fake fs shows the files), inserts the spots and media with owner_id uid (outbox rows appear) and calls rpc('mark_send_saved'); 'Save into a new hit list' additionally creates a list named after the sender ('From @ana') containing the new spots; dismissSend calls rpc('dismiss_send'); withdrawSend calls rpc('withdraw_send'); a download failure for one photo leaves that photo out, keeps the spot, and reports { failedPhotos: 1 }.",
+        "The engine's pull refreshes received sends into the inbox store; listSent is loaded on the Sent screen's mount.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S7-04",
+      "milestone": "S7",
+      "kind": "build",
+      "model": "opus",
+      "description": "A Send sheet with the D34 sentence opens from a spot's page, the multi-select bar, a list's screen and the area picker; 'Send' and the paper-plane icon appear only for copies.",
+      "steps": [
+        "src/__tests__/send-sheet.test.tsx passes: signed out → 'Sign in to send spots to friends' + 'Sign in'; signed in with friends ana and ben and 3 spotIds → '3 spots' with up to three thumbnails, checkboxes for '@ana' and '@ben', the exact sentence 'They get a copy of these 3 spots as they are now. Changes you make later won't reach them.' (one spot: 'this spot'), a Send button disabled until a friend is checked, pressing Send calls createSend with the ids and closes with a toast line 'Sent to @ana'; with no friends: 'Add a friend first' and a link to '/friends'; the sheet contains no text 'Share' or 'Shared' or 'Invite' (regex assertion).",
+        "Entry points, each tested in its screen's test file: spot detail header has a button accessibilityLabel 'Send this spot' (IconSymbol 'paperplane.fill') opening the sheet with [id]; the multi-select bar shows 'Send (2)' next to 'Add to list (2)'; the list screen shows the action row 'Send these spots' with subtitle 'one-time copy of 12 spots' (and a 'Share list' slot that S8 fills; in S7 it renders nothing); the area picker's bottom bar gains 'Send these 23 spots' left of 'Save as hit list'; every one opens SendSheet with the right spotIds.",
+        "A spot the rider does not own (owner_id set and ≠ uid) does not show Send on detail (S8 adds Save a copy); test with a foreign spot.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S7-05",
+      "milestone": "S7",
+      "kind": "build",
+      "model": "opus",
+      "description": "In the Inbox a received send offers Save all, Save into a new hit list, Pick spots and Dismiss; saved copies read 'From @ana'; Profile → Sent lists every send with its status and Withdraw.",
+      "steps": [
+        "src/__tests__/inbox-tab.test.tsx gains: an item of kind 'send' renders '@ana sent you 3 spots' with the first spot's thumbnail if any, and buttons 'Save all' (calls saveSend(id)), 'Save into a new hit list' (saveSend(id, { newList: true })), 'Pick spots' (opens a picker listing the 3 frozen spots by name/town with checkboxes; its Save calls saveSend(id, { spotIds })) and 'Dismiss' (confirm alert 'Dismiss these spots?' → dismissSend); after Save all the item disappears and a line 'Saved 3 spots' shows; a failedPhotos result shows 'Saved 3 spots · 1 photo couldn't be downloaded'.",
+        "app/sent/index.tsx exists (registered 'Sent'); Profile (signed in) has a 'Sent' row; src/__tests__/sent-screen.test.tsx passes: rows 'To @ben · 3 spots · Waiting' with a 'Withdraw' button that confirms ('They won't get these spots.') and calls withdrawSend; 'To @ana · 1 spot · Saved' with no Withdraw and the hint 'Saved copies are theirs'; 'To @cal · 2 spots · Withdrawn'; an empty state 'Nothing sent yet'.",
+        "The saved copies: spot detail for a spot with from_username 'ana' shows 'From @ana' and is otherwise a normal owned spot (Edit present); the inbox badge counts unseen sends (inbox-store test).",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S7-06",
+      "milestone": "S7",
+      "kind": "build",
+      "model": "opus",
+      "description": "An integration test proves D40 against the local stack: A sends 3 spots to B, A edits one and deletes another, B still saves the 3 as sent with their photos; A withdraws a second send before B saves it and B no longer sees it.",
+      "steps": [
+        "src/__integration__/send.test.ts passes against the running stack with two riders (friends) and two node:sqlite DBs: A has 3 spots with one photo each, pushed; A createSend to B; A renames spot 1 and soft-deletes spot 2, pushes; B loadInbox shows the send with 3 spots carrying the original name; B saveSend → B's DB has 3 new owned spots with copied_from_send, from_username A, 3 media rows and 3 files equal to the fixture bytes; B's push succeeds and A cannot read B's copies (A's pull does not return them); A's second send of 1 spot, then A withdrawSend before B saves → B loadInbox is empty; A withdrawSend on the first (saved) send is rejected; the storage objects under sends/<second send id>/ are no longer readable by B (download errors).",
+        "The local stack was started with npx supabase start, npm run db:reset, npm run test:db and npm run test:integration passed (counts recorded in the plan), and npx supabase stop was run afterwards; docker ps --format '{{.Names}}' shows no supabase_* container left and never touched any container not matching supabase_*_hit-list.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S7-07",
+      "milestone": "S7",
+      "kind": "check",
+      "model": "sonnet",
+      "description": "docs/plans/2026-10-22-s7-what-michael-will-see.md walks the Send sheet from each entry point, the Inbox send row and its picker, and the Sent screen as rendered in tests.",
+      "steps": [
+        "docs/plans/2026-10-22-s7-what-michael-will-see.md exists and lists from scratch renders (temporary test deleted): the Send sheet signed out, with no friends, with two friends and three spots (the exact D34 sentence), the Inbox with one send and its Pick spots picker, the Sent screen with the three statuses, and a saved copy's detail with 'From @ana'.",
+        "The file has 'What to tap' with two riders on the phone (send one spot from its page, three from multi-select, a list's spots; edit the sent spot and see the recipient still get the original; withdraw before saving).",
+        "The file records npx jest --silent (counts, zero console.error), npm run test:integration's pass count and npx expo export (exit 0, size).",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes."
+      ],
+      "after": [
+        "S7-06"
+      ],
+      "passes": true
+    },
+    {
+      "id": "S7-08",
+      "milestone": "S7",
+      "kind": "review",
+      "model": "opus",
+      "description": "An Opus review of the S7 diff leaves no unfixed Critical or Important finding in the payload, the photo copy, the sheet, the Inbox flows or Sent; the §1 copy rules are asserted; docs updated.",
+      "steps": [
+        "git diff <last S6 commit>..HEAD -- src app supabase > .harness/runs/hit_list-2026-10-22-sharing/reviews/s7.diff is written and read by the reviewer; findings under 'Review' in docs/plans/2026-10-22-s7-send.md with severity, file:line and fix commit; every Critical/Important fix has a RED test before its GREEN commit.",
+        "The reviewer answers in writing: the payload never includes owner_id, legacy_json, updated_at or the sender's user id; photos are copied before the row exists so a recipient never sees a send with missing photos; withdraw after save is refused server-side (pgTAP) and the UI hides the button; a double tap on Send creates one send; Save all is single-flight; the sentence test fails if the word 'Share' appears anywhere in SendSheet (grep -n 'Share' src/components/SendSheet.tsx prints nothing); the Send button is absent on spots the rider does not own.",
+        "A 'refactor:' commit applies the simplification pass.",
+        "CLAUDE.md Layout gains SendSheet, app/sent/, src/sync/sends.ts, src/utils/send-payload.ts and a Conventions bullet 'Send = copy, Share = live: never mix the words (D34); the sentences are asserted in send-sheet.test.tsx and share-list-sheet.test.tsx'; README Status gains 'Send spots to friends (S7)'; the live checklist gains the two-phone send check.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S8-01",
+      "milestone": "S8",
+      "kind": "plan",
+      "model": "opus",
+      "description": "docs/plans/2026-10-22-s8-shared-lists.md fixes the members mirror, the share/invite/leave flows, others' spots read-only locally, lazy photo cache, every §1 marker, the first-add confirmation and the integration test, each with RED tests.",
+      "steps": [
+        "docs/plans/2026-10-22-s8-shared-lists.md exists with sections: Migration 8 (hit_list_members (list_id, user_id, role, status, joined_at, PK (list_id, user_id)) locally; nothing else), Data (src/sync/lists.ts: shareList(listId, friendIds, role) = update hit_lists.shared + insert members with status 'invited'; invite; setRole; removeMember (rpc remove_member); leave (rpc leave_list); stopSharing (rpc stop_sharing); respondInvite(listId, 'join' | 'decline') = update own member row to 'member' / delete it; pull of hit_list_members and of lists shared with me (owner_id ≠ uid) through the S5 pull with the readable-id reconciliation extended to hit_lists), Read-only others (D47: getSpots returns owner_id; selectMySpots(spots, uid) = owner_id undefined or uid is the Spots tab's 'My spots'; a shared list's spots come from the pull; detail for a foreign spot: title row '@ana's spot', no Edit, a 'Save a copy' button; list rows and map pins carry a small owner badge '@ana'), Photos (src/sync/photos.ts cachedPhotoUri(media): for a foreign media row, download to Paths.cache/photos/<spotId>/<mediaId>.jpg on first use through storage download, then serve the cache path; resolvePhotoUri gains a cache branch; removal on reconciliation also deletes the cache files), Share screens (src/components/ShareListSheet.tsx with the D34 sentence 'Everyone here sees every spot in <list> — including spots added later — until you remove them or stop sharing.' and 'N spots will become visible to them', roles Can add spots (default) / View only; app/list/[id]/members.tsx: member strip, role menu, Remove, Leave with 'Your 5 spots in <list> will leave it too', Stop sharing with 'Members lose access to all N spots now'), Markers (two-people icon + member count on: Lists tab rows, list picker chips, the 'In lists' row, the Add-to-list sheet; the list screen's action row 'Share list · live: they'll see new spots too' next to Send), First-add confirmation (sync_state 'confirmed_list:<id>' flag; copy 'Everyone in <list> (4) will see this spot.' Cancel / Add), Shared area lists (members see the owner's spots inside the circle from the pull; the Add-to-list sheet never offers an area list), Inbox invitations (kind 'invite': '@ana invited you to <list> (12 spots)' Join / Decline), Copy table, and a Test list per feature.",
+        "The plan records any D<n> *default* in the spec's §2/§9 (at least: an invited rider sees the list's name and spot count but no spots until Join; member count shown = members with status 'member' + the owner).",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes (nothing but the plan and docs changed)."
+      ],
+      "after": [
+        "S5",
+        "S6"
+      ],
+      "passes": true
+    },
+    {
+      "id": "S8-02",
+      "milestone": "S8",
+      "kind": "build",
+      "model": "opus",
+      "description": "src/sync/lists.ts shares a list with friends and a role, invites, changes roles, removes, leaves, stops sharing and answers invitations through the server functions, and the pull mirrors memberships and lists shared with me.",
+      "steps": [
+        "src/db/schema.ts exports MIGRATIONS of length 8 (hit_list_members locally; migrations 1–7 unchanged); db-migrate covers v7 → v8; src/db/hit-lists.ts gains upsertMembers/getMembers(listId)/getMyMemberships with real-SQLite tests; HitList carries members?: { user_id, username, role, status }[] in the store.",
+        "src/__tests__/sync-lists.test.ts passes with the fake client and real SQLite: shareList(listId, [ana, ben], 'add') calls from('hit_lists').update({ shared: true }).eq('id', …) then from('hit_list_members').insert([{ list_id, user_id: ana, role: 'add', status: 'invited' }, …]) and marks the local list shared; invite(listId, [cal], 'view') inserts one; setRole calls update on the member row; removeMember calls rpc('remove_member'); leave calls rpc('leave_list') and deletes the list, its memberships and its spots that are not mine from the local DB (and their cache files via fake fs); stopSharing calls rpc('stop_sharing') and deletes the memberships and the spots added by others locally; respondInvite('join') updates own row to status 'member', ('decline') deletes it; pull writes hit_list_members rows and hit_lists rows with owner_id ≠ uid (the readable-id reconciliation for hit_lists removes a list I can no longer read, with its memberships and foreign spots).",
+        "The hit-lists store exposes selectSharedWithMe(lists, uid) (owner_id set and ≠ uid, status 'member') and selectInvitations (status 'invited') and the inbox store gets kind 'invite' items from the pull; tests in hit-lists-store.test.ts and inbox-store.test.ts.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S8-03",
+      "milestone": "S8",
+      "kind": "build",
+      "model": "opus",
+      "description": "Others' spots are read-only on this phone: 'My spots' is the Spots tab's default, a shared list shows its owner's and members' spots with owner badges, a foreign spot's page shows '@ana's spot' and Save a copy instead of Edit, and its photos download lazily into the cache.",
+      "steps": [
+        "src/__tests__/stores.test.ts gains selectMySpots: keeps spots with owner_id undefined or equal to uid and drops the rest; app/(tabs)/index.tsx uses it for 'My spots' and the list picker's shared lists show the list's spots whoever owns them (spots-view-mode test with a foreign spot: absent under My spots, present under the shared list chip).",
+        "src/__tests__/spot-detail.test.tsx gains: a spot with owner_id 'u-ana' (profile username ana) renders '@ana's spot' under the title, no 'Edit' button, no 'Send this spot', no 'In lists' editing (the row is read-only text), and a 'Save a copy' button; pressing it alerts 'Save a copy of this spot?' with 'It becomes your own private spot.' and Save calls saveCopy(spotId) which (src/sync/copy.ts, real SQLite + fake fs) inserts an owned spot with from_username 'ana', copies the cached photos into Paths.document/photos/<newId>/ as owned media, enqueues outbox rows and pushes router.replace('/spot/<newId>'); the copy keeps feature_types, stopped, natural_speed, notes, location.",
+        "useSpotActions.updateSpot and removeSpot reject with an Error 'not your spot' when the spot's owner_id is set and differs from the signed-in user (use-spot-actions test), so no screen can edit a foreign spot even by mistake.",
+        "SpotListItem shows a small owner badge '@ana' when ownerLabel is passed; SpotMap's Marker description for a foreign spot ends with '· @ana'; tests in components.test.tsx and spot-map.test.tsx.",
+        "src/__tests__/sync-photos.test.ts gains cachedPhotoUri: for a media row whose spot is foreign and whose cache file is missing it calls storage.from('photos').download('<owner>/<spot>/<media>.jpg') and writes Paths.cache/photos/<spotId>/<mediaId>.jpg (fake fs), returning that uri; a second call returns the cached uri without a download; a 403/404 download rejects and the tile shows a placeholder (PhotoGrid test with a rejecting resolver); resolvePhotoUri is unchanged for owned media (photo-storage test).",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S8-04",
+      "milestone": "S8",
+      "kind": "build",
+      "model": "opus",
+      "description": "Share list (friends + role + the D34 sentence), the shared list's member strip and members screen with role menus, Remove, Leave and Stop sharing, each with its consequence line, all asserting their copy.",
+      "steps": [
+        "src/__tests__/share-list-sheet.test.tsx passes: signed out → 'Sign in to share hit lists' + 'Sign in'; signed in, list 'Downtown' with 12 spots, friends ana and ben → checkboxes '@ana' '@ben', a role segmented control 'Can add spots' (default) / 'View only', the exact sentence 'Everyone here sees every spot in Downtown — including spots added later — until you remove them or stop sharing.', the line '12 spots will become visible to them', a 'Share' button disabled until a friend is checked; pressing Share calls shareList(listId, [ana], 'add') and closes; the sheet contains no 'Send' text (regex); an area list shares the same way with the extra line 'They'll see your spots inside this area, now and later'.",
+        "The list screen's action row shows 'Share list' with subtitle 'live: they'll see new spots too' next to 'Send these spots · one-time copy of 12 spots' (both present in one render, asserted together); a shared list shows the member strip under the title: initials circles for the owner and each 'member', a count '4', and '+ Invite' (owner only) that opens the sheet in invite mode; pressing the strip pushes '/list/<id>/members'.",
+        "app/list/[id]/members.tsx exists; src/__tests__/list-members.test.tsx passes: as owner: rows '@ana · Can add spots' with a role menu (Alert with 'Can add spots' / 'View only' / 'Remove from list') calling setRole / removeMember; an 'Invited' tag on status 'invited' rows; a 'Stop sharing' button that alerts 'Stop sharing Downtown?' with 'Members lose access to all 12 spots now.' and calls stopSharing; as a member: no role menus, a 'Leave list' button that alerts 'Leave Downtown?' with 'Your 5 spots in Downtown will leave it too.' (5 = the spots I added; 'Your spots' line omitted at 0) and calls leave then router.dismissAll.",
+        "Making a private list shared through the sheet shows the count line; nothing in these screens uses the word 'Send' (grep -n 'Send' src/components/ShareListSheet.tsx app/list/[id]/members.tsx prints nothing).",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S8-05",
+      "milestone": "S8",
+      "kind": "build",
+      "model": "opus",
+      "description": "Every §1 marker: the two-people icon and member count wherever a shared list appears, the first-add confirmation per list, the Add-to-list rules for members and area lists, and shared area lists.",
+      "steps": [
+        "Lists tab: a 'Shared with me' section lists lists owned by others with the icon (IconSymbol 'person.2.fill'), the owner '@ana' and the member count; 'My hit lists' rows that are shared carry the icon and count; src/__tests__/lists-tab.test.tsx covers both and asserts a private list has no icon.",
+        "ListPickerChips, the 'In lists' row chips and AddToListSheet rows render the icon + count for shared lists (tests in list-picker-chips, spot-detail and add-to-list-sheet test files assert testID 'icon-person.2.fill' inside the shared chip/row and not inside the private one).",
+        "AddToListSheet rules (add-to-list-sheet.test.tsx): a shared list I own or where my role is 'add' is enabled; a shared list where my role is 'view' is disabled with the hint 'View only'; an area list (mine or shared) is disabled with its hint; adding to a shared list for the first time alerts 'Everyone in Downtown (4) will see this spot.' with Cancel / Add, Add calls addSpotsToList and sets sync_state 'confirmed_list:<id>' so the next add to that list shows no alert; adding to a different shared list alerts again.",
+        "Shared area lists (hit-lists-store test): selectListSpots for an area list owned by ana returns only ana's spots inside the circle from the pulled spots and none of mine; the list screen for it shows 'Area · 2 mi of Capitol Hill' and no 'Edit area' for a member.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S8-06",
+      "milestone": "S8",
+      "kind": "build",
+      "model": "opus",
+      "description": "Inbox invitations: '@ana invited you to Downtown (12 spots)' with Join / Decline, counted in the badge, and joining pulls the list and its spots.",
+      "steps": [
+        "src/__tests__/inbox-tab.test.tsx gains: an item of kind 'invite' renders '@ana invited you to Downtown (12 spots)' with 'Join' (calls respondInvite(listId, 'join') then syncNow; afterwards a line 'Joined Downtown' with a link that pushes '/list/<id>') and 'Decline' (respondInvite(listId, 'decline')); the badge counts unseen invites (inbox-store test).",
+        "The Lists tab's 'Shared with me' section shows a 'Join' chip inline for an invitation too, so an invite is reachable from both tabs (lists-tab test).",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S8-07",
+      "milestone": "S8",
+      "kind": "build",
+      "model": "opus",
+      "description": "An integration test proves shared lists against the local stack: B joins A's list and sees its 5 spots and a 6th added later; view-only C can't add; B leaves and loses the spots locally after the next pull, and their photos stop downloading.",
+      "steps": [
+        "src/__integration__/shared-list.test.ts passes with riders A, B, C (friends) and three node:sqlite DBs: A has 5 spots with photos in list L, pushed; A shareList(L, [B: 'add', C: 'view']); B and C pull → an invite item each; both respondInvite join; B pulls → L in selectSharedWithMe with 5 foreign spots, cachedPhotoUri downloads one photo (bytes equal the fixture); A adds a 6th spot to L and pushes; B pulls → 6; B adds a spot of their own to L (addSpotsToList + push succeeds); C's push of a hit_list_spots row fails with an RLS error (view only) and the outbox row records it; B leave → B's DB has no L, none of A's spots, and cachedPhotoUri for one of them now rejects (storage download 400/403); A's pull shows B's spot gone from L (D43); A stopSharing → C pulls → L gone locally.",
+        "The local stack was started with npx supabase start, npm run db:reset, npm run test:db and npm run test:integration passed (counts recorded in the plan), and npx supabase stop was run afterwards; docker ps --format '{{.Names}}' shows no supabase_* container left and never touched any container not matching supabase_*_hit-list.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S8-08",
+      "milestone": "S8",
+      "kind": "check",
+      "model": "sonnet",
+      "description": "docs/plans/2026-10-22-s8-what-michael-will-see.md walks sharing a list, the member strip and screen, a shared list as a member, a foreign spot's page, the first-add confirmation and the invitation as rendered in tests.",
+      "steps": [
+        "docs/plans/2026-10-22-s8-what-michael-will-see.md exists and lists from scratch renders (temporary test deleted): the Share sheet (the exact D34 sentence), the list screen's two side-by-side actions with their subtitles, the member strip, the members screen as owner and as member (the Leave and Stop sharing alerts' copy), the Lists tab with a shared list and a 'Shared with me' entry, the Add-to-list sheet with a shared, a view-only and an area list, the first-add alert, a foreign spot's detail, and the Inbox invitation.",
+        "The file has 'What to tap' with two riders on the phone (share, join on the other side, add a spot on each side, switch a role, leave, stop sharing) and what each side sees after pull-to-refresh.",
+        "The file records npx jest --silent (counts, zero console.error), npm run test:integration's pass count and npx expo export (exit 0, size).",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes."
+      ],
+      "after": [
+        "S8-07"
+      ],
+      "passes": true
+    },
+    {
+      "id": "S8-09",
+      "milestone": "S8",
+      "kind": "review",
+      "model": "opus",
+      "description": "An Opus review of the S8 diff leaves no unfixed Critical or Important finding in sharing, roles, read-only spots, the photo cache or the markers; the anti-goal 'a spot leaking because the check lived only in the app' is answered with the pgTAP and integration tests; docs updated.",
+      "steps": [
+        "git diff <last S7 commit>..HEAD -- src app supabase > .harness/runs/hit_list-2026-10-22-sharing/reviews/s8.diff is written and read by the reviewer; findings under 'Review' in docs/plans/2026-10-22-s8-shared-lists.md with severity, file:line and fix commit; every Critical/Important fix has a RED test before its GREEN commit.",
+        "The reviewer answers in writing with the proving test: a foreign spot can never be edited, deleted or sent from this phone (no code path calls updateSpot/removeSpot/createSend with a foreign id; detail hides the controls and useSpotActions rejects); leaving a list deletes the cache files and the local rows in one transaction; the member count shown equals members with status 'member' + 1; the first-add flag is per list and survives relaunch (sync_state); 'Share' never appears in SendSheet and 'Send' never in ShareListSheet or members.tsx; the Add-to-list sheet never offers an area list; the readable-id reconciliation runs on every pull so a removed member loses the spots within one sync.",
+        "A 'refactor:' commit applies the simplification pass.",
+        "CLAUDE.md Layout gains ShareListSheet, app/list/[id]/members.tsx, src/sync/lists.ts, src/sync/copy.ts, the photo cache rule (others' photos in Paths.cache, never Paths.document) and the D47 read-only rule; README Status gains 'Shared hit lists (S8)'; the live checklist gains the two-phone sharing check.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S9-01",
+      "milestone": "S9",
+      "kind": "plan",
+      "model": "opus",
+      "description": "docs/plans/2026-10-22-s9-links.md fixes token generation and hashing, the share-preview Edge Function, the client link module, the Send sheet's 'Copy link instead', invite links, Revoke, the static web/share page, the paste-a-link entry and the integration tests, each with RED tests.",
+      "steps": [
+        "expo-clipboard is installed with npx expo install expo-clipboard (lockfile in its own 'chore:' commit); npx expo export --platform ios --output-dir /tmp/hl-export exits 0.",
+        "docs/plans/2026-10-22-s9-links.md exists with sections: Tokens (src/utils/link-token.ts: newToken() = 16 random bytes from expo-crypto getRandomBytes as base64url (22 chars); tokenHash(token) = SHA-256 hex via expo-crypto digestStringAsync; linkUrl(base, token) = `${base}#t=${token}` so the token never reaches a server log (fragment), and parseToken(text) that accepts a full URL, a bare token, or a URL with ?t=), Base URL (EXPO_PUBLIC_SHARE_BASE_URL in .env.example, default 'http://localhost:8080/share/' for local runs; recorded as a D<n> *default*), share-preview (supabase/functions/share-preview/index.ts: GET ?t=<token> → hash → rpc preview_link with the service-role client → for 'send': { kind, spots: [frozen fields + photo_urls from storage.createSignedUrls(paths, 600)], sender, expires_at }; for 'invite': { kind: 'invite', list_name, inviter }; anything else → 404 { error: 'gone' }; CORS *; no auth header required because the function is deployed with verify_jwt = false in config.toml [functions.share-preview]), Client (src/sync/links.ts: createSendLink(sendId, expiry: '1d' | '7d' | '30d' | 'never') → URL; createInviteLink(listId, role) → URL; revokeLink(id); listMyLinks(kind); redeemInvite(token) → rpc redeem_invite then syncNow), UI (SendSheet 'Copy link instead' with the expiry choice (30 days default) and the D44 line 'Anyone with the link can see these spots until it expires. No account needed to look.'; Sent screen link rows 'Link · 3 spots · Active until Nov 21' / 'Expired' / 'Revoked' with Revoke; members screen 'Invite link' (7 days, single-use, the role) + 'Active' / 'Used by @ben' / 'Revoke'; Inbox 'Paste a link' row → TextInput → redeemInvite or, for a send link, open the preview URL in the browser), Page (web/share/index.html + share.js: reads the fragment, fetches `${FUNCTIONS_URL}/share-preview?t=`, renders; the functions URL comes from a <meta name=\"hitlist-functions-url\"> that the live checklist tells Michael to set), Tests (jsdom test for the page against a stubbed fetch; integration test for the function and the end-to-end link), Copy table, and a Test list per feature.",
+        "The live checklist gains the hosting step (host web/share/ on Vercel/Cloudflare Pages/GitHub Pages, set the meta tag to the project's functions URL, set EXPO_PUBLIC_SHARE_BASE_URL) and the functions deploy step.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes (nothing but the plan and docs changed)."
+      ],
+      "after": [
+        "S7",
+        "S8"
+      ],
+      "passes": true
+    },
+    {
+      "id": "S9-02",
+      "milestone": "S9",
+      "kind": "build",
+      "model": "opus",
+      "description": "The share-preview Edge Function returns a send's frozen spots with 10-minute signed photo URLs for a live token, an invite stub for an invite token, and the same 404 shape for unknown, expired, revoked, withdrawn and used tokens, with no auth header required.",
+      "steps": [
+        "supabase/functions/share-preview/index.ts exists; supabase/config.toml has [functions.share-preview] verify_jwt = false and [functions.account-delete] verify_jwt = true; the function hashes the token with Web Crypto SHA-256 (hex lowercase, matching the SQL side), calls rpc('preview_link', { token_sha256 }) with the service-role client, builds photo_urls with storage.from('photos').createSignedUrls(paths, 600), and returns JSON with Cache-Control: no-store.",
+        "src/__integration__/links-function.test.ts passes against the running stack (functions served by npx supabase start's edge runtime at http://127.0.0.1:54321/functions/v1/share-preview): rider A creates a send to nobody (recipient null) with 2 spots and photos, then create_link('send', …, expires in 1 day); fetch(url + '?t=' + token) with no Authorization header returns 200 with kind 'send', 2 spots with name/lat/lng/feature_types/stopped/natural_speed/notes, photo_urls that fetch to 200 with the fixture bytes, and sender.username; a wrong token, the token after revoke_link, the token after withdraw_send, and a token whose expires_at was set in the past (service-role update) each return 404 { error: 'gone' } byte-identical; an invite token returns { kind: 'invite', list_name, inviter } with no spots.",
+        "The local stack was started with npx supabase start, npm run db:reset, npm run test:db and npm run test:integration passed (counts recorded in the plan), and npx supabase stop was run afterwards; docker ps --format '{{.Names}}' shows no supabase_* container left and never touched any container not matching supabase_*_hit-list.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S9-03",
+      "milestone": "S9",
+      "kind": "build",
+      "model": "opus",
+      "description": "In the app: 'Copy link instead' in the Send sheet with an expiry choice, invite links from a shared list's members screen, Revoke in Sent and on the members screen, and a 'Paste a link' entry in the Inbox that redeems an invite.",
+      "steps": [
+        "src/__tests__/link-token.test.ts passes: newToken() is 22 chars of [A-Za-z0-9_-] and differs between calls (expo-crypto backed by Node in jest.setup.ts); tokenHash('abc') equals Node's sha256 hex of 'abc'; linkUrl('https://x.test/share/', 'tok') is 'https://x.test/share/#t=tok'; parseToken accepts that URL, '?t=tok', 'tok' and returns null for 'https://x.test/other'.",
+        "src/__tests__/sync-links.test.ts passes with the fake client: createSendLink(sendId, '30d') calls rpc('create_link', { kind: 'send', target_id, token_sha256, expires_at ≈ now + 30 d }) and returns the URL built from EXPO_PUBLIC_SHARE_BASE_URL with the plain token; 'never' passes expires_at null; createInviteLink(listId, 'add') uses 7 days; revokeLink calls rpc('revoke_link'); listMyLinks maps rows to status 'active' | 'expired' | 'revoked' | 'used' from expires_at/revoked_at/used_at; redeemInvite('https://x.test/share/#t=tok') calls rpc('redeem_invite', { token: 'tok' }) and resolves the list id.",
+        "send-sheet.test.tsx gains: 'Copy link instead' reveals the expiry chips '1 day' '7 days' '30 days' (selected) 'Never' and the line 'Anyone with the link can see these spots until it expires. No account needed to look.'; 'Copy link' creates a send with recipient null (createSend with recipientIds []), then createSendLink, then Clipboard.setStringAsync(url) (expo-clipboard mocked, member name from its .d.ts) and shows 'Link copied'; sent-screen.test.tsx gains link rows 'Link · 3 spots · Active until <date>' with Revoke (confirm 'The link stops working now.') → revokeLink, and 'Expired' / 'Revoked' rows without it; list-members.test.tsx gains (owner) 'Invite link' → creates with the chosen role, copies, shows 'Link copied · works once, 7 days' and lists existing links with 'Used by @ben' / Revoke.",
+        "inbox-tab.test.tsx gains a 'Paste a link' row (signed in) opening a field; a pasted invite URL calls redeemInvite and shows 'Joined Downtown'; a 'gone' error shows 'That link doesn't work any more'; a send link (the function says kind 'send') opens the URL with Linking.openURL; the row is absent signed out.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S9-04",
+      "milestone": "S9",
+      "kind": "build",
+      "model": "opus",
+      "description": "web/share/index.html + share.js render a send link's spots (photos, tags, notes, a map link) or an invite stub with no login, show a 'gone' state, and explain that saving needs the app; a jsdom test drives the page against a stubbed fetch.",
+      "steps": [
+        "web/share/index.html and web/share/share.js exist (no build step, no framework, one <meta name=\"hitlist-functions-url\" content=\"http://127.0.0.1:54321/functions/v1\">); the page reads t from the fragment (or ?t= as a fallback), fetches share-preview, and renders: for 'send' a heading '<N> spots from @ana', per spot a card with name (or 'Untitled · <town>'), tags ('Rail · Ledge', a red 'Skate stopped', 'Natural speed: Enough'), notes, photos (<img> per signed URL), and a 'Open in Maps' link to https://maps.apple.com/?ll=<lat>,<lng> plus an OpenStreetMap link; a footer 'Save to my spots' button that reveals 'You need HitList and an account to save these. Open the app, then Inbox → Paste a link.'; for 'invite' the single line '<inviter> invited you to <list> on HitList — open the app to join'; for gone: 'This link doesn't work any more.'; expiry 'Expires <date>'; every field is inserted with textContent (never innerHTML).",
+        "src/__tests__/web-share.test.ts (docblock @jest-environment jsdom, jest-environment-jsdom present in node_modules via jest-expo) passes: loads index.html into the DOM, stubs global fetch with a send payload of 2 spots and asserts the heading, two cards, the tag text, two <img> src values, the maps href containing 'll=47.6,-122.3'; a { error: 'gone' } 404 renders the gone line; an invite payload renders the invite line; a missing t renders the gone line without fetching (fetch not called); a spot named '<img src=x onerror=alert(1)>' renders as text (no img element with src 'x').",
+        "web/share/README.md says how to serve it locally (python3 -m http.server 8080 from web/, with the meta tag pointing at the local stack) and that hosting is a live step.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S9-05",
+      "milestone": "S9",
+      "kind": "build",
+      "model": "opus",
+      "description": "An integration test proves D44 end to end: a send link previews with no auth and 404-shapes after revoke and after expiry; an invite link joins a signed-in rider once and never anonymously; the static page renders the live function's answer.",
+      "steps": [
+        "src/__integration__/links.test.ts passes against the running stack: A creates a send link through src/sync/links (createSend recipientIds [] + createSendLink '7d'); fetch of the function with the parsed token and no auth header → 200 with 2 spots; A revokeLink → 404 gone; a second link whose expires_at is forced into the past → 404 gone; an invite link from A's shared list L: an anon client's rpc('redeem_invite') errors; B (signed in) redeemInvite → B is a 'member' of L and B's pull brings L's spots; B redeemInvite again → error 'gone' shape; C redeemInvite with the same token → error (single-use); A's listMyLinks shows the invite as 'used' by B.",
+        "The same file serves web/share/ with Node's http module on a free port, loads it in jsdom with the meta tag pointing at the local function and a live token, and asserts the heading '<N> spots from @<A username>' and two <img> whose src fetch to 200.",
+        "The local stack was started with npx supabase start, npm run db:reset, npm run test:db and npm run test:integration passed (counts recorded in the plan), and npx supabase stop was run afterwards; docker ps --format '{{.Names}}' shows no supabase_* container left and never touched any container not matching supabase_*_hit-list.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S9-06",
+      "milestone": "S9",
+      "kind": "check",
+      "model": "sonnet",
+      "description": "docs/plans/2026-10-22-s9-what-michael-will-see.md walks Copy link, the Sent link rows, the invite link on the members screen, Paste a link in the Inbox, and the web page's three states.",
+      "steps": [
+        "docs/plans/2026-10-22-s9-what-michael-will-see.md exists and lists from scratch renders (temporary test deleted): the Send sheet's link mode with the expiry chips and the D44 line, the Sent screen with Active / Expired / Revoked link rows, the members screen's invite-link rows, the Inbox 'Paste a link' field and its three result lines, and the web page for a send, an invite and a gone token (text content from the jsdom test).",
+        "The file has 'What to tap' on the phone (copy a link, open it in Safari on the phone pointed at the box's static server over Tailscale, revoke it, reload; make an invite link, paste it in the other rider's Inbox) and where the page must be hosted later (the live checklist).",
+        "The file records npx jest --silent (counts, zero console.error), npm run test:integration's pass count and npx expo export (exit 0, size).",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes."
+      ],
+      "after": [
+        "S9-05"
+      ],
+      "passes": true
+    },
+    {
+      "id": "S9-07",
+      "milestone": "S9",
+      "kind": "review",
+      "model": "opus",
+      "description": "An Opus review of the S9 diff leaves no unfixed Critical or Important finding in tokens, the function, the client, the page or the Inbox entry; D45's token rules are argued with tests; docs updated.",
+      "steps": [
+        "git diff <last S8 commit>..HEAD -- src app supabase web .env.example package.json > .harness/runs/hit_list-2026-10-22-sharing/reviews/s9.diff is written and read by the reviewer; findings under 'Review' in docs/plans/2026-10-22-s9-links.md with severity, file:line and fix commit; every Critical/Important fix has a RED test before its GREEN commit.",
+        "The reviewer answers in writing with the proving test: the plain token is never stored anywhere server-side (git grep for a token column prints nothing; links has only token_sha256) and the page keeps it in the fragment; the four 'gone' cases are byte-identical; signed URLs live 600 s; the function serves no HTML; the page escapes every field it renders (the jsdom XSS case); a send link's spots are exactly the frozen payload (no live lookup of the spots table); redeem_invite is single-use under concurrency (pgTAP case from S3-07).",
+        "A 'refactor:' commit applies the simplification pass.",
+        "CLAUDE.md Layout gains src/sync/links.ts, src/utils/link-token.ts, supabase/functions/share-preview, web/share/ and the 'fragment token' rule; README Status gains 'Links (S9)'; the live checklist's hosting and deploy steps are complete with the exact commands.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S10-01",
+      "milestone": "S10",
+      "kind": "review",
+      "model": "opus",
+      "description": "A whole-run Opus review of the S1–S9 diff finds no unfixed Critical or Important issue, the app still bundles and expo-doctor is clean, and the pgTAP, Jest and integration suites all pass on a fresh stack.",
+      "steps": [
+        "git diff 4aa5326..HEAD -- src app supabase web > .harness/runs/hit_list-2026-10-22-sharing/reviews/run.diff is written and read by the reviewer (two passes if over 10 000 lines: data/sync/SQL and UI); findings recorded in docs/plans/2026-10-22-s10-sweep.md under 'Final review' as a table with id, severity, file:line, fix commit; every Critical/Important fix has a RED test before its GREEN commit.",
+        "The reviewer answers the five anti-goals of the spec in writing with the proving tests: no single button mixes copy and live access; no read path depends on the app alone (every table's RLS has a pgTAP test, listed); sign-in/sign-out/failed sync never lose a spot or photo (S5 tests named); a signed-out rider sees no nag beyond Profile's one line and the Sign in prompts (grep of 'Sign in to' occurrences listed with their screens); a revoked link returns gone (S9 tests named).",
+        "npx expo export --platform ios --output-dir /tmp/hl-export exits 0 (size recorded); npx expo-doctor is clean; a stale-grep check: grep -rn 'sync_queue\\|SyncQueueItem' src app --include=*.ts --include=*.tsx | grep -v 'src/db/schema.ts' prints nothing.",
+        "The local stack was started with npx supabase start, npm run db:reset, npm run test:db, npm run test:integration and npx jest --ci all passed with their counts recorded in the sweep doc, and npx supabase stop was run afterwards; docker ps --format '{{.Names}}' shows no supabase_* container left and never touched any container not matching supabase_*_hit-list.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes with zero console.error lines."
+      ],
+      "after": [
+        "S9"
+      ],
+      "passes": true
+    },
+    {
+      "id": "S10-02",
+      "milestone": "S10",
+      "kind": "docs",
+      "model": "sonnet",
+      "description": "APP_SPECIFICATIONS, README, CLAUDE.md and RUNNING-ON-PHONE describe accounts, hit lists, sending and sharing as built, with the old [FUTURE] sharing headings marked superseded.",
+      "steps": [
+        "APP_SPECIFICATIONS.md has a new section '## Accounts and sharing (2026-10-22)' directly after 'Simplified model (2026-10-20)' that states: the vocabulary table of spec §1 (Spot, Hit list, Area list, Send, Share, Friends, Inbox), the two verbs' rules, ownership, the server model summary (§3.2 table list and the one-line RLS rule), sync (D48), links (D44/D45), and a pointer to docs/specs/2026-10-22-accounts-and-sharing.md; the headings '[FUTURE] Sharing Model', '[FUTURE] Crews' and '[FUTURE] Folders/Collections' are retitled with [SUPERSEDED] and a one-line pointer to the new section, their text kept; 'Sync Strategy' gets a 'Built as (2026-10-22)' note.",
+        "README.md Status is dated 2026-10-22 and lists hit lists, area lists, accounts (optional, email code), backup and sync, friends and Inbox, Send, Share, links, with one line each on what Michael needs to run them (the local stack over Tailscale; nothing deployed).",
+        "CLAUDE.md: the intro mentions accounts are optional and the backend is Supabase (local stack only so far); Stack lists supabase-js, the supabase CLI version, expo-secure-store, async-storage, expo-image-manipulator, expo-clipboard; Commands lists db:start/db:stop/db:reset/test:db/test:integration with the Docker rule; Layout covers app/(tabs)/lists.tsx, inbox.tsx, app/list/, app/area/, app/auth/, app/friends/, app/sent/, src/sync/, src/db/hit-lists.ts, sync.ts, profiles.ts, supabase/, web/share/; Conventions holds the Send/Share wording rule, the owner_id rule, the photo cache rule, the .env rule and the append-only SQL migrations rule; Testing mentions pgTAP, the tests schema in seed.sql, the integration config and the fake-supabase helper.",
+        "docs/RUNNING-ON-PHONE.md has a 'With accounts (local stack over Tailscale)' section: npm run db:start, the .env.local values, Mailpit at :54324 for the code, Studio at :54323, and 'npm run db:stop when done'; the stale 'git switch overnight/2026-10-14' line is replaced by 'main'.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes (docs only changed)."
+      ],
+      "passes": true
+    },
+    {
+      "id": "S10-03",
+      "milestone": "S10",
+      "kind": "docs",
+      "model": "sonnet",
+      "description": "docs/plans/2026-10-22-sharing-what-michael-will-see.md walks the whole feature on the phone with two riders, and docs/plans/2026-10-22-live-checklist.md is complete with every live step in stages and how to undo each.",
+      "steps": [
+        "docs/plans/2026-10-22-sharing-what-michael-will-see.md exists and walks, in order and in Michael's words (what to tap, what should happen): make a hit list and an area list; sign in with the code; see Backed up; add a friend by username on two riders; send a spot and save it on the other side; share a list, join, add on both sides, leave; copy a link and open it in Safari; revoke it; the sign-out prompt; Delete account; with a 'If something is off' section (the stack isn't running, no code arrives (Mailpit), 'N changes not backed up', a shared spot not appearing (pull to refresh)); every milestone's own what-michael-will-see file is linked.",
+        "docs/plans/2026-10-22-live-checklist.md has every §10 item as a checkbox with the exact commands in stages: local stack over Tailscale (start, .env.local, phone, stop); Supabase cloud project (create, npx supabase link --project-ref, npx supabase db push, npx supabase functions deploy share-preview account-delete, set the two EXPO_PUBLIC_ values and EXPO_PUBLIC_SHARE_BASE_URL, custom SMTP before real users); hosting web/share/ (the meta tag value, where the URL goes); what to check after each stage (Studio tables, a sign-in, a link opening) and how to undo (unlink, delete the project, remove .env.local); and the 'Later, with a dev build' items unchanged from the spec.",
+        "The spec's §9 lists every D<n> *default* the run added (the file is read and each D number above D51 appears in both §2 and §9), and progress.md's final entry lists them for Michael with one line each.",
+        "npx expo lint && npx tsc --noEmit && npx jest --silent passes (docs only changed)."
+      ],
+      "after": [
+        "S10-01"
+      ],
+      "passes": true
+    }
+  ]
+}

@@ -1,34 +1,19 @@
-import { useCallback, useMemo, useState } from 'react';
-import { Stack, useRouter } from 'expo-router';
-import { Keyboard, StyleSheet, View, Pressable, Text, TextInput } from 'react-native';
-import { FlashList } from '@shopify/flash-list';
+import { useMemo, useState } from 'react';
+import { useRouter } from 'expo-router';
+import { RefreshControl, StyleSheet, View, Pressable, Text } from 'react-native';
+import { useSQLiteContext } from 'expo-sqlite';
 
 import { IconSymbol } from '@/components/ui/icon-symbol';
 
-import {
-  useSpotsStore,
-  useMediaStore,
-  selectFilteredSpots,
-  selectSortedSpots,
-  selectEffectiveSort,
-  selectActiveFilterCount,
-} from '@/src/stores';
-import { useLocationStore } from '@/src/stores/location-store';
-import { useSettingsStore } from '@/src/stores/settings-store';
-import { SpotListItem } from '@/src/components/SpotListItem';
-import { EmptyState } from '@/src/components/EmptyState';
-import { FilterSheet } from '@/src/components/FilterSheet';
-import { SegmentedControl } from '@/src/components/SegmentedControl';
-import { SpotMap } from '@/src/components/SpotMap';
-import { SortChips } from '@/src/components/SortChips';
-import { useCurrentLocation } from '@/src/hooks/use-current-location';
-import { featureTypesLabel, getSpotDisplayName } from '@/src/utils/spot-name';
-import { resolvePhotoUri } from '@/src/utils/photo-storage';
-import { primaryPhoto } from '@/src/utils/spot-photos';
-import { haversineDistance, formatDistance, isKnownLocation } from '@/src/utils/geo';
-import { SortField, UnitSystem } from '@/src/types';
-import type { Spot } from '@/src/types';
-import type { ViewMode } from '@/src/stores/spots-store';
+import { selectListSpots, selectMySpots, useHitListsStore, useSpotsStore } from '@/src/stores';
+import { EMPTY_AREA_COPY, EMPTY_LIST_COPY, SpotsBrowser } from '@/src/components/SpotsBrowser';
+import { HeaderTextButton } from '@/src/components/HeaderTextButton';
+import { AddToListSheet } from '@/src/components/AddToListSheet';
+import { SendSheet } from '@/src/components/SendSheet';
+import { ListPickerChips } from '@/src/components/ListPickerChips';
+import { useAuthStore } from '@/src/stores/auth-store';
+import { useRiderId } from '@/src/hooks/use-rider-id';
+import { syncNow } from '@/src/sync/engine';
 import { palette, radius, spacing } from '@/src/constants/theme';
 
 // Floating action column (bottom-right): shared by its style and the list's bottom padding so the two
@@ -42,222 +27,180 @@ const LIST_BOTTOM_PADDING = FAB_BOTTOM + FAB_SIZE + FAB_GAP + FAB_SECONDARY_SIZE
 
 export default function SpotsScreen() {
   const router = useRouter();
-  useCurrentLocation(); // distances in the list and the map's own position (bug 5)
-  const spots = useSpotsStore((s) => s.spots);
-  const filters = useSpotsStore((s) => s.filters);
-  const searchQuery = useSpotsStore((s) => s.searchQuery);
-  const storedSortField = useSpotsStore((s) => s.sortField);
-  const storedSortDirection = useSpotsStore((s) => s.sortDirection);
-  const sortChosen = useSpotsStore((s) => s.sortChosen);
+  const db = useSQLiteContext();
+  const signedIn = useAuthStore((s) => s.status === 'signed_in');
+  const uid = useRiderId();
+  // The spinner is the rider's pull only (syncNow never rejects); background syncs show nothing here.
+  const [pulling, setPulling] = useState(false);
+  const pullToSync = () => {
+    setPulling(true);
+    void syncNow(db).finally(() => setPulling(false));
+  };
+  const allSpots = useSpotsStore((s) => s.spots);
   const viewMode = useSpotsStore((s) => s.viewMode);
-  const setViewMode = useSpotsStore((s) => s.setViewMode);
-  const resetFilters = useSpotsStore((s) => s.resetFilters);
-  const setSearchQuery = useSpotsStore((s) => s.setSearchQuery);
-  const setSort = useSpotsStore((s) => s.setSort);
-  const currentLocation = useLocationStore((s) => s.currentLocation);
-  const units = useSettingsStore((s) => s.units);
-  const mediaBySpot = useMediaStore((s) => s.mediaBySpot);
-
-  const [filterVisible, setFilterVisible] = useState(false);
-  const activeFilterCount = selectActiveFilterCount(filters);
-  // Distance, nearest first, once the position is known and until the user taps a chip (D14).
-  const { sortField, sortDirection } = selectEffectiveSort(
-    { sortField: storedSortField, sortDirection: storedSortDirection, sortChosen },
-    currentLocation != null,
+  const lists = useHitListsStore((s) => s.lists);
+  const membershipBySpot = useHitListsStore((s) => s.membershipBySpot);
+  const activeListId = useHitListsStore((s) => s.activeListId);
+  // The picker's scope: a live list's spots whoever owns them, or the rider's own ('My spots', or an id no longer
+  // among the lists; others' spots only come with a shared list, D47).
+  const activeList = lists.find((l) => l.id === activeListId && l.deleted_at === undefined);
+  const spots = useMemo(
+    () => (activeList ? selectListSpots(activeList, allSpots, membershipBySpot) : selectMySpots(allSpots, uid)),
+    [activeList, allSpots, membershipBySpot, uid],
   );
 
-  // The map takes the filtered spots: order doesn't matter to it, and a new array would re-cluster its markers.
-  const filtered = useMemo(
-    () => selectFilteredSpots(spots, filters, searchQuery),
-    [spots, filters, searchQuery],
-  );
-  // Location only matters to the Distance sort; other sorts ignore location updates.
-  const sortLocation = sortField === SortField.Distance ? currentLocation : null;
-  const sorted = useMemo(
-    () => selectSortedSpots(filtered, sortField, sortDirection, sortLocation ?? undefined),
-    [filtered, sortField, sortDirection, sortLocation],
-  );
+  // Select mode: null = off; otherwise the chosen ids in tap order (the sheet files them in that order).
+  const [selected, setSelected] = useState<string[] | null>(null);
+  // The ids the open sheet files, fixed when it opens: unticking the active list there takes the spots out of scope
+  // (and so out of `selected`), and a re-tick must still put them back. null = sheet closed.
+  const [sheetIds, setSheetIds] = useState<string[] | null>(null);
+  // The same for the Send sheet: the ids it sends, fixed when it opens.
+  const [sendIds, setSendIds] = useState<string[] | null>(null);
+  // Selecting is a List view thing: switching to Map, or the last spot in scope going, ends it (adjusting state
+  // while rendering, not in an effect).
+  if (selected !== null && (viewMode !== 'list' || spots.length === 0)) setSelected(null);
+  // Only live spots in scope stay selected: one deleted elsewhere (the tab stays mounted) or outside the list the
+  // picker switched to is dropped for good, so switching back doesn't bring it back checked.
+  const inScope = useMemo(() => new Set(spots.map((s) => s.id)), [spots]);
+  if (selected?.some((id) => !inScope.has(id))) setSelected(selected.filter((id) => inScope.has(id)));
+  const selecting = selected !== null;
+  // Send and Add to list take only the rider's own: another rider's spot (a shared list's) is never sent onward or
+  // filed from this phone (S8, D47, D87).
+  const chosen = useMemo(() => {
+    const mine = new Set(selectMySpots(spots, uid).map((s) => s.id));
+    return (selected ?? []).filter((id) => mine.has(id));
+  }, [selected, spots, uid]);
+  const selectedIds = useMemo(() => (selected ? new Set(selected) : undefined), [selected]);
 
-  const handleSpotPress = useCallback(
-    (id: string) => {
-      Keyboard.dismiss(); // a raised keyboard would cover the spot screen while it animates in
-      router.push(`/spot/${id}` as `/spot/${string}`);
-    },
-    [router],
-  );
+  const toggle = (id: string) =>
+    setSelected((prev) => (prev?.includes(id) ? prev.filter((x) => x !== id) : [...(prev ?? []), id]));
+  const endSelecting = () => {
+    setSheetIds(null);
+    setSendIds(null);
+    setSelected(null);
+  };
 
-  const getDistance = useCallback(
-    (spot: Spot): string | undefined => {
-      if (!currentLocation || !isKnownLocation(spot.location)) return undefined;
-      const km = haversineDistance(currentLocation, spot.location);
-      return formatDistance(km, units === UnitSystem.Imperial);
-    },
-    [currentLocation, units],
-  );
+  const selectAction = selecting ? (
+    <HeaderTextButton onPress={endSelecting} accessibilityLabel="Cancel selection">
+      Cancel
+    </HeaderTextButton>
+  ) : viewMode === 'list' && spots.length > 0 ? (
+    <HeaderTextButton onPress={() => setSelected([])} accessibilityLabel="Select spots">
+      Select
+    </HeaderTextButton>
+  ) : null;
 
-  const renderItem = useCallback(
-    ({ item }: { item: Spot }) => {
-      const thumbnail = primaryPhoto(item, mediaBySpot[item.id]);
-      return (
-        <SpotListItem
-          id={item.id}
-          displayName={getSpotDisplayName(item)}
-          thumbnailUri={thumbnail ? resolvePhotoUri(thumbnail.file_path) : undefined}
-          featureType={featureTypesLabel(item)}
-          stopped={item.stopped}
-          naturalSpeed={item.natural_speed}
-          distance={getDistance(item)}
-          onPress={handleSpotPress}
-        />
-      );
-    },
-    [handleSpotPress, getDistance, mediaBySpot],
-  );
-
-  const keyExtractor = useCallback((item: Spot) => item.id, []);
-
-  // "No matching spots" offers the way out: clear the search if there is one (whitespace is not a search;
-  // selectFilteredSpots trims the same way), otherwise reset the filters.
-  const noMatchAction = searchQuery.trim() !== ''
-    ? { label: 'Clear search', run: () => setSearchQuery('') }
-    : activeFilterCount > 0
-      ? { label: 'Reset filters', run: resetFilters }
-      : undefined;
-
-  const filterButton = (
-    <Pressable
-      onPress={() => setFilterVisible(true)}
-      hitSlop={8}
-      accessibilityLabel={`Filter spots${activeFilterCount > 0 ? `, ${activeFilterCount} active` : ''}`}
-      accessibilityRole="button"
-      style={styles.filterButton}>
-      <Text style={[styles.filterText, activeFilterCount > 0 && styles.filterTextActive]}>
-        Filter{activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}
-      </Text>
-    </Pressable>
-  );
+  const count = chosen.length;
+  const addLabel = `Add to list (${count})`;
+  const sendLabel = `Send (${count})`;
 
   return (
     <View style={styles.container}>
-      <Stack.Screen options={{ headerRight: () => filterButton }} />
-      <View style={styles.modeBar}>
-        <SegmentedControl
-          segments={VIEW_MODES}
-          selectedValue={viewMode}
-          onValueChange={setViewMode}
-        />
-        {/* Search filters both views (it writes the store's searchQuery), so it sits above them. */}
-        <TextInput
-          style={styles.search}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          placeholder="Search spots"
-          placeholderTextColor={palette.gray[500]}
-          accessibilityLabel="Search spots"
-          accessibilityRole="search"
-          clearButtonMode="while-editing"
-          autoCorrect={false}
-          autoCapitalize="none"
-          returnKeyType="search"
-        />
-      </View>
-      {viewMode === 'list' ? (
-        <SortChips
-          sortField={sortField}
-          sortDirection={sortDirection}
-          hasLocation={currentLocation != null}
-          onSort={setSort}
-        />
+      <SpotsBrowser
+        spots={spots}
+        {...(activeList
+          ? activeList.kind === 'area'
+            ? EMPTY_AREA_COPY
+            : EMPTY_LIST_COPY
+          : {
+              emptyTitle: 'No Spots Yet',
+              emptyMessage: 'Tap the + button to add your first spot, or import from your photos',
+              emptyActionLabel: 'Add Spot',
+              onEmptyAction: () => router.push('/add/camera'),
+            })}
+        aboveList={<ListPickerChips />}
+        contentBottomInset={selecting ? spacing.md : LIST_BOTTOM_PADDING}
+        // Left, so the header's right side stays the Filter button alone.
+        headerLeft={selectAction}
+        // headerTitle, not title: a tab's title is also its tab bar label.
+        headerTitle={selecting ? `${selected.length} selected` : undefined}
+        selectedIds={selectedIds}
+        onSpotPress={selecting ? toggle : undefined}
+        onSpotLongPress={(id) => (selecting ? toggle(id) : setSelected([id]))}
+        // Pull to refresh = sync now (D48); signed out there is nothing to sync.
+        refreshControl={
+          signedIn ? <RefreshControl refreshing={pulling} onRefresh={pullToSync} /> : undefined
+        }
+      />
+      {selecting ? (
+        <View testID="select-bar" style={styles.selectBar}>
+          {[
+            { key: 'send', label: sendLabel, onPress: () => setSendIds(chosen) },
+            { key: 'add', label: addLabel, onPress: () => setSheetIds(chosen) },
+          ].map(({ key, label, onPress }) => (
+            <Pressable
+              key={key}
+              onPress={onPress}
+              disabled={count === 0}
+              style={({ pressed }) => [
+                styles.selectButton,
+                count === 0 && styles.selectButtonDisabled,
+                pressed && styles.selectButtonPressed,
+              ]}
+              accessibilityRole="button"
+              accessibilityLabel={label}
+              accessibilityState={{ disabled: count === 0 }}>
+              <Text style={styles.selectButtonText}>{label}</Text>
+            </Pressable>
+          ))}
+        </View>
       ) : null}
-      <View style={styles.body}>
-        {viewMode === 'map' ? (
-          <SpotMap spots={filtered} currentLocation={currentLocation} onOpenSpot={handleSpotPress} />
-        ) : null}
-        {viewMode === 'list' && spots.length === 0 ? (
-          <EmptyState
-            title="No Spots Yet"
-            message="Tap the + button to add your first spot, or import from your photos"
-            actionLabel="Add Spot"
-            onAction={() => router.push('/add/camera')}
-          />
-        ) : null}
-        {viewMode === 'list' && spots.length > 0 && sorted.length === 0 ? (
-          <EmptyState
-            icon="magnifyingglass"
-            title="No matching spots"
-            message="Try a different search or clear the filters"
-            actionLabel={noMatchAction?.label}
-            onAction={noMatchAction?.run}
-          />
-        ) : null}
-        {viewMode === 'list' && sorted.length > 0 ? (
-          <FlashList
-            data={sorted}
-            renderItem={renderItem}
-            keyExtractor={keyExtractor}
-            contentContainerStyle={styles.listContent}
-            keyboardDismissMode="on-drag"
-            keyboardShouldPersistTaps="handled"
-          />
-        ) : null}
-      </View>
-      <View style={styles.fabColumn}>
-        <Pressable
-          style={[styles.fabShadow, styles.fabSecondary]}
-          onPress={() => router.push('/import')}
-          accessibilityLabel="Import photos"
-          accessibilityRole="button">
-          <IconSymbol name="photo.on.rectangle" size={22} color={palette.blue[500]} />
-        </Pressable>
-        <Pressable
-          style={[styles.fabShadow, styles.fab]}
-          onPress={() => router.push('/add/camera')}
-          accessibilityLabel="Add new spot"
-          accessibilityRole="button">
-          <Text style={styles.fabText}>+</Text>
-        </Pressable>
-      </View>
-      <FilterSheet visible={filterVisible} onClose={() => setFilterVisible(false)} />
+      <AddToListSheet visible={sheetIds !== null} spotIds={sheetIds ?? []} onClose={endSelecting} />
+      {sendIds ? <SendSheet spotIds={sendIds} onClose={endSelecting} /> : null}
+      {/* The floating actions would cover the select bar; nothing to add while choosing spots. */}
+      {selecting ? null : (
+        <View style={styles.fabColumn}>
+          <Pressable
+            style={[styles.fabShadow, styles.fabSecondary]}
+            onPress={() => router.push('/import')}
+            accessibilityLabel="Import photos"
+            accessibilityRole="button">
+            <IconSymbol name="photo.on.rectangle" size={22} color={palette.blue[500]} />
+          </Pressable>
+          <Pressable
+            style={[styles.fabShadow, styles.fab]}
+            onPress={() => router.push('/add/camera')}
+            accessibilityLabel="Add new spot"
+            accessibilityRole="button">
+            <Text style={styles.fabText}>+</Text>
+          </Pressable>
+        </View>
+      )}
     </View>
   );
 }
 
-const VIEW_MODES: { label: string; value: ViewMode }[] = [
-  { label: 'List', value: 'list' },
-  { label: 'Map', value: 'map' },
-];
-
 const styles = StyleSheet.create({
-  modeBar: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    gap: spacing.sm,
-  },
-  search: {
-    backgroundColor: palette.gray[100],
-    borderRadius: radius.md,
-    borderCurve: 'continuous',
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    fontSize: 16,
-    color: palette.gray[900],
-  },
-  body: {
-    flex: 1,
-  },
   container: {
     flex: 1,
   },
-  filterButton: {
-    paddingHorizontal: spacing.sm,
+  selectBar: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: palette.gray[200],
+    backgroundColor: palette.white,
   },
-  filterText: {
+  selectButton: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: spacing.md,
+    borderRadius: radius.md,
+    borderCurve: 'continuous',
+    backgroundColor: palette.blue[500],
+  },
+  selectButtonDisabled: {
+    backgroundColor: palette.gray[300],
+  },
+  selectButtonPressed: {
+    opacity: 0.8,
+  },
+  selectButtonText: {
     fontSize: 16,
-    color: palette.blue[500],
-    fontWeight: '500',
-  },
-  filterTextActive: {
-    fontWeight: '700',
+    fontWeight: '600',
+    color: palette.white,
   },
   // Floating actions: the secondary "Import photos" button stacked above the "+" FAB (D12).
   fabColumn: {
@@ -266,9 +209,6 @@ const styles = StyleSheet.create({
     right: 32,
     alignItems: 'center',
     gap: FAB_GAP,
-  },
-  listContent: {
-    paddingBottom: LIST_BOTTOM_PADDING,
   },
   fabShadow: {
     alignItems: 'center',

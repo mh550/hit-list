@@ -2,9 +2,20 @@ export {
   useSpotsStore,
   selectFilteredSpots,
   selectSortedSpots,
+  selectMySpots,
   selectEffectiveSort,
   selectActiveFilterCount,
 } from './spots-store';
 export { useSettingsStore } from './settings-store';
 export { useLocationStore } from './location-store';
 export { useMediaStore } from './media-store';
+export {
+  useHitListsStore,
+  selectAreaSpots,
+  selectListSpots,
+  selectSpotLists,
+  selectListCounts,
+  selectListsByName,
+  selectSharedWithMe,
+  selectInvitations,
+} from './hit-lists-store';

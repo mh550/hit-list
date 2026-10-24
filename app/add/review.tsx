@@ -6,7 +6,8 @@ import { Image } from 'expo-image';
 import { useSpotActions } from '@/src/hooks/use-spot-actions';
 import { useMediaActions } from '@/src/hooks/use-media-actions';
 import { SpotTagFields, type SpotTags } from '@/src/components';
-import { useMediaStore, useSettingsStore, useSpotsStore } from '@/src/stores';
+import { selectMySpots, useMediaStore, useSettingsStore, useSpotsStore } from '@/src/stores';
+import { useRiderId } from '@/src/hooks/use-rider-id';
 import { newId } from '@/src/utils/id';
 import { isKnownLocation, NO_LOCATION } from '@/src/utils/geo';
 import { nearbyLabel, nearbySpots } from '@/src/utils/nearby-spots';
@@ -40,7 +41,10 @@ export default function ReviewScreen() {
   // Only photos not yet saved stay on screen; once Save has created its spot, a retry adds them there (as D31).
   const [photoUris, setPhotoUris] = useState(() => (params.photoUris ? params.photoUris.split(',') : []));
   const [createdId, setCreatedId] = useState<string>();
-  const spots = useSpotsStore((s) => s.spots);
+  const allSpots = useSpotsStore((s) => s.spots);
+  const uid = useRiderId();
+  // Only the rider's own spots are offered here: another rider's (S8) never takes photos or goes in a list (D47).
+  const spots = useMemo(() => selectMySpots(allSpots, uid), [allSpots, uid]);
   const mediaBySpot = useMediaStore((s) => s.mediaBySpot);
   const importRadius = useSettingsStore((s) => s.batch_import_radius);
   const imperial = useSettingsStore((s) => s.units === UnitSystem.Imperial);

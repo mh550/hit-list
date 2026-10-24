@@ -2,6 +2,7 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react-
 import { Alert } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMediaStore, useSettingsStore, useSpotsStore } from '@/src/stores';
+import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
 import { UnitSystem, type GeoPoint, type Media, type Spot } from '@/src/types';
 import type { NewPhoto } from '@/src/hooks/use-media-actions';
 import type { ImportPhoto } from '@/src/utils/import-clustering';
@@ -71,6 +72,16 @@ describe("Import review: a group near an existing spot offers 'Add photos to <na
     expect(screen.getAllByPlaceholderText('Spot name (optional)')).toHaveLength(2);
     expect(screen.getByText(/^2 spots from your photos/)).toBeTruthy();
     expect(screen.getByText('Import 2 Spots')).toBeTruthy();
+  });
+
+  it("never offers another rider's spot (S8, D47)", () => {
+    useAuthStore.setState({ status: 'signed_in', userId: 'u-me', username: 'me' });
+    useSpotsStore.setState({ spots: [{ ...existing, owner_id: 'u-ana' }] });
+    render(<ImportReview />);
+
+    expect(screen.queryAllByText(/^Near /)).toEqual([]);
+    expect(screen.queryByRole('button', { name: 'Add photos to Library Rail' })).toBeNull();
+    act(() => useAuthStore.setState(SIGNED_OUT));
   });
 
   it('uses metric distances when units are metric, and follows a units change', () => {

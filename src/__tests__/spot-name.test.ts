@@ -1,4 +1,10 @@
-import { getSpotDisplayName, formatSpotTime, featureTypesLabel, featureTypesList } from '@/src/utils/spot-name';
+import {
+  getSpotDisplayName,
+  formatSpotTime,
+  featureTypesLabel,
+  featureTypesList,
+  spotCountLabel,
+} from '@/src/utils/spot-name';
 import { FeatureType } from '@/src/types';
 import type { Spot } from '@/src/types';
 import { createTestSpot } from './factories';
@@ -76,5 +82,13 @@ describe('featureTypesList', () => {
 
   it('is undefined for an untagged spot', () => {
     expect(list([])).toBeUndefined();
+  });
+});
+
+describe('spotCountLabel', () => {
+  it("reads '1 spot' in the singular and 'N spots' otherwise", () => {
+    expect(spotCountLabel(1)).toBe('1 spot');
+    expect(spotCountLabel(0)).toBe('0 spots');
+    expect(spotCountLabel(23)).toBe('23 spots');
   });
 });

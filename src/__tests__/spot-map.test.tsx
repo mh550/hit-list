@@ -11,6 +11,7 @@ import { CITIES, createTestSpot } from './factories';
 import { NO_LOCATION } from '@/src/utils/geo';
 import { getSpotDisplayName } from '@/src/utils/spot-name';
 import { palette } from '@/src/constants/theme';
+import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
 
 // The root __mocks__ file replaces react-native-maps (also for react-native-map-clustering's own import) and adds
 // the shared MapView method spies. Import the module itself: jest.requireMock('react-native-maps') returns a
@@ -112,6 +113,19 @@ describe('SpotMap', () => {
     renderMap([tagged]);
 
     expect(screen.getByTestId(`spot-marker-${tagged.id}`).props.description).toBe('Rail · Ledge');
+  });
+
+  it("ends another rider's callout description with ' · @ana'; the rider's own has none (S8)", () => {
+    useAuthStore.setState({ status: 'signed_in', userId: 'u-me', email: null, username: 'me', displayName: null });
+    const anas = createTestSpot({ feature_types: [FeatureType.Rail], owner_id: 'u-ana', owner_username: 'ana' });
+    const bare = createTestSpot({ owner_id: 'u-ana', owner_username: 'ana', location: CITIES.portland });
+    const mine = createTestSpot({ feature_types: [FeatureType.Ledge], owner_id: 'u-me', location: CITIES.spokane });
+    renderMap([anas, bare, mine]);
+
+    expect(screen.getByTestId(`spot-marker-${anas.id}`).props.description).toBe('Rail · @ana');
+    expect(screen.getByTestId(`spot-marker-${bare.id}`).props.description).toBe('@ana');
+    expect(screen.getByTestId(`spot-marker-${mine.id}`).props.description).toBe('Ledge');
+    act(() => useAuthStore.setState(SIGNED_OUT));
   });
 
   it('titles every callout with the display name, untitled spots included', () => {

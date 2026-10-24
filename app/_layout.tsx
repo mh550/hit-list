@@ -8,6 +8,10 @@ import 'react-native-reanimated';
 
 import { DB_NAME } from '@/src/db';
 import { DBInitializer } from '@/src/components/DBInitializer';
+import { ToastHost } from '@/src/components/ToastHost';
+import { useAdoption } from '@/src/hooks/use-adoption';
+import { useAuthInit } from '@/src/hooks/use-auth-init';
+import { useSync } from '@/src/hooks/use-sync';
 import { palette } from '@/src/constants/theme';
 
 function LoadingScreen() {
@@ -16,6 +20,15 @@ function LoadingScreen() {
       <ActivityIndicator color={palette.blue[500]} />
     </View>
   );
+}
+
+// Mirrors the Supabase session into the auth store, adopts the phone's rows for the signed-in rider, and syncs while
+// signed in (S5); inside DBInitializer, so all three start once the DB is ready.
+function AuthInit() {
+  useAuthInit();
+  useAdoption();
+  useSync();
+  return null;
 }
 
 // Light only (app.json userInterfaceStyle "light"): the screens use light-theme colours and set no
@@ -28,6 +41,7 @@ export default function RootLayout() {
         <Suspense fallback={<LoadingScreen />}>
           <SQLiteProvider databaseName={DB_NAME} useSuspense>
             <DBInitializer>
+              <AuthInit />
               <Stack>
                 <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
                 <Stack.Screen name="spot/[id]/index" options={{ title: 'Spot Details' }} />
@@ -46,7 +60,23 @@ export default function RootLayout() {
                 <Stack.Screen name="add/review" options={{ title: 'Review Spot' }} />
                 <Stack.Screen name="import/index" options={{ title: 'Import Photos' }} />
                 <Stack.Screen name="import/review" options={{ title: 'Review Import' }} />
+                <Stack.Screen name="list/[id]/index" options={{ title: 'Hit list' }} />
+                <Stack.Screen name="list/[id]/members" options={{ title: 'Members' }} />
+                <Stack.Screen
+                  name="area/index"
+                  options={{ presentation: 'fullScreenModal', title: 'Pick an area' }}
+                />
+                <Stack.Screen name="friends/index" options={{ title: 'Friends' }} />
+                <Stack.Screen name="sent/index" options={{ title: 'Sent' }} />
+                <Stack.Screen name="auth/sign-in" options={{ presentation: 'modal', title: 'Sign in' }} />
+                <Stack.Screen name="auth/code" options={{ title: 'Enter code' }} />
+                <Stack.Screen
+                  name="auth/username"
+                  options={{ title: 'Your username', headerBackVisible: false, gestureEnabled: false }}
+                />
               </Stack>
+              {/* After the Stack, so the toast line draws over every screen. */}
+              <ToastHost />
             </DBInitializer>
           </SQLiteProvider>
         </Suspense>

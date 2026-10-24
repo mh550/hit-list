@@ -3,6 +3,7 @@ import { useSQLiteContext } from 'expo-sqlite';
 
 import { insertSpot, updateSpot as dbUpdateSpot, softDeleteSpot } from '@/src/db';
 import { useSpotsStore } from '@/src/stores';
+import { assertOwn, currentOwnerId } from '@/src/sync/owner';
 import type { Spot, SpotUpdate } from '@/src/types';
 import { geocodeTown } from '@/src/utils/reverse-geocode';
 
@@ -19,6 +20,7 @@ export function useSpotActions() {
       const stamped = { ...updates, updated_at: updates.updated_at ?? new Date().toISOString() };
       const find = () => useSpotsStore.getState().spots.find((s) => s.id === id);
       const before = find();
+      assertOwn(before, 'spot'); // another rider's spot is read-only here (D47)
       storeUpdateSpot(id, stamped);
       const applied = find();
       try {
@@ -34,11 +36,25 @@ export function useSpotActions() {
   );
 
   /**
-   * Adds the spot, then (in the background) stores its town for the untitled label (D4). A failed insert takes the
-   * spot back out of the store and rejects: photos saved to a spot the DB never got would all fail their foreign key.
+   * Stores a spot's town for the untitled label (D4) without moving its updated_at: a town found on this phone must
+   * never outrank a newer edit made on another one (S5 sync, last write wins on updated_at).
+   */
+  const setTown = useCallback(
+    (id: string, town: string) => {
+      const current = useSpotsStore.getState().spots.find((s) => s.id === id);
+      return updateSpot(id, { generated_name: town, updated_at: current?.updated_at });
+    },
+    [updateSpot],
+  );
+
+  /**
+   * Adds the spot, then (in the background) stores its town. A new spot belongs to the signed-in rider once the phone
+   * is theirs (currentOwnerId; S5-06), else to no one yet. A failed insert takes the spot back out of the store and
+   * rejects: photos saved to a spot the DB never got would all fail their foreign key.
    */
   const addSpot = useCallback(
-    async (spot: Spot) => {
+    async (added: Spot) => {
+      const spot: Spot = added.owner_id ? added : { ...added, owner_id: currentOwnerId() };
       storeAddSpot(spot);
       try {
         await insertSpot(db, spot);
@@ -49,15 +65,16 @@ export function useSpotActions() {
       }
       void geocodeTown(spot.location)
         .then(async (town) => {
-          if (town) await updateSpot(spot.id, { generated_name: town });
+          if (town) await setTown(spot.id, town);
         })
         .catch(() => {}); // updateSpot logged it; the backfill retries next launch
     },
-    [db, storeAddSpot, storeRemoveSpot, updateSpot],
+    [db, storeAddSpot, storeRemoveSpot, setTown],
   );
 
   const removeSpot = useCallback(
     async (id: string) => {
+      assertOwn(useSpotsStore.getState().spots.find((s) => s.id === id), 'spot');
       const at = new Date().toISOString();
       storeRemoveSpot(id);
       try {
@@ -69,5 +86,5 @@ export function useSpotActions() {
     [db, storeRemoveSpot],
   );
 
-  return { addSpot, updateSpot, removeSpot };
+  return { addSpot, updateSpot, setTown, removeSpot };
 }

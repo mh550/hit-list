@@ -2,6 +2,7 @@ import {
   selectFilteredSpots,
   selectSortedSpots,
   selectActiveFilterCount,
+  selectMySpots,
 } from '@/src/stores/spots-store';
 import { useSettingsStore } from '@/src/stores/settings-store';
 import { useSpotsStore } from '@/src/stores';
@@ -15,6 +16,22 @@ import {
 import type { SpotFilters } from '@/src/types';
 import { NO_LOCATION } from '@/src/utils/geo';
 import { CITIES, createTestSpot } from './factories';
+
+describe('selectMySpots (S8, D47)', () => {
+  const phoneOnly = createTestSpot({ id: 'phone' });
+  const mine = createTestSpot({ id: 'mine', owner_id: 'u-me' });
+  const anas = createTestSpot({ id: 'anas', owner_id: 'u-ana' });
+
+  it("keeps phone-only spots and the rider's own, drops others' spots, in order", () => {
+    expect(selectMySpots([anas, phoneOnly, mine], 'u-me').map((s) => s.id)).toEqual(['phone', 'mine']);
+  });
+
+  it('signed out keeps every spot (sign-out takes others\' spots off the phone, D86)', () => {
+    const all = [anas, phoneOnly, mine];
+    expect(selectMySpots(all, null)).toBe(all);
+    expect(selectMySpots(all, undefined)).toBe(all);
+  });
+});
 
 describe('selectFilteredSpots', () => {
   const railSpot = createTestSpot({

@@ -18,10 +18,20 @@ interface SpotRow {
   natural_speed: number | null;
   notes: string | null;
   primary_photo_id: string | null;
+  owner_id: string | null;
+  copied_from_send: string | null;
+  from_username: string | null;
+  owner_username: string | null;
 }
 
 const SPOT_COLUMNS =
-  'id, name, generated_name, latitude, longitude, created_at, updated_at, deleted_at, feature_types_json, stopped, natural_speed, notes, primary_photo_id';
+  'id, name, generated_name, latitude, longitude, created_at, updated_at, deleted_at, feature_types_json, stopped, natural_speed, notes, primary_photo_id, owner_id, copied_from_send, from_username';
+
+/** What getSpot/getSpots read: the columns plus the owner's @username from the profiles mirror (S8; never stored). */
+const SPOT_READ = `${SPOT_COLUMNS
+  .split(', ')
+  .map((c) => `spots.${c}`)
+  .join(', ')}, (SELECT username FROM profiles WHERE profiles.id = spots.owner_id) AS owner_username`;
 
 /** Only the app writes this column, but one unreadable row must not take the whole list down with it. */
 function parseFeatureTypes(row: SpotRow): FeatureType[] {
@@ -50,13 +60,21 @@ function rowToSpot(row: SpotRow): Spot {
     natural_speed: row.natural_speed === null ? undefined : (row.natural_speed as NaturalSpeed),
     notes: row.notes ?? undefined,
     primary_photo_id: row.primary_photo_id ?? undefined,
+    owner_id: row.owner_id ?? undefined,
+    copied_from_send: row.copied_from_send ?? undefined,
+    from_username: row.from_username ?? undefined,
+    ...(row.owner_username ? { owner_username: row.owner_username } : {}),
   };
 }
 
+/**
+ * An owned spot (owner_id = the phone's account) gets its outbox row from migration 5's trigger. The send fields (S7)
+ * are written here only; updateSpot never changes them.
+ */
 export async function insertSpot(db: SQLiteDatabase, spot: Spot): Promise<void> {
   await db.runAsync(
-    `INSERT INTO spots (id, name, generated_name, latitude, longitude, created_at, updated_at, deleted_at, feature_types_json, stopped, natural_speed, notes, primary_photo_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO spots (${SPOT_COLUMNS})
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     spot.id,
     spot.name ?? null,
     spot.generated_name ?? null,
@@ -70,12 +88,15 @@ export async function insertSpot(db: SQLiteDatabase, spot: Spot): Promise<void> 
     spot.natural_speed ?? null,
     spot.notes ?? null,
     spot.primary_photo_id ?? null,
+    spot.owner_id ?? null,
+    spot.copied_from_send ?? null,
+    spot.from_username ?? null,
   );
 }
 
 export async function getSpot(db: SQLiteDatabase, id: string): Promise<Spot | null> {
   const row = await db.getFirstAsync<SpotRow>(
-    `SELECT ${SPOT_COLUMNS} FROM spots WHERE id = ? AND deleted_at IS NULL`,
+    `SELECT ${SPOT_READ} FROM spots WHERE id = ? AND deleted_at IS NULL`,
     id,
   );
   return row ? rowToSpot(row) : null;
@@ -83,7 +104,7 @@ export async function getSpot(db: SQLiteDatabase, id: string): Promise<Spot | nu
 
 export async function getSpots(db: SQLiteDatabase): Promise<Spot[]> {
   const rows = await db.getAllAsync<SpotRow>(
-    `SELECT ${SPOT_COLUMNS} FROM spots WHERE deleted_at IS NULL ORDER BY created_at DESC`,
+    `SELECT ${SPOT_READ} FROM spots WHERE deleted_at IS NULL ORDER BY created_at DESC`,
   );
   return rows.map(rowToSpot);
 }
@@ -152,11 +173,11 @@ export async function updateSpot(
   );
 }
 
-/** Marks a spot deleted at `at` (ISO 8601 UTC), which also becomes its updated_at. */
+/** Marks a spot deleted at `at` (ISO 8601 UTC), which also becomes its updated_at; a deleted spot keeps its first stamp. */
 export async function softDeleteSpot(
   db: SQLiteDatabase,
   id: string,
   at: string = new Date().toISOString(),
 ): Promise<void> {
-  await db.runAsync(`UPDATE spots SET deleted_at = ?, updated_at = ? WHERE id = ?`, at, at, id);
+  await db.runAsync('UPDATE spots SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL', at, at, id);
 }

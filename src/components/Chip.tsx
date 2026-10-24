@@ -8,11 +8,17 @@ interface ChipProps {
   label: string;
   selected?: boolean;
   onPress?: () => void;
-  /** 'checkbox' (default) for toggles in a set; 'button' for one-of choices such as the sort chips. */
-  role?: 'checkbox' | 'button';
+  /**
+   * 'checkbox' (default) for toggles in a set; 'button' for one-of choices such as the sort chips; 'tab' for a row
+   * that switches what the screen shows (the list picker); 'radio' for one value of a setting (the area radius).
+   * 'button' and 'tab' report `selected`, 'checkbox' and 'radio' `checked`.
+   */
+  role?: 'checkbox' | 'button' | 'tab' | 'radio';
   disabled?: boolean;
   accessibilityLabel?: string;
   accessibilityHint?: string;
+  /** Drawn after the label, e.g. a shared list's SharedBadge; say it in `accessibilityLabel` too. */
+  accessory?: React.ReactNode;
 }
 
 export function Chip({
@@ -23,19 +29,28 @@ export function Chip({
   disabled = false,
   accessibilityLabel,
   accessibilityHint,
+  accessory,
 }: ChipProps) {
   return (
     <Pressable
       onPress={onPress}
       disabled={disabled}
-      style={[styles.chip, selected && styles.chipSelected, disabled && styles.chipDisabled]}
+      style={[
+        styles.chip,
+        accessory != null && styles.chipRow,
+        selected && styles.chipSelected,
+        disabled && styles.chipDisabled,
+      ]}
       accessibilityRole={role}
       accessibilityLabel={accessibilityLabel}
       accessibilityHint={accessibilityHint}
-      accessibilityState={role === 'button' ? { selected, disabled } : { checked: selected, disabled }}>
-      <Text style={[styles.chipText, selected && styles.chipTextSelected]}>
+      accessibilityState={
+        role === 'checkbox' || role === 'radio' ? { checked: selected, disabled } : { selected, disabled }
+      }>
+      <Text style={[styles.chipText, accessory != null && styles.chipTextShrink, selected && styles.chipTextSelected]}>
         {label}
       </Text>
+      {accessory}
     </Pressable>
   );
 }
@@ -83,6 +98,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: palette.gray[200],
   },
+  chipRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   chipSelected: {
     backgroundColor: palette.blue[500],
     borderColor: palette.blue[500],
@@ -94,6 +114,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     color: palette.gray[700],
+  },
+  // Beside an accessory a long label wraps rather than pushing it out of the chip.
+  chipTextShrink: {
+    flexShrink: 1,
   },
   chipTextSelected: {
     color: palette.white,

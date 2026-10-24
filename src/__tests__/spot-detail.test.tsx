@@ -1,28 +1,46 @@
 import type { ReactElement } from 'react';
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
-import { Image, StyleSheet } from 'react-native';
+import { act, fireEvent, render, screen, within } from '@testing-library/react-native';
+import { Alert, Image, StyleSheet } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useSQLiteContext } from 'expo-sqlite';
 import { getSpotLegacy } from '@/src/db';
-import { useMediaStore, useSettingsStore, useSpotsStore } from '@/src/stores';
+import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
+import { useHitListsStore, useMediaStore, useSettingsStore, useSpotsStore } from '@/src/stores';
 import { palette } from '@/src/constants/theme';
 import { resolvePhotoUri } from '@/src/utils/photo-storage';
 import { FeatureType, UnitSystem, type Media, type Spot } from '@/src/types';
-import { createTestMedia, createTestSpot } from './factories';
+import { CITIES, createTestHitList, createTestMedia, createTestSpot } from './factories';
 
 import SpotDetailScreen from '@/app/spot/[id]/index';
+import { saveCopy } from '@/src/sync/copy';
+import { clearToast, useToastStore } from '@/src/stores/toast-store';
+
+jest.mock('@/src/sync/copy', () => ({ saveCopy: jest.fn() }));
+const mockClient = { fake: 'client' };
+jest.mock('@/src/sync/client', () => ({ getSupabase: () => mockClient, isConfigured: () => true }));
 
 jest.mock('@/src/db', () => ({ ...jest.requireActual('@/src/db'), getSpotLegacy: jest.fn() }));
 const legacyMock = jest.mocked(getSpotLegacy);
+// The sheet is send-sheet.test.tsx's; here only that the header opens it with this spot.
+const mockSendSheet = jest.fn();
+jest.mock('@/src/components/SendSheet', () => ({
+  SendSheet: (props: unknown) => {
+    mockSendSheet(props);
+    return null;
+  },
+}));
 
 const push = jest.fn();
+const replace = jest.fn();
 
 beforeEach(() => {
   legacyMock.mockReset();
   legacyMock.mockResolvedValue(null);
   push.mockReset();
-  jest.mocked(useRouter).mockReturnValue({ push, back: jest.fn(), replace: jest.fn() } as never);
+  replace.mockReset();
+  jest.mocked(useRouter).mockReturnValue({ push, back: jest.fn(), replace } as never);
   useSettingsStore.getState().setUnits(UnitSystem.Imperial);
+  useHitListsStore.setState({ lists: [], membershipBySpot: {}, activeListId: null });
 });
 
 /** Renders the detail screen and lets the Older details lookup settle, so no act() warning reaches console.error. */
@@ -38,6 +56,8 @@ async function renderDetail(overrides: Partial<Spot> = {}, media: Media[] = []) 
 }
 
 const texts = () => screen.getAllByText(/./).map((t) => t.props.children);
+/** The 'In lists' row of a spot in no list (S1-07), under the tag line on every spot. */
+const IN_NO_LISTS = ['In lists', '+ Add to hit list'];
 
 describe('Spot detail: notes', () => {
   it('shows the notes paragraph when the spot has notes', async () => {
@@ -57,7 +77,22 @@ describe('Spot detail: notes', () => {
   it('shows only the title and the notes, no section from the removed model (D17)', async () => {
     await renderDetail({ name: 'Pier 57', notes: 'under the bridge' });
 
-    expect(texts()).toEqual(['Pier 57', 'Notes', 'under the bridge']);
+    expect(texts()).toEqual(['Pier 57', ...IN_NO_LISTS, 'Notes', 'under the bridge']);
+  });
+});
+
+describe("Spot detail: a received copy reads 'From @name' (S7)", () => {
+  it("shows 'From @ana' directly under the title when the spot came from a send", async () => {
+    await renderDetail({ name: 'Pier 57', from_username: 'ana', copied_from_send: 'send-1', notes: 'low' });
+
+    expect(screen.getByText('From @ana')).toBeOnTheScreen();
+    expect(texts()).toEqual(['Pier 57', 'From @ana', ...IN_NO_LISTS, 'Notes', 'low']);
+  });
+
+  it('shows no From line on a spot of the rider\'s own', async () => {
+    await renderDetail({ name: 'Pier 57' });
+
+    expect(screen.queryByText(/^From @/)).toBeNull();
   });
 });
 
@@ -85,7 +120,8 @@ describe('Spot detail: tag line and speed', () => {
     await renderDetail(tagged, [createTestMedia()]);
 
     expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
-    expect(screen.queryAllByRole('button')).toHaveLength(0);
+    // The only button is the 'In lists' row's add chip.
+    expect(screen.queryAllByRole('button').map((b) => b.props.accessibilityLabel)).toEqual(['Add to hit list']);
     const stopped = screen.getByTestId('tag-stopped');
     expect(stopped.props.accessibilityRole).toBeUndefined();
     expect(stopped.props.accessibilityState).toBeUndefined();
@@ -103,7 +139,7 @@ describe('Spot detail: tag line and speed', () => {
   it('shows Skate stopped alone when the spot has no feature types', async () => {
     await renderDetail({ name: 'Bank', stopped: true });
 
-    expect(texts()).toEqual(['Bank', 'Skate stopped']);
+    expect(texts()).toEqual(['Bank', 'Skate stopped', ...IN_NO_LISTS]);
   });
 
   it('shows no speed bar when the speed is not rated', async () => {
@@ -258,7 +294,7 @@ describe('Spot detail: nothing from the old model', () => {
   it('shows only the title for a spot with a name and one photo', async () => {
     await renderDetail({ name: 'Pier 57' }, [createTestMedia()]);
 
-    expect(texts()).toEqual(['Pier 57']);
+    expect(texts()).toEqual(['Pier 57', ...IN_NO_LISTS]);
   });
 });
 
@@ -274,5 +310,304 @@ describe('Spot detail: header', () => {
     header.unmount();
 
     expect(push).toHaveBeenCalledWith(`/spot/${spot.id}/edit`);
+  });
+});
+
+describe('Spot detail: Send (S7-04)', () => {
+  type SheetProps = { spotIds: string[]; onClose: () => void };
+  const headerRight = () =>
+    (screen.UNSAFE_getByType('Stack.Screen' as never).props as { options: { headerRight: () => ReactElement } })
+      .options.headerRight;
+
+  beforeEach(() => {
+    mockSendSheet.mockClear();
+    useAuthStore.setState(SIGNED_OUT);
+  });
+
+  it("the header's paper-plane 'Send this spot' opens the Send sheet with this spot, and closing it unmounts it", async () => {
+    useAuthStore.setState({ status: 'signed_in', userId: 'user-me', username: 'me' });
+    const spot = await renderDetail({ name: 'Pier 57', owner_id: 'user-me' });
+    expect(mockSendSheet).not.toHaveBeenCalled();
+
+    const header = render(headerRight()());
+    const send = header.getByRole('button', { name: 'Send this spot' });
+    expect(header.getByTestId('icon-paperplane.fill')).toBeTruthy();
+    fireEvent.press(send);
+    header.unmount();
+
+    const props = mockSendSheet.mock.lastCall?.[0] as SheetProps;
+    expect(props.spotIds).toEqual([spot.id]);
+    mockSendSheet.mockClear();
+    act(() => props.onClose());
+    expect(mockSendSheet).not.toHaveBeenCalled();
+  });
+
+  it('a phone-only spot shows Send while signed out too (the sheet asks to sign in)', async () => {
+    await renderDetail({ name: 'Pier 57' });
+    const header = render(headerRight()());
+    expect(header.getByRole('button', { name: 'Send this spot' })).toBeTruthy();
+    expect(header.getByText('Edit')).toBeTruthy();
+    header.unmount();
+  });
+
+  it("a saved copy ('From @ana', owned by the rider) is a normal spot: Edit and Send are there (S7-05)", async () => {
+    useAuthStore.setState({ status: 'signed_in', userId: 'user-me', username: 'me' });
+    await renderDetail({ name: 'Pier 57', owner_id: 'user-me', from_username: 'ana', copied_from_send: 'send-1' });
+
+    expect(screen.getByText('From @ana')).toBeOnTheScreen();
+    const header = render(headerRight()());
+    expect(header.getByText('Edit')).toBeTruthy();
+    expect(header.getByRole('button', { name: 'Send this spot' })).toBeTruthy();
+    header.unmount();
+  });
+
+  it("another rider's spot has no Send", async () => {
+    useAuthStore.setState({ status: 'signed_in', userId: 'user-me', username: 'me' });
+    await renderDetail({ name: 'Their rail', owner_id: 'user-other' });
+    const header = render(headerRight()());
+    expect(header.queryByRole('button', { name: 'Send this spot' })).toBeNull();
+    expect(header.queryByTestId('icon-paperplane.fill')).toBeNull();
+    header.unmount();
+  });
+});
+
+describe("Spot detail: 'In lists' row", () => {
+  const downtown = createTestHitList({ id: 'L-downtown', name: 'Downtown' });
+  const bridges = createTestHitList({ id: 'L-bridges', name: 'Bridges' });
+  const other = createTestHitList({ id: 'L-other', name: 'Other' });
+
+  /** The lists the spot is in, by id; the spot's id is fixed so the memberships can name it. */
+  async function renderInLists(listIds: string[]) {
+    useHitListsStore.setState({
+      lists: [downtown, bridges, other],
+      membershipBySpot: { 'spot-1': listIds, 'spot-2': [other.id] },
+    });
+    return renderDetail({ id: 'spot-1', name: 'Pier 57', feature_types: [FeatureType.Rail] });
+  }
+
+  it('shows one chip per list the spot is in, by name, then the add chip, under the tag line', async () => {
+    await renderInLists([downtown.id, bridges.id]);
+
+    const order = texts();
+    expect(order.indexOf('Rail')).toBeLessThan(order.indexOf('In lists'));
+    expect(order.slice(order.indexOf('In lists'))).toEqual(['In lists', 'Bridges', 'Downtown', '+ Add to hit list']);
+    expect(screen.queryByText('Other')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Add to hit list' })).toBeOnTheScreen();
+  });
+
+  it('shows only the add chip when the spot is in no list', async () => {
+    await renderInLists([]);
+
+    expect(screen.getByText('In lists')).toBeOnTheScreen();
+    expect(screen.getByRole('button', { name: 'Add to hit list' })).toBeOnTheScreen();
+    expect(screen.queryByText('Downtown')).toBeNull();
+    expect(screen.queryByText('Bridges')).toBeNull();
+  });
+
+  it('skips a deleted list and keeps the live one', async () => {
+    useHitListsStore.setState({
+      lists: [{ ...downtown, deleted_at: '2026-10-02T12:00:00.000Z' }, bridges],
+      membershipBySpot: { 'spot-1': [downtown.id, bridges.id] },
+    });
+    await renderDetail({ id: 'spot-1', name: 'Pier 57' });
+
+    expect(screen.queryByText('Downtown')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Bridges' })).toBeOnTheScreen();
+  });
+
+  it("a shared list's chip carries the two-people icon and its member count; a private one has neither (S8-05)", async () => {
+    useHitListsStore.setState({
+      lists: [
+        { ...downtown, shared: true, members: [{ user_id: 'u-ana', role: 'add', status: 'member' }] },
+        bridges,
+      ],
+      membershipBySpot: { 'spot-1': [downtown.id, bridges.id] },
+    });
+    await renderDetail({ id: 'spot-1', name: 'Pier 57' });
+
+    const chip = screen.getByRole('button', { name: 'Downtown, Shared with 2' });
+    expect(within(chip).getByTestId('icon-person.2.fill')).toBeOnTheScreen();
+    expect(within(chip).getByText('2')).toBeOnTheScreen();
+    expect(within(screen.getByRole('button', { name: 'Bridges' })).queryByTestId('icon-person.2.fill')).toBeNull();
+    fireEvent.press(chip);
+    expect(push).toHaveBeenCalledWith(`/list/${downtown.id}`);
+  });
+
+  it('opens the list when its chip is pressed', async () => {
+    await renderInLists([downtown.id]);
+
+    fireEvent.press(screen.getByRole('button', { name: 'Downtown' }));
+
+    expect(push).toHaveBeenCalledWith(`/list/${downtown.id}`);
+  });
+
+  it('opens the Add-to-list sheet for this spot from the add chip, and Done closes it', async () => {
+    await renderInLists([downtown.id]);
+    expect(screen.queryByRole('header', { name: 'Add to hit list' })).toBeNull();
+
+    fireEvent.press(screen.getByRole('button', { name: 'Add to hit list' }));
+
+    expect(screen.getByRole('header', { name: 'Add to hit list' })).toBeOnTheScreen();
+    expect(screen.getByRole('checkbox', { name: 'Downtown' }).props.accessibilityState).toEqual({ checked: true });
+    expect(screen.getByRole('checkbox', { name: 'Bridges' }).props.accessibilityState).toEqual({ checked: false });
+
+    fireEvent.press(screen.getByRole('button', { name: 'Done' }));
+    expect(screen.queryByRole('header', { name: 'Add to hit list' })).toBeNull();
+  });
+
+  describe('area lists (S2-04)', () => {
+    const weekend = createTestHitList({
+      id: 'L-weekend',
+      name: 'Weekend',
+      kind: 'area',
+      area_center: CITIES.seattle,
+      area_radius_m: 1609,
+    });
+
+    it('shows a chip for an area list whose circle holds the spot, which opens the list', async () => {
+      useHitListsStore.setState({ lists: [weekend, downtown], membershipBySpot: { 'spot-1': [downtown.id] } });
+      await renderDetail({ id: 'spot-1', location: CITIES.seattle });
+
+      const order = texts();
+      expect(order.slice(order.indexOf('In lists'))).toEqual(['In lists', 'Downtown', 'Weekend', '+ Add to hit list']);
+      fireEvent.press(screen.getByRole('button', { name: 'Weekend' }));
+      expect(push).toHaveBeenCalledWith(`/list/${weekend.id}`);
+    });
+
+    it('shows no chip for an area list when the spot is outside its circle', async () => {
+      useHitListsStore.setState({ lists: [weekend], membershipBySpot: {} });
+      await renderDetail({ id: 'spot-1', location: CITIES.portland });
+
+      expect(screen.queryByText('Weekend')).toBeNull();
+    });
+  });
+
+  it('shows a new membership as a chip at once', async () => {
+    await renderInLists([]);
+
+    act(() => useHitListsStore.getState().addMemberships(bridges.id, ['spot-1']));
+
+    expect(screen.getByRole('button', { name: 'Bridges' })).toBeOnTheScreen();
+  });
+});
+
+describe("Spot detail: another rider's spot (S8, D47)", () => {
+  const crew = createTestHitList({ id: 'L-crew', name: 'Crew', owner_id: 'u-ana', shared: true });
+  const headerRight = () =>
+    (screen.UNSAFE_getByType('Stack.Screen' as never).props as { options: { headerRight: () => ReactElement } })
+      .options.headerRight;
+
+  async function renderTheirs(overrides: Partial<Spot> = {}, media: Media[] = []) {
+    useAuthStore.setState({ status: 'signed_in', userId: 'u-me', username: 'me' });
+    useHitListsStore.setState({ lists: [crew], membershipBySpot: { 'anas-spot': [crew.id] } });
+    return renderDetail(
+      { id: 'anas-spot', name: 'Courthouse ledge', owner_id: 'u-ana', owner_username: 'ana', ...overrides },
+      media,
+    );
+  }
+
+  beforeEach(() => {
+    jest.mocked(saveCopy).mockReset();
+    clearToast();
+  });
+  afterEach(() => act(() => useAuthStore.setState(SIGNED_OUT)));
+
+  it("shows '@ana's spot' under the title, no Edit, no Send, and a 'Save a copy' button", async () => {
+    await renderTheirs();
+
+    expect(screen.getByText("@ana's spot")).toBeOnTheScreen();
+    const order = texts();
+    expect(order.indexOf('Courthouse ledge')).toBeLessThan(order.indexOf("@ana's spot"));
+    expect(screen.getByRole('button', { name: 'Save a copy' })).toBeOnTheScreen();
+    const header = render(headerRight()());
+    expect(header.queryByText('Edit')).toBeNull();
+    expect(header.queryByRole('button', { name: 'Send this spot' })).toBeNull();
+    header.unmount();
+  });
+
+  it("reads 'A friend's spot' while the owner's name isn't mirrored", async () => {
+    await renderTheirs({ owner_username: undefined });
+    expect(screen.getByText("A friend's spot")).toBeOnTheScreen();
+  });
+
+  it("'In lists' is read-only text naming the lists that hold it: no chips, no '+ Add to hit list'", async () => {
+    await renderTheirs();
+
+    expect(screen.getByText('In lists')).toBeOnTheScreen();
+    expect(screen.getByText('Crew')).toBeOnTheScreen();
+    expect(screen.queryByRole('button', { name: 'Crew' })).toBeNull();
+    expect(screen.queryByText('+ Add to hit list')).toBeNull();
+  });
+
+  it('with no photos there is no Add photos tile', async () => {
+    await renderTheirs();
+    expect(screen.queryByRole('button', { name: /add photos/i })).toBeNull();
+  });
+
+  it("Save a copy asks first, then saves the copy, opens it in place and says so", async () => {
+    jest.mocked(saveCopy).mockResolvedValue({ spotId: 'copy-1', missingPhotos: 0 });
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    const spot = await renderTheirs();
+
+    fireEvent.press(screen.getByRole('button', { name: 'Save a copy' }));
+    expect(alert).toHaveBeenCalledWith('Save a copy of this spot?', 'It becomes your own private spot.', [
+      expect.objectContaining({ text: 'Cancel', style: 'cancel' }),
+      expect.objectContaining({ text: 'Save' }),
+    ]);
+    expect(saveCopy).not.toHaveBeenCalled();
+    const buttons = alert.mock.calls[0][2]!;
+    await act(async () => buttons[1].onPress!());
+
+    expect(saveCopy).toHaveBeenCalledWith(expect.anything(), mockClient, 'u-me', spot.id);
+    expect(replace).toHaveBeenCalledWith('/spot/copy-1');
+    expect(useToastStore.getState().text).toBe('Saved a copy');
+    alert.mockRestore();
+  });
+
+  it('a copy that finishes after the rider left the spot still toasts but replaces no other screen (S8-09 review B#3)', async () => {
+    let finish: (r: { spotId: string; missingPhotos: number }) => void = () => {};
+    jest.mocked(saveCopy).mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    replace.mockReset();
+    await renderTheirs();
+    fireEvent.press(screen.getByRole('button', { name: 'Save a copy' }));
+    let pressed: unknown;
+    act(() => {
+      pressed = alert.mock.calls[0][2]![1].onPress!();
+    });
+    screen.unmount();
+    await act(async () => {
+      finish({ spotId: 'copy-3', missingPhotos: 0 });
+      await pressed;
+    });
+    expect(useToastStore.getState().text).toBe('Saved a copy');
+    expect(replace).not.toHaveBeenCalled();
+    alert.mockRestore();
+  });
+
+  it("a copy that left a photo out says so; a failed copy stays here and says it couldn't", async () => {
+    jest.mocked(saveCopy).mockResolvedValueOnce({ spotId: 'copy-2', missingPhotos: 1 });
+    const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+    await renderTheirs();
+    fireEvent.press(screen.getByRole('button', { name: 'Save a copy' }));
+    await act(async () => alert.mock.calls[0][2]![1].onPress!());
+    expect(useToastStore.getState().text).toBe("Saved a copy · 1 photo couldn't be copied");
+
+    jest.mocked(saveCopy).mockRejectedValueOnce(new Error('disk full'));
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    replace.mockReset();
+    fireEvent.press(screen.getByRole('button', { name: 'Save a copy' }));
+    await act(async () => alert.mock.calls[1][2]![1].onPress!());
+    expect(replace).not.toHaveBeenCalled();
+    expect(useToastStore.getState().text).toBe("Couldn't save a copy");
+    warn.mockRestore();
+    alert.mockRestore();
+  });
+
+  it("the rider's own spot has no Save a copy and no owner line", async () => {
+    useAuthStore.setState({ status: 'signed_in', userId: 'u-me', username: 'me' });
+    await renderDetail({ name: 'Mine', owner_id: 'u-me' });
+    expect(screen.queryByRole('button', { name: 'Save a copy' })).toBeNull();
+    expect(screen.queryByText(/'s spot$/)).toBeNull();
   });
 });

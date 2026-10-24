@@ -1,0 +1,4279 @@
+diff --git a/app/(tabs)/_layout.tsx b/app/(tabs)/_layout.tsx
+index 34d0490..a45ed40 100644
+--- a/app/(tabs)/_layout.tsx
++++ b/app/(tabs)/_layout.tsx
+@@ -5,9 +5,11 @@ import { HapticTab } from '@/components/haptic-tab';
+ import { IconSymbol } from '@/components/ui/icon-symbol';
+ import { Colors } from '@/constants/theme';
+ import { useAuthStore } from '@/src/stores/auth-store';
++import { selectUnseenCount, useInboxStore } from '@/src/stores/inbox-store';
+ 
+ export default function TabLayout() {
+   const status = useAuthStore((s) => s.status);
++  const unseen = useInboxStore(selectUnseenCount);
+ 
+   return (
+     <>
+@@ -35,6 +37,14 @@ export default function TabLayout() {
+             tabBarIcon: ({ color }) => <IconSymbol size={28} name="list.bullet" color={color} />,
+           }}
+         />
++        <Tabs.Screen
++          name="inbox"
++          options={{
++            title: 'Inbox',
++            tabBarBadge: unseen > 0 ? String(unseen) : undefined,
++            tabBarIcon: ({ color }) => <IconSymbol size={28} name="tray.fill" color={color} />,
++          }}
++        />
+         <Tabs.Screen
+           name="profile"
+           options={{
+diff --git a/app/(tabs)/inbox.tsx b/app/(tabs)/inbox.tsx
+new file mode 100644
+index 0000000..f0311ef
+--- /dev/null
++++ b/app/(tabs)/inbox.tsx
+@@ -0,0 +1,314 @@
++import { useEffect, useMemo, useRef, useState } from 'react';
++import {
++  ActivityIndicator,
++  Alert,
++  AppState,
++  Pressable,
++  RefreshControl,
++  SectionList,
++  StyleSheet,
++  Text,
++  View,
++  type AppStateStatus,
++} from 'react-native';
++import { useIsFocused, useRouter } from 'expo-router';
++import { useSQLiteContext } from 'expo-sqlite';
++import type { SupabaseClient } from '@supabase/supabase-js';
++
++import { AccountsNotSetUp, Button } from '@/src/components';
++import { palette, spacing, typography } from '@/src/constants/theme';
++import { useAuthStore } from '@/src/stores/auth-store';
++import { INBOX_KINDS, useInboxStore, type FriendRequestItem, type InboxItem, type InboxKind } from '@/src/stores/inbox-store';
++import { getSupabase } from '@/src/sync/client';
++import { errorMessage } from '@/src/sync/errors';
++import { block, refreshFriends, respond } from '@/src/sync/friends';
++
++/*
++ * The Inbox tab (S6-04, docs/plans/2026-10-22-s6-friends.md "Inbox tab"): everything addressed to the rider, one
++ * section per kind in a fixed order (friend requests now; S7 sends, S8 invitations). Focused while the app is active,
++ * it marks every item seen (D75), which clears the tab's badge. Accept / Decline / Block are single-flight per row.
++ */
++
++const EMPTY_BODY = 'Spots friends send you, hit list invitations and friend requests show up here.';
++const BLOCK_MESSAGE = "They won't be told. They can't send to you or invite you.";
++
++const SECTION_TITLES: Record<InboxKind, string> = {
++  friend_request: 'Friend requests',
++  send: 'Spots sent to you',
++  invite: 'Invitations',
++};
++
++const isActive = (state: AppStateStatus) => state !== 'background' && state !== 'inactive';
++
++/** Whether the app is in the foreground: a request that lands in the background must stay unseen. */
++function useAppActive(): boolean {
++  const [active, setActive] = useState(() => isActive(AppState.currentState));
++  useEffect(() => {
++    const subscription = AppState.addEventListener('change', (state) => setActive(isActive(state)));
++    return () => subscription.remove();
++  }, []);
++  return active;
++}
++
++const newestFirst = (a: InboxItem, b: InboxItem) => b.created_at.localeCompare(a.created_at);
++
++function InboxBody({ client, uid }: { client: SupabaseClient; uid: string }) {
++  const db = useSQLiteContext();
++  const items = useInboxStore((s) => s.items);
++  const isFocused = useIsFocused();
++  const appActive = useAppActive();
++
++  const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
++  const [refreshing, setRefreshing] = useState(false);
++  // A second tap can land before the busy state renders: checked synchronously.
++  const busyKeys = useRef(new Set<string>());
++
++  useEffect(() => {
++    if (isFocused) void refreshFriends(db, client, uid);
++  }, [isFocused, db, client, uid]);
++
++  useEffect(() => {
++    if (!isFocused || !appActive || items.length === 0) return;
++    useInboxStore
++      .getState()
++      .markSeen(db, uid)
++      .catch((err: unknown) => console.warn('[Inbox] saving the seen mark failed:', errorMessage(err)));
++  }, [isFocused, appActive, items, db, uid]);
++
++  const sections = useMemo(
++    () =>
++      INBOX_KINDS.map((kind) => ({
++        kind,
++        title: SECTION_TITLES[kind],
++        data: items.filter((i) => i.kind === kind).sort(newestFirst),
++      })).filter((s) => s.data.length > 0),
++    [items],
++  );
++
++  /** Answers or blocks `item`'s request; once that went through, the row leaves at once (no second answer to it). */
++  const runAction = async (item: InboxItem, action: () => Promise<void>) => {
++    const key = item.id;
++    if (busyKeys.current.has(key)) return;
++    busyKeys.current.add(key);
++    setBusy(new Set(busyKeys.current));
++    try {
++      await action();
++      useInboxStore.getState().removeItem(uid, item.kind, item.id);
++    } catch (err) {
++      console.warn('[Inbox] the action failed:', errorMessage(err));
++      Alert.alert("Couldn't reach the server", 'Try again.');
++    }
++    // Free the row now: the load waits its turn on the sync queue, behind a backup that may take minutes.
++    busyKeys.current.delete(key);
++    setBusy(new Set(busyKeys.current));
++    void refreshFriends(db, client, uid);
++  };
++
++  const onRefresh = async () => {
++    setRefreshing(true);
++    await refreshFriends(db, client, uid);
++    setRefreshing(false);
++  };
++
++  const confirmBlock = (item: FriendRequestItem, handle: string) => {
++    Alert.alert(`Block ${handle}?`, BLOCK_MESSAGE, [
++      { text: 'Cancel', style: 'cancel' },
++      {
++        text: 'Block',
++        style: 'destructive',
++        onPress: () => void runAction(item, () => block(client, uid, item.from.id)),
++      },
++    ]);
++  };
++
++  const renderRequest = (item: FriendRequestItem) => {
++    const handle = item.from.username ? `@${item.from.username}` : 'this rider';
++    const line = `${item.from.username ? `@${item.from.username}` : 'A rider'} wants to be friends`;
++    const isBusy = busy.has(item.id);
++    return (
++      <View style={styles.row}>
++        <Pressable
++          style={({ pressed }) => [styles.rowText, pressed && styles.rowPressed]}
++          onLongPress={() =>
++            Alert.alert(item.from.username ? handle : 'A rider', undefined, [
++              { text: `Block ${handle}`, style: 'destructive', onPress: () => confirmBlock(item, handle) },
++              { text: 'Cancel', style: 'cancel' },
++            ])
++          }
++          disabled={isBusy}
++          accessibilityRole="button"
++          accessibilityLabel={item.from.display_name ? `${line}, ${item.from.display_name}` : line}
++          accessibilityHint="Long press to block"
++          accessibilityActions={[{ name: 'block', label: `Block ${handle}` }]}
++          onAccessibilityAction={(event) => {
++            if (event.nativeEvent.actionName === 'block') confirmBlock(item, handle);
++          }}>
++          <Text style={styles.title} numberOfLines={2}>
++            {line}
++          </Text>
++          {item.from.display_name ? (
++            <Text style={styles.subtitle} numberOfLines={1}>
++              {item.from.display_name}
++            </Text>
++          ) : null}
++        </Pressable>
++        {isBusy ? (
++          <ActivityIndicator color={palette.gray[500]} accessibilityLabel="Sending your answer" />
++        ) : (
++          <View style={styles.actions}>
++            <Button
++              title="Accept"
++              size="sm"
++              accessibilityLabel={`Accept friend request from ${handle}`}
++              onPress={() => void runAction(item, () => respond(client, uid, item.friendshipId, 'accept'))}
++            />
++            <Button
++              title="Decline"
++              variant="secondary"
++              size="sm"
++              accessibilityLabel={`Decline friend request from ${handle}`}
++              onPress={() => void runAction(item, () => respond(client, uid, item.friendshipId, 'decline'))}
++            />
++          </View>
++        )}
++      </View>
++    );
++  };
++
++  const renderItem = ({ item }: { item: InboxItem }) => {
++    switch (item.kind) {
++      case 'friend_request':
++        return renderRequest(item);
++      default: {
++        // S7 and S8 add their kinds here; a kind without a row is a type error
++        const unhandled: never = item.kind;
++        console.warn('[Inbox] no row for', unhandled);
++        return null;
++      }
++    }
++  };
++
++  return (
++    <SectionList
++      style={styles.container}
++      sections={sections}
++      keyExtractor={(item) => `${item.kind}:${item.id}`}
++      renderItem={renderItem}
++      renderSectionHeader={({ section }) => (
++        <Text style={styles.sectionHeader} accessibilityRole="header">
++          {section.title}
++        </Text>
++      )}
++      ListEmptyComponent={
++        <View style={styles.empty}>
++          <Text style={styles.emptyTitle}>Nothing here yet</Text>
++          <Text style={styles.emptyBody}>{EMPTY_BODY}</Text>
++        </View>
++      }
++      ItemSeparatorComponent={Separator}
++      stickySectionHeadersEnabled={false}
++      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />}
++      contentContainerStyle={styles.content}
++    />
++  );
++}
++
++function Separator() {
++  return <View style={styles.separator} />;
++}
++
++export default function InboxTab() {
++  const router = useRouter();
++  const status = useAuthStore((s) => s.status);
++  const userId = useAuthStore((s) => s.userId);
++  const client = getSupabase();
++
++  if (!client || status === 'unconfigured') return <AccountsNotSetUp />;
++  if (status !== 'signed_in' || !userId) {
++    return (
++      <View style={styles.signedOut}>
++        <Text style={styles.signedOutText}>Sign in to get spots from friends</Text>
++        <Button title="Sign in" onPress={() => router.push('/auth/sign-in')} />
++      </View>
++    );
++  }
++  // A new account starts fresh: no busy row from the one before.
++  return <InboxBody key={userId} client={client} uid={userId} />;
++}
++
++const styles = StyleSheet.create({
++  container: {
++    flex: 1,
++  },
++  content: {
++    flexGrow: 1,
++    paddingBottom: spacing['3xl'],
++  },
++  sectionHeader: {
++    ...typography.headline,
++    color: palette.gray[900],
++    paddingHorizontal: spacing.lg,
++    paddingTop: spacing.lg,
++    paddingBottom: spacing.xs,
++  },
++  row: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    gap: spacing.md,
++    minHeight: 44,
++    paddingHorizontal: spacing.lg,
++    paddingVertical: spacing.sm,
++  },
++  rowText: {
++    flex: 1,
++    gap: spacing.xs,
++  },
++  rowPressed: {
++    opacity: 0.6,
++  },
++  title: {
++    ...typography.body,
++    color: palette.gray[900],
++  },
++  subtitle: {
++    ...typography.footnote,
++    color: palette.gray[500],
++  },
++  actions: {
++    flexDirection: 'row',
++    gap: spacing.sm,
++  },
++  separator: {
++    height: StyleSheet.hairlineWidth,
++    backgroundColor: palette.gray[200],
++    marginLeft: spacing.lg,
++  },
++  empty: {
++    flex: 1,
++    alignItems: 'center',
++    justifyContent: 'center',
++    gap: spacing.sm,
++    padding: spacing.xl,
++  },
++  emptyTitle: {
++    ...typography.headline,
++    color: palette.gray[900],
++  },
++  emptyBody: {
++    ...typography.callout,
++    color: palette.gray[500],
++    textAlign: 'center',
++  },
++  signedOut: {
++    flex: 1,
++    alignItems: 'center',
++    justifyContent: 'center',
++    gap: spacing.md,
++    padding: spacing.lg,
++  },
++  signedOutText: {
++    ...typography.callout,
++    color: palette.gray[700],
++    textAlign: 'center',
++  },
++});
+diff --git a/app/(tabs)/profile.tsx b/app/(tabs)/profile.tsx
+index 5c3bbe9..ca6de0d 100644
+--- a/app/(tabs)/profile.tsx
++++ b/app/(tabs)/profile.tsx
+@@ -7,12 +7,14 @@ import { ACCOUNTS_NOT_SET_UP, AuthError, Button } from '@/src/components';
+ import { useSettingsStore } from '@/src/stores/settings-store';
+ import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
+ import { useSyncStore } from '@/src/stores/sync-store';
++import { useFriendsStore } from '@/src/stores/friends-store';
+ import { countPending, resetFailed } from '@/src/db/sync';
+ import { syncNow } from '@/src/sync/engine';
+ import { deleteAccountAndRelease, removeLocalAccountData, removeReleasedRows, type ReleasedRows } from '@/src/sync/adopt';
+ import { useSettingsActions } from '@/src/hooks/use-settings-actions';
+ import { getSupabase } from '@/src/sync/client';
+ import { deleteAccount, signOutOfAccount } from '@/src/sync/auth';
++import { IconSymbol } from '@/components/ui/icon-symbol';
+ import { palette, spacing, radius } from '@/src/constants/theme';
+ import { UnitSystem } from '@/src/types';
+ import { radiusFromInput, radiusToDisplay, radiusUnitLabel } from '@/src/utils/units';
+@@ -88,6 +90,21 @@ function BackupStatus({ userId }: { userId: string | null }) {
+   );
+ }
+ 
++/** Profile → Friends (S6-03): 'Friends · 2', or 'Friends' before any friends load. */
++function FriendsRow({ count, onPress }: { count: number; onPress: () => void }) {
++  const label = count > 0 ? `Friends · ${count}` : 'Friends';
++  return (
++    <Pressable
++      style={({ pressed }) => [styles.friendsRow, pressed && styles.friendsRowPressed]}
++      onPress={onPress}
++      accessibilityRole="button"
++      accessibilityLabel={label}>
++      <Text style={styles.friendsRowText}>{label}</Text>
++      <IconSymbol name="chevron.right" size={18} color={palette.gray[400]} />
++    </Pressable>
++  );
++}
++
+ // The account in its three states (§3.1, §5.6): a build without Supabase values, signed out, signed in. The tabs
+ // redirect a 'needs_username' account to the username screen, so it shows here only for a moment, as signed in.
+ // Sign out backs up once more, then asks Keep / Remove from this phone, or, with changes still waiting, offers only
+@@ -101,6 +118,7 @@ function AccountSection() {
+   const displayName = useAuthStore((s) => s.displayName);
+   const userId = useAuthStore((s) => s.userId);
+   const setAuth = useAuthStore((s) => s.setAuth);
++  const friendCount = useFriendsStore((s) => s.friends.length);
+   const [busy, setBusy] = useState<'signing_out' | 'deleting' | null>(null);
+   const [error, setError] = useState<string | null>(null);
+   // An alert's button or a second tap can land before the disabled state renders.
+@@ -226,6 +244,7 @@ function AccountSection() {
+       {displayName ? <Text style={styles.accountBody}>{displayName}</Text> : null}
+       {email ? <Text style={styles.fieldHint}>{email}</Text> : null}
+       <BackupStatus userId={userId} />
++      <FriendsRow count={friendCount} onPress={() => router.push('/friends')} />
+       <AuthError message={error} />
+       <Button
+         title={busy === 'signing_out' ? 'Signing out…' : 'Sign out'}
+@@ -363,6 +382,23 @@ const styles = StyleSheet.create({
+     fontWeight: '500',
+     color: palette.red[700],
+   },
++  friendsRow: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    justifyContent: 'space-between',
++    minHeight: 44,
++    paddingVertical: spacing.sm,
++    borderTopWidth: StyleSheet.hairlineWidth,
++    borderBottomWidth: StyleSheet.hairlineWidth,
++    borderColor: palette.gray[200],
++  },
++  friendsRowPressed: {
++    backgroundColor: palette.gray[100],
++  },
++  friendsRowText: {
++    fontSize: 17,
++    color: palette.gray[900],
++  },
+   unitsRow: {
+     flexDirection: 'row',
+     gap: spacing.sm,
+diff --git a/app/_layout.tsx b/app/_layout.tsx
+index ad159da..321813e 100644
+--- a/app/_layout.tsx
++++ b/app/_layout.tsx
+@@ -64,6 +64,7 @@ export default function RootLayout() {
+                   name="area/index"
+                   options={{ presentation: 'fullScreenModal', title: 'Pick an area' }}
+                 />
++                <Stack.Screen name="friends/index" options={{ title: 'Friends' }} />
+                 <Stack.Screen name="auth/sign-in" options={{ presentation: 'modal', title: 'Sign in' }} />
+                 <Stack.Screen name="auth/code" options={{ title: 'Enter code' }} />
+                 <Stack.Screen
+diff --git a/app/friends/index.tsx b/app/friends/index.tsx
+new file mode 100644
+index 0000000..ab120ec
+--- /dev/null
++++ b/app/friends/index.tsx
+@@ -0,0 +1,438 @@
++import { useEffect, useMemo, useRef, useState } from 'react';
++import {
++  ActivityIndicator,
++  Alert,
++  Pressable,
++  RefreshControl,
++  SectionList,
++  StyleSheet,
++  Text,
++  TextInput,
++  View,
++} from 'react-native';
++import { useRouter } from 'expo-router';
++import { useSQLiteContext } from 'expo-sqlite';
++import type { SupabaseClient } from '@supabase/supabase-js';
++
++import { AccountsNotSetUp, Button } from '@/src/components';
++import { palette, radius, spacing, typography } from '@/src/constants/theme';
++import { useAuthStore } from '@/src/stores/auth-store';
++import { useFriendsStore } from '@/src/stores/friends-store';
++import { getSupabase } from '@/src/sync/client';
++import { errorMessage } from '@/src/sync/errors';
++import {
++  addFriend,
++  block,
++  normaliseUsername,
++  refreshFriends,
++  removeFriend,
++  unblock,
++  type AddResult,
++  type FriendProfile,
++} from '@/src/sync/friends';
++
++/*
++ * Profile → Friends (S6-03, docs/plans/2026-10-22-s6-friends.md "Friends"): add by exact @username, the rider's
++ * friends (long press: Remove / Block), requests they sent (Cancel) and riders they blocked (Unblock, D74). Incoming
++ * requests live in the Inbox. Every action is single-flight per row and ends with a friends load; server errors are
++ * warned and read as one fixed line.
++ */
++
++const HINT = "Friends are added by exact username or by an invite link. There's no search by name.";
++const INVALID = 'Usernames are 3–20 letters, numbers, _ or .';
++const NETWORK = "Couldn't reach the server. Try again.";
++const LOAD_FAILED = "Couldn't reach the server. Pull to try again.";
++const BLOCK_MESSAGE = "They won't be told. They can't send to you or invite you.";
++
++type Line = { text: string; tone: 'ok' | 'error' };
++
++/** What Add says; `name` is the typed name as the server stores it. D50: 'not found' covers a rider who blocked you. */
++function addLine(result: AddResult, name: string): Line {
++  if (result.status === 'invalid') return { text: INVALID, tone: 'error' };
++  if (!result.found) return { text: `No rider named @${name}`, tone: 'error' };
++  const handle = `@${result.profile.username ?? name}`;
++  switch (result.status) {
++    case 'sent':
++      return { text: `Request sent to ${handle}`, tone: 'ok' };
++    case 'accepted':
++      return { text: `You're now friends with ${handle}`, tone: 'ok' };
++    case 'already_friends':
++      return { text: `Already friends with ${handle}`, tone: 'ok' };
++    case 'already_sent':
++      return { text: `Request already sent to ${handle}`, tone: 'ok' };
++    case 'self':
++      return { text: "That's you", tone: 'error' };
++    case 'blocked_by_me':
++      return { text: `You blocked ${handle}. Unblock them below to add them.`, tone: 'error' };
++  }
++}
++
++type RowKind = 'friend' | 'outgoing' | 'blocked';
++interface Row {
++  /** The busy key: a friendship id, or the blocked rider's id. */
++  key: string;
++  kind: RowKind;
++  friendshipId: string | null;
++  profile: FriendProfile;
++}
++
++/** '@ana' or the line for a rider whose name this phone doesn't know (D73). */
++function handleOf(profile: FriendProfile, unknown: string): string {
++  return profile.username ? `@${profile.username}` : unknown;
++}
++
++const UNKNOWN: Record<RowKind, string> = {
++  friend: 'A rider',
++  outgoing: 'A rider you asked',
++  blocked: 'A rider you blocked',
++};
++
++function rowText(row: Row): string {
++  const handle = handleOf(row.profile, UNKNOWN[row.kind]);
++  return row.kind === 'friend' && row.profile.display_name ? `${handle} · ${row.profile.display_name}` : handle;
++}
++
++function FriendsBody({ client, uid }: { client: SupabaseClient; uid: string }) {
++  const db = useSQLiteContext();
++  const router = useRouter();
++  const friends = useFriendsStore((s) => s.friends);
++  const outgoing = useFriendsStore((s) => s.outgoing);
++  const blocked = useFriendsStore((s) => s.blocked);
++  const incomingCount = useFriendsStore((s) => s.incoming.length);
++  const loadError = useFriendsStore((s) => s.loadError);
++
++  const [typed, setTyped] = useState('');
++  const [line, setLine] = useState<Line | null>(null);
++  const [adding, setAdding] = useState(false);
++  const [busy, setBusy] = useState<ReadonlySet<string>>(new Set());
++  const [refreshing, setRefreshing] = useState(false);
++  // A second tap can land before the busy state renders: these are checked synchronously.
++  const addInFlight = useRef(false);
++  const busyKeys = useRef(new Set<string>());
++
++  useEffect(() => {
++    void refreshFriends(db, client, uid);
++  }, [db, client, uid]);
++
++  const sections = useMemo(() => {
++    const all: { title: string; data: Row[] }[] = [
++      {
++        title: 'Friends',
++        data: friends.map((f) => ({ key: f.friendshipId, kind: 'friend', friendshipId: f.friendshipId, profile: f.profile })),
++      },
++      {
++        title: 'Requests sent',
++        data: outgoing.map((f) => ({
++          key: f.friendshipId,
++          kind: 'outgoing',
++          friendshipId: f.friendshipId,
++          profile: f.profile,
++        })),
++      },
++      {
++        title: 'Blocked',
++        data: blocked.map((p) => ({ key: p.id, kind: 'blocked', friendshipId: null, profile: p })),
++      },
++    ];
++    return all.filter((s) => s.data.length > 0);
++  }, [friends, outgoing, blocked]);
++
++  const runAction = async (key: string, action: () => Promise<void>) => {
++    if (busyKeys.current.has(key)) return;
++    busyKeys.current.add(key);
++    setBusy(new Set(busyKeys.current));
++    setLine(null);
++    try {
++      await action();
++    } catch (err) {
++      console.warn('[Friends] the action failed:', errorMessage(err));
++      setLine({ text: NETWORK, tone: 'error' });
++    }
++    // Free the row now: the load waits its turn on the sync queue, behind a backup that may take minutes.
++    busyKeys.current.delete(key);
++    setBusy(new Set(busyKeys.current));
++    void refreshFriends(db, client, uid);
++  };
++
++  const submit = async () => {
++    if (addInFlight.current) return;
++    const name = normaliseUsername(typed);
++    if (!name) {
++      setLine({ text: INVALID, tone: 'error' });
++      return;
++    }
++    addInFlight.current = true;
++    setAdding(true);
++    setLine(null);
++    try {
++      const result = await addFriend(client, db, uid, typed);
++      // null: the session ended while the screen was open (it turns to Sign in once the account store catches up)
++      setLine(result ? addLine(result, name) : { text: NETWORK, tone: 'error' });
++      if (result?.status === 'sent' || result?.status === 'accepted') setTyped('');
++      if (result) void refreshFriends(db, client, uid);
++    } catch (err) {
++      console.warn('[Friends] Add failed:', errorMessage(err));
++      setLine({ text: NETWORK, tone: 'error' });
++    } finally {
++      addInFlight.current = false;
++      setAdding(false);
++    }
++  };
++
++  const onRefresh = async () => {
++    setRefreshing(true);
++    await refreshFriends(db, client, uid);
++    setRefreshing(false);
++  };
++
++  const confirmBlock = (row: Row) => {
++    const handle = handleOf(row.profile, 'this rider');
++    Alert.alert(`Block ${handle}?`, BLOCK_MESSAGE, [
++      { text: 'Cancel', style: 'cancel' },
++      {
++        text: 'Block',
++        style: 'destructive',
++        onPress: () => void runAction(row.key, () => block(client, uid, row.profile.id)),
++      },
++    ]);
++  };
++
++  const remove = (row: Row) => {
++    const friendshipId = row.friendshipId;
++    if (friendshipId) void runAction(row.key, () => removeFriend(client, uid, friendshipId));
++  };
++
++  const friendMenu = (row: Row) => {
++    Alert.alert(handleOf(row.profile, UNKNOWN.friend), undefined, [
++      { text: 'Remove friend', onPress: () => remove(row) },
++      { text: `Block ${handleOf(row.profile, 'this rider')}`, style: 'destructive', onPress: () => confirmBlock(row) },
++      { text: 'Cancel', style: 'cancel' },
++    ]);
++  };
++
++  const renderItem = ({ item }: { item: Row }) => {
++    const text = rowText(item);
++    const isBusy = busy.has(item.key);
++    const action =
++      item.kind === 'outgoing' ? (
++        <Button
++          title="Cancel"
++          variant="secondary"
++          size="sm"
++          accessibilityLabel={`Cancel request to ${handleOf(item.profile, 'a rider you asked')}`}
++          onPress={() => remove(item)}
++        />
++      ) : item.kind === 'blocked' ? (
++        <Button
++          title="Unblock"
++          variant="secondary"
++          size="sm"
++          accessibilityLabel={`Unblock ${handleOf(item.profile, 'a rider you blocked')}`}
++          onPress={() => void runAction(item.key, () => unblock(client, uid, item.profile.id))}
++        />
++      ) : null;
++    const label = (
++      <Text style={styles.rowText} numberOfLines={1}>
++        {text}
++      </Text>
++    );
++    const busyMark = isBusy ? <ActivityIndicator color={palette.gray[500]} /> : null;
++    // Sent and blocked rows are plain Views: a Pressable would group the row into one VoiceOver element and hide
++    // its Cancel / Unblock button.
++    if (item.kind !== 'friend') {
++      return (
++        <View style={styles.row}>
++          {label}
++          {busyMark ?? action}
++        </View>
++      );
++    }
++    // A friend row: long press, or VoiceOver's actions rotor, for Remove / Block.
++    return (
++      <Pressable
++        style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
++        onLongPress={() => friendMenu(item)}
++        disabled={isBusy}
++        accessibilityRole="button"
++        accessibilityLabel={text}
++        accessibilityHint="Long press to remove or block"
++        accessibilityActions={[
++          { name: 'remove', label: 'Remove friend' },
++          { name: 'block', label: `Block ${handleOf(item.profile, 'this rider')}` },
++        ]}
++        onAccessibilityAction={(event) => {
++          if (event.nativeEvent.actionName === 'remove') remove(item);
++          else if (event.nativeEvent.actionName === 'block') confirmBlock(item);
++        }}>
++        {label}
++        {busyMark}
++      </Pressable>
++    );
++  };
++
++  const header = (
++    <View style={styles.header}>
++      <View style={styles.addRow}>
++        <TextInput
++          style={styles.input}
++          value={typed}
++          onChangeText={setTyped}
++          placeholder="Add by exact @username"
++          placeholderTextColor={palette.gray[400]}
++          autoCapitalize="none"
++          autoCorrect={false}
++          autoComplete="off"
++          returnKeyType="send"
++          onSubmitEditing={() => void submit()}
++          accessibilityLabel="Add by exact @username"
++        />
++        <Button title="Add" onPress={() => void submit()} disabled={adding} />
++      </View>
++      <Text style={styles.hint}>{HINT}</Text>
++      {line ? (
++        <Text
++          style={line.tone === 'error' ? styles.lineError : styles.lineOk}
++          accessibilityLiveRegion="polite">
++          {line.text}
++        </Text>
++      ) : null}
++      {loadError ? <Text style={styles.lineError}>{LOAD_FAILED}</Text> : null}
++      {incomingCount > 0 ? (
++        <Pressable accessibilityRole="link" onPress={() => router.dismissTo('/inbox')} hitSlop={spacing.sm}>
++          <Text style={styles.link}>
++            {incomingCount === 1 ? '1 friend request in Inbox' : `${incomingCount} friend requests in Inbox`}
++          </Text>
++        </Pressable>
++      ) : null}
++    </View>
++  );
++
++  return (
++    <SectionList
++      style={styles.container}
++      sections={sections}
++      keyExtractor={(row) => `${row.kind}:${row.key}`}
++      renderItem={renderItem}
++      renderSectionHeader={({ section }) => (
++        <Text style={styles.sectionHeader} accessibilityRole="header">
++          {section.title}
++        </Text>
++      )}
++      ListHeaderComponent={header}
++      ItemSeparatorComponent={Separator}
++      stickySectionHeadersEnabled={false}
++      keyboardShouldPersistTaps="handled"
++      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} />}
++      contentContainerStyle={styles.content}
++    />
++  );
++}
++
++function Separator() {
++  return <View style={styles.separator} />;
++}
++
++export default function FriendsScreen() {
++  const router = useRouter();
++  const status = useAuthStore((s) => s.status);
++  const userId = useAuthStore((s) => s.userId);
++  const client = getSupabase();
++
++  if (!client || status === 'unconfigured') return <AccountsNotSetUp />;
++  if (status !== 'signed_in' || !userId) {
++    return (
++      <View style={styles.signedOut}>
++        <Text style={styles.signedOutText}>Sign in to add friends</Text>
++        <Button title="Sign in" onPress={() => router.push('/auth/sign-in')} />
++      </View>
++    );
++  }
++  // A new account starts fresh: no typed name, result line or busy row from the one before.
++  return <FriendsBody key={userId} client={client} uid={userId} />;
++}
++
++const styles = StyleSheet.create({
++  container: {
++    flex: 1,
++  },
++  content: {
++    paddingBottom: spacing['3xl'],
++  },
++  header: {
++    padding: spacing.lg,
++    gap: spacing.sm,
++  },
++  addRow: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    gap: spacing.sm,
++  },
++  input: {
++    flex: 1,
++    borderWidth: 1,
++    borderColor: palette.gray[300],
++    borderRadius: radius.md,
++    borderCurve: 'continuous',
++    paddingHorizontal: spacing.md,
++    paddingVertical: spacing.sm,
++    fontSize: 16,
++    color: palette.gray[900],
++    backgroundColor: palette.white,
++  },
++  hint: {
++    ...typography.footnote,
++    color: palette.gray[500],
++  },
++  link: {
++    ...typography.subheadline,
++    color: palette.blue[500],
++  },
++  lineOk: {
++    ...typography.subheadline,
++    color: palette.gray[900],
++  },
++  lineError: {
++    ...typography.subheadline,
++    color: palette.red[700],
++  },
++  sectionHeader: {
++    ...typography.headline,
++    color: palette.gray[900],
++    paddingHorizontal: spacing.lg,
++    paddingTop: spacing.lg,
++    paddingBottom: spacing.xs,
++  },
++  row: {
++    flexDirection: 'row',
++    alignItems: 'center',
++    gap: spacing.md,
++    minHeight: 44,
++    paddingHorizontal: spacing.lg,
++    paddingVertical: spacing.sm,
++  },
++  rowPressed: {
++    backgroundColor: palette.gray[100],
++  },
++  rowText: {
++    ...typography.body,
++    flex: 1,
++    color: palette.gray[900],
++  },
++  separator: {
++    height: StyleSheet.hairlineWidth,
++    backgroundColor: palette.gray[200],
++    marginLeft: spacing.lg,
++  },
++  signedOut: {
++    flex: 1,
++    alignItems: 'center',
++    justifyContent: 'center',
++    gap: spacing.md,
++    padding: spacing.lg,
++  },
++  signedOutText: {
++    ...typography.callout,
++    color: palette.gray[700],
++    textAlign: 'center',
++  },
++});
+diff --git a/src/__integration__/friends.test.ts b/src/__integration__/friends.test.ts
+new file mode 100644
+index 0000000..b80eb43
+--- /dev/null
++++ b/src/__integration__/friends.test.ts
+@@ -0,0 +1,206 @@
++/**
++ * Friends against the local stack (S6-05, docs/plans/2026-10-22-s6-friends.md "Integration test design"): three
++ * riders (ana, ben, cal), each with a real session and a node:sqlite phone for the names mirror, run src/sync/friends
++ * the way the screens do: a request by username, accept, both sides see each other, a block hides the blocker and
++ * stops a new request, remove and unblock. Needs the stack: npm run db:start, then npm run test:integration.
++ */
++import type { SupabaseClient } from '@supabase/supabase-js';
++import type { SQLiteDatabase } from 'expo-sqlite';
++
++import { getProfiles } from '@/src/db/profiles';
++import { setSyncState } from '@/src/db/sync';
++import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
++import { useFriendsStore } from '@/src/stores/friends-store';
++import { useInboxStore } from '@/src/stores/inbox-store';
++import {
++  addFriend,
++  block,
++  loadAndApplyFriends,
++  loadFriends,
++  removeFriend,
++  respond,
++  unblock,
++  type FriendsData,
++} from '@/src/sync/friends';
++import { runExclusive } from '@/src/sync/queue';
++import { createMigratedTestDb } from '@/src/__tests__/helpers/node-sqlite-db';
++
++import { createRider, deleteRider, uniqueUsername, type Rider } from './helpers';
++
++/** A rider and their phone: the phone's account is theirs (sync_state.user_id), as after adoption. */
++type Phone = Rider & { db: SQLiteDatabase };
++
++async function phone(name: string): Promise<Phone> {
++  const rider = await createRider(uniqueUsername(name));
++  riders.push(rider.userId);
++  const db = await createMigratedTestDb();
++  await setSyncState(db, 'user_id', rider.userId);
++  return { ...rider, db };
++}
++
++/** loadFriends for a rider who is signed in (null would mean the session is gone). */
++async function friendsOf(p: Phone): Promise<FriendsData> {
++  const data = await loadFriends(p.client, p.userId);
++  if (!data) throw new Error(`${p.username} has no session`);
++  return data;
++}
++
++const ids = (rows: { profile: { id: string } }[]) => rows.map((r) => r.profile.id).sort();
++
++/** Waits for everything on the sync queue (addFriend mirrors the name it found there). */
++const settle = () => runExclusive(async () => {});
++
++/** The profile rows `p` may read for `id` (RLS decides). */
++async function readableProfile(client: SupabaseClient, id: string) {
++  const { data, error } = await client.from('profiles').select('id,username').eq('id', id);
++  if (error) throw error;
++  return data;
++}
++
++/** Shows `p` as the signed-in rider, as useAuthInit does, so the stores take their loads. */
++function signInStores(p: Phone) {
++  useAuthStore.setState({ ...SIGNED_OUT, status: 'signed_in', userId: p.userId, username: p.username });
++}
++
++const riders: string[] = [];
++
++afterAll(async () => {
++  useAuthStore.setState(SIGNED_OUT);
++  for (const userId of riders) await deleteRider(userId);
++});
++
++describe('friends end to end', () => {
++  let ana: Phone;
++  let ben: Phone;
++  let cal: Phone;
++
++  beforeAll(async () => {
++    ana = await phone('ana');
++    ben = await phone('ben');
++    cal = await phone('cal');
++  });
++
++  it("ana's 'BEN' finds ben whatever the case and leaves one pending request", async () => {
++    const result = await addFriend(ana.client, ana.db, ana.userId, ` @${ben.username.toUpperCase()} `);
++    expect(result).toEqual({
++      found: true,
++      status: 'sent',
++      profile: expect.objectContaining({ id: ben.userId, username: ben.username }),
++    });
++    // the server matches whatever the case too (citext), not only the app's lowercasing
++    expect((await ana.client.rpc('find_profile', { p_username: ben.username.toUpperCase() })).data).toEqual([
++      expect.objectContaining({ id: ben.userId }),
++    ]);
++
++    const benSees = await friendsOf(ben);
++    expect(benSees.friends).toEqual([]);
++    expect(benSees.outgoing).toEqual([]);
++    expect(benSees.incoming).toHaveLength(1);
++    expect(benSees.incoming[0].profile).toEqual(expect.objectContaining({ id: ana.userId, username: ana.username }));
++
++    const anaSees = await friendsOf(ana);
++    expect(anaSees.incoming).toEqual([]);
++    expect(ids(anaSees.outgoing)).toEqual([ben.userId]);
++    // the asker can't read the target's row (it would follow a rename): the name comes from ana's own phone
++    expect(anaSees.outgoing[0].profile.username).toBeNull();
++    expect(anaSees.outgoing[0].friendshipId).toBe(benSees.incoming[0].friendshipId);
++  });
++
++  it("keeps ben's name on ana's phone and puts ana's request in ben's Inbox", async () => {
++    await settle();
++    expect((await getProfiles(ana.db, [ben.userId]))[ben.userId]?.username).toBe(ben.username);
++
++    signInStores(ana);
++    await loadAndApplyFriends(ana.db, ana.client, ana.userId);
++    expect(useFriendsStore.getState().loadError).toBeNull();
++    expect(useFriendsStore.getState().outgoing.map((r) => r.profile.username)).toEqual([ben.username]);
++
++    signInStores(ben);
++    await loadAndApplyFriends(ben.db, ben.client, ben.userId);
++    const items = useInboxStore.getState().items;
++    expect(items).toHaveLength(1);
++    expect(items[0]).toEqual(
++      expect.objectContaining({ kind: 'friend_request', from: expect.objectContaining({ username: ana.username }) }),
++    );
++  });
++
++  it('ben accepts and each lists the other as a friend', async () => {
++    const [request] = (await friendsOf(ben)).incoming;
++    await respond(ben.client, ben.userId, request.friendshipId, 'accept');
++
++    const benSees = await friendsOf(ben);
++    const anaSees = await friendsOf(ana);
++    expect(ids(benSees.friends)).toEqual([ana.userId]);
++    expect(benSees.friends[0].profile.username).toBe(ana.username);
++    expect(ids(anaSees.friends)).toEqual([ben.userId]);
++    expect(anaSees.friends[0].profile.username).toBe(ben.username);
++    for (const seen of [benSees, anaSees]) {
++      expect(seen.incoming).toEqual([]);
++      expect(seen.outgoing).toEqual([]);
++    }
++  });
++
++  it('a block by cal ends the friendship, hides cal from ana and stops her asking again', async () => {
++    expect(await addFriend(ana.client, ana.db, ana.userId, cal.username)).toEqual(
++      expect.objectContaining({ found: true, status: 'sent' }),
++    );
++    const [request] = (await friendsOf(cal)).incoming;
++    await respond(cal.client, cal.userId, request.friendshipId, 'accept');
++    // control: as friends ana reads cal's profile and lists her
++    expect(await readableProfile(ana.client, cal.userId)).toEqual([{ id: cal.userId, username: cal.username }]);
++    expect(ids((await friendsOf(ana)).friends)).toEqual([ben.userId, cal.userId].sort());
++
++    await block(cal.client, cal.userId, ana.userId);
++
++    const anaSees = await friendsOf(ana);
++    expect(ids(anaSees.friends)).toEqual([ben.userId]);
++    expect(anaSees.incoming).toEqual([]);
++    expect(anaSees.outgoing).toEqual([]);
++    expect(anaSees.blocked).toEqual([]);
++    const calSees = await friendsOf(cal);
++    expect(calSees.friends).toEqual([]);
++    expect(calSees.blocked.map((p) => p.id)).toEqual([ana.userId]);
++
++    expect(await readableProfile(ana.client, cal.userId)).toEqual([]);
++    // cal's name vanishes from find for ana only
++    expect((await ana.client.rpc('find_profile', { p_username: cal.username })).data).toEqual([]);
++    expect((await ben.client.rpc('find_profile', { p_username: cal.username })).data).toEqual([
++      expect.objectContaining({ id: cal.userId }),
++    ]);
++    expect(await addFriend(ana.client, ana.db, ana.userId, cal.username)).toEqual({
++      found: false,
++      status: 'not_found',
++    });
++    // the server refuses it too, with the same answer as a name nobody has (D50: ana isn't told)
++    const direct = await ana.client.rpc('send_friend_request', { p_username: cal.username });
++    const nobody = await ana.client.rpc('send_friend_request', { p_username: uniqueUsername('nobody') });
++    expect(direct.error?.code).toBe('P0002');
++    expect(direct.error?.message).toBe(nobody.error?.message);
++    expect(ids((await friendsOf(cal)).incoming)).toEqual([]);
++  });
++
++  it("finds no rider for a name nobody has, and 'self' for your own", async () => {
++    expect(await addFriend(ben.client, ben.db, ben.userId, uniqueUsername('nobody'))).toEqual({
++      found: false,
++      status: 'not_found',
++    });
++    expect(await addFriend(ben.client, ben.db, ben.userId, ben.username)).toEqual(
++      expect.objectContaining({ found: true, status: 'self' }),
++    );
++    expect(ids((await friendsOf(ben)).outgoing)).toEqual([]);
++  });
++
++  it('ben removes ana, and once cal unblocks her ana can ask cal again', async () => {
++    const [friendship] = (await friendsOf(ben)).friends;
++    await removeFriend(ben.client, ben.userId, friendship.friendshipId);
++    expect((await friendsOf(ben)).friends).toEqual([]);
++    expect((await friendsOf(ana)).friends).toEqual([]);
++
++    await unblock(cal.client, cal.userId, ana.userId);
++    expect((await friendsOf(cal)).blocked).toEqual([]);
++    expect(await addFriend(ana.client, ana.db, ana.userId, cal.username)).toEqual(
++      expect.objectContaining({ found: true, status: 'sent' }),
++    );
++    expect(ids((await friendsOf(cal)).incoming)).toEqual([ana.userId]);
++  });
++});
+diff --git a/src/__tests__/auth-store.test.ts b/src/__tests__/auth-store.test.ts
+index 698e72e..c8e6b36 100644
+--- a/src/__tests__/auth-store.test.ts
++++ b/src/__tests__/auth-store.test.ts
+@@ -14,6 +14,7 @@ jest.mock('@/src/sync/client', () => ({
+ 
+ import { useAuthStore, SIGNED_OUT } from '@/src/stores/auth-store';
+ import { useAuthInit } from '@/src/hooks/use-auth-init';
++import { useFriendsStore } from '@/src/stores/friends-store';
+ 
+ const ana = fakeSession({ userId: 'user-ana', email: 'ana@example.com' });
+ 
+@@ -200,6 +201,20 @@ describe('useAuthInit', () => {
+     });
+   });
+ 
++  it('SIGNED_OUT empties the friends store (S6)', async () => {
++    mockFake!.setSession(ana);
++    mockFake!.profiles.set('user-ana', { username: 'ana', display_name: 'Ana B' });
++    renderHook(() => useAuthInit());
++    await waitFor(() => expect(useAuthStore.getState().status).toBe('signed_in'));
++    const friend = { friendshipId: 'f1', created_at: '2026-10-20T10:00:00.000Z', profile: { id: 'user-ben', username: 'ben', display_name: null } };
++    useFriendsStore.getState().applyFriends('user-ana', { friends: [friend], incoming: [], outgoing: [], blocked: [] });
++    expect(useFriendsStore.getState().friends).toHaveLength(1);
++
++    act(() => mockFake!.emit('SIGNED_OUT', null));
++
++    await waitFor(() => expect(useFriendsStore.getState().friends).toEqual([]));
++  });
++
+   it('follows SIGNED_IN after launch', async () => {
+     renderHook(() => useAuthInit());
+     await waitFor(() => expect(mockFake!.auth.getSession).toHaveBeenCalled());
+diff --git a/src/__tests__/db-migrate.test.ts b/src/__tests__/db-migrate.test.ts
+index a9c1925..23a6245 100644
+--- a/src/__tests__/db-migrate.test.ts
++++ b/src/__tests__/db-migrate.test.ts
+@@ -89,6 +89,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
+       'hit_list_spots',
+       'hit_lists',
+       'media',
++      'profiles',
+       'spots',
+       'sqlite_sequence',
+       'sync_outbox',
+@@ -687,16 +688,11 @@ describe('migrateDb (PRAGMA user_version)', () => {
+         await db.getAllAsync<{ name: string }>(`SELECT name FROM sqlite_master WHERE type = ? ORDER BY name`, type)
+       ).map((r) => r.name);
+ 
+-    it('is the last migration', () => {
+-      expect(MIGRATIONS).toHaveLength(5);
+-      expect(LATEST_SCHEMA_VERSION).toBe(5);
+-    });
+-
+     it('adds owner_id to spots and media (hit_lists has it since 4), rev to all four tables, media updated_at/deleted_at', async () => {
+       const db = await v4Db();
+       expect(await columnNames(db, 'spots')).not.toContain('owner_id');
+ 
+-      await migrateDb(db);
++      await migrateDb(db, MIGRATIONS.slice(0, 5));
+ 
+       expect(await getSchemaVersion(db)).toBe(5);
+       for (const table of ['spots', 'media', 'hit_lists']) {
+@@ -831,7 +827,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
+         photo.created_at,
+       );
+ 
+-      await migrateDb(db);
++      await migrateDb(db, MIGRATIONS.slice(0, 5));
+ 
+       expect(await getSchemaVersion(db)).toBe(5);
+       expect((await getSpots(db)).map((s) => s.name).sort()).toEqual(['empty', 'full']);
+@@ -844,7 +840,7 @@ describe('migrateDb (PRAGMA user_version)', () => {
+ 
+     it('migrating a v5 DB again changes nothing (rows, outbox and sync state stay)', async () => {
+       const db = await v4Db();
+-      await migrateDb(db);
++      await migrateDb(db, MIGRATIONS.slice(0, 5));
+       await db.runAsync("INSERT INTO sync_state (key, value) VALUES ('user_id', 'u1')");
+       await insertSpot(db, createTestSpot({ owner_id: 'u1' }));
+       const snapshot = async () => ({
+@@ -855,13 +851,91 @@ describe('migrateDb (PRAGMA user_version)', () => {
+       const before = await snapshot();
+       expect(before.outbox).toHaveLength(1);
+ 
+-      await migrateDb(db);
++      await migrateDb(db, MIGRATIONS.slice(0, 5));
+ 
+       expect(await getSchemaVersion(db)).toBe(5);
+       expect(await snapshot()).toEqual(before);
+     });
+   });
+ 
++  describe('migration 6 (profiles: the local mirror of friend names, D72)', () => {
++    /** A DB as S5's builds left it: at version 5. */
++    const v5Db = async () => {
++      const db = createTestDb();
++      await migrateDb(db, MIGRATIONS.slice(0, 5));
++      expect(await getSchemaVersion(db)).toBe(5);
++      return db;
++    };
++    const columns = async (db: SQLiteDatabase, table: string) =>
++      (await db.getAllAsync<{ name: string; type: string; pk: number }>(`PRAGMA table_info(${table})`)).map(
++        ({ name, type, pk }) => ({ name, type, pk }),
++      );
++
++    it('is the last migration', () => {
++      expect(MIGRATIONS).toHaveLength(6);
++      expect(LATEST_SCHEMA_VERSION).toBe(6);
++    });
++
++    it('adds profiles (id TEXT primary key, username, display_name) to a v5 DB', async () => {
++      const db = await v5Db();
++      expect(await tables(db)).not.toContain('profiles');
++
++      await migrateDb(db);
++
++      expect(await getSchemaVersion(db)).toBe(6);
++      expect(await columns(db, 'profiles')).toEqual([
++        { name: 'id', type: 'TEXT', pk: 1 },
++        { name: 'username', type: 'TEXT', pk: 0 },
++        { name: 'display_name', type: 'TEXT', pk: 0 },
++      ]);
++    });
++
++    it('adds no trigger: a profile row never reaches the outbox', async () => {
++      const db = await v5Db();
++      const triggersBefore = await db.getAllAsync(`SELECT name FROM sqlite_master WHERE type = 'trigger'`);
++
++      await migrateDb(db);
++      await db.runAsync("INSERT INTO sync_state (key, value) VALUES ('user_id', 'u1')");
++      await db.runAsync("INSERT INTO profiles (id, username) VALUES ('p1', 'ana')");
++
++      expect(await db.getAllAsync(`SELECT name FROM sqlite_master WHERE type = 'trigger'`)).toEqual(triggersBefore);
++      expect(await db.getFirstAsync('SELECT COUNT(*) AS n FROM sync_outbox')).toEqual({ n: 0 });
++    });
++
++    it('the v2 fixture rows migrate 2 → 6 with their spots and media intact', async () => {
++      const db = createTestDb();
++      await migrateDb(db, MIGRATIONS.slice(0, 2));
++      const full = createTestSpot({ name: 'full' });
++      await insertOldSpot(db, full, {
++        status: V2_SPOTS.full.status,
++        feature: JSON.stringify(V2_SPOTS.full.feature),
++        inRun: JSON.stringify(V2_SPOTS.full.inRun),
++        landing: JSON.stringify(V2_SPOTS.full.landing),
++        metadata: JSON.stringify(V2_SPOTS.full.metadata),
++      });
++
++      await migrateDb(db);
++
++      expect(await getSchemaVersion(db)).toBe(6);
++      expect(await getSpot(db, full.id)).toMatchObject({ stopped: true, natural_speed: 3, notes: 'hello' });
++      expect(await getSpotLegacy(db, full.id)).toEqual(V2_SPOTS.fullLegacy);
++      expect(await db.getFirstAsync('SELECT COUNT(*) AS n FROM profiles')).toEqual({ n: 0 });
++    });
++
++    it('migrating a v6 DB again changes nothing', async () => {
++      const db = await v5Db();
++      await migrateDb(db);
++      await db.runAsync("INSERT INTO profiles (id, username, display_name) VALUES ('p1', 'ana', 'Ana B')");
++
++      await migrateDb(db);
++
++      expect(await getSchemaVersion(db)).toBe(6);
++      expect(await db.getAllAsync('SELECT * FROM profiles')).toEqual([
++        { id: 'p1', username: 'ana', display_name: 'Ana B' },
++      ]);
++    });
++  });
++
+   it('rolls back a failing migration and stays at the previous version', async () => {
+     const db = createTestDb();
+     const boom: Migration = async (d) => {
+diff --git a/src/__tests__/db-profiles.test.ts b/src/__tests__/db-profiles.test.ts
+new file mode 100644
+index 0000000..d14e1ac
+--- /dev/null
++++ b/src/__tests__/db-profiles.test.ts
+@@ -0,0 +1,65 @@
++import type { SQLiteDatabase } from 'expo-sqlite';
++import { createMigratedTestDb } from './helpers/node-sqlite-db';
++import { adoptPhoneFor } from './helpers/outbox';
++import { clearProfiles, getProfiles, upsertProfiles } from '@/src/db/profiles';
++
++let db: SQLiteDatabase;
++
++beforeEach(async () => {
++  db = await createMigratedTestDb();
++});
++
++describe('the local profiles mirror (D72)', () => {
++  it('upserts two profiles and getProfiles returns both by id', async () => {
++    await upsertProfiles(db, [
++      { id: 'p-ana', username: 'ana', display_name: 'Ana B' },
++      { id: 'p-ben', username: 'ben', display_name: null },
++    ]);
++
++    expect(await getProfiles(db, ['p-ana', 'p-ben', 'p-unknown'])).toEqual({
++      'p-ana': { id: 'p-ana', username: 'ana', display_name: 'Ana B' },
++      'p-ben': { id: 'p-ben', username: 'ben', display_name: null },
++    });
++  });
++
++  it('upserting again updates the row in place (a rename, a new display name), no duplicate', async () => {
++    await upsertProfiles(db, [{ id: 'p-ana', username: 'ana', display_name: 'Ana B' }]);
++
++    await upsertProfiles(db, [{ id: 'p-ana', username: 'ana_b', display_name: 'Ana Banana' }]);
++
++    expect(await db.getAllAsync('SELECT * FROM profiles')).toEqual([
++      { id: 'p-ana', username: 'ana_b', display_name: 'Ana Banana' },
++    ]);
++  });
++
++  it('a NULL username never erases a known one', async () => {
++    await upsertProfiles(db, [{ id: 'p-ana', username: 'ana', display_name: 'Ana B' }]);
++
++    await upsertProfiles(db, [{ id: 'p-ana', username: null, display_name: 'Ana B' }]);
++
++    expect((await getProfiles(db, ['p-ana']))['p-ana'].username).toBe('ana');
++  });
++
++  it('getProfiles([]) is {} and upsertProfiles([]) writes nothing', async () => {
++    await upsertProfiles(db, []);
++
++    expect(await getProfiles(db, [])).toEqual({});
++    expect(await db.getFirstAsync('SELECT COUNT(*) AS n FROM profiles')).toEqual({ n: 0 });
++  });
++
++  it('clearProfiles empties the mirror', async () => {
++    await upsertProfiles(db, [{ id: 'p-ana', username: 'ana', display_name: null }]);
++
++    await clearProfiles(db);
++
++    expect(await getProfiles(db, ['p-ana'])).toEqual({});
++  });
++
++  it('never queues an outbox row, also on an adopted phone', async () => {
++    await adoptPhoneFor(db);
++
++    await upsertProfiles(db, [{ id: 'p-ana', username: 'ana', display_name: null }]);
++
++    expect(await db.getFirstAsync('SELECT COUNT(*) AS n FROM sync_outbox')).toEqual({ n: 0 });
++  });
++});
+diff --git a/src/__tests__/friends-screen.test.tsx b/src/__tests__/friends-screen.test.tsx
+new file mode 100644
+index 0000000..caf9ad4
+--- /dev/null
++++ b/src/__tests__/friends-screen.test.tsx
+@@ -0,0 +1,407 @@
++import React from 'react';
++import { Alert, RefreshControl, type AlertButton } from 'react-native';
++import { act, fireEvent, render, screen } from '@testing-library/react-native';
++import { useRouter } from 'expo-router';
++import { useSQLiteContext as sharedDb } from 'expo-sqlite';
++
++import { createFakeSupabase, fakeSession, type FakeSupabase } from './helpers/fake-supabase';
++
++let mockFake: FakeSupabase | null = null;
++jest.mock('@/src/sync/client', () => ({
++  getSupabase: () => mockFake,
++  isConfigured: () => mockFake !== null,
++}));
++// The calls are src/sync/friends.ts's (tested in sync-friends.test.ts); here only what the screen asks of them.
++jest.mock('@/src/sync/friends', () => ({
++  ...jest.requireActual('@/src/sync/friends'),
++  addFriend: jest.fn(),
++  removeFriend: jest.fn().mockResolvedValue(undefined),
++  block: jest.fn().mockResolvedValue(undefined),
++  unblock: jest.fn().mockResolvedValue(undefined),
++  refreshFriends: jest.fn().mockResolvedValue(undefined),
++}));
++
++import FriendsScreen from '@/app/friends/index';
++import { ACCOUNTS_NOT_SET_UP } from '@/src/components';
++import { SIGNED_OUT, useAuthStore, type AuthSnapshot } from '@/src/stores/auth-store';
++import { EMPTY_FRIENDS, useFriendsStore } from '@/src/stores/friends-store';
++import { addFriend, block, refreshFriends, removeFriend, unblock, type FriendsData } from '@/src/sync/friends';
++
++const ANA_RIDER: AuthSnapshot = {
++  status: 'signed_in',
++  userId: 'user-me',
++  email: 'me@example.com',
++  username: 'me',
++  displayName: null,
++};
++
++const profile = (id: string, username: string | null, display_name: string | null = null) => ({
++  id,
++  username,
++  display_name,
++});
++
++const DATA: FriendsData = {
++  friends: [
++    { friendshipId: 'f-ana', created_at: '2026-10-20T10:00:00.000Z', profile: profile('id-ana', 'ana', 'Ana B') },
++    { friendshipId: 'f-ben', created_at: '2026-10-21T10:00:00.000Z', profile: profile('id-ben', 'ben') },
++  ],
++  incoming: [],
++  outgoing: [{ friendshipId: 'f-cal', created_at: '2026-10-22T10:00:00.000Z', profile: profile('id-cal', 'cal') }],
++  blocked: [],
++};
++
++const HINT = "Friends are added by exact username or by an invite link. There's no search by name.";
++const NETWORK = "Couldn't reach the server. Try again.";
++
++let router: { push: jest.Mock; dismissTo: jest.Mock };
++let alert: jest.SpyInstance;
++let warn: jest.SpyInstance;
++// jest.setup's expo-sqlite mock hands every caller the same db object: the one the screen passes on.
++const db = sharedDb();
++
++function signIn(data: FriendsData = DATA) {
++  mockFake?.setSession(fakeSession({ userId: 'user-me' }));
++  useAuthStore.setState(ANA_RIDER);
++  useFriendsStore.getState().applyFriends('user-me', data);
++}
++
++async function renderScreen() {
++  render(<FriendsScreen />);
++  await act(async () => {});
++}
++
++/** The buttons of the last Alert.alert call. */
++function lastAlert(): { title: string; message?: string; buttons: AlertButton[] } {
++  const call = alert.mock.calls.at(-1) ?? [];
++  return { title: call[0], message: call[1], buttons: (call[2] ?? []) as AlertButton[] };
++}
++
++async function pressAlertButton(text: string) {
++  const button = lastAlert().buttons.find((b) => b.text === text);
++  if (!button) throw new Error(`no '${text}' in the alert`);
++  await act(async () => {
++    button.onPress?.();
++  });
++}
++
++async function add(typed: string) {
++  fireEvent.changeText(screen.getByPlaceholderText('Add by exact @username'), typed);
++  await act(async () => {
++    fireEvent.press(screen.getByRole('button', { name: 'Add' }));
++  });
++}
++
++beforeEach(() => {
++  mockFake = createFakeSupabase();
++  useAuthStore.setState(SIGNED_OUT);
++  useFriendsStore.getState().clearFriends();
++  router = { push: jest.fn(), dismissTo: jest.fn() };
++  jest.mocked(useRouter).mockReturnValue(router as never);
++  alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
++  warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
++  jest.mocked(addFriend).mockReset();
++  jest.mocked(removeFriend).mockReset().mockResolvedValue(undefined);
++  jest.mocked(block).mockReset().mockResolvedValue(undefined);
++  jest.mocked(unblock).mockReset().mockResolvedValue(undefined);
++  jest.mocked(refreshFriends).mockReset().mockResolvedValue(undefined);
++});
++
++afterEach(() => {
++  alert.mockRestore();
++  warn.mockRestore();
++});
++
++describe('Friends screen signed out / unconfigured', () => {
++  it("signed out shows 'Sign in to add friends' and a Sign in button only", async () => {
++    await renderScreen();
++    expect(screen.getByText('Sign in to add friends')).toBeOnTheScreen();
++    expect(screen.queryByPlaceholderText('Add by exact @username')).toBeNull();
++    expect(screen.queryByText('Friends')).toBeNull();
++    fireEvent.press(screen.getByRole('button', { name: 'Sign in' }));
++    expect(router.push).toHaveBeenCalledWith('/auth/sign-in');
++    expect(screen.getAllByRole('button')).toHaveLength(1);
++    expect(refreshFriends).not.toHaveBeenCalled();
++  });
++
++  it.each([
++    ['no client', () => (mockFake = null)],
++    ["status 'unconfigured'", () => useAuthStore.setState({ ...SIGNED_OUT, status: 'unconfigured' })],
++  ])("an unconfigured build (%s) says accounts aren't set up and nothing else", async (_name, setUp) => {
++    setUp();
++    await renderScreen();
++    expect(screen.getByText(ACCOUNTS_NOT_SET_UP)).toBeOnTheScreen();
++    expect(screen.queryByRole('button')).toBeNull();
++  });
++});
++
++describe('Friends screen signed in', () => {
++  beforeEach(() => signIn());
++
++  it('loads friends on open', async () => {
++    await renderScreen();
++    expect(refreshFriends).toHaveBeenCalledWith(db, mockFake, 'user-me');
++  });
++
++  it("lists 'Friends' with '@ana · Ana B' and '@ben', 'Requests sent' with '@cal' and Cancel", async () => {
++    await renderScreen();
++    expect(screen.getByText('Friends')).toBeOnTheScreen();
++    expect(screen.getByText('@ana · Ana B')).toBeOnTheScreen();
++    expect(screen.getByText('@ben')).toBeOnTheScreen();
++    expect(screen.getByText('Requests sent')).toBeOnTheScreen();
++    expect(screen.getByText('@cal')).toBeOnTheScreen();
++    expect(screen.getByRole('button', { name: 'Cancel request to @cal' })).toBeOnTheScreen();
++    expect(screen.queryByText('Blocked')).toBeNull();
++  });
++
++  it("a sent request whose name this phone never saw reads 'A rider you asked' (D73)", async () => {
++    signIn({ ...DATA, outgoing: [{ ...DATA.outgoing[0], profile: profile('id-cal', null) }] });
++    await renderScreen();
++    expect(screen.getByText('A rider you asked')).toBeOnTheScreen();
++  });
++
++  it('shows the add field, its button and the hint', async () => {
++    await renderScreen();
++    const field = screen.getByPlaceholderText('Add by exact @username');
++    expect(field.props.autoCapitalize).toBe('none');
++    expect(field.props.autoCorrect).toBe(false);
++    expect(screen.getByRole('button', { name: 'Add' })).toBeOnTheScreen();
++    expect(screen.getByText(HINT)).toBeOnTheScreen();
++  });
++
++  it.each([
++    ['sent', 'Request sent to @dee'],
++    ['accepted', "You're now friends with @dee"],
++    ['already_friends', 'Already friends with @dee'],
++    ['already_sent', 'Request already sent to @dee'],
++    ['self', "That's you"],
++    ['blocked_by_me', 'You blocked @dee. Unblock them below to add them.'],
++  ] as const)("Add answers '%s' with '%s'", async (status, line) => {
++    jest.mocked(addFriend).mockResolvedValue({ found: true, status, profile: profile('id-dee', 'dee') });
++    await renderScreen();
++    jest.mocked(refreshFriends).mockClear();
++    await add('dee');
++    expect(addFriend).toHaveBeenCalledWith(mockFake, db, 'user-me', 'dee');
++    expect(screen.getByText(line)).toBeOnTheScreen();
++    expect(refreshFriends).toHaveBeenCalledWith(db, mockFake, 'user-me');
++  });
++
++  it("Add clears the field after a request went out", async () => {
++    jest.mocked(addFriend).mockResolvedValue({ found: true, status: 'sent', profile: profile('id-dee', 'dee') });
++    await renderScreen();
++    await add('  @Dee ');
++    expect(addFriend).toHaveBeenCalledWith(mockFake, db, 'user-me', '  @Dee ');
++    expect(screen.getByPlaceholderText('Add by exact @username').props.value).toBe('');
++  });
++
++  it("not found (or a rider who blocked you, D50) reads 'No rider named @dee'", async () => {
++    jest.mocked(addFriend).mockResolvedValue({ found: false, status: 'not_found' });
++    await renderScreen();
++    await add('Dee');
++    expect(screen.getByText('No rider named @dee')).toBeOnTheScreen();
++  });
++
++  it('an invalid name makes no call and explains the pattern (D39)', async () => {
++    await renderScreen();
++    await add('a b');
++    expect(addFriend).not.toHaveBeenCalled();
++    expect(screen.getByText('Usernames are 3–20 letters, numbers, _ or .')).toBeOnTheScreen();
++  });
++
++  it('a server error reads the network line and warns', async () => {
++    jest.mocked(addFriend).mockRejectedValue(new Error('boom'));
++    await renderScreen();
++    await add('dee');
++    expect(screen.getByText(NETWORK)).toBeOnTheScreen();
++    expect(warn).toHaveBeenCalled();
++  });
++
++  it('a double tap on Add sends one request', async () => {
++    let finish: (v: unknown) => void = () => {};
++    jest.mocked(addFriend).mockReturnValue(new Promise((resolve) => (finish = resolve)) as never);
++    await renderScreen();
++    fireEvent.changeText(screen.getByPlaceholderText('Add by exact @username'), 'dee');
++    const button = screen.getByRole('button', { name: 'Add' });
++    // Both taps inside one act: no re-render (disabled button) between them, as with two taps in one frame.
++    act(() => {
++      fireEvent.press(button);
++      fireEvent.press(button);
++    });
++    await act(async () => finish({ found: false, status: 'not_found' }));
++    expect(addFriend).toHaveBeenCalledTimes(1);
++  });
++
++  it("long-pressing a friend offers 'Remove friend' and 'Block @ana'; Remove calls removeFriend", async () => {
++    await renderScreen();
++    fireEvent(screen.getByText('@ana · Ana B'), 'longPress');
++    const { title, buttons } = lastAlert();
++    expect(title).toBe('@ana');
++    expect(buttons.map((b) => b.text)).toEqual(['Remove friend', 'Block @ana', 'Cancel']);
++    expect(buttons[1].style).toBe('destructive');
++    jest.mocked(refreshFriends).mockClear();
++    await pressAlertButton('Remove friend');
++    expect(removeFriend).toHaveBeenCalledWith(mockFake, 'user-me', 'f-ana');
++    expect(refreshFriends).toHaveBeenCalledWith(db, mockFake, 'user-me');
++  });
++
++  it('Block asks again with the they-won’t-be-told line, then calls block', async () => {
++    await renderScreen();
++    fireEvent(screen.getByText('@ana · Ana B'), 'longPress');
++    await pressAlertButton('Block @ana');
++    const confirm = lastAlert();
++    expect(confirm.title).toBe('Block @ana?');
++    expect(confirm.message).toBe("They won't be told. They can't send to you or invite you.");
++    expect(confirm.buttons.map((b) => [b.text, b.style])).toEqual([
++      ['Cancel', 'cancel'],
++      ['Block', 'destructive'],
++    ]);
++    expect(block).not.toHaveBeenCalled();
++    await pressAlertButton('Block');
++    expect(block).toHaveBeenCalledWith(mockFake, 'user-me', 'id-ana');
++  });
++
++  it('Cancel on a sent request calls removeFriend once, even on a double tap', async () => {
++    let finish: () => void = () => {};
++    jest.mocked(removeFriend).mockReturnValue(new Promise<void>((resolve) => (finish = resolve)));
++    await renderScreen();
++    const cancel = screen.getByRole('button', { name: 'Cancel request to @cal' });
++    // Both taps inside one act: no re-render (spinner) between them, as with two taps in one frame.
++    act(() => {
++      fireEvent.press(cancel);
++      fireEvent.press(cancel);
++    });
++    await act(async () => finish());
++    expect(removeFriend).toHaveBeenCalledTimes(1);
++    expect(removeFriend).toHaveBeenCalledWith(mockFake, 'user-me', 'f-cal');
++  });
++
++  it("a failed action shows the network line", async () => {
++    jest.mocked(removeFriend).mockRejectedValue(new Error('offline'));
++    await renderScreen();
++    await act(async () => {
++      fireEvent.press(screen.getByRole('button', { name: 'Cancel request to @cal' }));
++    });
++    expect(screen.getByText(NETWORK)).toBeOnTheScreen();
++    expect(warn).toHaveBeenCalled();
++  });
++
++  it("VoiceOver reaches Remove and Block through the row's actions, not only a long press", async () => {
++    await renderScreen();
++    const row = screen.getByRole('button', { name: '@ana · Ana B' });
++    expect(row.props.accessibilityActions).toEqual([
++      { name: 'remove', label: 'Remove friend' },
++      { name: 'block', label: 'Block @ana' },
++    ]);
++    await act(async () => {
++      fireEvent(row, 'accessibilityAction', { nativeEvent: { actionName: 'remove' } });
++    });
++    expect(removeFriend).toHaveBeenCalledWith(mockFake, 'user-me', 'f-ana');
++    fireEvent(row, 'accessibilityAction', { nativeEvent: { actionName: 'block' } });
++    expect(lastAlert().title).toBe('Block @ana?');
++  });
++
++  it('a sent row is not one grouped element, so VoiceOver can reach its Cancel', async () => {
++    await renderScreen();
++    const cancel = screen.getByRole('button', { name: 'Cancel request to @cal' });
++    // Every host view above the button's own (one grouped element would swallow it).
++    let node = cancel.parent;
++    while (node) {
++      if (typeof node.type === 'string') {
++        expect(node.props.accessible).not.toBe(true);
++        expect(node.props.onLongPress).toBeUndefined();
++      }
++      node = node.parent;
++    }
++  });
++
++  it('Remove then Block on the same row while the first runs sends only the first', async () => {
++    let finish: () => void = () => {};
++    jest.mocked(removeFriend).mockReturnValue(new Promise<void>((resolve) => (finish = resolve)));
++    await renderScreen();
++    fireEvent(screen.getByText('@ana · Ana B'), 'longPress');
++    const menu = lastAlert();
++    await act(async () => {
++      menu.buttons.find((b) => b.text === 'Remove friend')?.onPress?.();
++    });
++    menu.buttons.find((b) => b.text === 'Block @ana')?.onPress?.();
++    await pressAlertButton('Block');
++    await act(async () => finish());
++    expect(removeFriend).toHaveBeenCalledTimes(1);
++    expect(block).not.toHaveBeenCalled();
++  });
++
++  it('the row is free again once the action is done, without waiting for the friends load', async () => {
++    jest.mocked(refreshFriends).mockReturnValue(new Promise<void>(() => {}));
++    await renderScreen();
++    await act(async () => {
++      fireEvent.press(screen.getByRole('button', { name: 'Cancel request to @cal' }));
++    });
++    expect(removeFriend).toHaveBeenCalledTimes(1);
++    expect(screen.getByRole('button', { name: 'Cancel request to @cal' })).toBeOnTheScreen();
++    jest.mocked(addFriend).mockResolvedValue({ found: false, status: 'not_found' });
++    await add('dee');
++    expect(screen.getByRole('button', { name: 'Add' })).toBeEnabled();
++  });
++
++  it.each([
++    ['Block', async () => {
++      fireEvent(screen.getByText('@ana · Ana B'), 'longPress');
++      await pressAlertButton('Block @ana');
++      await pressAlertButton('Block');
++    }],
++    ['a failed Remove', async () => {
++      jest.mocked(removeFriend).mockRejectedValue(new Error('offline'));
++      fireEvent(screen.getByText('@ana · Ana B'), 'longPress');
++      await pressAlertButton('Remove friend');
++    }],
++  ])('%s ends with a friends load', async (_name, run) => {
++    await renderScreen();
++    jest.mocked(refreshFriends).mockClear();
++    await run();
++    expect(refreshFriends).toHaveBeenCalledWith(db, mockFake, 'user-me');
++  });
++
++  it('Add with the session gone says the network line instead of nothing', async () => {
++    jest.mocked(addFriend).mockResolvedValue(null);
++    await renderScreen();
++    await add('dee');
++    expect(screen.getByText(NETWORK)).toBeOnTheScreen();
++  });
++
++  it("a 'Blocked' section lists @dee with Unblock (D74)", async () => {
++    signIn({ ...DATA, blocked: [profile('id-dee', 'dee')] });
++    await renderScreen();
++    expect(screen.getByText('Blocked')).toBeOnTheScreen();
++    expect(screen.getByText('@dee')).toBeOnTheScreen();
++    await act(async () => {
++      fireEvent.press(screen.getByRole('button', { name: 'Unblock @dee' }));
++    });
++    expect(unblock).toHaveBeenCalledWith(mockFake, 'user-me', 'id-dee');
++    expect(refreshFriends).toHaveBeenLastCalledWith(db, mockFake, 'user-me');
++  });
++
++  it("points at the Inbox when requests are waiting there", async () => {
++    signIn({ ...DATA, incoming: [{ ...DATA.outgoing[0], friendshipId: 'f-eve', profile: profile('id-eve', 'eve') }] });
++    await renderScreen();
++    expect(screen.getByText('1 friend request in Inbox')).toBeOnTheScreen();
++    expect(screen.queryByText('@eve')).toBeNull();
++    fireEvent.press(screen.getByRole('link', { name: '1 friend request in Inbox' }));
++    // back to the tabs under Friends, switched to Inbox; navigate would push a second set of tabs on top
++    expect(router.dismissTo).toHaveBeenCalledWith('/inbox');
++  });
++
++  it('pull to refresh loads friends again', async () => {
++    await renderScreen();
++    jest.mocked(refreshFriends).mockClear();
++    const control = screen.UNSAFE_getByType(RefreshControl);
++    await act(async () => control.props.onRefresh());
++    expect(refreshFriends).toHaveBeenCalledWith(db, mockFake, 'user-me');
++  });
++
++  it('a load that failed with nothing to show says so', async () => {
++    signIn(EMPTY_FRIENDS);
++    useFriendsStore.getState().setLoadError('user-me', 'offline');
++    await renderScreen();
++    expect(screen.getByText("Couldn't reach the server. Pull to try again.")).toBeOnTheScreen();
++  });
++});
+diff --git a/src/__tests__/friends-store.test.ts b/src/__tests__/friends-store.test.ts
+new file mode 100644
+index 0000000..bc9419d
+--- /dev/null
++++ b/src/__tests__/friends-store.test.ts
+@@ -0,0 +1,79 @@
++import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
++import { EMPTY_FRIENDS, useFriendsStore } from '@/src/stores/friends-store';
++import type { FriendsData } from '@/src/sync/friends';
++
++const data: FriendsData = {
++  friends: [
++    {
++      friendshipId: 'f-ana',
++      created_at: '2026-10-19T09:00:00.000Z',
++      profile: { id: 'rider-ana', username: 'ana', display_name: 'Ana B' },
++    },
++  ],
++  incoming: [
++    { friendshipId: 'f-zed', created_at: '2026-10-21T10:00:00.000Z', profile: { id: 'rider-zed', username: 'zed', display_name: null } },
++  ],
++  outgoing: [],
++  blocked: [],
++};
++
++const signIn = (userId: string) => useAuthStore.setState({ ...SIGNED_OUT, status: 'signed_in', userId });
++
++beforeEach(() => {
++  useAuthStore.setState({ ...SIGNED_OUT });
++  useFriendsStore.getState().clearFriends();
++});
++
++describe('useFriendsStore', () => {
++  it('starts empty, not loaded', () => {
++    expect(useFriendsStore.getState()).toMatchObject({ ...EMPTY_FRIENDS, userId: null, loadedAt: null, loadError: null });
++  });
++
++  it("applyFriends sets the signed-in rider's friends, requests and blocks", () => {
++    signIn('rider-me');
++
++    useFriendsStore.getState().applyFriends('rider-me', data);
++
++    expect(useFriendsStore.getState()).toMatchObject({ userId: 'rider-me', ...data, loadError: null });
++    expect(useFriendsStore.getState().loadedAt).toEqual(expect.any(String));
++  });
++
++  it('ignores applyFriends for a rider who is not the one signed in', () => {
++    signIn('rider-me');
++
++    useFriendsStore.getState().applyFriends('someone-else', data);
++
++    expect(useFriendsStore.getState()).toMatchObject({ ...EMPTY_FRIENDS, userId: null });
++  });
++
++  it('empties itself when the signed-in rider changes (sign-out, another account)', () => {
++    signIn('rider-me');
++    useFriendsStore.getState().applyFriends('rider-me', data);
++
++    signIn('rider-other');
++
++    expect(useFriendsStore.getState()).toMatchObject({ ...EMPTY_FRIENDS, userId: null, loadedAt: null });
++
++    useFriendsStore.getState().applyFriends('rider-other', data);
++    useAuthStore.setState({ ...SIGNED_OUT });
++    expect(useFriendsStore.getState()).toMatchObject({ ...EMPTY_FRIENDS, userId: null });
++  });
++
++  it('keeps its data when the auth store changes something else (a username saved)', () => {
++    signIn('rider-me');
++    useFriendsStore.getState().applyFriends('rider-me', data);
++
++    useAuthStore.getState().setProfile('me', 'Me');
++
++    expect(useFriendsStore.getState().friends).toEqual(data.friends);
++  });
++
++  it('setLoadError records the error for the rider shown only', () => {
++    signIn('rider-me');
++    useFriendsStore.getState().setLoadError('rider-me', 'offline');
++    expect(useFriendsStore.getState().loadError).toBe('offline');
++
++    useFriendsStore.getState().setLoadError('someone-else', 'boom');
++    expect(useFriendsStore.getState().loadError).toBe('offline');
++  });
++});
+diff --git a/src/__tests__/helpers/fake-supabase.ts b/src/__tests__/helpers/fake-supabase.ts
+index dbc1c6c..de3fa95 100644
+--- a/src/__tests__/helpers/fake-supabase.ts
++++ b/src/__tests__/helpers/fake-supabase.ts
+@@ -12,13 +12,17 @@
+ //     { data: { id, path, fullPath }, error: null } | { data: null, error: StorageError };
+ //     storage.from(bucket).download(path) → { data: Blob, error: null } | { data: null, error: StorageError })
+ //   node_modules/@supabase/functions-js/dist/module/FunctionsClient.d.ts (functions.invoke(name, options?))
++//   node_modules/@supabase/supabase-js/dist/index.d.mts (rpc(fn, args?) → a thenable { data, error }; a set-returning
++//     function such as find_profile answers an array)
+ // Every member is a jest.fn. Screens get it with
+ //   jest.mock('@/src/sync/client', () => ({ getSupabase: () => mockFake, isConfigured: () => true }))
+ // The fake keeps one session and a `profiles` table; `failNext(method, error, table?)` makes the next call of
+-// that method (on that table) answer { data: null, error }; `queryDelayMs` slows every query down. Every upsert,
+-// delete and upload is logged in `calls`, in the order the app awaited them (the push tests read the order there).
+-// Other tables answer selects from `tables` (filters, order and limit applied; each select logged in `selects`);
+-// storage downloads answer from `objects`.
++// that method (on that table, or rpc function) answer { data: null, error }; `queryDelayMs` slows every query down.
++// Every upsert, delete and upload is logged in `calls`, in the order the app awaited them (the push tests read the
++// order there). Selects answer from `tables`, `profiles` from the `profiles` map (filters, order and limit applied;
++// each select logged in `selects`); `readableProfiles` (a set of ids, null = all) mimics the profiles RLS. rpc calls
++// are logged in `rpcs` and answered by `rpcHandlers[fn]` (no handler: { data: null, error: null }); storage downloads
++// answer from `objects`.
+ import type { AuthChangeEvent, Session } from '@supabase/supabase-js';
+ 
+ export type FakeError = { message: string; code?: string; status?: number };
+@@ -34,7 +38,8 @@ type FailMethod =
+   | 'delete'
+   | 'upload'
+   | 'download'
+-  | 'invoke';
++  | 'invoke'
++  | 'rpc';
+ export type FakeCall =
+   | { kind: 'upsert'; table: string; values: Record<string, unknown>; options?: UpsertOptions }
+   | { kind: 'delete'; table: string; filters: [string, unknown][] }
+@@ -43,7 +48,7 @@ type UpsertOptions = { onConflict?: string; ignoreDuplicates?: boolean };
+ type UploadOptions = { contentType?: string; upsert?: boolean };
+ type Row = Record<string, unknown>;
+ type Filter = ['eq' | 'gt', string, unknown] | ['in', string, unknown[]];
+-/** One awaited select on a table other than `profiles`: what pull asked the server. */
++/** One awaited select: what the app asked the server. */
+ export interface FakeSelect {
+   table: string;
+   columns?: string;
+@@ -55,6 +60,12 @@ export interface FakeProfile {
+   username: string | null;
+   display_name: string | null;
+ }
++type RpcResult = { data: unknown; error: FakeError | null };
++/** One awaited rpc call. */
++export interface FakeRpc {
++  fn: string;
++  args: Record<string, unknown> | undefined;
++}
+ 
+ export function fakeSession({ userId = 'user-ana', email = 'ana@example.com' } = {}): Session {
+   return {
+@@ -81,6 +92,8 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
+   const profiles = new Map<string, FakeProfile>();
+   const calls: FakeCall[] = [];
+   const selects: FakeSelect[] = [];
++  const rpcs: FakeRpc[] = [];
++  const rpcHandlers: Record<string, (args: Record<string, unknown> | undefined) => RpcResult> = {};
+   /** The server's rows per table (not `profiles`), as PostgREST returns them. */
+   const tables: Record<string, Row[]> = {};
+   /** Storage objects by `<bucket>/<path>`. */
+@@ -119,9 +132,15 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
+ 
+   const compare = (a: unknown, b: unknown) => ((a as number | string) < (b as number | string) ? -1 : a === b ? 0 : 1);
+ 
+-  /** A select on `tables[table]`: filters, then order, then limit, columns picked from `columns`. */
++  /** The `profiles` map as rows, only those `readableProfiles` lets this session read. */
++  const profileRows = (): Row[] =>
++    [...profiles.entries()]
++      .filter(([id]) => fake.readableProfiles === null || fake.readableProfiles.has(id))
++      .map(([id, row]) => ({ id, ...row }));
++
++  /** A select on `tables[table]` (or the profiles): filters, then order, then limit, columns picked from `columns`. */
+   function selectRows(table: string, columns: string | undefined, filters: Filter[], order: string[], limit?: number) {
+-    let rows = (tables[table] ?? []).filter((row) =>
++    let rows = (table === 'profiles' ? profileRows() : (tables[table] ?? [])).filter((row) =>
+       filters.every(([op, column, value]) => {
+         if (op === 'eq') return row[column] === value;
+         // SQL: NULL > x is not true
+@@ -160,7 +179,7 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
+     const run = (): QueryResult => {
+       if (op === 'upsert') calls.push({ kind: 'upsert', table, values: upserted, options: upsertOptions });
+       if (op === 'delete') calls.push({ kind: 'delete', table, filters: [...filters] });
+-      if (op === 'select' && table !== 'profiles') {
++      if (op === 'select') {
+         const select: FakeSelect = { table, columns, filters: [...selectFilters], order: [...order], limit };
+         selects.push(select);
+         const failure = selectFailures.findIndex(({ match }) => match(select));
+@@ -169,17 +188,12 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
+       const error = takeFailure(op, table);
+       if (error) return { data: null, error };
+       if (op === 'upsert' || op === 'delete') return { data: null, error: null };
+-      if (table !== 'profiles') {
+-        const rows = selectRows(table, columns, selectFilters, order, limit);
+-        return { data: one ? (rows[0] ?? null) : rows, error: null };
+-      }
+-      const rows = [...profiles.entries()]
+-        .map(([id, row]) => ({ id, ...row }))
+-        .filter((row) => filters.every(([column, value]) => row[column as keyof typeof row] === value));
+       if (op === 'update') {
+-        for (const row of rows) profiles.set(row.id, { ...profiles.get(row.id)!, ...values });
++        const rows = profileRows().filter((row) => filters.every(([column, value]) => row[column] === value));
++        for (const row of rows) profiles.set(row.id as string, { ...profiles.get(row.id as string)!, ...values });
+         return { data: returning ? rows.map(({ id }) => ({ id })) : null, error: null };
+       }
++      const rows = selectRows(table, columns, selectFilters, order, limit);
+       return { data: one ? (rows[0] ?? null) : rows, error: null };
+     };
+ 
+@@ -274,6 +288,19 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
+       stopAutoRefresh: jest.fn(async () => {}),
+     },
+     from: jest.fn((table: string) => query(table)),
++    rpc: jest.fn((fn: string, args?: Record<string, unknown>): PromiseLike<RpcResult> => ({
++      then(resolve, reject) {
++        const wait = fake.queryDelayMs > 0 ? new Promise((done) => setTimeout(done, fake.queryDelayMs)) : Promise.resolve();
++        return wait
++          .then((): RpcResult => {
++            rpcs.push({ fn, args });
++            const error = takeFailure('rpc', fn);
++            if (error) return { data: null, error };
++            return rpcHandlers[fn]?.(args) ?? { data: null, error: null };
++          })
++          .then(resolve, reject);
++      },
++    })),
+     storage: {
+       from: jest.fn((bucket: string) => ({
+         upload: jest.fn(async (path: string, body: unknown, options?: UploadOptions) => {
+@@ -304,7 +331,11 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
+     profiles,
+     calls,
+     selects,
++    rpcs,
++    rpcHandlers,
+     tables,
++    /** The profile ids this session may read (the profiles RLS); null = every profile. */
++    readableProfiles: null as Set<string> | null,
+     objects,
+     /** Makes every query answer after this many ms (an in-flight fetch racing an auth event). */
+     queryDelayMs: 0,
+@@ -316,11 +347,11 @@ export function createFakeSupabase(opts: { session?: Session | null; userId?: st
+       session = next;
+       emit(event, next);
+     },
+-    /** The next `method` call answers `error`; with `table`, only the next one on that table. */
++    /** The next `method` call answers `error`; with `table`, only the next one on that table (rpc: that function). */
+     failNext(method: FailMethod, error: FakeError, table?: string) {
+       failures.set(table ? `${method}:${table}` : method, error);
+     },
+-    /** The next select (not on `profiles`) that `match` picks answers `error`. */
++    /** The next select that `match` picks answers `error`. */
+     failSelect(match: (select: FakeSelect) => boolean, error: FakeError) {
+       selectFailures.push({ match, error });
+     },
+diff --git a/src/__tests__/inbox-store.test.ts b/src/__tests__/inbox-store.test.ts
+new file mode 100644
+index 0000000..8d4e691
+--- /dev/null
++++ b/src/__tests__/inbox-store.test.ts
+@@ -0,0 +1,191 @@
++// The Inbox store (S6-04, docs/plans/2026-10-22-s6-friends.md "Inbox tab"): kind-tagged items, the per-rider seen
++// mark in sync_state (real SQLite) and the badge count.
++import type { SQLiteDatabase } from 'expo-sqlite';
++import { createMigratedTestDb } from './helpers/node-sqlite-db';
++
++import { getSyncState, setSyncState } from '@/src/db/sync';
++import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
++import { selectUnseenCount, useInboxStore, type InboxItem, type InboxState } from '@/src/stores/inbox-store';
++
++const ME = 'rider-me';
++const KEY = `inbox_seen_at:${ME}`;
++
++const request = (id: string, created_at: string, username = id): InboxItem => ({
++  kind: 'friend_request',
++  id,
++  created_at,
++  friendshipId: id,
++  from: { id: `rider-${id}`, username, display_name: null },
++});
++
++const T1 = '2026-10-20T10:00:00.000Z';
++const T2 = '2026-10-21T10:00:00.000Z';
++const T3 = '2026-10-22T10:00:00.000Z';
++
++const state = (patch: Partial<InboxState>): InboxState => ({ ...useInboxStore.getState(), ...patch });
++const signIn = (userId: string) => useAuthStore.setState({ ...SIGNED_OUT, status: 'signed_in', userId });
++
++let db: SQLiteDatabase;
++
++beforeEach(async () => {
++  db = await createMigratedTestDb();
++  signIn(ME);
++  useInboxStore.getState().clearInbox();
++});
++
++describe('selectUnseenCount', () => {
++  const items = [request('a', T1), request('b', T2), request('c', T3)];
++
++  it('is 0 while the seen mark is not loaded (never everything on launch)', () => {
++    expect(selectUnseenCount(state({ userId: ME, items, seenAt: undefined }))).toBe(0);
++  });
++
++  it('counts every item when the mark is loaded and was never set', () => {
++    expect(selectUnseenCount(state({ userId: ME, items, seenAt: null }))).toBe(3);
++  });
++
++  it('counts the items created after the mark; one created exactly at it is seen', () => {
++    expect(selectUnseenCount(state({ userId: ME, items, seenAt: T2 }))).toBe(1);
++    expect(selectUnseenCount(state({ userId: ME, items, seenAt: T3 }))).toBe(0);
++  });
++
++  it('is 0 with no items', () => {
++    expect(selectUnseenCount(state({ userId: ME, items: [], seenAt: null }))).toBe(0);
++  });
++});
++
++describe('setItems', () => {
++  it("replaces that kind's items only", () => {
++    const other = { ...request('x', T1), kind: 'send' } as unknown as InboxItem;
++    useInboxStore.setState({ userId: ME, items: [other, request('a', T1)], seenAt: null });
++
++    useInboxStore.getState().setItems(ME, 'friend_request', [request('b', T2)]);
++
++    expect(useInboxStore.getState().items).toEqual([other, request('b', T2)]);
++  });
++
++  it('ignores a rider who is not the one signed in', () => {
++    useInboxStore.getState().setItems('someone-else', 'friend_request', [request('a', T1)]);
++
++    expect(useInboxStore.getState()).toMatchObject({ userId: null, items: [] });
++  });
++
++  it("a first setItems for the rider starts from no items and an unloaded mark", () => {
++    useInboxStore.setState({ userId: 'rider-before', items: [request('z', T3)], seenAt: T3 });
++
++    useInboxStore.getState().setItems(ME, 'friend_request', [request('a', T1)]);
++
++    expect(useInboxStore.getState()).toMatchObject({ userId: ME, items: [request('a', T1)], seenAt: undefined });
++  });
++});
++
++describe('removeItem', () => {
++  it('drops one answered item of that kind', () => {
++    useInboxStore.setState({ userId: ME, items: [request('a', T1), request('b', T2)], seenAt: null });
++
++    useInboxStore.getState().removeItem(ME, 'friend_request', 'a');
++
++    expect(useInboxStore.getState().items).toEqual([request('b', T2)]);
++  });
++
++  it("ignores another rider's call", () => {
++    useInboxStore.setState({ userId: ME, items: [request('a', T1)], seenAt: null });
++
++    useInboxStore.getState().removeItem('rider-other', 'friend_request', 'a');
++
++    expect(useInboxStore.getState().items).toEqual([request('a', T1)]);
++  });
++});
++
++describe('loadSeen', () => {
++  it("reads the rider's own key; null when never set", async () => {
++    await useInboxStore.getState().loadSeen(db, ME);
++    expect(useInboxStore.getState()).toMatchObject({ userId: ME, seenAt: null });
++
++    await setSyncState(db, KEY, T2);
++    await setSyncState(db, 'inbox_seen_at:rider-other', T3);
++    await useInboxStore.getState().loadSeen(db, ME);
++    expect(useInboxStore.getState().seenAt).toBe(T2);
++  });
++
++  it('keeps the items already set for the rider and never moves the mark back', async () => {
++    useInboxStore.setState({ userId: ME, items: [request('a', T1)], seenAt: T3 });
++    await setSyncState(db, KEY, T1);
++
++    await useInboxStore.getState().loadSeen(db, ME);
++
++    expect(useInboxStore.getState()).toMatchObject({ userId: ME, items: [request('a', T1)], seenAt: T3 });
++  });
++
++  it('does nothing for a rider who is not signed in', async () => {
++    await setSyncState(db, 'inbox_seen_at:rider-other', T2);
++
++    await useInboxStore.getState().loadSeen(db, 'rider-other');
++
++    expect(useInboxStore.getState()).toMatchObject({ userId: null, seenAt: undefined });
++  });
++});
++
++describe('markSeen', () => {
++  it("stores the newest item's server time under the rider's key, so the badge drops to 0", async () => {
++    useInboxStore.setState({ userId: ME, items: [request('b', T2), request('a', T1)], seenAt: null });
++    expect(selectUnseenCount(useInboxStore.getState())).toBe(2);
++
++    await useInboxStore.getState().markSeen(db, ME);
++
++    expect(await getSyncState(db, KEY)).toBe(T2);
++    expect(useInboxStore.getState().seenAt).toBe(T2);
++    expect(selectUnseenCount(useInboxStore.getState())).toBe(0);
++  });
++
++  it('never moves the mark back (a stored mark newer than every item stays)', async () => {
++    await setSyncState(db, KEY, T3);
++    useInboxStore.setState({ userId: ME, items: [request('a', T1)], seenAt: undefined });
++
++    await useInboxStore.getState().markSeen(db, ME);
++
++    expect(await getSyncState(db, KEY)).toBe(T3);
++    expect(useInboxStore.getState().seenAt).toBe(T3);
++  });
++
++  it('writes nothing with no items', async () => {
++    useInboxStore.setState({ userId: ME, items: [], seenAt: null });
++
++    await useInboxStore.getState().markSeen(db, ME);
++
++    expect(await getSyncState(db, KEY)).toBeUndefined();
++  });
++
++  it('writes nothing when the rider changes while the stored mark is read', async () => {
++    useInboxStore.setState({ userId: ME, items: [request('a', T1)], seenAt: null });
++
++    const marking = useInboxStore.getState().markSeen(db, ME);
++    signIn('rider-other');
++    await marking;
++
++    expect(await getSyncState(db, KEY)).toBeUndefined();
++    expect(useInboxStore.getState()).toMatchObject({ userId: null, items: [], seenAt: undefined });
++  });
++
++  it('writes nothing for a rider who is not the one shown', async () => {
++    useInboxStore.setState({ userId: ME, items: [request('a', T1)], seenAt: null });
++
++    await useInboxStore.getState().markSeen(db, 'rider-other');
++
++    expect(await getSyncState(db, 'inbox_seen_at:rider-other')).toBeUndefined();
++    expect(await getSyncState(db, KEY)).toBeUndefined();
++  });
++});
++
++describe('the rider changes', () => {
++  it('empties the store on sign-out and on another account', () => {
++    useInboxStore.setState({ userId: ME, items: [request('a', T1)], seenAt: T1 });
++
++    signIn('rider-other');
++    expect(useInboxStore.getState()).toMatchObject({ userId: null, items: [], seenAt: undefined });
++
++    useInboxStore.setState({ userId: 'rider-other', items: [request('a', T1)], seenAt: T1 });
++    useAuthStore.setState({ ...SIGNED_OUT });
++    expect(useInboxStore.getState()).toMatchObject({ userId: null, items: [], seenAt: undefined });
++  });
++});
+diff --git a/src/__tests__/inbox-tab.test.tsx b/src/__tests__/inbox-tab.test.tsx
+new file mode 100644
+index 0000000..afbf60d
+--- /dev/null
++++ b/src/__tests__/inbox-tab.test.tsx
+@@ -0,0 +1,353 @@
++import React from 'react';
++import { Alert, AppState, RefreshControl, type AlertButton, type AppStateStatus } from 'react-native';
++import { act, fireEvent, render, screen } from '@testing-library/react-native';
++import { useIsFocused, useRouter } from 'expo-router';
++import { useSQLiteContext as sharedDb } from 'expo-sqlite';
++
++import { createFakeSupabase, fakeSession, type FakeSupabase } from './helpers/fake-supabase';
++
++let mockFake: FakeSupabase | null = null;
++jest.mock('@/src/sync/client', () => ({
++  getSupabase: () => mockFake,
++  isConfigured: () => mockFake !== null,
++}));
++// The calls are src/sync/friends.ts's (tested in sync-friends.test.ts); here only what the tab asks of them.
++jest.mock('@/src/sync/friends', () => ({
++  ...jest.requireActual('@/src/sync/friends'),
++  respond: jest.fn().mockResolvedValue(undefined),
++  block: jest.fn().mockResolvedValue(undefined),
++  refreshFriends: jest.fn().mockResolvedValue(undefined),
++}));
++// The seen mark's SQL is inbox-store.test.ts's (real SQLite); jest.setup's shared db can't run queries.
++jest.mock('@/src/db/sync', () => ({
++  ...jest.requireActual('@/src/db/sync'),
++  getSyncState: jest.fn().mockResolvedValue(undefined),
++  setSyncState: jest.fn().mockResolvedValue(undefined),
++}));
++
++import InboxTab from '@/app/(tabs)/inbox';
++import { ACCOUNTS_NOT_SET_UP } from '@/src/components';
++import { getSyncState, setSyncState } from '@/src/db/sync';
++import { SIGNED_OUT, useAuthStore, type AuthSnapshot } from '@/src/stores/auth-store';
++import { selectUnseenCount, useInboxStore, type InboxItem } from '@/src/stores/inbox-store';
++import { block, refreshFriends, respond } from '@/src/sync/friends';
++
++const ME = 'user-me';
++const RIDER: AuthSnapshot = {
++  status: 'signed_in',
++  userId: ME,
++  email: 'me@example.com',
++  username: 'me',
++  displayName: null,
++};
++
++const request = (id: string, username: string | null, created_at: string, display_name: string | null = null): InboxItem => ({
++  kind: 'friend_request',
++  id,
++  created_at,
++  friendshipId: id,
++  from: { id: `id-${username ?? id}`, username, display_name },
++});
++
++const ANA = request('f-ana', 'ana', '2026-10-22T10:00:00.000Z', 'Ana B');
++const BEN = request('f-ben', 'ben', '2026-10-21T10:00:00.000Z');
++const NEWEST = ANA.created_at;
++
++const EMPTY_TITLE = 'Nothing here yet';
++const EMPTY_BODY = 'Spots friends send you, hit list invitations and friend requests show up here.';
++const BLOCK_MESSAGE = "They won't be told. They can't send to you or invite you.";
++
++let router: { push: jest.Mock };
++let alert: jest.SpyInstance;
++let warn: jest.SpyInstance;
++let appStateListeners: ((state: AppStateStatus) => void)[];
++const db = sharedDb();
++
++function signIn(items: InboxItem[] = [ANA, BEN]) {
++  mockFake?.setSession(fakeSession({ userId: ME }));
++  useAuthStore.setState(RIDER);
++  useInboxStore.setState({ userId: ME, items, seenAt: null });
++}
++
++async function renderTab() {
++  const view = render(<InboxTab />);
++  await act(async () => {});
++  return view;
++}
++
++function lastAlert(): { title: string; message?: string; buttons: AlertButton[] } {
++  const call = alert.mock.calls.at(-1) ?? [];
++  return { title: call[0], message: call[1], buttons: (call[2] ?? []) as AlertButton[] };
++}
++
++async function pressAlertButton(text: string) {
++  const button = lastAlert().buttons.find((b) => b.text === text);
++  if (!button) throw new Error(`no '${text}' in the alert`);
++  await act(async () => {
++    button.onPress?.();
++  });
++}
++
++beforeEach(() => {
++  mockFake = createFakeSupabase();
++  useAuthStore.setState(SIGNED_OUT);
++  useInboxStore.getState().clearInbox();
++  router = { push: jest.fn() };
++  jest.mocked(useRouter).mockReturnValue(router as never);
++  jest.mocked(useIsFocused).mockReturnValue(true);
++  // react-native's jest mock makes currentState a function; on the phone it is the state string
++  Object.defineProperty(AppState, 'currentState', { value: 'active', configurable: true, writable: true });
++  appStateListeners = [];
++  jest.spyOn(AppState, 'addEventListener').mockImplementation((type, listener) => {
++    if (type === 'change') appStateListeners.push(listener as (state: AppStateStatus) => void);
++    return {
++      remove: () => {
++        appStateListeners = appStateListeners.filter((l) => l !== listener);
++      },
++    } as unknown as ReturnType<typeof AppState.addEventListener>;
++  });
++  alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
++  warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
++  jest.mocked(respond).mockReset().mockResolvedValue(undefined);
++  jest.mocked(block).mockReset().mockResolvedValue(undefined);
++  jest.mocked(refreshFriends).mockReset().mockResolvedValue(undefined);
++  jest.mocked(getSyncState).mockReset().mockResolvedValue(undefined);
++  jest.mocked(setSyncState).mockReset().mockResolvedValue(undefined);
++});
++
++afterEach(() => {
++  jest.restoreAllMocks();
++});
++
++describe('Inbox tab signed out / unconfigured', () => {
++  it("signed out shows 'Sign in to get spots from friends' and a Sign in button", async () => {
++    await renderTab();
++
++    expect(screen.getByText('Sign in to get spots from friends')).toBeOnTheScreen();
++    expect(screen.getAllByRole('button')).toHaveLength(1);
++    fireEvent.press(screen.getByRole('button', { name: 'Sign in' }));
++    expect(router.push).toHaveBeenCalledWith('/auth/sign-in');
++    expect(refreshFriends).not.toHaveBeenCalled();
++  });
++
++  it.each([
++    ['no client', () => (mockFake = null)],
++    ["status 'unconfigured'", () => useAuthStore.setState({ ...SIGNED_OUT, status: 'unconfigured' })],
++  ])("an unconfigured build (%s) says accounts aren't set up", async (_name, setUp) => {
++    setUp();
++    await renderTab();
++
++    expect(screen.getByText(ACCOUNTS_NOT_SET_UP)).toBeOnTheScreen();
++    expect(screen.queryByRole('button')).toBeNull();
++  });
++
++  it('a rider still choosing a username sees the Sign in line, not the requests', async () => {
++    useAuthStore.setState({ ...SIGNED_OUT, status: 'needs_username', userId: ME });
++    useInboxStore.setState({ userId: ME, items: [ANA], seenAt: null });
++    await renderTab();
++
++    expect(screen.getByText('Sign in to get spots from friends')).toBeOnTheScreen();
++    expect(screen.queryByText('@ana wants to be friends')).toBeNull();
++  });
++});
++
++describe('Inbox tab signed in', () => {
++  it("lists two incoming requests under 'Friend requests', each with Accept and Decline", async () => {
++    signIn();
++    await renderTab();
++
++    expect(screen.getByRole('header', { name: 'Friend requests' })).toBeOnTheScreen();
++    expect(screen.getByText('@ana wants to be friends')).toBeOnTheScreen();
++    expect(screen.getByText('Ana B')).toBeOnTheScreen();
++    expect(screen.getByText('@ben wants to be friends')).toBeOnTheScreen();
++    expect(screen.getByRole('button', { name: 'Accept friend request from @ana' })).toBeOnTheScreen();
++    expect(screen.getByRole('button', { name: 'Decline friend request from @ana' })).toBeOnTheScreen();
++    expect(screen.getByRole('button', { name: 'Accept friend request from @ben' })).toBeOnTheScreen();
++    expect(screen.getByRole('button', { name: 'Decline friend request from @ben' })).toBeOnTheScreen();
++    expect(screen.queryByText(EMPTY_TITLE)).toBeNull();
++  });
++
++  it('shows the newest request first', async () => {
++    signIn([BEN, ANA]);
++    await renderTab();
++
++    const lines = screen.getAllByText(/wants to be friends$/).map((n) => n.props.children);
++    expect(lines).toEqual(['@ana wants to be friends', '@ben wants to be friends']);
++  });
++
++  it("a requester whose name isn't readable reads 'A rider wants to be friends'", async () => {
++    signIn([request('f-x', null, NEWEST)]);
++    await renderTab();
++
++    expect(screen.getByText('A rider wants to be friends')).toBeOnTheScreen();
++  });
++
++  it.each([
++    ['Accept', 'accept'],
++    ['Decline', 'decline'],
++  ] as const)('%s calls respond(id, %s), then loads friends again', async (label, action) => {
++    signIn();
++    await renderTab();
++    jest.mocked(refreshFriends).mockClear();
++
++    await act(async () => {
++      fireEvent.press(screen.getByRole('button', { name: `${label} friend request from @ben` }));
++    });
++
++    expect(respond).toHaveBeenCalledTimes(1);
++    expect(respond).toHaveBeenCalledWith(mockFake, ME, 'f-ben', action);
++    expect(refreshFriends).toHaveBeenCalledWith(db, mockFake, ME);
++  });
++
++  it.each(['Accept', 'Decline'])('an answered request leaves the list at once (%s), before any friends load', async (label) => {
++    signIn();
++    await renderTab();
++
++    await act(async () => {
++      fireEvent.press(screen.getByRole('button', { name: `${label} friend request from @ana` }));
++    });
++
++    // refreshFriends is mocked: nothing reloads, so the row must go on the answer itself (no second answer to it)
++    expect(screen.queryByText('@ana wants to be friends')).toBeNull();
++    expect(screen.getByText('@ben wants to be friends')).toBeOnTheScreen();
++  });
++
++  it('a blocked requester leaves the list at once', async () => {
++    signIn();
++    await renderTab();
++
++    fireEvent(screen.getByText('@ana wants to be friends'), 'longPress');
++    await pressAlertButton('Block @ana');
++    await pressAlertButton('Block');
++
++    expect(screen.queryByText('@ana wants to be friends')).toBeNull();
++  });
++
++  it('a double tap on Accept sends one respond', async () => {
++    signIn();
++    let finish: () => void = () => {};
++    jest.mocked(respond).mockImplementation(() => new Promise<void>((resolve) => (finish = resolve)));
++    await renderTab();
++
++    const accept = screen.getByRole('button', { name: 'Accept friend request from @ana' });
++    await act(async () => {
++      fireEvent.press(accept);
++      fireEvent.press(accept);
++    });
++    // and Decline on the same row while Accept runs
++    expect(screen.queryByRole('button', { name: 'Decline friend request from @ana' })).toBeNull();
++    await act(async () => finish());
++
++    expect(respond).toHaveBeenCalledTimes(1);
++  });
++
++  it("a failed respond alerts \"Couldn't reach the server\" and warns", async () => {
++    signIn();
++    jest.mocked(respond).mockRejectedValue(new Error('offline'));
++    await renderTab();
++
++    await act(async () => {
++      fireEvent.press(screen.getByRole('button', { name: 'Accept friend request from @ana' }));
++    });
++
++    expect(alert).toHaveBeenCalledWith("Couldn't reach the server", 'Try again.');
++    expect(warn).toHaveBeenCalledWith(expect.stringContaining('[Inbox]'), 'offline');
++    expect(screen.getByRole('button', { name: 'Accept friend request from @ana' })).toBeOnTheScreen();
++  });
++
++  it("long press on a request offers 'Block @ana' with the confirm, and Block calls block", async () => {
++    signIn();
++    await renderTab();
++
++    fireEvent(screen.getByText('@ana wants to be friends'), 'longPress');
++    expect(lastAlert().title).toBe('@ana');
++    await pressAlertButton('Block @ana');
++    expect(lastAlert()).toMatchObject({ title: 'Block @ana?', message: BLOCK_MESSAGE });
++    expect(lastAlert().buttons.map((b) => b.text)).toEqual(['Cancel', 'Block']);
++    await pressAlertButton('Block');
++
++    expect(block).toHaveBeenCalledWith(mockFake, ME, 'id-ana');
++  });
++
++  it('a request row exposes Block as a VoiceOver action', async () => {
++    signIn();
++    await renderTab();
++
++    // the display name is read with the line
++    const row = screen.getByRole('button', { name: '@ana wants to be friends, Ana B' });
++    expect(row.props.accessibilityActions).toEqual([{ name: 'block', label: 'Block @ana' }]);
++    fireEvent(row, 'accessibilityAction', { nativeEvent: { actionName: 'block' } });
++    expect(lastAlert().title).toBe('Block @ana?');
++  });
++
++  it("with nothing shows 'Nothing here yet' and what shows up here", async () => {
++    signIn([]);
++    await renderTab();
++
++    expect(screen.getByText(EMPTY_TITLE)).toBeOnTheScreen();
++    expect(screen.getByText(EMPTY_BODY)).toBeOnTheScreen();
++    expect(screen.queryByText('Friend requests')).toBeNull();
++  });
++
++  it('loads friends when focused and on pull to refresh', async () => {
++    signIn();
++    await renderTab();
++    expect(refreshFriends).toHaveBeenCalledWith(db, mockFake, ME);
++    jest.mocked(refreshFriends).mockClear();
++
++    await act(async () => {
++      screen.UNSAFE_getByType(RefreshControl).props.onRefresh();
++    });
++
++    expect(refreshFriends).toHaveBeenCalledWith(db, mockFake, ME);
++  });
++});
++
++describe('Inbox tab: seen', () => {
++  it("focused, it marks the items seen under the rider's key with the newest server time; the badge drops", async () => {
++    signIn();
++    expect(selectUnseenCount(useInboxStore.getState())).toBe(2);
++    await renderTab();
++
++    expect(setSyncState).toHaveBeenCalledWith(db, `inbox_seen_at:${ME}`, NEWEST);
++    expect(selectUnseenCount(useInboxStore.getState())).toBe(0);
++  });
++
++  it('not focused, it marks nothing', async () => {
++    jest.mocked(useIsFocused).mockReturnValue(false);
++    signIn();
++    await renderTab();
++
++    expect(setSyncState).not.toHaveBeenCalled();
++    expect(selectUnseenCount(useInboxStore.getState())).toBe(2);
++  });
++
++  it('a request arriving while focused is marked too', async () => {
++    signIn([BEN]);
++    await renderTab();
++    expect(setSyncState).toHaveBeenLastCalledWith(db, `inbox_seen_at:${ME}`, BEN.created_at);
++
++    await act(async () => {
++      useInboxStore.getState().setItems(ME, 'friend_request', [ANA, BEN]);
++    });
++
++    expect(setSyncState).toHaveBeenLastCalledWith(db, `inbox_seen_at:${ME}`, NEWEST);
++    expect(selectUnseenCount(useInboxStore.getState())).toBe(0);
++  });
++
++  it('in the background a new request stays unseen until the app is active again', async () => {
++    signIn([BEN]);
++    await renderTab();
++    await act(async () => appStateListeners.forEach((l) => l('background')));
++    jest.mocked(setSyncState).mockClear();
++
++    await act(async () => {
++      useInboxStore.getState().setItems(ME, 'friend_request', [ANA, BEN]);
++    });
++    expect(setSyncState).not.toHaveBeenCalled();
++    expect(selectUnseenCount(useInboxStore.getState())).toBe(1);
++
++    await act(async () => appStateListeners.forEach((l) => l('active')));
++    expect(setSyncState).toHaveBeenCalledWith(db, `inbox_seen_at:${ME}`, NEWEST);
++  });
++});
+diff --git a/src/__tests__/profile.test.tsx b/src/__tests__/profile.test.tsx
+index 352012e..37bb800 100644
+--- a/src/__tests__/profile.test.tsx
++++ b/src/__tests__/profile.test.tsx
+@@ -21,6 +21,7 @@ import { countPending, resetFailed } from '@/src/db/sync';
+ import { syncNow } from '@/src/sync/engine';
+ import { deleteAccountAndRelease, removeLocalAccountData, removeReleasedRows } from '@/src/sync/adopt';
+ import { INITIAL_SYNC, useSyncStore } from '@/src/stores/sync-store';
++import { useFriendsStore } from '@/src/stores/friends-store';
+ 
+ jest.mock('@/src/sync/engine', () => ({ syncNow: jest.fn().mockResolvedValue(undefined) }));
+ jest.mock('@/src/db/sync', () => ({
+@@ -862,3 +863,46 @@ describe('Profile sign out and delete: Keep / Remove from this phone (S5-06, D38
+     expect(useAuthStore.getState()).toMatchObject(ANA);
+   });
+ });
++
++describe('Profile Friends row (S6-03)', () => {
++  let router: { push: jest.Mock };
++
++  beforeEach(() => {
++    router = { push: jest.fn() };
++    jest.mocked(useRouter).mockReturnValue(router as never);
++    useFriendsStore.getState().clearFriends();
++  });
++
++  const friend = (id: string, username: string) => ({
++    friendshipId: `f-${id}`,
++    created_at: '2026-10-20T10:00:00.000Z',
++    profile: { id, username, display_name: null },
++  });
++
++  it("signed in shows 'Friends · 2' that opens /friends", () => {
++    useAuthStore.setState(ANA);
++    useFriendsStore.getState().applyFriends('user-ana', {
++      friends: [friend('id-ben', 'ben'), friend('id-cal', 'cal')],
++      incoming: [],
++      outgoing: [],
++      blocked: [],
++    });
++    render(<ProfileScreen />);
++
++    fireEvent.press(screen.getByRole('button', { name: 'Friends · 2' }));
++    expect(router.push).toHaveBeenCalledWith('/friends');
++  });
++
++  it("with no friends loaded the row reads 'Friends'", () => {
++    useAuthStore.setState(ANA);
++    render(<ProfileScreen />);
++
++    expect(screen.getByRole('button', { name: 'Friends' })).toBeOnTheScreen();
++  });
++
++  it('signed out has no Friends row', () => {
++    render(<ProfileScreen />);
++
++    expect(screen.queryByRole('button', { name: /^Friends/ })).toBeNull();
++  });
++});
+diff --git a/src/__tests__/root-layout.test.tsx b/src/__tests__/root-layout.test.tsx
+index e6e0894..9e57985 100644
+--- a/src/__tests__/root-layout.test.tsx
++++ b/src/__tests__/root-layout.test.tsx
+@@ -100,6 +100,14 @@ describe('RootLayout: sign-in screens', () => {
+   });
+ });
+ 
++describe('RootLayout: friends (S6-03)', () => {
++  it("registers friends/index titled 'Friends'", () => {
++    render(<RootLayout />);
++
++    expect(screen.UNSAFE_getAllByProps({ name: 'friends/index' })[0].props.options).toEqual({ title: 'Friends' });
++  });
++});
++
+ describe("gesture-handler's jest setup", () => {
+   it('lets a test drive a gesture through jest-utils', () => {
+     const onEnd = jest.fn();
+diff --git a/src/__tests__/sync-adopt.test.ts b/src/__tests__/sync-adopt.test.ts
+index 4c78da5..e8c5dcc 100644
+--- a/src/__tests__/sync-adopt.test.ts
++++ b/src/__tests__/sync-adopt.test.ts
+@@ -33,6 +33,7 @@ import {
+   removeLocalAccountData,
+   removeReleasedRows,
+ } from '@/src/sync/adopt';
++import { upsertProfiles } from '@/src/db/profiles';
+ import { INITIAL_SYNC, useSyncStore } from '@/src/stores/sync-store';
+ import * as engine from '@/src/sync/engine';
+ import { useHitListsStore, useMediaStore, useSpotsStore } from '@/src/stores';
+@@ -491,3 +492,75 @@ describe('deleteAccountAndRelease: Delete account on the sync queue (S5-09 revie
+     warn.mockRestore();
+   });
+ });
++
++describe('the friend names mirror (D72) leaves with the account', () => {
++  const mirrorAna = () => upsertProfiles(db, [{ id: 'rider-ana', username: 'ana', display_name: null }]);
++
++  it('another account signing in empties profiles', async () => {
++    await setSyncState(db, 'user_id', A);
++    await mirrorAna();
++
++    await adopt(db, B);
++
++    expect(await count('profiles')).toBe(0);
++  });
++
++  it('the same account signing back in keeps them', async () => {
++    await setSyncState(db, 'user_id', A);
++    await insertSpot(db, createTestSpot({ id: 'phone' })); // something to adopt, so adopt writes
++    await mirrorAna();
++
++    await adopt(db, A);
++
++    expect(await count('profiles')).toBe(1);
++  });
++
++  it('Remove from this phone empties profiles', async () => {
++    await setSyncState(db, 'user_id', A);
++    await mirrorAna();
++
++    await removeLocalAccountData(db, A);
++
++    expect(await count('profiles')).toBe(0);
++  });
++
++  it('Keep after Delete account empties profiles (the friendships are gone with the account)', async () => {
++    await setSyncState(db, 'user_id', A);
++    await mirrorAna();
++
++    await releaseAccountData(db, A, { exists: () => true });
++
++    expect(await count('profiles')).toBe(0);
++  });
++});
++
++describe("the Inbox seen mark (S6-04) leaves with the account", () => {
++  const SEEN = '2026-10-22T10:00:00.000Z';
++
++  it("another account signing in clears the last account's mark", async () => {
++    await setSyncState(db, 'user_id', A);
++    await setSyncState(db, `inbox_seen_at:${A}`, SEEN);
++
++    await adopt(db, B);
++
++    expect(await getSyncState(db, `inbox_seen_at:${A}`)).toBeUndefined();
++  });
++
++  it('Remove from this phone clears it', async () => {
++    await setSyncState(db, 'user_id', A);
++    await setSyncState(db, `inbox_seen_at:${A}`, SEEN);
++
++    await removeLocalAccountData(db, A);
++
++    expect(await getSyncState(db, `inbox_seen_at:${A}`)).toBeUndefined();
++  });
++
++  it('Keep after Delete account clears it', async () => {
++    await setSyncState(db, 'user_id', A);
++    await setSyncState(db, `inbox_seen_at:${A}`, SEEN);
++
++    await releaseAccountData(db, A, { exists: () => true });
++
++    expect(await getSyncState(db, `inbox_seen_at:${A}`)).toBeUndefined();
++  });
++});
+diff --git a/src/__tests__/sync-engine.test.ts b/src/__tests__/sync-engine.test.ts
+index 89344ae..1dc3d61 100644
+--- a/src/__tests__/sync-engine.test.ts
++++ b/src/__tests__/sync-engine.test.ts
+@@ -26,6 +26,8 @@ import { downloadMissingPhotos } from '@/src/sync/photos';
+ import { runExclusive, syncNow } from '@/src/sync/engine';
+ import { INITIAL_SYNC, useSyncStore } from '@/src/stores/sync-store';
+ import { useHitListsStore, useMediaStore, useSpotsStore } from '@/src/stores';
++import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
++import { useFriendsStore } from '@/src/stores/friends-store';
+ 
+ const mockPush = jest.mocked(push);
+ const mockPull = jest.mocked(pull);
+@@ -44,6 +46,8 @@ beforeEach(async () => {
+   useSpotsStore.setState({ spots: [] });
+   useMediaStore.setState({ mediaBySpot: {} });
+   useHitListsStore.setState({ lists: [], membershipBySpot: {} });
++  useAuthStore.setState({ ...SIGNED_OUT });
++  useFriendsStore.getState().clearFriends();
+ });
+ 
+ describe('syncNow', () => {
+@@ -122,6 +126,39 @@ describe('syncNow', () => {
+     expect(await getSyncState(db, `last_sync_at:${ME}`)).toBe(state.lastSyncAt);
+   });
+ 
++  it('loads friends after the pull and fills the friends store (S6)', async () => {
++    useAuthStore.setState({ ...SIGNED_OUT, status: 'signed_in', userId: ME });
++    mockFake!.tables.friendships = [
++      { id: 'f-ana', user_a: 'rider-ana', user_b: ME, status: 'accepted', requested_by: ME, created_at: '2026-10-20 10:00:00+00' },
++    ];
++    mockFake!.tables.blocks = [];
++    mockFake!.profiles.set('rider-ana', { username: 'ana', display_name: null });
++    let friendSelectsAtPull = -1;
++    mockPull.mockImplementationOnce(async () => {
++      friendSelectsAtPull = mockFake!.selects.filter((s) => s.table === 'friendships').length;
++      return { changed: false };
++    });
++
++    await syncNow(db);
++
++    expect(friendSelectsAtPull).toBe(0);
++    expect(mockFake!.selects.filter((s) => s.table === 'friendships')).toHaveLength(1);
++    expect(useFriendsStore.getState().friends.map((f) => f.profile.username)).toEqual(['ana']);
++  });
++
++  it("a friends load that fails warns and still counts as backed up (it never sets lastError)", async () => {
++    useAuthStore.setState({ ...SIGNED_OUT, status: 'signed_in', userId: ME });
++    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
++    mockFake!.failSelect((s) => s.table === 'friendships', { message: 'offline' });
++
++    await syncNow(db);
++
++    expect(warn).toHaveBeenCalledWith(expect.stringContaining('[friends]'), 'offline');
++    expect(useSyncStore.getState().lastError).toBeNull();
++    expect(useSyncStore.getState().lastSyncAt).not.toBeNull();
++    warn.mockRestore();
++  });
++
+   it('records failedCount from countFailed; rows still waiting mean not backed up', async () => {
+     for (const id of ['a', 'b', 'c']) await enqueue(db, 'spot', id, 'upsert');
+     await db.runAsync("UPDATE sync_outbox SET attempts = 10 WHERE entity_id IN ('a', 'b')");
+diff --git a/src/__tests__/sync-friends.test.ts b/src/__tests__/sync-friends.test.ts
+new file mode 100644
+index 0000000..a6a2a19
+--- /dev/null
++++ b/src/__tests__/sync-friends.test.ts
+@@ -0,0 +1,591 @@
++// src/sync/friends.ts (S6-02, docs/plans/2026-10-22-s6-friends.md "Data"): the friends calls against the fake client,
++// the local profiles mirror in real SQLite.
++import type { SQLiteDatabase } from 'expo-sqlite';
++import { createMigratedTestDb } from './helpers/node-sqlite-db';
++import { createFakeSupabase, fakeSession, type FakeSupabase } from './helpers/fake-supabase';
++import { ME, adoptPhoneFor } from './helpers/outbox';
++
++import { getProfiles, upsertProfiles } from '@/src/db/profiles';
++import { getSyncState, setSyncState } from '@/src/db/sync';
++import {
++  addFriend,
++  block,
++  loadFriends,
++  normaliseUsername,
++  refreshFriends,
++  removeFriend,
++  respond,
++  unblock,
++} from '@/src/sync/friends';
++import { runExclusive } from '@/src/sync/queue';
++import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
++import { EMPTY_FRIENDS, useFriendsStore } from '@/src/stores/friends-store';
++import { selectUnseenCount, useInboxStore } from '@/src/stores/inbox-store';
++import type { SupabaseClient } from '@supabase/supabase-js';
++
++// ids sort like the server's uuids: user_a is the smaller of the pair
++const ANA = 'rider-ana'; // < ME
++const CAL = 'rider-cal'; // < ME
++const DEE = 'rider-dee'; // < ME
++const ZED = 'rider-zed'; // > ME
++
++let db: SQLiteDatabase;
++let fake: FakeSupabase;
++const client = () => fake as unknown as SupabaseClient;
++
++const pair = (a: string, b: string) => (a < b ? { user_a: a, user_b: b } : { user_a: b, user_b: a });
++const friendship = (
++  id: string,
++  other: string,
++  status: 'pending' | 'accepted',
++  requestedBy: string,
++  createdAt = '2026-10-20 10:00:00+00',
++) => ({ id, ...pair(ME, other), status, requested_by: requestedBy, created_at: createdAt });
++const profile = (id: string, username: string | null, display_name: string | null = null) => ({
++  id,
++  username,
++  display_name,
++});
++
++/** find_profile answers a table: the one rider with that exact (citext) name, [] for none. */
++function serverRiders(riders: { id: string; username: string; display_name: string | null }[]) {
++  for (const r of riders) fake.profiles.set(r.id, { username: r.username, display_name: r.display_name });
++  fake.rpcHandlers.find_profile = (args) => ({
++    data: riders.filter((r) => r.username === String(args?.p_username).toLowerCase()),
++    error: null,
++  });
++}
++
++const rpcNames = () => fake.rpcs.map((r) => r.fn);
++/** addFriend mirrors a hit on the sync queue without waiting for it: anything queued after it sees it. */
++const flushQueue = () => runExclusive(async () => undefined);
++
++beforeEach(async () => {
++  db = await createMigratedTestDb();
++  await adoptPhoneFor(db, ME);
++  fake = createFakeSupabase({ session: fakeSession({ userId: ME }) });
++  fake.tables.friendships = [];
++  fake.tables.blocks = [];
++  useAuthStore.setState({ ...SIGNED_OUT, status: 'signed_in', userId: ME, username: 'me' });
++  useFriendsStore.getState().clearFriends();
++  useInboxStore.getState().clearInbox();
++});
++
++afterEach(() => {
++  jest.restoreAllMocks();
++});
++
++describe('normaliseUsername', () => {
++  it('trims, drops one leading @ and lowercases', () => {
++    expect(normaliseUsername('  @Ana ')).toBe('ana');
++    expect(normaliseUsername('Ben_B.2')).toBe('ben_b.2');
++  });
++
++  it('is null for a name outside ^[a-z0-9_.]{3,20}$ (D39)', () => {
++    expect(normaliseUsername('a b')).toBeNull();
++    expect(normaliseUsername('ab')).toBeNull();
++    expect(normaliseUsername('@@ana')).toBeNull();
++    expect(normaliseUsername('a'.repeat(21))).toBeNull();
++    expect(normaliseUsername('')).toBeNull();
++  });
++});
++
++describe('loadFriends', () => {
++  beforeEach(() => {
++    fake.tables.friendships = [
++      friendship('f-ana', ANA, 'accepted', ME, '2026-10-19 09:00:00+00'),
++      friendship('f-zed', ZED, 'pending', ZED, '2026-10-21 10:00:00.123456+00'),
++      friendship('f-cal', CAL, 'pending', ME, '2026-10-20 08:00:00+00'),
++    ];
++    fake.tables.blocks = [{ blocker: ME, blocked: DEE, created_at: '2026-10-18 00:00:00+00' }];
++    fake.profiles.set(ANA, { username: 'ana', display_name: 'Ana B' });
++    fake.profiles.set(ZED, { username: 'zed', display_name: null });
++    fake.profiles.set(CAL, { username: 'cal', display_name: null });
++    fake.profiles.set(DEE, { username: 'dee', display_name: null });
++    // RLS: friends and riders who asked you; not the target of your request, not a rider you blocked
++    fake.readableProfiles = new Set([ME, ANA, ZED]);
++  });
++
++  it('maps accepted rows to friends, pending by others to incoming, by me to outgoing, blocks to blocked', async () => {
++    const data = await loadFriends(client(), ME);
++
++    expect(data).toEqual({
++      friends: [{ friendshipId: 'f-ana', created_at: '2026-10-19T09:00:00.000Z', profile: profile(ANA, 'ana', 'Ana B') }],
++      incoming: [{ friendshipId: 'f-zed', created_at: '2026-10-21T10:00:00.123Z', profile: profile(ZED, 'zed') }],
++      // the target of a sent request is not readable: its name comes from the mirror (refreshFriends)
++      outgoing: [{ friendshipId: 'f-cal', created_at: '2026-10-20T08:00:00.000Z', profile: profile(CAL, null) }],
++      blocked: [profile(DEE, null)],
++    });
++  });
++
++  it('sorts friends by username and requests newest first', async () => {
++    const BEN = 'rider-ben';
++    const AMY = 'rider-amy';
++    fake.tables.friendships.push(
++      friendship('f-ben', BEN, 'accepted', BEN),
++      friendship('f-amy', AMY, 'pending', AMY, '2026-10-22 10:00:00+00'),
++    );
++    fake.profiles.set(BEN, { username: 'aaron', display_name: null });
++    fake.profiles.set(AMY, { username: 'amy', display_name: null });
++    fake.readableProfiles = new Set([ME, ANA, ZED, BEN, AMY]);
++
++    const data = await loadFriends(client(), ME);
++
++    expect(data!.friends.map((f) => f.profile.username)).toEqual(['aaron', 'ana']);
++    expect(data!.incoming.map((f) => f.friendshipId)).toEqual(['f-amy', 'f-zed']);
++  });
++
++  it('a block that landed between the two reads lists the rider as blocked only, blocked sorted by name', async () => {
++    fake.tables.blocks.push(
++      { blocker: ME, blocked: ANA, created_at: '2026-10-22 00:00:00+00' },
++      { blocker: ME, blocked: 'rider-aaa', created_at: '2026-10-22 00:00:00+00' },
++    );
++
++    const data = await loadFriends(client(), ME);
++
++    expect(data!.friends).toEqual([]);
++    // ana is readable (still a friend when the profiles were read), the others are hidden: names first, then unknown
++    expect(data!.blocked.map((p) => p.id)).toEqual([ANA, 'rider-aaa', DEE]);
++  });
++
++  it('asks profiles only by id (.in), for the other side of its own rows, never the whole table', async () => {
++    await loadFriends(client(), ME);
++
++    const profileSelects = fake.selects.filter((s) => s.table === 'profiles');
++    expect(profileSelects.length).toBeGreaterThan(0);
++    for (const select of profileSelects) {
++      expect(select.filters).toEqual([['in', 'id', expect.any(Array)]]);
++    }
++    const asked = profileSelects.flatMap((s) => s.filters[0][2] as string[]).sort();
++    expect(asked).toEqual([ANA, CAL, ZED]);
++  });
++
++  it('pages friendships by id: a full page of 500 asks for the next one', async () => {
++    fake.tables.friendships = Array.from({ length: 501 }, (_, i) => {
++      const other = `rider-x${String(i).padStart(3, '0')}`; // all < ME
++      return friendship(`f${String(i).padStart(3, '0')}`, other, 'accepted', ME);
++    });
++    fake.readableProfiles = null;
++
++    const data = await loadFriends(client(), ME);
++
++    const pages = fake.selects.filter((s) => s.table === 'friendships');
++    expect(pages.map((s) => s.limit)).toEqual([500, 500]);
++    expect(pages[1].filters).toEqual([['gt', 'id', 'f499']]);
++    expect(data!.friends).toHaveLength(501);
++    // PostgREST URLs stay short: at most 100 ids per profiles select
++    for (const s of fake.selects.filter((x) => x.table === 'profiles')) {
++      expect((s.filters[0][2] as string[]).length).toBeLessThanOrEqual(100);
++    }
++  });
++
++  it('throws when a table cannot be read (the caller keeps its last data)', async () => {
++    fake.failSelect((s) => s.table === 'friendships', { message: 'offline' });
++
++    await expect(loadFriends(client(), ME)).rejects.toThrow('offline');
++  });
++
++  it('with no session for the rider resolves null and asks nothing', async () => {
++    fake.setSession(fakeSession({ userId: 'someone-else' }));
++
++    expect(await loadFriends(client(), ME)).toBeNull();
++    expect(fake.selects).toEqual([]);
++  });
++});
++
++describe('addFriend', () => {
++  beforeEach(() => {
++    serverRiders([
++      { id: ANA, username: 'ana', display_name: 'Ana B' },
++      { id: ME, username: 'me_rider', display_name: null },
++    ]);
++  });
++
++  it("normalises '  @Ana ', finds the rider, sends the request and mirrors the profile", async () => {
++    const result = await addFriend(client(), db, ME, '  @Ana ');
++
++    expect(fake.rpcs).toEqual([
++      { fn: 'find_profile', args: { p_username: 'ana' } },
++      { fn: 'send_friend_request', args: { p_username: 'ana' } },
++    ]);
++    expect(result).toEqual({ found: true, status: 'sent', profile: profile(ANA, 'ana', 'Ana B') });
++    await flushQueue();
++    expect(await getProfiles(db, [ANA])).toEqual({ [ANA]: profile(ANA, 'ana', 'Ana B') });
++  });
++
++  it('with no hit resolves { found: false } and sends nothing', async () => {
++    const result = await addFriend(client(), db, ME, 'nobody');
++
++    expect(result).toEqual({ found: false, status: 'not_found' });
++    expect(rpcNames()).toEqual(['find_profile']);
++  });
++
++  it("maps send_friend_request's P0002 (they blocked you since) to the same not_found", async () => {
++    fake.failNext('rpc', { message: 'user not found', code: 'P0002' }, 'send_friend_request');
++
++    expect(await addFriend(client(), db, ME, 'ana')).toEqual({ found: false, status: 'not_found' });
++  });
++
++  it("maps send_friend_request's 42501 (you blocked them on another phone) to blocked_by_me", async () => {
++    fake.failNext('rpc', { message: 'unblock this user first', code: '42501' }, 'send_friend_request');
++
++    expect(await addFriend(client(), db, ME, 'ana')).toMatchObject({ found: true, status: 'blocked_by_me' });
++  });
++
++  it('a 42501 on send after the session ended is "not signed in": it throws', async () => {
++    fake.rpcHandlers.send_friend_request = () => {
++      fake.setSession(null);
++      return { data: null, error: { message: 'not signed in', code: '42501' } };
++    };
++
++    await expect(addFriend(client(), db, ME, 'ana')).rejects.toThrow('not signed in');
++  });
++
++  it('throws on any other send error', async () => {
++    fake.failNext('rpc', { message: 'offline' }, 'send_friend_request');
++
++    await expect(addFriend(client(), db, ME, 'ana')).rejects.toThrow('offline');
++  });
++
++  it('throws when find_profile fails (not the same as not found)', async () => {
++    fake.failNext('rpc', { message: 'offline' }, 'find_profile');
++
++    await expect(addFriend(client(), db, ME, 'ana')).rejects.toThrow('offline');
++  });
++
++  it('already friends: already_friends and no send', async () => {
++    fake.tables.friendships = [friendship('f-ana', ANA, 'accepted', ANA)];
++
++    expect(await addFriend(client(), db, ME, 'ana')).toMatchObject({ found: true, status: 'already_friends' });
++    expect(rpcNames()).toEqual(['find_profile']);
++    expect(fake.selects.find((s) => s.table === 'friendships')!.filters).toEqual([
++      ['eq', 'user_a', ANA],
++      ['eq', 'user_b', ME],
++    ]);
++  });
++
++  it('a request I already sent: already_sent and no send', async () => {
++    fake.tables.friendships = [friendship('f-ana', ANA, 'pending', ME)];
++
++    expect(await addFriend(client(), db, ME, 'ana')).toMatchObject({ found: true, status: 'already_sent' });
++    expect(rpcNames()).toEqual(['find_profile']);
++  });
++
++  it('they had asked me: the send accepts it, status accepted', async () => {
++    fake.tables.friendships = [friendship('f-ana', ANA, 'pending', ANA)];
++
++    expect(await addFriend(client(), db, ME, 'ana')).toMatchObject({ found: true, status: 'accepted' });
++    expect(rpcNames()).toEqual(['find_profile', 'send_friend_request']);
++  });
++
++  it("my own name: self, no send, nothing mirrored", async () => {
++    expect(await addFriend(client(), db, ME, '@Me_Rider')).toMatchObject({ found: true, status: 'self' });
++    expect(rpcNames()).toEqual(['find_profile']);
++    await flushQueue();
++    expect(await getProfiles(db, [ME])).toEqual({});
++  });
++
++  it('a rider I blocked: blocked_by_me, no send', async () => {
++    fake.tables.blocks = [{ blocker: ME, blocked: ANA, created_at: '2026-10-18 00:00:00+00' }];
++
++    expect(await addFriend(client(), db, ME, 'ana')).toMatchObject({ found: true, status: 'blocked_by_me' });
++    expect(rpcNames()).toEqual(['find_profile']);
++  });
++
++  it('an invalid name makes no call', async () => {
++    expect(await addFriend(client(), db, ME, 'a b')).toEqual({ status: 'invalid' });
++    expect(fake.rpcs).toEqual([]);
++  });
++
++  it('with no session for the rider resolves null and makes no call', async () => {
++    fake.setSession(null);
++
++    expect(await addFriend(client(), db, ME, 'ana')).toBeNull();
++    expect(fake.rpcs).toEqual([]);
++  });
++
++  it("doesn't mirror the hit into a phone that holds another account's rows", async () => {
++    await setSyncState(db, 'user_id', 'someone-else');
++
++    await addFriend(client(), db, ME, 'ana');
++    await flushQueue();
++
++    expect(await getProfiles(db, [ANA])).toEqual({});
++  });
++});
++
++describe('respond, removeFriend, block, unblock', () => {
++  it("respond calls respond_friend_request with { p_id, p_action }", async () => {
++    await respond(client(), ME, 'f-zed', 'accept');
++    await respond(client(), ME, 'f-amy', 'decline');
++
++    expect(fake.rpcs).toEqual([
++      { fn: 'respond_friend_request', args: { p_id: 'f-zed', p_action: 'accept' } },
++      { fn: 'respond_friend_request', args: { p_id: 'f-amy', p_action: 'decline' } },
++    ]);
++  });
++
++  it('respond resolves on 42501 (answered or withdrawn elsewhere) while still signed in', async () => {
++    fake.failNext('rpc', { message: 'no friend request to answer', code: '42501' }, 'respond_friend_request');
++
++    await expect(respond(client(), ME, 'f-zed', 'accept')).resolves.toBeUndefined();
++  });
++
++  it('respond throws on 42501 when the session is gone (that is "not signed in")', async () => {
++    fake.rpcHandlers.respond_friend_request = () => {
++      fake.setSession(null);
++      return { data: null, error: { message: 'not signed in', code: '42501' } };
++    };
++
++    await expect(respond(client(), ME, 'f-zed', 'accept')).rejects.toThrow('not signed in');
++  });
++
++  it('respond throws on other errors', async () => {
++    fake.failNext('rpc', { message: 'offline' }, 'respond_friend_request');
++
++    await expect(respond(client(), ME, 'f-zed', 'accept')).rejects.toThrow('offline');
++  });
++
++  it('removeFriend deletes the friendships row by id (also Cancel of a sent request)', async () => {
++    await removeFriend(client(), ME, 'f-ana');
++
++    expect(fake.calls).toEqual([{ kind: 'delete', table: 'friendships', filters: [['id', 'f-ana']] }]);
++  });
++
++  it('removeFriend throws on an error', async () => {
++    fake.failNext('delete', { message: 'offline' }, 'friendships');
++
++    await expect(removeFriend(client(), ME, 'f-ana')).rejects.toThrow('offline');
++  });
++
++  it('block calls block_user with { p_user }; P0002 (they deleted their account) resolves', async () => {
++    await block(client(), ME, ANA);
++    fake.failNext('rpc', { message: 'user not found', code: 'P0002' }, 'block_user');
++    await expect(block(client(), ME, CAL)).resolves.toBeUndefined();
++
++    expect(fake.rpcs).toEqual([
++      { fn: 'block_user', args: { p_user: ANA } },
++      { fn: 'block_user', args: { p_user: CAL } },
++    ]);
++  });
++
++  it('block throws on other errors', async () => {
++    fake.failNext('rpc', { message: 'offline' }, 'block_user');
++
++    await expect(block(client(), ME, ANA)).rejects.toThrow('offline');
++  });
++
++  it('unblock calls unblock_user with { p_user }', async () => {
++    await unblock(client(), ME, DEE);
++
++    expect(fake.rpcs).toEqual([{ fn: 'unblock_user', args: { p_user: DEE } }]);
++  });
++
++  it('with no session for the rider none of them calls the server', async () => {
++    fake.setSession(null);
++
++    await respond(client(), ME, 'f-zed', 'accept');
++    await removeFriend(client(), ME, 'f-ana');
++    await block(client(), ME, ANA);
++    await unblock(client(), ME, DEE);
++
++    expect(fake.rpcs).toEqual([]);
++    expect(fake.calls).toEqual([]);
++  });
++});
++
++describe('refreshFriends', () => {
++  beforeEach(() => {
++    fake.tables.friendships = [
++      friendship('f-ana', ANA, 'accepted', ME),
++      friendship('f-zed', ZED, 'pending', ZED),
++      friendship('f-cal', CAL, 'pending', ME),
++    ];
++    fake.tables.blocks = [{ blocker: ME, blocked: DEE, created_at: '2026-10-18 00:00:00+00' }];
++    fake.profiles.set(ANA, { username: 'ana', display_name: 'Ana B' });
++    fake.profiles.set(ZED, { username: 'zed', display_name: null });
++    fake.readableProfiles = new Set([ME, ANA, ZED]);
++  });
++
++  it('mirrors the profiles the server returned, so getProfiles(ids) has their usernames', async () => {
++    await refreshFriends(db, client(), ME);
++
++    expect(await getProfiles(db, [ANA, ZED, CAL, DEE])).toEqual({
++      [ANA]: profile(ANA, 'ana', 'Ana B'),
++      [ZED]: profile(ZED, 'zed'),
++    });
++  });
++
++  it('fills the friends store, with the names of a sent request and a block from the mirror', async () => {
++    // cal was typed into Add on this phone, dee was a friend once
++    await upsertProfiles(db, [profile(CAL, 'cal', 'Cal C'), profile(DEE, 'dee')]);
++
++    await refreshFriends(db, client(), ME);
++
++    const s = useFriendsStore.getState();
++    expect(s.userId).toBe(ME);
++    expect(s.friends.map((f) => f.profile)).toEqual([profile(ANA, 'ana', 'Ana B')]);
++    expect(s.incoming.map((f) => f.profile)).toEqual([profile(ZED, 'zed')]);
++    expect(s.outgoing.map((f) => f.profile)).toEqual([profile(CAL, 'cal', 'Cal C')]);
++    expect(s.blocked).toEqual([profile(DEE, 'dee')]);
++    expect(s.loadedAt).toEqual(expect.any(String));
++    expect(s.loadError).toBeNull();
++  });
++
++  it("puts the incoming requests into the Inbox as friend_request items, with the rider's stored seen mark", async () => {
++    await setSyncState(db, `inbox_seen_at:${ME}`, '2026-10-20T10:00:00.000Z');
++
++    await refreshFriends(db, client(), ME);
++
++    const inbox = useInboxStore.getState();
++    expect(inbox.userId).toBe(ME);
++    expect(inbox.seenAt).toBe('2026-10-20T10:00:00.000Z');
++    // only requests asked by others: the accepted friend and the one the rider sent are not Inbox items
++    expect(inbox.items).toEqual([
++      {
++        kind: 'friend_request',
++        id: 'f-zed',
++        created_at: '2026-10-20T10:00:00.000Z',
++        friendshipId: 'f-zed',
++        from: profile(ZED, 'zed'),
++      },
++    ]);
++    expect(selectUnseenCount(inbox)).toBe(0);
++    expect(await getSyncState(db, `inbox_seen_at:${ME}`)).toBe('2026-10-20T10:00:00.000Z');
++  });
++
++  it('a request newer than the seen mark is unseen; never set, every request is', async () => {
++    fake.tables.friendships = [friendship('f-zed', ZED, 'pending', ZED, '2026-10-22 08:00:00+00')];
++
++    await refreshFriends(db, client(), ME);
++
++    expect(useInboxStore.getState().seenAt).toBeNull();
++    expect(selectUnseenCount(useInboxStore.getState())).toBe(1);
++  });
++
++  it("a seen mark that can't be read warns only: friends and Inbox items still apply, no Friends load error", async () => {
++    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
++    const realLoadSeen = useInboxStore.getState().loadSeen;
++    useInboxStore.setState({ loadSeen: jest.fn().mockRejectedValue(new Error('disk')) });
++    try {
++      await refreshFriends(db, client(), ME);
++    } finally {
++      useInboxStore.setState({ loadSeen: realLoadSeen });
++    }
++
++    expect(useFriendsStore.getState().loadError).toBeNull();
++    expect(useFriendsStore.getState().friends).toHaveLength(1);
++    expect(useInboxStore.getState().items.map((i) => i.id)).toEqual(['f-zed']);
++    // a mark not read stays unloaded: badge 0, never everything
++    expect(selectUnseenCount(useInboxStore.getState())).toBe(0);
++    expect(warn).toHaveBeenCalledWith(expect.stringContaining('[friends]'), 'disk');
++  });
++
++  it('a load that ends after the rider signed out leaves the Inbox empty', async () => {
++    const realFrom = fake.from.getMockImplementation()!;
++    fake.from.mockImplementation((table: string) => {
++      if (table === 'profiles') {
++        fake.setSession(null);
++        useAuthStore.setState({ ...SIGNED_OUT });
++      }
++      return realFrom(table);
++    });
++
++    await refreshFriends(db, client(), ME);
++
++    expect(useInboxStore.getState()).toMatchObject({ userId: null, items: [] });
++  });
++
++  it('a name it never knew stays null (the screen shows "A rider you asked", D73)', async () => {
++    await refreshFriends(db, client(), ME);
++
++    expect(useFriendsStore.getState().outgoing[0].profile).toEqual(profile(CAL, null));
++  });
++
++  it('never upserts the null placeholder of an unreadable row (a mirrored display name stays)', async () => {
++    await upsertProfiles(db, [profile(CAL, 'cal', 'Cal C')]);
++
++    await refreshFriends(db, client(), ME);
++
++    expect((await getProfiles(db, [CAL]))[CAL]).toEqual(profile(CAL, 'cal', 'Cal C'));
++  });
++
++  it('an error warns, keeps the last data and records loadError', async () => {
++    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
++    await refreshFriends(db, client(), ME);
++    const before = useFriendsStore.getState().friends;
++    fake.failSelect((s) => s.table === 'blocks', { message: 'offline' });
++
++    await expect(refreshFriends(db, client(), ME)).resolves.toBeUndefined();
++
++    expect(warn).toHaveBeenCalledWith(expect.stringContaining('[friends]'), 'offline');
++    expect(useFriendsStore.getState().friends).toBe(before);
++    expect(useFriendsStore.getState().loadError).toBe('offline');
++  });
++
++  it('a session that ends before the profiles answer writes no mirror row and leaves the store alone', async () => {
++    const realFrom = fake.from.getMockImplementation()!;
++    fake.from.mockImplementation((table: string) => {
++      if (table === 'profiles') fake.setSession(null);
++      return realFrom(table);
++    });
++
++    await refreshFriends(db, client(), ME);
++
++    expect(await getProfiles(db, [ANA, ZED])).toEqual({});
++    expect(useFriendsStore.getState()).toMatchObject(EMPTY_FRIENDS);
++  });
++
++  it('an account switch on the phone (sync_state.user_id) mid-load writes no mirror row', async () => {
++    const realFrom = fake.from.getMockImplementation()!;
++    fake.from.mockImplementation((table: string) => {
++      if (table === 'profiles') void setSyncState(db, 'user_id', 'someone-else');
++      return realFrom(table);
++    });
++
++    await refreshFriends(db, client(), ME);
++
++    expect(await getProfiles(db, [ANA, ZED])).toEqual({});
++    expect(useFriendsStore.getState()).toMatchObject(EMPTY_FRIENDS);
++  });
++
++  it('a session that ends after the mirror write still leaves the store alone', async () => {
++    await upsertProfiles(db, [profile(CAL, 'cal')]);
++    const realGetAll = db.getAllAsync.bind(db);
++    jest.spyOn(db, 'getAllAsync').mockImplementation(((source: string, ...params: never[]) => {
++      if (source.includes('FROM profiles WHERE id IN')) fake.setSession(null);
++      return realGetAll(source, ...params);
++    }) as typeof db.getAllAsync);
++
++    await refreshFriends(db, client(), ME);
++
++    expect(useFriendsStore.getState()).toMatchObject({ ...EMPTY_FRIENDS, userId: null });
++  });
++
++  it('only the newest load applies: an older load that ends later never puts an answered request back', async () => {
++    const seen: number[] = [];
++    const unsubscribe = useFriendsStore.subscribe((s) => seen.push(s.incoming.length));
++    fake.queryDelayMs = 1;
++
++    const older = refreshFriends(db, client(), ME);
++    while (!fake.selects.some((s) => s.table === 'friendships')) await new Promise((r) => setTimeout(r, 0));
++    // the older load has read the pending request; then the rider accepts it and a newer load is asked for
++    fake.tables.friendships[1] = friendship('f-zed', ZED, 'accepted', ZED);
++    const newer = refreshFriends(db, client(), ME);
++    await Promise.all([older, newer]);
++    unsubscribe();
++
++    expect(useFriendsStore.getState().incoming).toEqual([]);
++    expect(useFriendsStore.getState().friends.map((f) => f.profile.id)).toEqual([ANA, ZED]);
++    expect(seen).not.toContain(1);
++  });
++
++  it('with no session resolves and asks nothing', async () => {
++    fake.setSession(null);
++
++    await refreshFriends(db, client(), ME);
++
++    expect(fake.selects).toEqual([]);
++    expect(useFriendsStore.getState()).toMatchObject(EMPTY_FRIENDS);
++  });
++});
+diff --git a/src/__tests__/tabs-layout.test.tsx b/src/__tests__/tabs-layout.test.tsx
+index d3bb2cc..44cd4ba 100644
+--- a/src/__tests__/tabs-layout.test.tsx
++++ b/src/__tests__/tabs-layout.test.tsx
+@@ -1,5 +1,5 @@
+ import type { ReactElement, ReactNode } from 'react';
+-import { render, screen } from '@testing-library/react-native';
++import { act, render, screen } from '@testing-library/react-native';
+ 
+ // The global router mock's Tabs is not renderable; here Tabs renders its children and each Tabs.Screen stays a host
+ // element carrying its props, so the test can read name and options in order. Redirect stays a host element too.
+@@ -11,12 +11,20 @@ jest.mock('expo-router', () => {
+ 
+ import TabLayout from '@/app/(tabs)/_layout';
+ import { SIGNED_OUT, useAuthStore, type AuthStatus } from '@/src/stores/auth-store';
++import { useInboxStore, type InboxItem } from '@/src/stores/inbox-store';
+ 
+ beforeEach(() => {
+   useAuthStore.setState({ ...SIGNED_OUT });
++  useInboxStore.getState().clearInbox();
+ });
+ 
+-type TabOptions = { title?: string; tabBarIcon?: (p: { color: string; focused: boolean; size: number }) => ReactElement<{ name: string }> };
++type TabOptions = {
++  title?: string;
++  tabBarBadge?: string | number;
++  tabBarIcon?: (p: { color: string; focused: boolean; size: number }) => ReactElement<{ name: string }>;
++};
++
++const TAB_NAMES = ['index', 'lists', 'inbox', 'profile'];
+ 
+ const tabScreens = () =>
+   screen.UNSAFE_root.findAll((n) => (n.type as unknown) === 'Tabs.Screen').map((n) => ({
+@@ -25,12 +33,20 @@ const tabScreens = () =>
+   }));
+ 
+ describe('TabLayout', () => {
+-  it('declares Spots, Lists, Profile in that order', () => {
++  it('declares Spots, Lists, Inbox, Profile in that order (D49)', () => {
+     render(<TabLayout />);
+ 
+     const tabs = tabScreens();
+-    expect(tabs.map((t) => t.name)).toEqual(['index', 'lists', 'profile']);
+-    expect(tabs.map((t) => t.options.title)).toEqual(['Spots', 'Lists', 'Profile']);
++    expect(tabs.map((t) => t.name)).toEqual(TAB_NAMES);
++    expect(tabs.map((t) => t.options.title)).toEqual(['Spots', 'Lists', 'Inbox', 'Profile']);
++  });
++
++  it("gives the Inbox tab the 'tray.fill' icon", () => {
++    render(<TabLayout />);
++
++    const inbox = tabScreens().find((t) => t.name === 'inbox');
++    const icon = inbox?.options.tabBarIcon?.({ color: '#000', focused: false, size: 28 });
++    expect(icon?.props.name).toBe('tray.fill');
+   });
+ 
+   it("gives the Lists tab the 'list.bullet' icon", () => {
+@@ -42,6 +58,48 @@ describe('TabLayout', () => {
+   });
+ });
+ 
++describe('TabLayout: the Inbox badge', () => {
++  const request = (id: string, created_at: string): InboxItem => ({
++    kind: 'friend_request',
++    id,
++    created_at,
++    friendshipId: id,
++    from: { id: `rider-${id}`, username: id, display_name: null },
++  });
++  const inboxBadge = () => tabScreens().find((t) => t.name === 'inbox')?.options.tabBarBadge;
++
++  beforeEach(() => {
++    useAuthStore.setState({ ...SIGNED_OUT, status: 'signed_in', userId: 'rider-me' });
++  });
++
++  it('has no badge with nothing unseen', () => {
++    useInboxStore.setState({ userId: 'rider-me', items: [request('a', '2026-10-20T10:00:00.000Z')], seenAt: '2026-10-20T10:00:00.000Z' });
++    render(<TabLayout />);
++
++    expect(inboxBadge()).toBeUndefined();
++  });
++
++  it("shows '2' with two unseen items, and drops when they are marked seen", () => {
++    useInboxStore.setState({
++      userId: 'rider-me',
++      items: [request('a', '2026-10-21T10:00:00.000Z'), request('b', '2026-10-22T10:00:00.000Z')],
++      seenAt: '2026-10-20T10:00:00.000Z',
++    });
++    render(<TabLayout />);
++    expect(inboxBadge()).toBe('2');
++
++    act(() => useInboxStore.setState({ seenAt: '2026-10-22T10:00:00.000Z' }));
++    expect(inboxBadge()).toBeUndefined();
++  });
++
++  it('has no badge before the seen mark is loaded', () => {
++    useInboxStore.setState({ userId: 'rider-me', items: [request('a', '2026-10-21T10:00:00.000Z')], seenAt: undefined });
++    render(<TabLayout />);
++
++    expect(inboxBadge()).toBeUndefined();
++  });
++});
++
+ describe('TabLayout: onboarding', () => {
+   const redirects = () => screen.UNSAFE_root.findAll((n) => (n.type as unknown) === 'Redirect');
+ 
+@@ -51,7 +109,7 @@ describe('TabLayout: onboarding', () => {
+ 
+     expect(redirects().map((n) => n.props.href)).toEqual(['/auth/username']);
+     // Unmounting the Tabs would throw away the tabs under the sign-in sheet (their scroll, the map).
+-    expect(tabScreens().map((t) => t.name)).toEqual(['index', 'lists', 'profile']);
++    expect(tabScreens().map((t) => t.name)).toEqual(TAB_NAMES);
+   });
+ 
+   it.each<AuthStatus>(['signed_in', 'signed_out', 'unconfigured'])('shows the tabs, no redirect, when %s', (status) => {
+@@ -59,6 +117,6 @@ describe('TabLayout: onboarding', () => {
+     render(<TabLayout />);
+ 
+     expect(redirects()).toEqual([]);
+-    expect(tabScreens().map((t) => t.name)).toEqual(['index', 'lists', 'profile']);
++    expect(tabScreens().map((t) => t.name)).toEqual(TAB_NAMES);
+   });
+ });
+diff --git a/src/db/profiles.ts b/src/db/profiles.ts
+new file mode 100644
+index 0000000..06ab3d7
+--- /dev/null
++++ b/src/db/profiles.ts
+@@ -0,0 +1,36 @@
++import type { SQLiteDatabase } from 'expo-sqlite';
++import type { FriendProfile } from '@/src/types';
++
++/*
++ * The local mirror of friend names (migration 6, D72): what the server's profiles select and a find_profile hit
++ * returned, so names show offline. Never in the outbox. Callers upsert only rows the server returned, never the
++ * null placeholders of rows it would not let the rider read.
++ */
++
++/** Inserts or updates `rows` in one statement; a NULL username never erases a known one. */
++export async function upsertProfiles(db: SQLiteDatabase, rows: readonly FriendProfile[]): Promise<void> {
++  if (rows.length === 0) return;
++  await db.runAsync(
++    `INSERT INTO profiles (id, username, display_name)
++       SELECT json_extract(value, '$.id'), json_extract(value, '$.username'), json_extract(value, '$.display_name')
++       FROM json_each(?) WHERE true
++     ON CONFLICT(id) DO UPDATE SET
++       username = COALESCE(excluded.username, profiles.username),
++       display_name = excluded.display_name`,
++    JSON.stringify(rows.map(({ id, username, display_name }) => ({ id, username, display_name }))),
++  );
++}
++
++/** The mirrored profiles among `ids`, by id (an id never mirrored is absent). */
++export async function getProfiles(db: SQLiteDatabase, ids: readonly string[]): Promise<Record<string, FriendProfile>> {
++  if (ids.length === 0) return {};
++  const rows = await db.getAllAsync<FriendProfile>(
++    'SELECT id, username, display_name FROM profiles WHERE id IN (SELECT value FROM json_each(?))',
++    JSON.stringify(ids),
++  );
++  return Object.fromEntries(rows.map((row) => [row.id, row]));
++}
++
++export async function clearProfiles(db: SQLiteDatabase): Promise<void> {
++  await db.runAsync('DELETE FROM profiles');
++}
+diff --git a/src/db/schema.ts b/src/db/schema.ts
+index 74e5ee5..2d666a9 100644
+--- a/src/db/schema.ts
++++ b/src/db/schema.ts
+@@ -413,8 +413,30 @@ async function migration5(db: SQLiteDatabase): Promise<void> {
+   `);
+ }
+ 
++/**
++ * Version 6: friends (S6, docs/plans/2026-10-22-s6-friends.md "Local cache", D72). A mirror of the server profiles the
++ * rider's friends rows (and a name typed into Add) returned, so names show offline. Never in the outbox, never pushed:
++ * no trigger. Emptied with the account's rows (src/sync/adopt.ts).
++ */
++async function migration6(db: SQLiteDatabase): Promise<void> {
++  await db.execAsync(`
++    CREATE TABLE profiles (
++      id TEXT PRIMARY KEY,
++      username TEXT,
++      display_name TEXT
++    );
++  `);
++}
++
+ /** MIGRATIONS[i] takes the DB from version i to i + 1. */
+-export const MIGRATIONS: readonly Migration[] = [migration1, migration2, migration3, migration4, migration5];
++export const MIGRATIONS: readonly Migration[] = [
++  migration1,
++  migration2,
++  migration3,
++  migration4,
++  migration5,
++  migration6,
++];
+ export const LATEST_SCHEMA_VERSION = MIGRATIONS.length;
+ 
+ export async function getSchemaVersion(db: SQLiteDatabase): Promise<number> {
+diff --git a/src/stores/friends-store.ts b/src/stores/friends-store.ts
+new file mode 100644
+index 0000000..5480a87
+--- /dev/null
++++ b/src/stores/friends-store.ts
+@@ -0,0 +1,61 @@
++import { create } from 'zustand';
++
++import type { FriendsData } from '@/src/sync/friends';
++import { useAuthStore } from './auth-store';
++
++// The signed-in rider's friends, requests and blocks as the last friends load left them (src/sync/friends.ts
++// refreshFriends, the sync engine). Not persisted: names survive offline in the local profiles mirror instead (D72).
++export interface FriendsState extends FriendsData {
++  /** The rider these rows belong to; null until a load applied. */
++  userId: string | null;
++  /** When the last load applied (ISO), null before the first. */
++  loadedAt: string | null;
++  /** The last load's error message, null after one that went through. */
++  loadError: string | null;
++  /** Sets `uid`'s rows, unless `uid` is not the rider signed in now (a load that outlived a sign-out or switch). */
++  applyFriends: (uid: string, data: FriendsData) => void;
++  setLoadError: (uid: string, message: string) => void;
++  clearFriends: () => void;
++}
++
++export const EMPTY_FRIENDS: FriendsData = {
++  friends: [],
++  incoming: [],
++  outgoing: [],
++  blocked: [],
++};
++
++const CLEARED = {
++  ...EMPTY_FRIENDS,
++  userId: null,
++  loadedAt: null,
++  loadError: null,
++};
++
++const isShown = (uid: string) => useAuthStore.getState().userId === uid;
++
++export const useFriendsStore = create<FriendsState>((set) => ({
++  ...CLEARED,
++
++  applyFriends: (uid, data) => {
++    if (!isShown(uid)) return;
++    set({
++      ...data,
++      userId: uid,
++      loadedAt: new Date().toISOString(),
++      loadError: null,
++    });
++  },
++
++  setLoadError: (uid, message) => {
++    if (isShown(uid)) set({ loadError: message });
++  },
++
++  clearFriends: () => set(CLEARED),
++}));
++
++// One account's friends never show under another: every change of the signed-in rider (sign-out, an account switch,
++// a session that fell back to signed out) empties the store, whichever path changed it.
++useAuthStore.subscribe((state, prev) => {
++  if (state.userId !== prev.userId) useFriendsStore.getState().clearFriends();
++});
+diff --git a/src/stores/inbox-store.ts b/src/stores/inbox-store.ts
+new file mode 100644
+index 0000000..4246094
+--- /dev/null
++++ b/src/stores/inbox-store.ts
+@@ -0,0 +1,114 @@
++import type { SQLiteDatabase } from 'expo-sqlite';
++import { create } from 'zustand';
++
++import { getSyncState, setSyncState } from '@/src/db/sync';
++import type { FriendProfile } from '@/src/types';
++import { useAuthStore } from './auth-store';
++
++// The Inbox tab's items and the badge (S6-04, docs/plans/2026-10-22-s6-friends.md "Inbox tab"): only items addressed
++// to the rider, tagged by kind, so S7 (sends) and S8 (invitations) add kinds without touching the badge. Not persisted
++// except the seen mark: the newest server created_at the rider has seen, per rider in sync_state (D75).
++
++/** Every kind in the order the Inbox shows its sections. */
++export const INBOX_KINDS = ['friend_request', 'send', 'invite'] as const;
++export type InboxKind = (typeof INBOX_KINDS)[number];
++
++interface InboxItemBase {
++  id: string;
++  /** server time, through toIso */
++  created_at: string;
++}
++
++export interface FriendRequestItem extends InboxItemBase {
++  kind: 'friend_request';
++  friendshipId: string;
++  /** the rider who asked */
++  from: FriendProfile;
++}
++
++// S7 adds `| SendItem` (kind 'send'), S8 `| InviteItem` (kind 'invite').
++export type InboxItem = FriendRequestItem;
++
++type ItemsOf<K extends InboxKind> = Extract<InboxItem, { kind: K }>[];
++
++export interface InboxState {
++  /** The rider these items belong to; null until something applied. */
++  userId: string | null;
++  items: InboxItem[];
++  /** The seen mark: undefined until loaded (badge 0), null when loaded and never set. */
++  seenAt: string | null | undefined;
++  /** Replaces the items of `kind` only, unless `uid` is not the rider signed in now. */
++  setItems: <K extends InboxKind>(uid: string, kind: K, items: ItemsOf<K>) => void;
++  /** Drops one item at once (answered, blocked), before the next load replaces the kind. */
++  removeItem: (uid: string, kind: InboxKind, id: string) => void;
++  /** Reads `uid`'s stored seen mark (never moves the one in memory back). */
++  loadSeen: (db: SQLiteDatabase, uid: string) => Promise<void>;
++  /** Marks every item seen: stores max(stored, shown, newest item) under `uid`'s key. */
++  markSeen: (db: SQLiteDatabase, uid: string) => Promise<void>;
++  clearInbox: () => void;
++}
++
++const CLEARED = { userId: null, items: [], seenAt: undefined };
++
++export const seenKey = (uid: string) => `inbox_seen_at:${uid}`;
++
++const isShown = (uid: string) => useAuthStore.getState().userId === uid;
++
++/** The later of ISO timestamps (one shape, so they compare as strings); null when none is set. */
++function latest(...times: (string | null | undefined)[]): string | null {
++  return times.reduce<string | null>((max, t) => (t && (max === null || t > max) ? t : max), null);
++}
++
++export const useInboxStore = create<InboxState>((set, get) => ({
++  ...CLEARED,
++
++  setItems: (uid, kind, items) => {
++    if (!isShown(uid)) return;
++    const s = get();
++    if (s.userId !== uid) {
++      set({ userId: uid, items, seenAt: undefined });
++      return;
++    }
++    set({ items: [...s.items.filter((i) => i.kind !== kind), ...items] });
++  },
++
++  removeItem: (uid, kind, id) => {
++    const s = get();
++    if (s.userId !== uid || !isShown(uid)) return;
++    set({ items: s.items.filter((i) => i.kind !== kind || i.id !== id) });
++  },
++
++  loadSeen: async (db, uid) => {
++    const stored = (await getSyncState(db, seenKey(uid))) ?? null;
++    if (!isShown(uid)) return;
++    const s = get();
++    if (s.userId !== uid) set({ userId: uid, items: [], seenAt: stored });
++    else set({ seenAt: latest(s.seenAt, stored) });
++  },
++
++  markSeen: async (db, uid) => {
++    const s = get();
++    if (s.userId !== uid || !isShown(uid)) return;
++    const newest = latest(...s.items.map((i) => i.created_at));
++    if (newest === null || (s.seenAt != null && s.seenAt >= newest)) return;
++    const stored = (await getSyncState(db, seenKey(uid))) ?? null;
++    const next = latest(stored, get().seenAt, newest);
++    if (get().userId !== uid || !isShown(uid) || next === null) return;
++    if (next !== stored) await setSyncState(db, seenKey(uid), next);
++    if (get().userId === uid) set({ seenAt: latest(get().seenAt, next) });
++  },
++
++  clearInbox: () => set(CLEARED),
++}));
++
++/** The badge: items newer than the seen mark; 0 until the mark is loaded. */
++export function selectUnseenCount(s: Pick<InboxState, 'items' | 'seenAt'>): number {
++  const { seenAt } = s;
++  if (seenAt === undefined) return 0;
++  return s.items.filter((i) => seenAt === null || i.created_at > seenAt).length;
++}
++
++// One account's Inbox never shows under another: every change of the signed-in rider empties it.
++useAuthStore.subscribe((state, prev) => {
++  if (state.userId !== prev.userId) useInboxStore.getState().clearInbox();
++});
+diff --git a/src/sync/adopt.ts b/src/sync/adopt.ts
+index 69509b5..0fe5003 100644
+--- a/src/sync/adopt.ts
++++ b/src/sync/adopt.ts
+@@ -9,6 +9,8 @@ import {
+   resetCursors,
+   setSyncState,
+ } from '@/src/db/sync';
++import { clearProfiles } from '@/src/db/profiles';
++import { seenKey } from '@/src/stores/inbox-store';
+ import { useSyncStore } from '@/src/stores/sync-store';
+ import { deleteSpotPhotos } from '@/src/utils/photo-storage';
+ import { reloadStoresQuietly, runExclusive } from './engine';
+@@ -38,9 +40,9 @@ const ADOPTABLE_MEDIA =
+ const ADOPTABLE_LISTS = 'owner_id IS NULL AND deleted_at IS NULL';
+ 
+ /**
+- * Deletes every row that came with an account (owner_id set) except `keep`'s, memberships first, and returns the
+- * removed spots' ids (for their photo folders). `sync_state.user_id` must already be cleared, so no delete trigger
+- * queues a server DELETE.
++ * Deletes every row that came with an account (owner_id set) except `keep`'s, memberships first, and the friend names
++ * mirror (D72: they were that account's friends), and returns the removed spots' ids (for their photo folders).
++ * `sync_state.user_id` must already be cleared, so no delete trigger queues a server DELETE.
+  */
+ async function deleteAccountRows(db: SQLiteDatabase, keep: string | null): Promise<string[]> {
+   const owned = 'owner_id IS NOT NULL AND owner_id IS NOT ?';
+@@ -58,6 +60,7 @@ async function deleteAccountRows(db: SQLiteDatabase, keep: string | null): Promi
+   );
+   await db.runAsync(`DELETE FROM spots WHERE ${owned}`, keep);
+   await db.runAsync(`DELETE FROM hit_lists WHERE ${owned}`, keep);
++  await clearProfiles(db);
+   return spots.map((s) => s.id);
+ }
+ 
+@@ -95,7 +98,10 @@ export function adopt(
+     await db.withTransactionAsync(async () => {
+       if (switching) {
+         await setSyncState(db, 'user_id', null);
+-        if (prev !== undefined) await setSyncState(db, `last_sync_at:${prev}`, null);
++        if (prev !== undefined) {
++          await setSyncState(db, `last_sync_at:${prev}`, null);
++          await setSyncState(db, seenKey(prev), null);
++        }
+         removed = await deleteAccountRows(db, uid);
+         await clearOutbox(db);
+         await resetCursors(db);
+@@ -131,6 +137,7 @@ export function removeLocalAccountData(
+     await db.withTransactionAsync(async () => {
+       await setSyncState(db, 'user_id', null);
+       await setSyncState(db, `last_sync_at:${uid}`, null);
++      await setSyncState(db, seenKey(uid), null);
+       removed = await deleteAccountRows(db, null);
+       await clearOutbox(db);
+       await resetCursors(db);
+@@ -188,6 +195,7 @@ async function release(db: SQLiteDatabase, uid: string, io: Pick<PhotoIO, 'exist
+   await db.withTransactionAsync(async () => {
+     await setSyncState(db, 'user_id', null);
+     await setSyncState(db, `last_sync_at:${uid}`, null);
++    await setSyncState(db, seenKey(uid), null);
+     removed = await deleteAccountRows(db, uid);
+     const media = await db.getAllAsync<{ id: string; file_path: string }>(
+       'SELECT id, file_path FROM media WHERE owner_id = ?',
+diff --git a/src/sync/engine.ts b/src/sync/engine.ts
+index a96b6fb..36d7a30 100644
+--- a/src/sync/engine.ts
++++ b/src/sync/engine.ts
+@@ -6,32 +6,22 @@ import { useHitListsStore, useMediaStore, useSpotsStore } from '@/src/stores';
+ import { useSyncStore } from '@/src/stores/sync-store';
+ import { getSupabase } from './client';
+ import { errorMessage } from './errors';
++import { loadAndApplyFriends } from './friends';
+ import { downloadMissingPhotos } from './photos';
+ import { pull } from './pull';
+ import { push } from './push';
++import { runExclusive } from './queue';
++
++export { runExclusive };
+ 
+ /** useSync's timer: a sync every 5 minutes while the app is open (D48). */
+ export const SYNC_INTERVAL_MS = 300_000;
+ 
+-/** The tail of the queue every sync and every exclusive task (adopt, Remove from this phone) runs on, one at a time. */
+-let queue: Promise<unknown> = Promise.resolve();
+ /** The sync queued or running now (`started` once it runs); a call before it starts joins it. */
+ let current: { promise: Promise<void>; started: boolean } | null = null;
+ /** The one sync asked for while `current` runs: it starts after `current`, so a change saved meanwhile goes too. */
+ let followUp: Promise<void> | null = null;
+ 
+-/**
+- * Runs `task` once nothing else on the queue runs: never during a sync's push or pull, and a sync asked for meanwhile
+- * waits for it. Adoption and Remove (S5-06) go through here, so no push or pull sees their transaction half done.
+- * A task must not await syncNow (that sync queues behind the task: a deadlock); `void syncNow(db)` inside it, or
+- * awaiting it after runExclusive resolves, is fine.
+- */
+-export function runExclusive<T>(task: () => Promise<T>): Promise<T> {
+-  const run = queue.then(task, task);
+-  queue = run.catch(() => undefined);
+-  return run;
+-}
+-
+ /**
+  * Push, then pull, then the missing photo files, as the signed-in rider; single-flight: a call while a sync waits to
+  * start joins it, a call while one runs gets exactly one more sync after it (Retry or pull-to-refresh right after an
+@@ -135,6 +125,9 @@ async function syncOnce(db: SQLiteDatabase): Promise<void> {
+       useSyncStore.setState({ lastSyncAt });
+     }
+     useSyncStore.setState({ failedCount, lastError: error });
++    // friends and requests (S6), once the backup is settled: a slow friends read never holds the pulled spots or
++    // 'Backed up' back; never rejects
++    await loadAndApplyFriends(db, client, uid);
+   } catch (err) {
+     fail('sync', err);
+     useSyncStore.setState({ lastError: error });
+diff --git a/src/sync/friends.ts b/src/sync/friends.ts
+new file mode 100644
+index 0000000..e419861
+--- /dev/null
++++ b/src/sync/friends.ts
+@@ -0,0 +1,346 @@
++import type { SupabaseClient } from '@supabase/supabase-js';
++import type { SQLiteDatabase } from 'expo-sqlite';
++
++import { getProfiles, upsertProfiles } from '@/src/db/profiles';
++import { useFriendsStore } from '@/src/stores/friends-store';
++import { useInboxStore, type FriendRequestItem } from '@/src/stores/inbox-store';
++import type { FriendProfile } from '@/src/types';
++import { maySync, signedInAs } from './account';
++import { errorMessage } from './errors';
++import { runExclusive } from './queue';
++import { toIso } from './time';
++
++/*
++ * Friends (S6, docs/plans/2026-10-22-s6-friends.md "Data"): the server's functions and RLS decide everything
++ * (find_profile, send_friend_request, respond_friend_request, block_user, unblock_user; friendships rows the rider is
++ * in, the rider's own blocks, the profiles of friends and of riders who asked). Every call takes the client and the
++ * rider and does nothing without a session for that rider, so one process can run several riders (the integration
++ * test). Usernames reach the app only from find_profile (one exact name the rider typed) and from the profiles of the
++ * rider's own friendships rows: no select on profiles without an id filter. The mutations only call the server; the
++ * caller then runs refreshFriends.
++ */
++
++export type { FriendProfile };
++
++/** One friendships row from the rider's side: `profile` is the other rider. */
++export interface FriendRow {
++  friendshipId: string;
++  created_at: string;
++  profile: FriendProfile;
++}
++
++export interface FriendsData {
++  /** status 'accepted', by username */
++  friends: FriendRow[];
++  /** 'pending', asked by the other rider, newest first */
++  incoming: FriendRow[];
++  /** 'pending', asked by the rider, newest first; the server hides the target's name (from the mirror, D73) */
++  outgoing: FriendRow[];
++  /** riders the rider blocked (D74); the server hides their names too */
++  blocked: FriendProfile[];
++}
++
++export type AddStatus = 'self' | 'already_friends' | 'already_sent' | 'blocked_by_me' | 'sent' | 'accepted';
++
++/**
++ * What Add by username found. 'not_found' is also a rider who blocked you, one not onboarded yet, and a block that
++ * landed between find and send (D50: the blocked rider is never told, so the three read the same).
++ */
++export type AddResult =
++  | { status: 'invalid' }
++  | { found: false; status: 'not_found' }
++  | { found: true; status: AddStatus; profile: FriendProfile };
++
++/** Rows per page (PostgREST caps a response at 1000). */
++const PAGE = 500;
++/** Ids per profiles select, so the URL stays short. */
++const PROFILE_CHUNK = 100;
++const USERNAME = /^[a-z0-9_.]{3,20}$/;
++const NOT_FOUND = { found: false, status: 'not_found' } as const;
++
++type ServerError = { message: string; code?: string };
++const serverError = (error: ServerError) => Object.assign(new Error(error.message), { code: error.code });
++
++/** A typed name as the server stores it (trimmed, one leading @ dropped, lowercase), or null if it can't be one (D39). */
++export function normaliseUsername(typed: string): string | null {
++  const trimmed = typed.trim();
++  const name = (trimmed.startsWith('@') ? trimmed.slice(1) : trimmed).toLowerCase();
++  return USERNAME.test(name) ? name : null;
++}
++
++interface FriendshipRow {
++  id: string;
++  user_a: string;
++  user_b: string;
++  status: 'pending' | 'accepted';
++  requested_by: string;
++  created_at: string;
++}
++
++/** Every row of `table` the rider may read, in pages ordered by `key`. */
++async function readAll<T extends Record<string, unknown>>(
++  client: SupabaseClient,
++  table: string,
++  columns: string,
++  key: keyof T & string,
++): Promise<T[]> {
++  const rows: T[] = [];
++  let last: unknown = null;
++  for (;;) {
++    let query = client.from(table).select(columns);
++    if (last !== null) query = query.gt(key, last);
++    const { data, error } = await query.order(key).limit(PAGE);
++    if (error) throw serverError(error);
++    const page = (data ?? []) as unknown as T[];
++    rows.push(...page);
++    if (page.length < PAGE) return rows;
++    last = page[page.length - 1][key];
++  }
++}
++
++/** The profiles of `ids` the server lets the rider read, by id. */
++async function readProfiles(client: SupabaseClient, ids: string[]): Promise<FriendProfile[]> {
++  const profiles: FriendProfile[] = [];
++  for (let i = 0; i < ids.length; i += PROFILE_CHUNK) {
++    const { data, error } = await client
++      .from('profiles')
++      .select('id,username,display_name')
++      .in('id', ids.slice(i, i + PROFILE_CHUNK));
++    if (error) throw serverError(error);
++    profiles.push(...((data ?? []) as FriendProfile[]));
++  }
++  return profiles;
++}
++
++const placeholder = (id: string): FriendProfile => ({ id, username: null, display_name: null });
++const newestFirst = (a: FriendRow, b: FriendRow) => b.created_at.localeCompare(a.created_at);
++/** By username, riders whose name is unknown last (by id, so the order is stable). */
++const byName = (a: FriendProfile, b: FriendProfile) =>
++  (a.username ?? '\uffff').localeCompare(b.username ?? '\uffff') || a.id.localeCompare(b.id);
++const byUsername = (a: FriendRow, b: FriendRow) => byName(a.profile, b.profile);
++
++/** loadFriends plus the profiles the server actually returned (the only ones the mirror takes). */
++async function fetchFriends(
++  client: SupabaseClient,
++  uid: string,
++): Promise<{ data: FriendsData; returned: FriendProfile[] } | null> {
++  if (!(await signedInAs(client, uid))) return null;
++  // RLS returns only rows the rider is in (friendships) or made (blocks): no filter on uid needed
++  const rows = await readAll<FriendshipRow & Record<string, unknown>>(
++    client,
++    'friendships',
++    'id,user_a,user_b,status,requested_by,created_at',
++    'id',
++  );
++  const blocks = await readAll<{ blocked: string; created_at: string }>(
++    client,
++    'blocks',
++    'blocked,created_at',
++    'blocked',
++  );
++  const other = (row: FriendshipRow) => (row.user_a === uid ? row.user_b : row.user_a);
++  const returned = await readProfiles(client, [...new Set(rows.map(other))]);
++  const byId = new Map(returned.map((p) => [p.id, { id: p.id, username: p.username, display_name: p.display_name }]));
++
++  // a block that landed between the two reads: the rider shows as blocked only (block_user removed the friendship)
++  const blockedIds = new Set(blocks.map((b) => b.blocked));
++  const data: FriendsData = { friends: [], incoming: [], outgoing: [], blocked: [] };
++  for (const row of rows) {
++    const id = other(row);
++    if (blockedIds.has(id)) continue;
++    const friend = {
++      friendshipId: row.id,
++      created_at: toIso(row.created_at) ?? row.created_at,
++      profile: byId.get(id) ?? placeholder(id),
++    };
++    if (row.status === 'accepted') data.friends.push(friend);
++    else (row.requested_by === uid ? data.outgoing : data.incoming).push(friend);
++  }
++  data.friends.sort(byUsername);
++  data.incoming.sort(newestFirst);
++  data.outgoing.sort(newestFirst);
++  data.blocked = blocks.map((b) => byId.get(b.blocked) ?? placeholder(b.blocked)).sort(byName);
++  return { data, returned };
++}
++
++/**
++ * The rider's friends, incoming and outgoing requests and blocks, straight from the server (names the server hides
++ * are null). Null without a session for `uid`; throws when a table can't be read.
++ */
++export async function loadFriends(client: SupabaseClient, uid: string): Promise<FriendsData | null> {
++  return (await fetchFriends(client, uid))?.data ?? null;
++}
++
++/** Puts `profiles` into the mirror on the sync queue, only while the phone is `uid`'s (never another account's). */
++function mirrorProfiles(db: SQLiteDatabase, client: SupabaseClient, uid: string, profiles: FriendProfile[]) {
++  void runExclusive(async () => {
++    try {
++      if (await maySync(db, client, uid)) await upsertProfiles(db, profiles);
++    } catch (err) {
++      console.warn('[friends] saving a name on the phone failed:', errorMessage(err));
++    }
++  });
++}
++
++/**
++ * Add by exact @username. An invalid name makes no call; null without a session for `uid`. A hit goes into the
++ * mirror (the rider typed it; that is how a sent request keeps its name, D73) before anything is sent. Throws on a
++ * server error other than the ones mapped here.
++ */
++export async function addFriend(
++  client: SupabaseClient,
++  db: SQLiteDatabase,
++  uid: string,
++  typed: string,
++): Promise<AddResult | null> {
++  const username = normaliseUsername(typed);
++  if (!username) return { status: 'invalid' };
++  if (!(await signedInAs(client, uid))) return null;
++
++  const found = await client.rpc('find_profile', { p_username: username });
++  if (found.error) throw serverError(found.error);
++  const hit = ((found.data ?? []) as FriendProfile[])[0];
++  if (!hit) return NOT_FOUND;
++  const profile: FriendProfile = {
++    id: hit.id,
++    username: hit.username,
++    display_name: hit.display_name,
++  };
++  if (profile.id === uid) return { found: true, status: 'self', profile };
++  mirrorProfiles(db, client, uid, [profile]);
++
++  const [userA, userB] = uid < profile.id ? [uid, profile.id] : [profile.id, uid];
++  const existing = await client
++    .from('friendships')
++    .select('id,status,requested_by')
++    .eq('user_a', userA)
++    .eq('user_b', userB)
++    .maybeSingle<Pick<FriendshipRow, 'id' | 'status' | 'requested_by'>>();
++  if (existing.error) throw serverError(existing.error);
++  if (existing.data?.status === 'accepted') return { found: true, status: 'already_friends', profile };
++  if (existing.data?.requested_by === uid) return { found: true, status: 'already_sent', profile };
++  const blocked = await client.from('blocks').select('blocked').eq('blocked', profile.id).maybeSingle();
++  if (blocked.error) throw serverError(blocked.error);
++  if (blocked.data) return { found: true, status: 'blocked_by_me', profile };
++
++  const sent = await client.rpc('send_friend_request', {
++    p_username: username,
++  });
++  if (sent.error) {
++    if (sent.error.code === 'P0002') return NOT_FOUND;
++    // 'unblock this user first': a block added on another phone after the check above; 42501 is also 'not signed in'
++    if (sent.error.code === '42501' && (await signedInAs(client, uid))) {
++      return { found: true, status: 'blocked_by_me', profile };
++    }
++    throw serverError(sent.error);
++  }
++  // they had asked first: the function accepted their request
++  return { found: true, status: existing.data ? 'accepted' : 'sent', profile };
++}
++
++/** Accept or decline a request; one already answered or withdrawn elsewhere resolves (the next load drops it). */
++export async function respond(
++  client: SupabaseClient,
++  uid: string,
++  friendshipId: string,
++  action: 'accept' | 'decline',
++): Promise<void> {
++  if (!(await signedInAs(client, uid))) return;
++  const { error } = await client.rpc('respond_friend_request', {
++    p_id: friendshipId,
++    p_action: action,
++  });
++  if (!error) return;
++  if (error.code === '42501' && (await signedInAs(client, uid))) return;
++  throw serverError(error);
++}
++
++/** Remove a friend, or Cancel a sent request: either side may delete the row. */
++export async function removeFriend(client: SupabaseClient, uid: string, friendshipId: string): Promise<void> {
++  if (!(await signedInAs(client, uid))) return;
++  const { error } = await client.from('friendships').delete().eq('id', friendshipId);
++  if (error) throw serverError(error);
++}
++
++/** Block a rider (the server also removes the friendship); one who deleted their account (P0002) is fine. */
++export async function block(client: SupabaseClient, uid: string, userId: string): Promise<void> {
++  if (!(await signedInAs(client, uid))) return;
++  const { error } = await client.rpc('block_user', { p_user: userId });
++  if (error && error.code !== 'P0002') throw serverError(error);
++}
++
++export async function unblock(client: SupabaseClient, uid: string, userId: string): Promise<void> {
++  if (!(await signedInAs(client, uid))) return;
++  const { error } = await client.rpc('unblock_user', { p_user: userId });
++  if (error) throw serverError(error);
++}
++
++const requestItem = (row: FriendRow): FriendRequestItem => ({
++  kind: 'friend_request',
++  id: row.friendshipId,
++  created_at: row.created_at,
++  friendshipId: row.friendshipId,
++  from: row.profile,
++});
++
++/** The newest load asked for, per rider: an older one that ends later must not put back what a newer one dropped. */
++const newestTicket = new Map<string, number>();
++let tickets = 0;
++
++function takeTicket(uid: string): number {
++  tickets += 1;
++  newestTicket.set(uid, tickets);
++  return tickets;
++}
++
++/**
++ * Loads the rider's friends, mirrors the profiles the server returned, fills the names it hides from the mirror and
++ * applies the result to the friends store. Runs on the sync queue: the engine calls it inside its task, everything
++ * else through refreshFriends. Drops the result when a newer load was asked for, or when the session or the phone's
++ * account (sync_state.user_id) is no longer `uid`'s. Never rejects: an error warns and lands in the store.
++ */
++export async function loadAndApplyFriends(
++  db: SQLiteDatabase,
++  client: SupabaseClient,
++  uid: string,
++  ticket: number = takeTicket(uid),
++): Promise<void> {
++  const isNewest = () => newestTicket.get(uid) === ticket;
++  try {
++    const fetched = await fetchFriends(client, uid);
++    if (!fetched || !isNewest() || !(await maySync(db, client, uid))) return;
++    const { data, returned } = fetched;
++    await upsertProfiles(db, returned);
++    const hidden = [...data.outgoing.map((f) => f.profile), ...data.blocked].filter((p) => p.username === null);
++    const mirrored = await getProfiles(
++      db,
++      hidden.map((p) => p.id),
++    );
++    const named = (p: FriendProfile) => (p.username === null ? (mirrored[p.id] ?? p) : p);
++    const filled: FriendsData = {
++      ...data,
++      outgoing: data.outgoing.map((f) => ({ ...f, profile: named(f.profile) })),
++      blocked: data.blocked.map(named).sort(byName),
++    };
++    // The Inbox's seen mark loads before its items: a cold start with a stored session fires no sign-in, so nothing
++    // else would read it. One that can't be read stays unloaded (badge 0); it isn't a friends load error.
++    try {
++      await useInboxStore.getState().loadSeen(db, uid);
++    } catch (err) {
++      console.warn('[friends] reading the Inbox seen mark failed:', errorMessage(err));
++    }
++    if (!isNewest() || !(await signedInAs(client, uid))) return;
++    // both stores move together; the Inbox takes only requests asked by others (never what the rider sent)
++    useFriendsStore.getState().applyFriends(uid, filled);
++    useInboxStore.getState().setItems(uid, 'friend_request', filled.incoming.map(requestItem));
++  } catch (err) {
++    console.warn('[friends] loading friends failed:', errorMessage(err));
++    if (isNewest()) useFriendsStore.getState().setLoadError(uid, errorMessage(err));
++  }
++}
++
++/** loadAndApplyFriends on the sync queue (screens, after a mutation). A runExclusive task must never await it. */
++export function refreshFriends(db: SQLiteDatabase, client: SupabaseClient, uid: string): Promise<void> {
++  const ticket = takeTicket(uid);
++  return runExclusive(() => loadAndApplyFriends(db, client, uid, ticket));
++}
+diff --git a/src/sync/queue.ts b/src/sync/queue.ts
+new file mode 100644
+index 0000000..226611f
+--- /dev/null
++++ b/src/sync/queue.ts
+@@ -0,0 +1,14 @@
++/** The tail of the queue every sync and every exclusive task (adopt, Remove from this phone, a friends load) runs on. */
++let queue: Promise<unknown> = Promise.resolve();
++
++/**
++ * Runs `task` once nothing else on the queue runs: never during a sync's push or pull, and a sync asked for meanwhile
++ * waits for it. Adoption and Remove (S5-06) go through here, so no push or pull sees their transaction half done.
++ * A task must not await syncNow or refreshFriends (they queue behind the task: a deadlock); `void syncNow(db)` inside
++ * it, or awaiting it after runExclusive resolves, is fine.
++ */
++export function runExclusive<T>(task: () => Promise<T>): Promise<T> {
++  const run = queue.then(task, task);
++  queue = run.catch(() => undefined);
++  return run;
++}
+diff --git a/src/types/index.ts b/src/types/index.ts
+index 37c2707..298dc55 100644
+--- a/src/types/index.ts
++++ b/src/types/index.ts
+@@ -114,6 +114,16 @@ export type NewHitList =
+   | { kind: 'manual' }
+   | { kind: 'area'; area_center: GeoPoint; area_radius_m: number; area_place?: string; area_filters: SpotFilters };
+ 
++/**
++ * Another rider as the server's profiles row shows them (S6). `username` is null until they onboard, or when the
++ * server doesn't let this rider read them (a request you sent, a rider you blocked) and the phone never learnt it.
++ */
++export interface FriendProfile {
++  id: string;
++  username: string | null;
++  display_name: string | null;
++}
++
+ export interface UserSettings {
+   units: UnitSystem;
+   batch_import_radius: number; // meters

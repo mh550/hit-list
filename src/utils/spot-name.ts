@@ -41,3 +41,8 @@ export function featureTypesLabel(spot: Spot): string | undefined {
 export function featureTypesList(spot: Spot): string | undefined {
   return spot.feature_types.map((t) => FEATURE_TYPE_LABELS[t]).join(' · ') || undefined;
 }
+
+/** '1 spot' / '23 spots' (the Lists tab rows, the area picker's count). */
+export function spotCountLabel(n: number): string {
+  return n === 1 ? '1 spot' : `${n} spots`;
+}

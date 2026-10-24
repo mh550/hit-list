@@ -11,6 +11,8 @@ interface ButtonProps {
   variant?: ButtonVariant;
   size?: ButtonSize;
   disabled?: boolean;
+  /** Working on it (VoiceOver says busy); pair with `disabled`. */
+  busy?: boolean;
   accessibilityLabel?: string;
 }
 
@@ -35,6 +37,7 @@ export function Button({
   variant = 'primary',
   size = 'md',
   disabled = false,
+  busy,
   accessibilityLabel,
 }: ButtonProps) {
   return (
@@ -43,6 +46,7 @@ export function Button({
       disabled={disabled}
       accessibilityLabel={accessibilityLabel ?? title}
       accessibilityRole="button"
+      accessibilityState={busy === undefined ? undefined : { busy }}
       style={({ pressed }) => [
         styles.base,
         sizeStyles[size].container,

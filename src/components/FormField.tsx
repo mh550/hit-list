@@ -32,7 +32,9 @@ export function FormField({ label, hideLabel, children, error }: FormFieldProps)
 
 // ── FormInput ───────────────────────────────────────────
 
-interface FormInputProps extends TextInputProps, Pick<FormFieldProps, 'label' | 'hideLabel' | 'error'> {}
+interface FormInputProps extends TextInputProps, Pick<FormFieldProps, 'label' | 'hideLabel' | 'error'> {
+  ref?: React.Ref<TextInput>;
+}
 
 export function FormInput({ label, hideLabel, error, style, ...props }: FormInputProps) {
   return (

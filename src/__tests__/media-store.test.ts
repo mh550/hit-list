@@ -28,6 +28,16 @@ describe('media store', () => {
     unsubscribe();
   });
 
+  it('addMany skips media the store already has (a sync reload may have read them first)', () => {
+    const a = createTestMedia({ spot_id: 's1' });
+    const b = createTestMedia({ spot_id: 's1' });
+    useMediaStore.getState().setAll([a]);
+
+    useMediaStore.getState().addMany([a, b]);
+
+    expect(useMediaStore.getState().mediaBySpot).toEqual({ s1: [a, b] });
+  });
+
   it('removeMany removes those media from any spot, keeping the rest in order, in one update', () => {
     // The Edit screen removes a spot's photos in one go; other photos and their order must survive.
     const a = createTestMedia({ spot_id: 's1' });

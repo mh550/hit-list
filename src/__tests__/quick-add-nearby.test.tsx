@@ -2,6 +2,7 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react-
 import { Alert } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useMediaStore, useSettingsStore, useSpotsStore } from '@/src/stores';
+import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
 import { NO_LOCATION } from '@/src/utils/geo';
 import { UnitSystem, type GeoPoint, type Media, type Spot } from '@/src/types';
 import type { NewPhoto } from '@/src/hooks/use-media-actions';
@@ -76,6 +77,15 @@ describe("Quick Add review: nearby spots offer 'Add photos there' (M6-03, D25)",
     expect(screen.getAllByRole('button', { name: /^Add photos there, / })).toHaveLength(3);
     expect(screen.getAllByText('Add photos there')).toHaveLength(3);
     expect(screen.queryByText(/Eighty Gap/)).toBeNull();
+  });
+
+  it("never offers another rider's spot (S8, D47: photos can't be added to it)", () => {
+    useAuthStore.setState({ status: 'signed_in', userId: 'u-me', username: 'me' });
+    useSpotsStore.setState({ spots: [at80, at45, at20, { ...at5, owner_id: 'u-ana' }] });
+    render(<QuickAddReview />);
+
+    expect(nearbyLines()).toEqual(['Near Twenty Ledge · 66 ft', 'Near Forty Five Bank · 148 ft']);
+    act(() => useAuthStore.setState(SIGNED_OUT));
   });
 
   it('uses metric distances when units are metric, and follows a units change', () => {

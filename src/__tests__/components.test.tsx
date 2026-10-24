@@ -8,6 +8,8 @@ import { Chip } from '@/src/components/Chip';
 import { EmptyState } from '@/src/components/EmptyState';
 import { Card, CardContent, CardTitle } from '@/src/components/Card';
 import { FormInput } from '@/src/components/FormField';
+import { SpotListItem } from '@/src/components/SpotListItem';
+import { HeaderTextButton } from '@/src/components/HeaderTextButton';
 
 describe('Button', () => {
   it('renders title', () => {
@@ -120,5 +122,72 @@ describe('FormInput', () => {
   it('renders error message', () => {
     render(<FormInput label="Name" error="Required" />);
     expect(screen.getByText('Required')).toBeTruthy();
+  });
+});
+
+describe('SpotListItem', () => {
+  const base = { id: 's1', displayName: 'Pier rail', stopped: false, onPress: () => {} };
+
+  it('is a plain button with no checkbox outside select mode', () => {
+    render(<SpotListItem {...base} />);
+    const row = screen.getByLabelText('Pier rail');
+    expect(row.props.accessibilityRole).toBe('button');
+    expect(row.props.accessibilityState?.checked).toBeUndefined();
+    expect(screen.queryByTestId('spot-check-s1')).toBeNull();
+  });
+
+  it("shows another rider's spot with a small owner badge '@ana', read in its label (S8)", () => {
+    render(<SpotListItem {...base} ownerLabel="@ana" />);
+    expect(screen.getByText('@ana')).toBeTruthy();
+    expect(screen.getByLabelText('Pier rail, @ana')).toBeTruthy();
+  });
+
+  it('has no owner badge for the rider\'s own spot', () => {
+    render(<SpotListItem {...base} />);
+    expect(screen.queryByText(/^@/)).toBeNull();
+  });
+
+  it('is an unchecked checkbox when selectable and not selected', () => {
+    render(<SpotListItem {...base} selectable selected={false} />);
+    const row = screen.getByLabelText('Pier rail');
+    expect(row.props.accessibilityRole).toBe('checkbox');
+    expect(row.props.accessibilityState).toEqual({ checked: false });
+    expect(screen.getByTestId('spot-check-s1')).toBeTruthy();
+  });
+
+  it('is a checked checkbox when selectable and selected, and a tap still reports the id', () => {
+    const onPress = jest.fn();
+    render(<SpotListItem {...base} onPress={onPress} selectable selected />);
+    const row = screen.getByLabelText('Pier rail');
+    expect(row.props.accessibilityRole).toBe('checkbox');
+    expect(row.props.accessibilityState).toEqual({ checked: true });
+    fireEvent.press(row);
+    expect(onPress).toHaveBeenCalledWith('s1');
+  });
+});
+
+describe('HeaderTextButton', () => {
+  it('is a button with its label and text, and calls onPress', () => {
+    const onPress = jest.fn();
+    render(<HeaderTextButton accessibilityLabel="Rename list" onPress={onPress}>
+        Rename
+      </HeaderTextButton>);
+    const button = screen.getByRole('button', { name: 'Rename list' });
+    expect(screen.getByText('Rename')).toBeTruthy();
+    fireEvent.press(button);
+    expect(onPress).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses the text as the label when none is given, and bolds the text when emphasized', () => {
+    render(<HeaderTextButton emphasized onPress={jest.fn()}>
+        Filter (2)
+      </HeaderTextButton>);
+    screen.getByRole('button', { name: 'Filter (2)' });
+    expect(StyleSheet.flatten(screen.getByText('Filter (2)').props.style).fontWeight).toBe('700');
+  });
+
+  it('keeps the regular weight by default', () => {
+    render(<HeaderTextButton onPress={jest.fn()}>Select</HeaderTextButton>);
+    expect(StyleSheet.flatten(screen.getByText('Select').props.style).fontWeight).toBe('500');
   });
 });

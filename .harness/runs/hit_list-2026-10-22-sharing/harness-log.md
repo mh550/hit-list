@@ -1,0 +1,95 @@
+- 2026-10-22 19:54 · feature list written: 0/76 passing
+- 2026-10-22 19:59 · S1-01 · claude-opus-5-5 · passes=true · 4 min · 1/76 passing
+- 2026-10-22 20:02 · S1-02 · claude-opus-5-5 · passes=true · 3 min · 2/76 passing
+- 2026-10-22 20:08 · S1-03 · claude-opus-5-5 · passes=true · 5 min · 3/76 passing
+- 2026-10-22 20:10 · S1-04 · claude-opus-5-5 · passes=true · 2 min · 4/76 passing
+- 2026-10-22 20:17 · S1-05 · claude-opus-5-5 · passes=true · 6 min · 5/76 passing
+- 2026-10-22 20:24 · S1-06 · claude-opus-5-5 · passes=true · 6 min · 6/76 passing
+- 2026-10-22 20:29 · S1-07 · claude-opus-5-5 · passes=true · 5 min · 7/76 passing
+- 2026-10-22 20:38 · S1-08 · claude-opus-5-5 · passes=true · 8 min · 8/76 passing
+- 2026-10-22 20:44 · S1-09 · claude-opus-5-5 · passes=true · 6 min · 9/76 passing
+- 2026-10-22 20:46 · S1-10 · claude-sonnet-5-5 · passes=true · 2 min · 10/76 passing
+- 2026-10-22 20:55 · S1-11 · claude-opus-5-5 · passes=true · 9 min · 11/76 passing
+- 2026-10-22 20:57 · S1 verified and tagged run/hit_list-2026-10-22-sharing/S1
+- 2026-10-22 20:57 · S1 proposed for merging · https://github.com/mh550/hit-list/pull/9
+- 2026-10-22 21:01 · S2-01 · claude-opus-5-5 · passes=true · 4 min · 12/76 passing
+- 2026-10-22 21:05 · S2-02 · claude-opus-5-5 · passes=true · 3 min · 13/76 passing
+- 2026-10-22 21:15 · S2-03 · claude-opus-5-5 · passes=true · 10 min · 14/76 passing
+- 2026-10-22 21:31 · S2-04 · claude-opus-5-5 · passes=true · 15 min · 15/76 passing
+- 2026-10-22 21:33 · S2-05 · claude-sonnet-5-5 · passes=true · 1 min · 16/76 passing
+- 2026-10-22 21:43 · S2-06 · claude-opus-5-5 · passes=true · 9 min · 17/76 passing
+- 2026-10-22 21:45 · S2 verified and tagged run/hit_list-2026-10-22-sharing/S2
+- 2026-10-22 21:45 · S2 proposed for merging · https://github.com/mh550/hit-list/pull/10
+- 2026-10-22 21:51 · S3-01 · claude-opus-5-5 · passes=true · 6 min · 18/76 passing
+- 2026-10-22 22:01 · S3-02 · claude-opus-5-5 · passes=true · 9 min · 19/76 passing
+- 2026-10-22 22:13 · S3-03 · claude-opus-5-5 · passes=true · 12 min · 20/76 passing
+- 2026-10-22 22:47 · S3-04 · claude-opus-5-5 · passes=true · 34 min · 21/76 passing
+- 2026-10-22 23:05 · S3-05 · claude-opus-5-5 · passes=true · 17 min · 22/76 passing
+- 2026-10-22 23:25 · S3-06 · claude-opus-5-5 · passes=true · 20 min · 23/76 passing
+- 2026-10-22 23:45 · S3-07 · claude-opus-5-5 · passes=true · 19 min · 24/76 passing
+- 2026-10-22 23:58 · S3-08 · claude-opus-5-5 · passes=true · 12 min · 25/76 passing
+- 2026-10-23 00:02 · S3 verified and tagged run/hit_list-2026-10-22-sharing/S3
+- 2026-10-23 00:02 · S3 proposed for merging · https://github.com/mh550/hit-list/pull/11
+- 2026-10-23 00:10 · S4-01 · claude-opus-5-5 · passes=true · 7 min · 26/76 passing
+- 2026-10-23 00:38 · S4-02 · claude-opus-5-5 · passes=true · 27 min · 27/76 passing
+- 2026-10-23 00:46 · S4-03 · claude-opus-5-5 · passes=true · 8 min · 28/76 passing
+- 2026-10-23 01:01 · S4-04 · claude-opus-5-5 · passes=true · 14 min · 29/76 passing
+- 2026-10-23 01:11 · S4-05 · claude-opus-5-5 · passes=true · 9 min · 30/76 passing
+- 2026-10-23 01:24 · S4-06 · claude-opus-5-5 · passes=true · 13 min · 31/76 passing
+- 2026-10-23 01:27 · S4-07 · claude-sonnet-5-5 · passes=true · 2 min · 32/76 passing
+- 2026-10-23 01:38 · S4-08 · claude-opus-5-5 · passes=true · 10 min · 33/76 passing
+- 2026-10-23 01:39 · S4 verified and tagged run/hit_list-2026-10-22-sharing/S4
+- 2026-10-23 01:39 · S4 proposed for merging · https://github.com/mh550/hit-list/pull/12
+- 2026-10-23 01:54 · S5-01 · claude-opus-5-5 · passes=true · 15 min · 34/76 passing
+- 2026-10-23 02:25 · S5-02 · claude-opus-5-5 · passes=true · 30 min · 35/76 passing
+- 2026-10-23 02:46 · S5-03 · claude-opus-5-5 · passes=true · 21 min · 36/76 passing
+- 2026-10-23 03:04 · S5-04 · claude-opus-5-5 · passes=true · 18 min · 37/76 passing
+- 2026-10-23 03:18 · S5-05 · claude-opus-5-5 · passes=true · 13 min · 38/76 passing
+- 2026-10-23 03:51 · S5-06 · claude-opus-5-5 · passes=true · 32 min · 39/76 passing
+- 2026-10-23 04:03 · S5-07 · claude-opus-5-5 · passes=true · 11 min · 40/76 passing
+- 2026-10-23 04:06 · S5-08 · claude-sonnet-5-5 · passes=true · 3 min · 41/76 passing
+- 2026-10-23 04:25 · S5-09 · claude-opus-5-5 · passes=true · 18 min · 42/76 passing
+- 2026-10-23 04:27 · S5 verified and tagged run/hit_list-2026-10-22-sharing/S5
+- 2026-10-23 04:27 · S5 proposed for merging · https://github.com/mh550/hit-list/pull/13
+- 2026-10-23 04:37 · S6-01 · claude-opus-5-5 · passes=true · 9 min · 43/76 passing
+- 2026-10-23 04:52 · S6-02 · claude-opus-5-5 · passes=true · 15 min · 44/76 passing
+- 2026-10-23 05:01 · S6-03 · claude-opus-5-5 · passes=true · 8 min · 45/76 passing
+- 2026-10-23 05:16 · S6-04 · claude-opus-5-5 · passes=true · 14 min · 46/76 passing
+- 2026-10-23 05:22 · S6-05 · claude-opus-5-5 · passes=true · 6 min · 47/76 passing
+- 2026-10-23 05:25 · S6-06 · claude-sonnet-5-5 · passes=true · 3 min · 48/76 passing
+- 2026-10-23 05:34 · S6-07 · claude-opus-5-5 · passes=true · 8 min · 49/76 passing
+- 2026-10-23 05:35 · S6 verified and tagged run/hit_list-2026-10-22-sharing/S6
+- 2026-10-23 05:35 · S6 proposed for merging · https://github.com/mh550/hit-list/pull/14
+- 2026-10-23 06:03 · S7-01 · claude-opus-5-5 · passes=true · 27 min · 50/76 passing
+- 2026-10-23 06:09 · S7-02 · claude-opus-5-5 · passes=true · 6 min · 51/76 passing
+- 2026-10-23 06:37 · S7-03 · claude-opus-5-5 · passes=true · 27 min · 52/76 passing
+- 2026-10-23 06:56 · S7-04 · claude-opus-5-5 · passes=true · 18 min · 53/76 passing
+- 2026-10-23 07:16 · S7-05 · claude-opus-5-5 · passes=true · 19 min · 54/76 passing
+- 2026-10-23 07:26 · S7-06 · claude-opus-5-5 · passes=true · 10 min · 55/76 passing
+- 2026-10-23 07:30 · S7-07 · claude-sonnet-5-5 · passes=true · 3 min · 56/76 passing
+- 2026-10-23 08:02 · S7-08 · claude-opus-5-5 · passes=true · 31 min · 57/76 passing
+- 2026-10-23 08:04 · S7 verified and tagged run/hit_list-2026-10-22-sharing/S7
+- 2026-10-23 08:04 · S7 proposed for merging · https://github.com/mh550/hit-list/pull/15
+- 2026-10-23 08:21 · S8-01 · claude-opus-5-5 · passes=true · 16 min · 58/76 passing
+- 2026-10-23 08:56 · S8-02 · claude-opus-5-5 · passes=true · 34 min · 59/76 passing
+- 2026-10-23 09:28 · S8-03 · claude-opus-5-5 · passes=true · 32 min · 60/76 passing
+- 2026-10-23 09:45 · S8-04 · claude-opus-5-5 · passes=true · 16 min · 61/76 passing
+- 2026-10-23 09:59 · S8-05 · claude-opus-5-5 · passes=true · 14 min · 62/76 passing
+- 2026-10-23 10:09 · S8-06 · claude-opus-5-5 · passes=true · 9 min · 63/76 passing
+- 2026-10-23 10:27 · S8-07 · claude-opus-5-5 · passes=true · 18 min · 64/76 passing
+- 2026-10-23 10:32 · S8-08 · claude-sonnet-5-5 · passes=true · 5 min · 65/76 passing
+- 2026-10-23 10:54 · S8-09 · claude-opus-5-5 · passes=true · 21 min · 66/76 passing
+- 2026-10-23 10:56 · S8 verified and tagged run/hit_list-2026-10-22-sharing/S8
+- 2026-10-23 10:56 · S8 proposed for merging · https://github.com/mh550/hit-list/pull/16
+- 2026-10-23 11:09 · S9-01 · claude-opus-5-5 · passes=true · 12 min · 67/76 passing
+- 2026-10-23 11:22 · S9-02 · claude-opus-5-5 · passes=true · 12 min · 68/76 passing
+- 2026-10-23 11:55 · S9-03 · claude-opus-5-5 · passes=true · 32 min · 69/76 passing
+- 2026-10-23 12:01 · S9-04 · claude-opus-5-5 · passes=true · 6 min · 70/76 passing
+- 2026-10-23 12:12 · S9-05 · claude-opus-5-5 · passes=true · 11 min · 71/76 passing
+- 2026-10-23 12:17 · S9-06 · claude-sonnet-5-5 · passes=true · 4 min · 72/76 passing
+- 2026-10-23 12:34 · S9-07 · claude-opus-5-5 · passes=true · 17 min · 73/76 passing
+- 2026-10-23 12:37 · S9 verified and tagged run/hit_list-2026-10-22-sharing/S9
+- 2026-10-23 12:37 · S9 proposed for merging · https://github.com/mh550/hit-list/pull/17
+- 2026-10-23 12:57 · S10-01 · claude-opus-5-5 · passes=true · 19 min · 74/76 passing
+- 2026-10-23 12:58 · S10-02 · claude-sonnet-5-5 · passes=true · 1 min · 75/76 passing
+- 2026-10-23 13:00 · S10-03 · claude-sonnet-5-5 · passes=true · 1 min · 76/76 passing

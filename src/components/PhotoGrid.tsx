@@ -2,7 +2,8 @@ import React, { useState, type ReactNode } from 'react';
 import { View, Pressable, PixelRatio, StyleSheet, type DimensionValue, type LayoutChangeEvent } from 'react-native';
 import { Image } from 'expo-image';
 import { palette, spacing, radius } from '@/src/constants/theme';
-import { resolvePhotoUri } from '@/src/utils/photo-storage';
+import { IconSymbol } from '@/components/ui/icon-symbol';
+import { usePhotoUri } from '@/src/hooks/use-photo-uri';
 import type { Media } from '@/src/types';
 
 interface PhotoGridProps {
@@ -42,7 +43,7 @@ export function PhotoGrid({ photos, onPressPhoto, renderBadge, trailing }: Photo
         accessibilityRole={onPressPhoto ? 'imagebutton' : 'image'}
         accessibilityLabel={`Photo ${index + 1} of ${photos.length}`}
         style={index === 0 ? styles.hero : styles.tile}>
-        <Image source={{ uri: resolvePhotoUri(media.file_path) }} style={styles.image} contentFit="cover" />
+        <TileImage media={media} />
       </Pressable>
       {renderBadge ? <View style={styles.badge} pointerEvents="box-none">{renderBadge(media, index)}</View> : null}
     </View>
@@ -60,6 +61,22 @@ export function PhotoGrid({ photos, onPressPhoto, renderBadge, trailing }: Photo
       ) : null}
     </View>
   );
+}
+
+/**
+ * One tile's picture: the rider's own at once, another rider's once its cached copy is there (S8). A download that
+ * failed shows a grey placeholder (D91); nothing shows while it is still coming.
+ */
+function TileImage({ media }: { media: Media }) {
+  const { uri, failed } = usePhotoUri(media);
+  if (failed) {
+    return (
+      <View testID="photo-placeholder" style={[styles.image, styles.placeholder]}>
+        <IconSymbol name="photo" size={28} color={palette.gray[400]} />
+      </View>
+    );
+  }
+  return uri ? <Image source={{ uri }} style={styles.image} contentFit="cover" /> : null;
 }
 
 const styles = StyleSheet.create({
@@ -90,6 +107,10 @@ const styles = StyleSheet.create({
   image: {
     width: '100%',
     height: '100%',
+  },
+  placeholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   badge: {
     position: 'absolute',

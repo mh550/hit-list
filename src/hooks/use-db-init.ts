@@ -1,20 +1,25 @@
 import { useEffect, useState } from 'react';
 import { useSQLiteContext } from 'expo-sqlite';
 
-import { migrateDb, getSpots, getAllMedia, getUserSettings } from '@/src/db';
+import { migrateDb, getSpots, getAllMedia, getUserSettings, getHitLists, getListMemberships } from '@/src/db';
 import { useSpotActions } from '@/src/hooks/use-spot-actions';
-import { useSpotsStore } from '@/src/stores';
+import { getSyncState } from '@/src/db/sync';
+import { selectMySpots, useSpotsStore } from '@/src/stores';
 import { useSettingsStore } from '@/src/stores/settings-store';
 import { useMediaStore } from '@/src/stores/media-store';
+import { useHitListsStore } from '@/src/stores/hit-lists-store';
+import { useSyncStore } from '@/src/stores/sync-store';
 import type { Spot } from '@/src/types';
 import { backfillTowns } from '@/src/utils/reverse-geocode';
 
 export function useDbInit(): { isReady: boolean; upgradeFailed: boolean } {
   const db = useSQLiteContext();
   const setSpots = useSpotsStore((s) => s.setSpots);
-  const { updateSpot } = useSpotActions();
+  const { setTown } = useSpotActions();
   const loadSettings = useSettingsStore((s) => s.loadSettings);
   const setAllMedia = useMediaStore((s) => s.setAll);
+  const setLists = useHitListsStore((s) => s.setLists);
+  const setMemberships = useHitListsStore((s) => s.setMemberships);
   const [isReady, setIsReady] = useState(false);
   const [upgradeFailed, setUpgradeFailed] = useState(false);
 
@@ -22,7 +27,7 @@ export function useDbInit(): { isReady: boolean; upgradeFailed: boolean } {
     (async () => {
       // A failed upgrade leaves the DB at its last good version, where this build's writes fail, so DBInitializer
       // blocks the app (D28); nothing on disk is lost and the next launch retries. The load still goes ahead, each
-      // part on its own: below version 3 getSpots throws, but media and the user's settings still load.
+      // part on its own: below version 5 getSpots and getAllMedia throw, but the user's settings still load.
       try {
         await migrateDb(db);
       } catch (err) {
@@ -42,6 +47,16 @@ export function useDbInit(): { isReady: boolean; upgradeFailed: boolean } {
         console.error('[useDbInit] Failed to initialize database (media):', err);
       }
       try {
+        setLists(await getHitLists(db));
+      } catch (err) {
+        console.error('[useDbInit] Failed to initialize database (hit lists):', err);
+      }
+      try {
+        setMemberships(await getListMemberships(db));
+      } catch (err) {
+        console.error('[useDbInit] Failed to initialize database (memberships):', err);
+      }
+      try {
         const settings = await getUserSettings(db);
         if (settings) {
           loadSettings(settings);
@@ -49,11 +64,26 @@ export function useDbInit(): { isReady: boolean; upgradeFailed: boolean } {
       } catch (err) {
         console.error('[useDbInit] Failed to initialize database (settings):', err);
       }
+      // The phone's account before the app is usable: the session may not be read yet, and until one of them is
+      // known every row would read as the rider's own, so others' spots would show Edit (S8-09 review B#1).
+      let phoneUid: string | null | undefined;
+      try {
+        phoneUid = (await getSyncState(db, 'user_id')) ?? null;
+        useSyncStore.setState({ phoneUserId: phoneUid });
+      } catch (err) {
+        console.warn("[useDbInit] couldn't read the phone's account:", err);
+      }
       setIsReady(true); // even after an error, so the splash screen never strands the app
-      // In the background, after the app is usable: towns for untitled spots (D4).
-      void backfillTowns(spots, updateSpot);
+      // In the background, after the app is usable: towns for untitled spots (D4), only the phone's account's own
+      // (another rider's spot is read-only here, and its place never goes to Apple; S8). Not when the account is unknown.
+      if (phoneUid !== undefined) {
+        void backfillTowns(selectMySpots(spots, phoneUid), setTown).catch((err: unknown) =>
+          console.warn('[useDbInit] town backfill skipped:', err),
+        );
+      }
     })();
-  }, [db, setSpots, updateSpot, setAllMedia, loadSettings]); // all stable, so this still runs once
+    // All stable, so this still runs once.
+  }, [db, setSpots, setTown, setAllMedia, setLists, setMemberships, loadSettings]);
 
   return { isReady, upgradeFailed };
 }

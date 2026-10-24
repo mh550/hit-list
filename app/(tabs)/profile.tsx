@@ -1,20 +1,294 @@
-import { useState } from 'react';
-import { StyleSheet, ScrollView, View, Text, TextInput, Pressable } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Alert, StyleSheet, ScrollView, View, Text, TextInput, Pressable } from 'react-native';
+import { useRouter } from 'expo-router';
+import { useSQLiteContext, type SQLiteDatabase } from 'expo-sqlite';
 
+import { ACCOUNTS_NOT_SET_UP, AuthError, Button } from '@/src/components';
 import { useSettingsStore } from '@/src/stores/settings-store';
+import { SIGNED_OUT, useAuthStore } from '@/src/stores/auth-store';
+import { useSyncStore } from '@/src/stores/sync-store';
+import { useFriendsStore } from '@/src/stores/friends-store';
+import { countPending, resetFailed } from '@/src/db/sync';
+import { syncNow } from '@/src/sync/engine';
+import {
+  deleteAccountAndRelease,
+  removeForeignRows,
+  removeLocalAccountData,
+  removeReleasedRows,
+  type ReleasedRows,
+} from '@/src/sync/adopt';
 import { useSettingsActions } from '@/src/hooks/use-settings-actions';
+import { getSupabase } from '@/src/sync/client';
+import { deleteAccount, signOutOfAccount } from '@/src/sync/auth';
+import { IconSymbol } from '@/components/ui/icon-symbol';
 import { palette, spacing, radius } from '@/src/constants/theme';
 import { UnitSystem } from '@/src/types';
 import { radiusFromInput, radiusToDisplay, radiusUnitLabel } from '@/src/utils/units';
+import { relativeTime } from '@/src/utils/relative-time';
 
 function SectionHeader({ title }: { title: string }) {
   return <Text style={styles.sectionHeader}>{title}</Text>;
+}
+
+const DELETE_FAILED = "Couldn't delete the account. Try again.";
+const REMOVE_FAILED = "Couldn't remove the spots from this phone. Try again.";
+const REMOVE_WAITING = "Some changes aren't backed up yet, so nothing was removed.";
+
+/** Sign out's last backup gives up after this long (offline it would only wait), then asks Keep / Remove anyway. */
+const LAST_BACKUP_MS = 10_000;
+
+async function lastBackup(db: SQLiteDatabase): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const giveUp = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, LAST_BACKUP_MS);
+  });
+  await Promise.race([syncNow(db), giveUp]);
+  clearTimeout(timer);
+}
+
+/** The changes-waiting alert's title; `null` = the count could not be read. */
+function waitingTitle(pending: number | null): string {
+  if (pending === null) return "Some changes aren't backed up yet";
+  return pending === 1 ? "1 change isn't backed up yet" : `${pending} changes aren't backed up yet`;
+}
+
+/** How often 'Backed up · 3 min ago' is worked out again while Profile is open. */
+const BACKUP_LINE_TICK_MS = 60_000;
+
+// The signed-in rider's backup (S5): when the last sync went through, and the changes that failed 10 times with Retry.
+// The sync store's values count only when they are this rider's.
+function BackupStatus({ userId }: { userId: string | null }) {
+  const db = useSQLiteContext();
+  const mine = useSyncStore((s) => s.userId !== null && s.userId === userId);
+  const lastSyncAt = useSyncStore((s) => s.lastSyncAt);
+  const failedCount = useSyncStore((s) => s.failedCount);
+  const syncing = useSyncStore((s) => s.syncing);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), BACKUP_LINE_TICK_MS);
+    return () => clearInterval(timer);
+  }, []);
+
+  const ago = mine && lastSyncAt ? relativeTime(lastSyncAt, Math.max(now, Date.parse(lastSyncAt))) : null;
+  const failed = mine ? failedCount : 0;
+  const retry = async () => {
+    try {
+      await resetFailed(db);
+    } catch (err) {
+      console.warn('[Profile] Retry could not reset the failed changes:', err);
+      return;
+    }
+    await syncNow(db);
+  };
+
+  return (
+    <View style={styles.backup}>
+      <Text style={styles.fieldHint}>{ago ? `Backed up · ${ago}` : 'Not backed up yet'}</Text>
+      {failed > 0 ? (
+        <View style={styles.backupFailed}>
+          <Text style={styles.backupFailedText}>
+            {failed === 1 ? '1 change not backed up' : `${failed} changes not backed up`}
+          </Text>
+          <Button title="Retry" variant="secondary" size="sm" onPress={() => void retry()} disabled={syncing} />
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+/** A row that opens a screen: Friends (S6-03), Sent (S7-05). */
+function LinkRow({ label, onPress }: { label: string; onPress: () => void }) {
+  return (
+    <Pressable
+      style={({ pressed }) => [styles.linkRow, pressed && styles.linkRowPressed]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityLabel={label}>
+      <Text style={styles.linkRowText}>{label}</Text>
+      <IconSymbol name="chevron.right" size={18} color={palette.gray[400]} />
+    </Pressable>
+  );
+}
+
+// The account in its three states (§3.1, §5.6): a build without Supabase values, signed out, signed in. The tabs
+// redirect a 'needs_username' account to the username screen, so it shows here only for a moment, as signed in.
+// Sign out backs up once more, then asks Keep / Remove from this phone, or, with changes still waiting, offers only
+// Sign out anyway (D38, D69); Delete account ends with Keep / Remove too (D51, D67).
+function AccountSection() {
+  const router = useRouter();
+  const db = useSQLiteContext();
+  const status = useAuthStore((s) => s.status);
+  const email = useAuthStore((s) => s.email);
+  const username = useAuthStore((s) => s.username);
+  const displayName = useAuthStore((s) => s.displayName);
+  const userId = useAuthStore((s) => s.userId);
+  const setAuth = useAuthStore((s) => s.setAuth);
+  const friendCount = useFriendsStore((s) => s.friends.length);
+  const [busy, setBusy] = useState<'signing_out' | 'deleting' | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  // An alert's button or a second tap can land before the disabled state renders.
+  const inFlight = useRef(false);
+
+  const client = getSupabase();
+  if (!client || status === 'unconfigured') {
+    return <Text style={styles.accountBody}>{ACCOUNTS_NOT_SET_UP}</Text>;
+  }
+
+  if (status === 'signed_out') {
+    return (
+      <View style={styles.account}>
+        <Text style={styles.accountTitle}>Sign in to back up your spots and share them</Text>
+        <Text style={styles.fieldHint}>
+          Signing in uploads the spots already on this phone to your account. Nothing is deleted.
+        </Text>
+        <Button title="Sign in" onPress={() => router.push('/auth/sign-in')} />
+      </View>
+    );
+  }
+
+  const begin = (kind: 'signing_out' | 'deleting') => {
+    if (inFlight.current) return false;
+    inFlight.current = true;
+    setBusy(kind);
+    setError(null);
+    return true;
+  };
+  const end = () => {
+    inFlight.current = false;
+    setBusy(null);
+  };
+  const finishSignOut = async () => {
+    await signOutOfAccount(client);
+    setAuth(SIGNED_OUT);
+    end();
+  };
+
+  // Keep keeps the rider's own rows; friends' spots from shared lists leave the phone (D86), once signed out so no
+  // sync pulls them back. A failure there only warns: they stay read-only, and another account's sign-in removes them.
+  const keepThenSignOut = async () => {
+    await signOutOfAccount(client);
+    try {
+      if (userId) await removeForeignRows(db, userId);
+    } catch (err) {
+      console.warn("[Profile] removing friends' spots at sign-out failed:", err);
+    }
+    setAuth(SIGNED_OUT);
+    end();
+  };
+
+  const removeThenSignOut = async () => {
+    try {
+      if (userId && !(await removeLocalAccountData(db, userId))) {
+        setError(REMOVE_WAITING);
+        end();
+        return;
+      }
+    } catch (err) {
+      console.warn('[Profile] Remove from this phone failed:', err);
+      setError(REMOVE_FAILED);
+      end();
+      return;
+    }
+    await finishSignOut();
+  };
+
+  const signOut = async () => {
+    if (!begin('signing_out')) return;
+    await lastBackup(db);
+    let pending: number | null;
+    try {
+      pending = await countPending(db);
+    } catch (err) {
+      console.warn('[Profile] could not count the changes not backed up:', err);
+      pending = null;
+    }
+    if (pending === 0) {
+      Alert.alert('Keep spots on this phone?', "They're backed up in your account either way.", [
+        { text: 'Keep', style: 'default', onPress: () => void keepThenSignOut() },
+        { text: 'Remove from this phone', style: 'destructive', onPress: () => void removeThenSignOut() },
+        { text: 'Cancel', style: 'cancel', onPress: end },
+      ]);
+      return;
+    }
+    Alert.alert(waitingTitle(pending), "Sign out anyway and they'll back up next time you sign in to this account.", [
+      { text: 'Cancel', style: 'cancel', onPress: end },
+      { text: 'Sign out anyway', style: 'destructive', onPress: () => void finishSignOut() },
+    ]);
+  };
+
+  const deleteNow = async () => {
+    if (!begin('deleting')) return;
+    // On the sync queue, with Keep applied before asking (D67): no sync pulls between the delete and the release, and
+    // an alert never answered (the app killed) must not leave rows that the next sign-in would remove as another
+    // account's.
+    const result = userId
+      ? await deleteAccountAndRelease(db, userId, () => deleteAccount(client))
+      : { deleted: await deleteAccount(client), released: null };
+    if (!result.deleted) {
+      setError(DELETE_FAILED);
+      end();
+      return;
+    }
+    const released: ReleasedRows | null = result.released;
+    await finishSignOut();
+    if (!released) return;
+    const toRemove = released;
+    Alert.alert('Account deleted', 'Your account is deleted. Keep the spots on this phone?', [
+      { text: 'Keep', style: 'default' },
+      {
+        text: 'Remove from this phone',
+        style: 'destructive',
+        onPress: () =>
+          void removeReleasedRows(db, toRemove).catch((err: unknown) =>
+            console.warn('[Profile] Remove after Delete account failed:', err),
+          ),
+      },
+    ]);
+  };
+
+  const confirmDelete = () =>
+    Alert.alert(
+      'Delete your account?',
+      'Your spots, photos, hit lists and sends are deleted from the server. Spots on this phone stay until you remove them.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Delete', style: 'destructive', onPress: () => void deleteNow() },
+      ],
+    );
+
+  return (
+    <View style={styles.account}>
+      {username ? <Text style={styles.accountTitle}>@{username}</Text> : null}
+      {displayName ? <Text style={styles.accountBody}>{displayName}</Text> : null}
+      {email ? <Text style={styles.fieldHint}>{email}</Text> : null}
+      <BackupStatus userId={userId} />
+      <View style={styles.links}>
+        {/* 'Friends · 2', or 'Friends' before any friends load */}
+        <LinkRow label={friendCount > 0 ? `Friends · ${friendCount}` : 'Friends'} onPress={() => router.push('/friends')} />
+        <LinkRow label="Sent" onPress={() => router.push('/sent')} />
+      </View>
+      <AuthError message={error} />
+      <Button
+        title={busy === 'signing_out' ? 'Signing out…' : 'Sign out'}
+        variant="secondary"
+        onPress={() => void signOut()}
+        disabled={busy !== null}
+      />
+      <Button
+        title={busy === 'deleting' ? 'Deleting…' : 'Delete account'}
+        variant="destructive"
+        onPress={confirmDelete}
+        disabled={busy !== null}
+      />
+    </View>
+  );
 }
 
 export default function ProfileScreen() {
   const units = useSettingsStore((s) => s.units);
   const batchRadius = useSettingsStore((s) => s.batch_import_radius);
   const { setUnits, setBatchImportRadius } = useSettingsActions();
+  const userId = useAuthStore((s) => s.userId);
 
   // D23: the radius is stored in metres; the field shows it in the user's unit. `typed` holds the text only while
   // the user is typing, so a units switch or a store update re-renders the field from the stored metres.
@@ -39,6 +313,10 @@ export default function ProfileScreen() {
       style={styles.container}
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled">
+      <SectionHeader title="Account" />
+      {/* A new account (or none) starts with a fresh section: no error or busy state from the one before. */}
+      <AccountSection key={userId ?? 'signed-out'} />
+
       <SectionHeader title="Units" />
       <View style={styles.unitsRow}>
         <Pressable
@@ -98,6 +376,53 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: palette.gray[900],
     marginTop: spacing.lg,
+  },
+  account: {
+    gap: spacing.sm,
+  },
+  accountTitle: {
+    fontSize: 17,
+    fontWeight: '600',
+    color: palette.gray[900],
+  },
+  accountBody: {
+    fontSize: 15,
+    color: palette.gray[700],
+  },
+  backup: {
+    gap: spacing.xs,
+  },
+  backupFailed: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  backupFailedText: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '500',
+    color: palette.red[700],
+  },
+  links: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderColor: palette.gray[200],
+  },
+  linkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    minHeight: 44,
+    paddingVertical: spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: palette.gray[200],
+  },
+  linkRowPressed: {
+    backgroundColor: palette.gray[100],
+  },
+  linkRowText: {
+    fontSize: 17,
+    color: palette.gray[900],
   },
   unitsRow: {
     flexDirection: 'row',

@@ -158,6 +158,22 @@ Pushing changes to `.github/workflows/*` over HTTPS needs a token with the `work
 
 ## Gotchas
 
+- Stop the stack before you finish (`npm run db:stop`): no harness teardown hook does it yet (hit_list-2026-10-22-sharing 2026-10-23)
+- Verify reads each step literally: a "prints nothing" grep or a size cap fails on a legitimate hit (hit_list-2026-10-20 2026-10-21)
+- Commit the RED test (pgTAP: `.test.sql`) before the code; a test written after it needs a mutation run (hit_list-2026-10-20 2026-10-20)
+- A new migration edits the `MIGRATIONS` line and breaks version-pinned tests: use `LATEST_SCHEMA_VERSION` (hit_list-2026-10-20 2026-10-21)
+- A new route needs its `Stack.Screen` in `app/_layout.tsx` and a `root-layout.test.tsx` case (hit_list-2026-10-20 2026-10-20)
+- A new `IconSymbol` name goes in `MAPPING` (`components/ui/icon-symbol.tsx`); tests find `icon-<name>` (hit_list-2026-10-20 2026-10-21)
+- Global mocks are partial (`useSQLiteContext` → `{}`, expo-crypto, fake-supabase): extend from the `.d.ts` (hit_list-2026-10-20 2026-10-20)
+- Guard an async submit with an in-flight ref: a disabled button still takes two presses in one frame (hit_list-2026-10-20 2026-10-20)
+- After an await, check the screen is still mounted before `router.back`/`push`/`replace` (hit_list-2026-10-20 2026-10-21)
+- From a stack screen or modal, go to a tab with `router.dismissTo`; `replace` opens a second tab navigator (hit_list-2026-10-22-sharing 2026-10-23)
+- iOS ignores `accessibilityLiveRegion`: call `AccessibilityInfo.announceForAccessibility` (hit_list-2026-10-20 2026-10-21)
+- An `accessible` parent hides its children from VoiceOver and `getByRole`: make controls siblings (hit_list-2026-10-20 2026-10-21)
+- iOS won't present a Modal while another is closing: render the follow-up inside the same Modal (hit_list-2026-10-22-sharing 2026-10-23)
+- Jest can't see UIKit gestures, modal presentation or pixels: put those on the phone checklist (hit_list-2026-10-20 2026-10-20)
+- The edge runtime doesn't reload an edited function: `docker restart supabase_edge_runtime_hit-list` (hit_list-2026-10-22-sharing 2026-10-23)
+
 ## AI skills in the repo
 
 `.agents/skills/` holds React Native / React guidelines (`vercel-react-native-skills`, `vercel-react-best-practices`,

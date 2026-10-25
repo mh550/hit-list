@@ -2,7 +2,7 @@
 
 The server side of accounts and sharing (spec `docs/specs/2026-10-22-accounts-and-sharing.md` §3; plan
 `docs/plans/2026-10-22-s3-backend.md`). Built and tested against the **local** Supabase stack in Docker only; there is
-no cloud project in this run (the live steps are in `docs/plans/2026-10-22-live-checklist.md`).
+no cloud project yet (the live steps are in `docs/plans/2026-10-22-live-checklist.md`).
 
 - `config.toml`: `project_id = "hit-list"`, default ports (API 54321, DB 54322, Studio 54323, Mailpit 54324), email
   sign-in with a 6-digit code (D36).

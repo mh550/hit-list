@@ -7,7 +7,7 @@ from it (superpowers:writing-plans) and does not re-open anything in §0 or §1;
 new to **§9 Needs Michael** and keeps going.
 
 Numbers in brackets (**[F1]**, **[F2]** …) are Michael's five feedback items. **D17+** are the
-decisions this document records, numbered after D16 in `OVERNIGHT.md`. Where a decision is marked
+decisions this document records, numbered after D16 (all now in `docs/decisions.md`). Where a decision is marked
 *my call*, Michael did not say it; it is the writer's default and he can overrule it in §9.
 
 ---
@@ -200,7 +200,7 @@ behaviour for unset values; unchanged).
 - Map pins: one colour (`SPOT_PIN`). The Draft pin colour and the `description="Draft"` go.
   Callout description = feature types joined with " · " (or nothing).
 - Sort chips: **Distance · Date · Name**. Intensity is removed (`SortField.Intensity`).
-- Search: unchanged (name or town, both views; D15 still open for Michael, see `OVERNIGHT.md`).
+- Search: unchanged (name or town, both views; D15 still open for Michael, see `docs/decisions.md`).
 
 ### 2.7 Quick Add and import review
 
@@ -400,7 +400,7 @@ collection → geographic circle scope → accounts → live share. Each is its 
 - Per-spot *optional* detail packs (dimensions, material, stops detail, bust risk) a user turns
   on in settings — the hydrated model. The archived `legacy_json` is the seed data for it.
 - "Move photo to another spot" from the viewer; merging two spots.
-- D16 (untitled imported spots sharing one date) is still open in `OVERNIGHT.md`.
+- D16 (untitled imported spots sharing one date) is still open (`docs/decisions.md`).
 
 ---
 

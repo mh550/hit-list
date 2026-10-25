@@ -1,7 +1,7 @@
 # HitList — overnight design (2026-10-13), rev 2
 
 Written by a planning session on the Pop!_OS desktop on the evening of 2026-10-13 for an
-unattended `/loop` session that follows `OVERNIGHT.md`. Michael reads both from his phone.
+unattended `/loop` session that follows `OVERNIGHT.md` (now `docs/runbooks/OVERNIGHT.md`). Michael reads both from his phone.
 Michael answered every §0 question on the morning of 2026-10-14; the overnight session builds on
 those answers and does not re-open them.
 

@@ -71,7 +71,7 @@ it in full at M0; Michael answered every §0 question, so §0 is settled. The pr
 - PushNotification: under ~200 characters, no secrets, at most one an hour unless blocked.
   Start, each milestone, blocked, done.
 - **Status page:** if the Artifact tool is available, keep one private page
-  (`~/projects/hit_list/docs/overnight-status.html`, republished to the same URL at every
+  (`~/projects/hit_list/docs/runbooks/overnight-status.html`, republished to the same URL at every
   milestone) with: milestone checklist, the latest "What Michael will see" table, every open
   question as a direct question, Needs Michael, and the Status log. Put its link in the start push
   and every milestone push. If the tool is missing, the Status log is the page; say so in the

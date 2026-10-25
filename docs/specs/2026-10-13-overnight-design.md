@@ -1,7 +1,7 @@
 # HitList — overnight design (2026-10-13), rev 2
 
 Written by a planning session on the Pop!_OS desktop on the evening of 2026-10-13 for an
-unattended `/loop` session that follows `OVERNIGHT.md`. Michael reads both from his phone.
+unattended `/loop` session that follows `OVERNIGHT.md` (now `docs/runbooks/OVERNIGHT.md`). Michael reads both from his phone.
 Michael answered every §0 question on the morning of 2026-10-14; the overnight session builds on
 those answers and does not re-open them.
 
@@ -9,24 +9,7 @@ those answers and does not re-open them.
 
 ## 0. Decisions (Michael answered 2026-10-14 morning; all settled)
 
-| # | Decision | What the overnight session builds | Michael's answer |
-|---|----------|-----------------------------------|------------------|
-| D1 | **Expo SDK upgrade 54 → 57** | First milestone (M1), time-boxed to 2 h, one SDK hop at a time (55, 56, 57). If a hop is not green (typecheck + tests + `expo export`) at the box: reset to the last green hop, push the attempt as `overnight/<date>-sdk-attempt`, continue the other milestones on the green SDK. Reason: Expo Go runs only the newest SDK. | **Expo Go on the iPhone is SDK 57.** Target confirmed. |
-| D2 | **Map provider** | `react-native-maps` (Apple Maps on iOS, bundled in Expo Go, no key, no dev build). Mapbox only matters for offline tiles and needs a dev build; it can replace the same `SpotMap` component later. | "You decide" → Apple Maps now. |
-| D3 | **Photo storage** | Copy every captured/imported photo into the app's document directory (`photos/<spotId>/<mediaId>.jpg`), store the *relative* path in `media.file_path`, resolve at display time. Camera-roll originals untouched; nothing written to the camera roll; files not deleted on soft delete. | Default no (camera roll untouched). |
-| D4 | **Unnamed spots** | **Keep the untitled fallback until Michael names the spot**, but make the placeholder informative: `Untitled · <Town> · Oct 13, 2:22 PM` when the town is known, else `Untitled · Oct 13, 2:22 PM`. The town comes from `expo-location` `reverseGeocodeAsync` (on-device Apple geocoder, city/locality only) stored in the existing `generated_name` column; ≤ 10 backfills per launch, silent on failure. The town also seeds the later "group by city" idea (D10). | "Keep untitled fallback until named; maybe placeholder with date/time/town." |
-| D5 | **CI triggers** | `.github/workflows/ci.yml` runs on pushes to every branch (today: only `main` and PRs), so the overnight branch shows a check in the GitHub app. | "You decide" → yes. |
-| D6 | **Delivery path** | Tonight: Expo Go over the tailnet (`npm run start:tailscale` → scan QR). Michael **has an Apple developer account**, so the next step after this run is an EAS dev build + TestFlight (Michael runs `eas login`; the overnight session never does). That dev build is also when Mapbox becomes possible. | "Yes, Apple dev account for a test build and TestFlight later." |
-| D7 | **Branch policy** | `overnight/<date>` from `spec/2026-10-13` (= `main` + this spec + `OVERNIGHT.md`), with the laptop commit `bf3c36e` cherry-picked on first. The review conversation merges `overnight/<date>` into `main`. *In plain words:* `wip/laptop-2026-10-13` is the branch the laptop pushed with its unfinished change (one line: a WSL start script). That change gets copied into the overnight branch, so after the merge the wip branch holds nothing new and can be deleted on GitHub. Harmless either way; default: delete after merge. | "Don't know what you mean" → explained; default stands. |
-| D8 | **Multiple spots per location / pin clustering** | Pins only in M5. **Clustering is the first stretch item (S1)**: `react-native-map-clustering` (pure JS wrapper over `react-native-maps`, works in Expo Go). Several spots at one physical location are separate spots (spec data model) that overlap as pins; clustering is what makes that readable when zoomed out. | "Locations will have multiple spots; clustering makes sense; priority unknown." → S1. |
-| D9 | **expo-doctor patch bumps** | Ride with the SDK hops (`npx expo install --fix` per hop). | — |
-| D10 | **Sort + search** | Stretch S2 (after clustering): sort control (distance first, since the map already shows distance) and search by name. Michael's further ideas — routes between spots, smart folders / tags by city or feature type — go to §6 roadmap, not built tonight. The town stored by D4 is the first ingredient of "by city". | "Both matter; map shows distance; routes later; auto-grouping by city or type would help." |
-| D4 note | **Geocoder is not on-device** | Correction found in the M6 review: `reverseGeocodeAsync` uses Apple's CLGeocoder, a network service. The spot's coordinates are sent to Apple and it needs internet (offline lookups fail silently and are retried next launch).  | **Keep it:** \"geocoder as the first line, untitled as a backup\" (2026-10-15). |
-| D11 | **Web target** | Stays a stub. Native-only. | — |
-| D12 | **Where "Import Photos" lives** | Found during M7: the batch import flow had no entry point in the UI at all. A first default put it on the Profile tab; Michael rejected that. Built: a second action on the Spots tab beside the + button, visible in List and Map views. | "Should not live in the profile tab — bad UX. Spots tab or somewhere else." (2026-10-15) |
-| D13 *default* | **Imported spots' date** | Found in the final review: an imported spot's `created_at` is the photo's EXIF capture time (D4 shows that time), and the list sorts by date added, newest first, so importing old photos lands those spots at the bottom. Default: keep capture time. **Question for Michael: keep the capture time, or sort imports by when they were imported?** | *open* |
-| D14 *default* | **Default sort** | D10 says "distance first". Built: the Distance chip is first in the row, but the list still opens sorted by Date, newest first (Distance needs a location fix, which can take a moment or be denied). **Question for Michael: should the list open sorted by Distance whenever your location is known?** | *open* |
-| D15 *default* | **What search matches** | Built: a search matches the spot's name or its town (from the geocoder), case-insensitive. It does not match the "Untitled" label or the date. So "seattle" finds every spot in Seattle, named or not. **Question for Michael: is matching the town what you want, or only the name?** | *open* |
+Moved on 2026-10-25 to [`docs/decisions.md`](../decisions.md) (D1–D16, IDs kept), the one current rule set; this spec keeps the reasoning around them.
 
 ---
 

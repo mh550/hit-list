@@ -7,7 +7,7 @@ from it (superpowers:writing-plans) and does not re-open anything in §0 or §1;
 new to **§9 Needs Michael** and keeps going.
 
 Numbers in brackets (**[F1]**, **[F2]** …) are Michael's five feedback items. **D17+** are the
-decisions this document records, numbered after D16 in `OVERNIGHT.md`. Where a decision is marked
+decisions this document records, numbered after D16 (all now in `docs/decisions.md`). Where a decision is marked
 *my call*, Michael did not say it; it is the writer's default and he can overrule it in §9.
 
 ---
@@ -54,24 +54,7 @@ re-hydrated per user ("add the features and fields you want"); none of that is b
 
 ## 1. Decisions
 
-| # | Decision | Built as | Source |
-|---|----------|----------|--------|
-| D17 | **Fields removed from a spot** | Custom type, shape, length/height/width, material, feature difficulty, skate-stop type / description / removable, setup options (nested), landing difficulty, landing surface, intensity, bustability, bustability notes, draft/complete status. | Michael 2026-10-16 **[F2]** |
-| D18 | **Fields kept** | `name` (optional), `location`, photos (`media`), **feature types (multi-select)**, **skate-stopped (yes/no toggle, spot level)**, **natural speed (0–4 ordinal, see §2.3)**, **notes (free text, one field)**. | Michael 2026-10-16 **[F2]**; notes kept is *my call* (§9 Q1) |
-| D19 | **Feature type becomes multi-select** | A spot carries `feature_types: FeatureType[]` (ordered as tapped). `Other` is removed with custom type. The list shows the first type with "+N" if more. | Michael: "mark one or multiple types of features that are there" |
-| D20 | **No draft mode** | `status` is dropped from the model, the schema, the list badge, the map pin colour, the filter sheet and the Save button ("Save as Draft" → "Save"). Every saved spot is a spot. | Michael 2026-10-16 **[F2]** |
-| D21 | **Natural speed is a labelled 5-step scale, not stars** | Five tappable segments with words, not stars: **None · Little · Some · Enough · Too much**, with a one-line description under the selected one. Stored as `natural_speed: 0–4` (0 = none). Unset is `undefined`. Details §2.3. | Michael: "make the measurement & units and the UX more clear than stars"; the words are *my call* (§9 Q2) |
-| D22 | **Gear is removed entirely (rev 2)** | No gear on the spot, no build items, no setup options, no "Gear I have" filter, no "My Gear" on the Profile tab, no `gear` in `UserSettings`. The `GearItem` and `BuildItem` enums go. Old setup options are archived in `legacy_json` (§4) and nothing else. | Michael, rev 2: filtering on "what I have" is the wrong way round (he would rather hide spots he *lacks* gear for), and alternatives ("a bungee *or* a drop-in would work") make any gear list ambiguous; what gear really encodes is "needs extra speed", which natural speed already says. "KISS and remove it entirely, at least for now." |
-| D23 | **Import radius in the user's unit** | Stored in **metres** as today; **displayed and typed in feet** when units are imperial (`Import radius · ft`), metres otherwise; converted on save, rounded to a whole unit on display. Default stays 50 m (shown as 164 ft). | Michael 2026-10-16 **[F4]** |
-| D24 | **Photo gallery** | A full-screen pager (swipe between photos, pinch to zoom, double-tap to zoom, swipe down or ✕ to close, "3 / 7" counter) opened from any photo on the detail screen. The detail screen's photo area becomes a **grid** (hero + 3-across thumbnails) instead of hero + one horizontal strip. Details §3. | Michael 2026-10-16 **[F1]** |
-| D25 | **Nearby-spot grouping on save** | When a new spot (Quick Add or import group) is saved within the import radius of an existing spot, the review screen offers **"Add photos to *<existing name>*"** beside "Save as new spot". Picking it adds the photos to the existing spot instead of creating one. No automatic merge, ever. Details §5. | Michael **[F3]**: posed as a question; building the offer is *my call* (§9 Q3) |
-| D26 | **Old data is archived, not deleted** | Migration 3 copies each spot's removed fields into one `legacy_json` column on the row (and maps `feature.type` → `feature_types`, `skate_stops.is_stopped` → `stopped`, `metadata.notes` → `notes`). Nothing reads `legacy_json` except a one-line "Older details" disclosure on the detail screen when it is non-empty. Details §4. | *my call* (§9 Q4) |
-| D27 | **Groups / sharing deferred** | §7 is direction, not scope. Nothing in §7 is built this run. | Michael: "consider deferring #5 until after the simplification has been done and tested" |
-| D28 | **A failed upgrade blocks the app** *default* | If `migrateDb` throws at launch (e.g. migration 3), the app shows "Couldn't upgrade your spots — Nothing was lost… Close HitList and open it again to retry" instead of the tabs; the next launch retries. Media and settings still load, each on its own. | Builder (M1-05 review): this build's writes fail on an older schema, so a usable-looking empty app would let a Quick Add copy photos and then lose the spot, and saving Units would write default settings over the stored ones (§9 Q8) |
-| D29 | **The viewer keeps its photo order while open** *default* | 'Set as primary' in the viewer does not move the photo to page 1 under the user: the viewer snapshots `spotPhotos()` order when it opens and only drops removed photos. The detail grid shows the new primary first as usual. Plan: `docs/plans/2026-10-20-m4-viewer.md`. | Builder (M4-01 plan): a page that jumps away right after a long-press action is disorienting (§9 Q9) |
-| D30 | **Joining an existing spot drops the review's name and tags** *default* | 'Add photos there' (Quick Add) and 'Add photos to <name>' (import group) only add photos: the existing spot's name, tags and location are untouched, and the name / tags typed on the review screen are discarded (the import group's name field hides while an existing spot is chosen). If the spot had no photos, the first added one becomes primary. Plan: `docs/plans/2026-10-20-m6-review-screens.md`. | Builder (M6-01 plan): never overwrite a spot the user already described (§9 Q10) |
-| D31 | **A partly failed import stays on screen** *default* | After Import, photos `savePhotos` did not save (it logs and leaves them out) stay on the review in their group, aimed at the spot they were going to (the new spot already exists, or the chosen existing one); an Alert "Some photos weren't imported" says so; the screen closes only when everything was saved. Nothing is rolled back. M6-06: Quick Add does the same ("Some photos weren't saved"; after Save created its spot a retry adds the rest there), and a spot the DB refused is taken back out of the store (`addSpot` rejects), so its group stays a new spot. Known limit: a spot whose first photo failed keeps a `primary_photo_id` with no row; the photo grid and list fall back to its first saved photo. | Builder (M6-04, from an Opus review: the hooks swallow errors, so a rejected group alone never caught a failure) (§9 Q11) |
-| D32 | **The radius is kept in whole metres** *default* | Typed feet are rounded to the nearest metre on save (D23), so whole feet and stored metres don't line up one to one: 165 ft is stored as 50 m and the field then reads 164; 100 ft reads 98, 50 ft reads 49 (at most 2 ft off). An untouched field is never rewritten. Only plain decimals are read ('0x10', '1e3' are refused); no upper limit. Plan: `docs/plans/2026-10-20-m7-radius.md`. | Builder (M7-02, from an Opus review that rated the snap Important) (§9 Q12) |
+Moved on 2026-10-25 to [`docs/decisions.md`](../decisions.md) (D17–D32, IDs kept), the one current rule set; this spec keeps the reasoning around them.
 
 ---
 
@@ -217,7 +200,7 @@ behaviour for unset values; unchanged).
 - Map pins: one colour (`SPOT_PIN`). The Draft pin colour and the `description="Draft"` go.
   Callout description = feature types joined with " · " (or nothing).
 - Sort chips: **Distance · Date · Name**. Intensity is removed (`SortField.Intensity`).
-- Search: unchanged (name or town, both views; D15 still open for Michael, see `OVERNIGHT.md`).
+- Search: unchanged (name or town, both views; D15 still open for Michael, see `docs/decisions.md`).
 
 ### 2.7 Quick Add and import review
 
@@ -417,7 +400,7 @@ collection → geographic circle scope → accounts → live share. Each is its 
 - Per-spot *optional* detail packs (dimensions, material, stops detail, bust risk) a user turns
   on in settings — the hydrated model. The archived `legacy_json` is the seed data for it.
 - "Move photo to another spot" from the viewer; merging two spots.
-- D16 (untitled imported spots sharing one date) is still open in `OVERNIGHT.md`.
+- D16 (untitled imported spots sharing one date) is still open (`docs/decisions.md`).
 
 ---
 

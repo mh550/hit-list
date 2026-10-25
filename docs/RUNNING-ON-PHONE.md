@@ -125,7 +125,7 @@ roll.
   back to the LAN address, which the phone cannot reach off your home network. Bring Tailscale up
   (`tailscale status`), stop Metro and start it again.
 - **"Project is incompatible with this version of Expo Go"**: Expo Go moved to a newer SDK. The
-  upgrade is one hop with the same recipe used tonight (`npx expo install expo@^58 && npx expo install
+  upgrade is one hop with the recipe used for 54 → 57 (`npx expo install expo@^58 && npx expo install
   --fix`, then typecheck, tests and `npx expo export --platform ios`); see `CLAUDE.md`.
 - **Port 8081 busy**: `lsof -i :8081`; stop the other Metro, or run
   `REACT_NATIVE_PACKAGER_HOSTNAME=$(tailscale ip -4) npx expo start --port 8082`.

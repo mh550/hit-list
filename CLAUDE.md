@@ -282,7 +282,7 @@ for 0 rows); a pull keeps the local row on an `updated_at` tie while a change of
   `scripts/supabase-env.mjs` pass keys through the environment only, never a file.
 - **SQL migrations are append-only**: a shipped `supabase/migrations/*.sql` file is never edited; add a new one (SQLite
   `MIGRATIONS` in `src/db/schema.ts` follow the same rule).
-- **Docker** (the Supabase stack): Only containers named supabase_*_hit-list belong to this project; never touch dj-*, n8n-* or any other container; never docker system prune; never docker compose in another directory.
+- **Docker** (the Supabase stack): Only containers named supabase_*_hit-list belong to this project; never touch dj-*, n8n-* or any other container (both are live projects); never docker compose in another directory.
 
 ## Testing
 
